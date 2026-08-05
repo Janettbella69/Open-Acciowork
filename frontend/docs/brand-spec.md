@@ -28,7 +28,7 @@
 
 ## Typography
 - Marketing display: `Iowan Old Style`, `Palatino Linotype`, Palatino, Georgia, serif.
-- Product interface: `Avenir Next`, Avenir, `Helvetica Neue`, Arial, sans-serif. Product headings and controls stay in this single B2B sans-serif family.
+- Product interface: Apple system UI stack (`SF Pro Text` / `SF Pro Display` for Latin, `PingFang SC` for Simplified Chinese, with platform-safe fallbacks). Product headings and controls stay in this single B2B sans-serif family.
 - Data: `SFMono-Regular`, Consolas, `Liberation Mono`, monospace, reserved for indexes, trace IDs, and technical metadata.
 
 ## System

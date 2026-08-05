@@ -14,7 +14,7 @@
   --ophira-green: #2f6a52;
   --ophira-blue: #365e73;
   --ophira-display: 'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, serif;
-  --ophira-product-font: 'Avenir Next', Avenir, 'Helvetica Neue', Arial, sans-serif;
+  --ophira-product-font: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro Display', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Noto Sans CJK SC', 'Helvetica Neue', sans-serif;
   --ophira-mono: 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
   --ophira-type-page: 48px;
   --ophira-type-dialog: 32px;
