@@ -12,9 +12,20 @@ describe('WorkspaceComposer', () => {
         notice=""
         error=""
         projects={[]}
+        project={null}
+        run={null}
+        events={[]}
+        assistantText=""
+        reasoningSummary=""
+        permissions={[]}
+        connection="idle"
+        isActive={false}
         onChange={onChange}
         onSubmit={vi.fn()}
+        onNewResearch={vi.fn()}
         onSelectProject={vi.fn()}
+        onCancel={vi.fn()}
+        onDecision={vi.fn()}
       />,
     )
 

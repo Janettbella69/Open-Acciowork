@@ -1,22 +1,34 @@
 import type { FormEvent } from 'react'
+import {
+  dimensions,
+  type OpportunityProject,
+  type OphiraEvent,
+  type PendingPermission,
+  type RunRecord,
+} from '../api/types'
 import Brand from './Brand'
 import './workspace-composer.css'
-
-type SavedProject = {
-  id: string
-  name: string
-  objective: string
-}
 
 type WorkspaceComposerProps = {
   value: string
   busy: boolean
   notice: string
   error: string
-  projects: SavedProject[]
+  projects: OpportunityProject[]
+  project: OpportunityProject | null
+  run: RunRecord | null
+  events: OphiraEvent[]
+  assistantText: string
+  reasoningSummary: string
+  permissions: PendingPermission[]
+  connection: string
+  isActive: boolean
   onChange: (value: string) => void
   onSubmit: (event: FormEvent<HTMLFormElement>) => void
+  onNewResearch: () => void
   onSelectProject: (projectId: string) => void
+  onCancel: () => void
+  onDecision: (requestId: string, decision: 'allow_once' | 'allow_run' | 'deny') => void
 }
 
 const quickStarts = [
@@ -42,22 +54,47 @@ const quickStarts = [
   },
 ]
 
+function label(value: string): string {
+  return value.replace(/[._]/g, ' ').replace(/\b\w/g, (character) => character.toUpperCase())
+}
+
+function activityLabel(event: OphiraEvent): string {
+  const toolName = typeof event.data.tool_name === 'string' ? event.data.tool_name : ''
+  if (event.type.startsWith('tool.') && toolName) return `${label(event.type)} · ${toolName}`
+  return label(event.type)
+}
+
 export default function WorkspaceComposer({
   value,
   busy,
   notice,
   error,
   projects,
+  project,
+  run,
+  events,
+  assistantText,
+  reasoningSummary,
+  permissions,
+  connection,
+  isActive,
   onChange,
   onSubmit,
+  onNewResearch,
   onSelectProject,
+  onCancel,
+  onDecision,
 }: WorkspaceComposerProps) {
+  const sessionOpen = Boolean(project || run)
+  const recentActivity = events.filter((event) => !event.type.endsWith('.delta')).slice(-6).reverse()
+  const latestActor = recentActivity[0]?.actor.name.toLowerCase() ?? ''
+
   return (
     <div className="conversation-entry">
       <aside className="conversation-sidebar">
         <a className="conversation-sidebar-brand" href="/" aria-label="Back to OPHIRA website"><Brand /></a>
 
-        <button className="conversation-new-research" type="button" onClick={() => onChange('')}>
+        <button className="conversation-new-research" type="button" onClick={onNewResearch}>
           <span aria-hidden="true">＋</span> New research
         </button>
 
@@ -70,10 +107,15 @@ export default function WorkspaceComposer({
 
         <section className="conversation-sidebar-projects" aria-labelledby="sidebar-projects-title">
           <div><h2 id="sidebar-projects-title">Recent projects</h2><span>{projects.length}</span></div>
-          {projects.length > 0 ? projects.slice(0, 6).map((project) => (
-            <button key={project.id} type="button" onClick={() => onSelectProject(project.id)}>
-              <span>{project.name}</span>
-              <small>{project.objective}</small>
+          {projects.length > 0 ? projects.slice(0, 6).map((savedProject) => (
+            <button
+              key={savedProject.id}
+              type="button"
+              aria-pressed={project?.id === savedProject.id}
+              onClick={() => onSelectProject(savedProject.id)}
+            >
+              <span>{savedProject.name}</span>
+              <small>{savedProject.objective}</small>
             </button>
           )) : <p>Your saved opportunity studies will appear here.</p>}
         </section>
@@ -81,44 +123,150 @@ export default function WorkspaceComposer({
         <section className="conversation-sidebar-agents" aria-labelledby="sidebar-agents-title">
           <h2 id="sidebar-agents-title">Agent team</h2>
           <ul>
-            {['Demand', 'Supply', 'Capital', 'Sales'].map((dimension) => <li key={dimension}><i />{dimension}</li>)}
+            {['Demand', 'Supply', 'Capital', 'Sales'].map((dimension) => (
+              <li key={dimension} data-active={latestActor.includes(dimension.toLowerCase())}><i />{dimension}</li>
+            ))}
           </ul>
         </section>
 
         <div className="conversation-sidebar-profile">
           <span>OP</span>
-          <div><strong>Ophira workspace</strong><small>Opportunity team ready</small></div>
+          <div>
+            <strong>Ophira workspace</strong>
+            <small>{error ? 'Backend needs attention' : run ? `Backend ${connection}` : 'Backend ready'}</small>
+          </div>
         </div>
       </aside>
 
-      <main className="conversation-entry-main">
+      <main className="conversation-entry-main" data-session={sessionOpen}>
         <a href="/" className="conversation-site-link">Website <span aria-hidden="true">↗</span></a>
 
-        <div className="conversation-entry-center">
-          <div className="conversation-entry-mark" aria-hidden="true">
-            <img src="/ophira-mark.svg" alt="" width="48" height="48" />
-          </div>
-          <p className="conversation-entry-kicker">Opportunity Lead</p>
-          <h1>What opportunity should we explore?</h1>
+        {!sessionOpen ? (
+          <div className="conversation-entry-center">
+            <div className="conversation-entry-mark" aria-hidden="true">
+              <img src="/ophira-mark.svg" alt="" width="48" height="48" />
+            </div>
+            <p className="conversation-entry-kicker">Opportunity Lead</p>
+            <h1>What opportunity should we explore?</h1>
 
-          <section className="conversation-quick-starts" aria-labelledby="quick-starts-title">
-            <h2 id="quick-starts-title">Start with a validation task</h2>
-            <div className="conversation-quick-grid">
-              {quickStarts.map((item, index) => (
-                <button key={item.dimension} type="button" data-dimension={item.dimension.toLowerCase()} onClick={() => onChange(item.prompt)}>
-                  <span>{String(index + 1).padStart(2, '0')} · {item.dimension}</span>
-                  <strong>{item.title}</strong>
-                  <i aria-hidden="true">↗</i>
-                </button>
-              ))}
+            <section className="conversation-quick-starts" aria-labelledby="quick-starts-title">
+              <h2 id="quick-starts-title">Start with a validation task</h2>
+              <div className="conversation-quick-grid">
+                {quickStarts.map((item, index) => (
+                  <button key={item.dimension} type="button" data-dimension={item.dimension.toLowerCase()} onClick={() => onChange(item.prompt)}>
+                    <span>{String(index + 1).padStart(2, '0')} · {item.dimension}</span>
+                    <strong>{item.title}</strong>
+                    <i aria-hidden="true">↗</i>
+                  </button>
+                ))}
+              </div>
+            </section>
+          </div>
+        ) : (
+          <section className="conversation-session" aria-labelledby="conversation-session-title">
+            <header className="conversation-session-header">
+              <div>
+                <p>Opportunity Lead · One project truth</p>
+                <h1 id="conversation-session-title">{project?.name ?? value}</h1>
+              </div>
+              <div className="conversation-run-state">
+                <span data-status={run?.status ?? 'saved'}>{label(run?.status ?? 'Saved')}</span>
+                {run && <small>{connection} · Trace {run.trace_id}</small>}
+                {isActive && <button type="button" onClick={onCancel}>Cancel</button>}
+              </div>
+            </header>
+
+            <div className="conversation-thread">
+              <article className="conversation-user-message">
+                <span>You</span>
+                <p>{project?.objective ?? value}</p>
+              </article>
+
+              <article className="conversation-agent-message">
+                <header>
+                  <span><img src="/ophira-mark.svg" alt="" width="24" height="24" /></span>
+                  <div><strong>Opportunity Lead</strong><small>{run ? `${label(run.status)} · ${connection}` : 'Saved project'}</small></div>
+                </header>
+
+                {assistantText ? (
+                  <p className="conversation-agent-output">{assistantText}</p>
+                ) : (
+                  <div className="conversation-agent-waiting" role="status">
+                    {isActive && <i aria-hidden="true" />}
+                    <p>{isActive
+                      ? 'The backend is connected. Opportunity Lead is coordinating the specialist Agents…'
+                      : run?.error || 'This project truth is loaded from the backend. Start a new research brief to run the team again.'}</p>
+                  </div>
+                )}
+
+                {reasoningSummary && (
+                  <details className="conversation-reasoning">
+                    <summary>Visible reasoning summary</summary>
+                    <p>{reasoningSummary}</p>
+                  </details>
+                )}
+
+                {permissions.map((permission) => (
+                  <section className="conversation-permission" key={permission.id} aria-label={`Approval for ${permission.toolName}`}>
+                    <div><span>Approval required</span><strong>{permission.actor.name} wants to use {permission.toolName}</strong></div>
+                    <div>
+                      <button type="button" onClick={() => onDecision(permission.id, 'allow_once')}>Allow once</button>
+                      <button type="button" onClick={() => onDecision(permission.id, 'allow_run')}>Allow for run</button>
+                      <button type="button" onClick={() => onDecision(permission.id, 'deny')}>Deny</button>
+                    </div>
+                  </section>
+                ))}
+
+                {project && (
+                  <section className="conversation-project-truth" aria-labelledby="project-truth-heading">
+                    <div><span>Live project truth</span><h2 id="project-truth-heading">Four dimensions, one decision.</h2></div>
+                    <div className="conversation-assessment-grid">
+                      {dimensions.map((dimension) => {
+                        const assessment = project.assessments[dimension]
+                        return (
+                          <article key={dimension}>
+                            <span>{label(dimension)}</span>
+                            <strong>{assessment.score}</strong>
+                            <small data-status={assessment.status}>{label(assessment.status)}</small>
+                            <p>{assessment.summary || assessment.gaps[0] || 'Waiting for the specialist Agent.'}</p>
+                          </article>
+                        )
+                      })}
+                    </div>
+                    {project.evidence.length > 0 && (
+                      <div className="conversation-evidence-ledger">
+                        <div><strong>Evidence ledger</strong><span>{project.evidence.length} records</span></div>
+                        {project.evidence.slice(-4).reverse().map((item) => (
+                          <article key={item.id}>
+                            <small>{label(item.kind)} · {label(item.dimension)}</small>
+                            <p>{item.claim}</p>
+                            <span>{item.source_title}</span>
+                          </article>
+                        ))}
+                      </div>
+                    )}
+                  </section>
+                )}
+
+                {recentActivity.length > 0 && (
+                  <section className="conversation-activity" aria-labelledby="conversation-activity-heading">
+                    <div><h2 id="conversation-activity-heading">Live backend activity</h2><span>{events.length} events</span></div>
+                    <ol>
+                      {recentActivity.map((event) => (
+                        <li key={event.id}><i data-event={event.type} /><span>{activityLabel(event)}</span><small>{event.actor.name}</small></li>
+                      ))}
+                    </ol>
+                  </section>
+                )}
+              </article>
             </div>
           </section>
-        </div>
+        )}
 
         <div className="conversation-composer-dock">
           <div className="conversation-context-bar">
-            <span>New opportunity</span>
-            <small>One shared project truth</small>
+            <span>{project?.name ?? 'New opportunity'}</span>
+            <small>{run ? `${label(run.status)} · ${connection}` : 'One shared project truth'}</small>
           </div>
           <form className="conversation-composer" onSubmit={onSubmit}>
             <label htmlFor="workspace-conversation-brief">Ask Ophira</label>
@@ -129,12 +277,12 @@ export default function WorkspaceComposer({
               placeholder="Describe a product, market, capability, or customer..."
               rows={3}
               disabled={busy}
-              autoFocus
+              autoFocus={!sessionOpen}
             />
             <div className="conversation-composer-footer">
               <span><b>Opportunity Lead</b> coordinates Demand · Supply · Capital · Sales</span>
               <button type="submit" disabled={busy || !value.trim()}>
-                {busy ? 'Starting…' : 'Start research'} <span aria-hidden="true">→</span>
+                {busy ? 'Researching…' : sessionOpen ? 'Start new research' : 'Start research'} <span aria-hidden="true">→</span>
               </button>
             </div>
           </form>

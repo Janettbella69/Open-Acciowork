@@ -107,6 +107,7 @@ function runtimeEvent(type: string, data: Record<string, unknown>): OphiraEvent 
 
 describe('OPHIRA frontend', () => {
   beforeEach(() => {
+    window.history.replaceState({}, '', '/app')
     MockEventSource.instances = []
     eventSequence = 0
     vi.stubGlobal('EventSource', MockEventSource)
@@ -152,7 +153,9 @@ describe('OPHIRA frontend', () => {
     fireEvent.click(screen.getByRole('button', { name: /start research/i }))
 
     expect(screen.getAllByText(project.objective).length).toBeGreaterThan(0)
-    await screen.findByText(/live analysis started/i)
+    await screen.findByText(/backend connected/i)
+    expect(screen.queryByRole('heading', { name: /turn a market question into a commercial path/i })).not.toBeInTheDocument()
+    expect(screen.getByRole('textbox', { name: /ask ophira/i })).toBeInTheDocument()
     expect(MockEventSource.instances).toHaveLength(1)
     const source = MockEventSource.instances[0]
     expect(source.url).toContain(`/api/runs/${run.id}/events`)
@@ -167,6 +170,22 @@ describe('OPHIRA frontend', () => {
     expect(screen.getByText('Validating demand evidence.')).toBeInTheDocument()
     expect(screen.getByText(/tool started · websearch/i)).toBeInTheDocument()
     expect(screen.getByText(/trace trace_test/i)).toBeInTheDocument()
+  })
+
+  it('keeps an imported website brief inside the same conversation workspace', async () => {
+    window.history.replaceState({}, '', '/app?brief=%E4%BD%A0%E5%A5%BD')
+    render(<Workspace />)
+
+    const input = await screen.findByRole('textbox', { name: /ask ophira/i })
+    expect(input).toHaveValue('你好')
+
+    fireEvent.click(screen.getByRole('button', { name: /start research/i }))
+
+    await screen.findByText(/backend connected/i)
+    expect(screen.getByRole('heading', { level: 1, name: project.name })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: /turn a market question into a commercial path/i })).not.toBeInTheDocument()
+    expect(window.location.pathname).toBe('/app')
+    expect(window.location.search).toBe('')
   })
 
   it('uses a validation shortcut to prepare the primary conversation box', async () => {
