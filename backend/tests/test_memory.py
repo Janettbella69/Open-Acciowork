@@ -99,3 +99,37 @@ def test_gather_approved_merges_scopes(tmp_path: Path) -> None:
     )
 
     assert {item.id for item in merged} == {user_item.id, agent_item.id}
+
+
+def test_agent_scope_approval_syncs_memory_md(tmp_path: Path) -> None:
+    agents_root = tmp_path / "agents"
+    core_dir = agents_root / "agent_1"
+    core_dir.mkdir(parents=True)
+    memory_md = core_dir / "MEMORY.md"
+    memory_md.write_text("# 长期记忆\n\n用户手写的一行\n", encoding="utf-8")
+    memory = FileMemoryProvider(tmp_path / "memory", agents_root=agents_root)
+
+    item = propose(memory)
+    assert "偏好中文报告" not in memory_md.read_text(encoding="utf-8")
+
+    memory.decide(item.id, "approve")
+    content = memory_md.read_text(encoding="utf-8")
+    assert "偏好中文报告" in content
+    assert f"<!-- mem:{item.id} -->" in content
+    assert "用户手写的一行" in content
+
+    memory.decide(item.id, "disable")
+    content = memory_md.read_text(encoding="utf-8")
+    assert "偏好中文报告" not in content
+    assert "用户手写的一行" in content  # freehand edits survive sync
+
+
+def test_user_created_agent_memory_syncs_immediately(tmp_path: Path) -> None:
+    agents_root = tmp_path / "agents"
+    (agents_root / "agent_1").mkdir(parents=True)
+    memory = FileMemoryProvider(tmp_path / "memory", agents_root=agents_root)
+
+    propose(memory, source=MemorySource.USER, created_by="user", text="直接录入")
+
+    content = (agents_root / "agent_1" / "MEMORY.md").read_text(encoding="utf-8")
+    assert "直接录入" in content

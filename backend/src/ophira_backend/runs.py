@@ -89,6 +89,7 @@ class RunManager:
                 {"status": RunStatus.FAILED, "error": safe_error},
                 actor=EventActor(type="system", name="run-manager"),
             )
+            self._write_diary(run_id, RunStatus.FAILED, safe_error)
             return
         self.ledger.update_run(
             run_id,
@@ -101,6 +102,29 @@ class RunManager:
             {"status": RunStatus.COMPLETED},
             actor=EventActor(type="system", name="run-manager"),
         )
+        self._write_diary(run_id, RunStatus.COMPLETED, "")
+
+    def _write_diary(self, run_id: str, status: RunStatus, note: str) -> None:
+        """Append a work-journal entry for the finished run (PRD diary layer)."""
+        try:
+            run = self.ledger.get_run(run_id)
+            now = utc_now()
+            path = self.ledger.diary_dir(run) / f"{now.date().isoformat()}.md"
+            prompt = " ".join(run.prompt.split())[:200]
+            lines = [
+                f"## {now.time().strftime('%H:%M:%S')} · {run.id}",
+                f"- 目标：{prompt}",
+                f"- 状态：{status.value}",
+            ]
+            if run.schedule_id:
+                lines.append(f"- 来源：定时任务 {run.schedule_id}")
+            if note:
+                lines.append(f"- 备注：{note[:300]}")
+            with path.open("a", encoding="utf-8") as handle:
+                handle.write("\n".join(lines) + "\n\n")
+        except Exception:
+            # Diary is an audit aid; it must never break the run lifecycle.
+            pass
 
     async def cancel(self, run_id: str) -> RunRecord:
         run = self.ledger.get_run(run_id)
@@ -137,6 +161,7 @@ class RunManager:
             {"status": RunStatus.CANCELLED},
             actor=EventActor(type="system", name="run-manager"),
         )
+        self._write_diary(run_id, RunStatus.CANCELLED, "")
 
 
 RuntimeFactory = Callable[[FileLedger, EventPublisher, PermissionBroker], AgentRuntime]

@@ -26,5 +26,6 @@ Updated: 2026-08-05
 | Scheduled tasks (PRD thin slice) | Backend | Delivered | cron or one-shot schedules, timezone-aware; startup missed-run reconciliation (`catch_up`/`skip`); overlap guard; manual test run; 35 tests + Ruff pass |
 | Natural-language schedule creation | Backend | Deferred | Form/cron first; NL→cron belongs to a chat flow later |
 | Persistent grant management UI, per-tool four-level policies | Backend | Deferred | Broker supports `allow_once`/`allow_run`/`deny`; durable per-agent grants need their own store and UI |
+| Memory consolidation (PRD diary + MEMORY.md) | Backend | Delivered | Approved agent-scope memories sync into `MEMORY.md` as marker lines (freehand edits preserved); every finished run appends a dated diary entry; 40 tests + Ruff pass |
 | Memory consolidation (/dream), skill crystallization, identity self-update | Backend | Deferred | Self-evolution track; requires the memory layer delivered here first |
 | Desktop shell (Electron/Tauri), Skills/Plugins, connectors, browser control | Product | Deferred | PRD P0 remainder; architecture unchanged by this slice |

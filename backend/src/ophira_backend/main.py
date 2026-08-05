@@ -58,7 +58,10 @@ def create_app(
     settings = settings or get_settings()
     ledger = FileLedger(settings.data_dir)
     events = EventPublisher(ledger)
-    memory = FileMemoryProvider(settings.data_dir / "memory")
+    memory = FileMemoryProvider(
+        settings.data_dir / "memory",
+        agents_root=settings.data_dir / "agents",
+    )
     permissions = PermissionBroker(
         ledger,
         events,

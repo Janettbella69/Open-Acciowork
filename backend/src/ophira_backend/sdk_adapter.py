@@ -176,12 +176,13 @@ class ClaudeAgentRuntime:
             allowed_tools = [*READ_ONLY_BUILTIN_TOOLS, *OPHIRA_TOOL_NAMES]
             memories = []
             if self.memory is not None:
+                # Agent-scope memories arrive via MEMORY.md (synced on approval);
+                # the digest carries user and project scopes only.
                 memories = gather_approved(
                     self.memory,
                     [
                         (MemoryScope.USER, USER_SCOPE_ID),
                         (MemoryScope.PROJECT, run.project_id),
-                        (MemoryScope.AGENT, agent.id),
                     ],
                     limit=MAX_MEMORY_ITEMS,
                 )

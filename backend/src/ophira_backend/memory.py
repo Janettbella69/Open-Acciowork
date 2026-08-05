@@ -78,9 +78,10 @@ def gather_approved(
 class FileMemoryProvider:
     """File-backed MemoryProvider: per-scope item snapshots plus an append-only history."""
 
-    def __init__(self, root: Path) -> None:
+    def __init__(self, root: Path, agents_root: Path | None = None) -> None:
         self.root = root.resolve()
         self.root.mkdir(parents=True, exist_ok=True)
+        self.agents_root = agents_root.resolve() if agents_root else None
         self._locks: dict[str, threading.RLock] = {}
         self._locks_guard = threading.Lock()
 
@@ -140,6 +141,32 @@ class FileMemoryProvider:
             handle.flush()
             os.fsync(handle.fileno())
 
+    def _sync_memory_md(self, item: MemoryItem) -> None:
+        """Mirror agent-scope memories into the agent's MEMORY.md via marker lines.
+
+        Approved items get an upserted marked line; any other status removes it.
+        Lines without this item's marker (including user freehand edits) are kept.
+        """
+        if self.agents_root is None or item.scope != MemoryScope.AGENT:
+            return
+        core_dir = self.agents_root / self._safe_id(item.scope_id)
+        if not core_dir.exists():
+            return
+        path = core_dir / "MEMORY.md"
+        marker = f"<!-- mem:{item.id} -->"
+        lines = (
+            path.read_text(encoding="utf-8").splitlines()
+            if path.exists()
+            else ["# 长期记忆", ""]
+        )
+        lines = [line for line in lines if marker not in line]
+        if item.status == MemoryStatus.APPROVED:
+            text = " ".join(item.text.split())
+            lines.append(
+                f"- [{item.kind.value}][置信度 {item.confidence:.2f}] {text} {marker}"
+            )
+        path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
     def propose(
         self,
         *,
@@ -171,6 +198,7 @@ class FileMemoryProvider:
             items.append(item)
             self._write_items(item.scope, item.scope_id, items)
             self._append_history(item, "propose")
+            self._sync_memory_md(item)
         return item
 
     def get(self, memory_id: str) -> MemoryItem:
@@ -197,6 +225,7 @@ class FileMemoryProvider:
                     items[index] = updated
                     self._write_items(current.scope, current.scope_id, items)
                     self._append_history(updated, action)
+                    self._sync_memory_md(updated)
                     return updated
         raise MemoryNotFoundError(memory_id)
 

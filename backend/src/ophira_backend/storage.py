@@ -269,6 +269,17 @@ class FileLedger:
         core_dir.mkdir(parents=True, exist_ok=True)
         return core_dir
 
+    def diary_dir(self, run: RunRecord) -> Path:
+        """Agent runs journal into the agent core; legacy runs into the project."""
+        if run.agent_id:
+            base = self.agent_core_dir(run.agent_id)
+        else:
+            self.get_project(run.project_id)
+            base = self.projects_dir / self._safe_id(run.project_id)
+        diary = base / "diary"
+        diary.mkdir(parents=True, exist_ok=True)
+        return diary
+
     def _schedule_path(self, schedule_id: str) -> Path:
         return self.schedules_dir / self._safe_id(schedule_id) / "schedule.json"
 
