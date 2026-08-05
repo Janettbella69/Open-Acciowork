@@ -26,6 +26,7 @@ export default function Workspace() {
     try {
       await runtime.start(brief)
       normalizeWorkspaceUrl()
+      setBriefInput('')
       setNotice('Backend connected. Live Agent activity is streaming into this conversation.')
     } catch {
       setNotice('The research run could not start. Your brief is still here so you can try again.')
@@ -44,7 +45,7 @@ export default function Workspace() {
     const project = runtime.projects.find((item) => item.id === projectId)
     if (!project) return
     runtime.selectProject(project)
-    setBriefInput(project.objective)
+    setBriefInput('')
     normalizeWorkspaceUrl()
     setNotice('Saved project truth loaded from the backend.')
   }

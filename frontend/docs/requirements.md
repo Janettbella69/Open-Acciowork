@@ -7,6 +7,7 @@ Updated: 2026-08-05
 | Build an original OPHIRA marketing site inspired by YouMind principles | Delivered | `/` uses an input-led hero, editorial scale, generous whitespace, and first-party OPHIRA content |
 | Build a usable frontend product surface | Delivered | `/app` keeps the empty, running, completed, failed, and saved-project states inside one conversation workspace |
 | Prioritize the primary research input | Delivered | The empty workspace places the conversation composer directly below the opportunity prompt, followed by the four secondary validation shortcuts; active sessions retain the bottom-docked composer |
+| Provide useful composer tools without duplicating settings | Delivered | The composer stages files and images locally and inserts reviewable prompts from the shared built-in skill catalog; plugin controls remain exclusively in Settings, and the UI does not claim that staged attachments have uploaded |
 | Keep website briefs on the formal workspace | Delivered | `/app?brief=...` seeds the primary composer, then normalizes to `/app` after the brief is consumed; starting a run never switches to the retired dashboard |
 | Provide an account-to-settings navigation flow | Delivered | Clicking the workspace identity opens an accessible account menu; Settings routes to `/app/settings`, while outside press and Escape close the menu |
 | Keep the product navigation focused and readable for B2B users | Delivered | The workspace rail exposes Opportunity studio, Scheduled tasks, and Skill Studio; Settings remains in the account menu, and all product surfaces use a 48 / 32 / 20 / 16 / 14 / 12 sans-serif type scale |
@@ -16,6 +17,8 @@ Updated: 2026-08-05
 | Prepare recurring Agent work | Delivered | `/app/schedules` provides categorized templates and a functional local task-draft creator; automatic execution is explicitly deferred until the scheduler API is connected |
 | Prepare trusted companion-device control | Delivered | Computer control settings include discovery/control and keep-awake preferences plus an honest pairing placeholder; no fake QR code or mobile account is shown before secure pairing services exist |
 | Match the OPHIRA opportunity-team architecture | Delivered | Opportunity Lead owns one project truth and identifies the weakest validation dimension |
+| Keep Agent orchestration contextual | Delivered | The sidebar no longer presents a fixed specialist roster; actual runtime actors appear only in live backend activity, while user-managed Agents remain a backend registry concern |
+| Present an auditable Agent execution process | Delivered | The conversation renders the SDK's visible reasoning summary and the complete received event trace, including actors, tool inputs, tool responses, IDs, and raw event data; private reasoning not emitted by the SDK is not fabricated |
 | Distinguish facts, user statements, community signals, and inference | Delivered | The live evidence ledger renders the backend evidence kind for every claim without promoting it to fact |
 | Avoid fabricated commercial precision | Delivered | Sample workspace is explicitly illustrative; capital values remain uncalculated until inputs exist |
 | Responsive marketing and product UI | Delivered | Desktop, tablet, and mobile breakpoints; mobile controls retain 44px minimum targets |

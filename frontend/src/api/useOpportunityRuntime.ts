@@ -108,7 +108,7 @@ export function useOpportunityRuntime() {
     }
 
     if (!event.type.endsWith('.delta')) {
-      setEvents((current) => [...current, event].slice(-160))
+      setEvents((current) => [...current, event])
     }
 
     const toolName = event.data.tool_name

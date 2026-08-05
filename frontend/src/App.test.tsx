@@ -179,7 +179,7 @@ describe('OPHIRA frontend', () => {
     })
 
     expect(screen.getByText('Validating demand evidence.')).toBeInTheDocument()
-    expect(screen.getByText(/tool started · websearch/i)).toBeInTheDocument()
+    expect(screen.getByText(/using websearch/i)).toBeInTheDocument()
     expect(screen.getByText(/trace trace_test/i)).toBeInTheDocument()
   })
 

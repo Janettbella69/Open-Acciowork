@@ -1,27 +1,10 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
+import { builtInSkills, type SkillTemplate } from '../data/skillCatalog'
 import Brand from './Brand'
 import './workspace-composer.css'
 import './skills-page.css'
 
-type SkillTemplate = {
-  id: string
-  code: string
-  name: string
-  description: string
-  category: string
-  source: 'Built-in' | 'Local draft'
-}
-
 const storageKey = 'ophira-custom-skill-drafts'
-
-const builtInSkills: SkillTemplate[] = [
-  { id: 'market-signal-radar', code: 'MR', name: 'Market Signal Radar', description: 'Track material shifts in buyer needs, policy, category behavior, and demand evidence.', category: 'Research', source: 'Built-in' },
-  { id: 'supplier-capability-map', code: 'SM', name: 'Supplier Capability Map', description: 'Compare supplier constraints, production readiness, quality risk, and market fit.', category: 'Supply', source: 'Built-in' },
-  { id: 'downside-boundary', code: 'DB', name: 'Downside Boundary', description: 'Identify cash exposure, stop conditions, and assumptions that require validation.', category: 'Capital', source: 'Built-in' },
-  { id: 'buyer-test-designer', code: 'BT', name: 'Buyer Test Designer', description: 'Turn sales assumptions into the smallest credible and falsifiable buyer test.', category: 'Sales', source: 'Built-in' },
-  { id: 'evidence-quality-review', code: 'EQ', name: 'Evidence Quality Review', description: 'Separate facts, user statements, community signals, and inference before decisions.', category: 'Governance', source: 'Built-in' },
-  { id: 'competitor-change-watch', code: 'CW', name: 'Competitor Change Watch', description: 'Review material product, pricing, positioning, and channel changes over time.', category: 'Monitoring', source: 'Built-in' },
-]
 
 function loadCustomSkills(): SkillTemplate[] {
   try {
@@ -82,6 +65,7 @@ export default function SkillsPage() {
       code: words.slice(0, 2).map((word) => word[0]).join('').toUpperCase(),
       name: name.trim(),
       description: description.trim(),
+      prompt: description.trim(),
       category: 'Custom',
       source: 'Local draft',
     }, ...current])

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'react'
 import {
   dimensions,
   type OpportunityProject,
@@ -6,6 +6,7 @@ import {
   type PendingPermission,
   type RunRecord,
 } from '../api/types'
+import { builtInSkills } from '../data/skillCatalog'
 import Brand from './Brand'
 import './workspace-composer.css'
 
@@ -62,6 +63,64 @@ function activityLabel(event: OphiraEvent): string {
   const toolName = typeof event.data.tool_name === 'string' ? event.data.tool_name : ''
   if (event.type.startsWith('tool.') && toolName) return `${label(event.type)} · ${toolName}`
   return label(event.type)
+}
+
+function eventDetail(event: OphiraEvent): string {
+  try {
+    return JSON.stringify(event.data, null, 2)
+  } catch {
+    return String(event.data)
+  }
+}
+
+function eventKind(event: OphiraEvent): string {
+  if (event.type.startsWith('tool.')) return 'tool'
+  if (event.type.startsWith('assistant.reasoning')) return 'reasoning'
+  if (event.type.startsWith('assistant.')) return 'assistant'
+  if (event.type.startsWith('subagent.') || event.type.startsWith('task.')) return 'agent'
+  if (event.type.startsWith('permission.')) return 'permission'
+  return 'system'
+}
+
+function eventTitle(event: OphiraEvent): string {
+  const toolName = typeof event.data.tool_name === 'string' ? label(event.data.tool_name.replace(/^mcp__ophira__/, '')) : 'Tool'
+  const actorName = typeof event.data.agent_type === 'string' ? label(event.data.agent_type) : label(event.actor.name)
+  const text = typeof event.data.text === 'string' ? event.data.text : ''
+  const description = typeof event.data.description === 'string' ? event.data.description : ''
+  const summary = typeof event.data.summary === 'string' ? event.data.summary : ''
+  const decision = typeof event.data.decision === 'string' ? label(event.data.decision) : ''
+
+  if (event.type === 'tool.planned') return `Preparing ${toolName}`
+  if (event.type === 'tool.started') return `Using ${toolName}`
+  if (event.type === 'tool.completed') return `${toolName} completed`
+  if (event.type === 'tool.failed') return `${toolName} failed`
+  if (event.type === 'subagent.started') return `${actorName} joined the work`
+  if (event.type === 'subagent.stopped') return `${actorName} finished`
+  if (event.type === 'task.started') return description || 'Agent task started'
+  if (event.type === 'task.progress') return description || 'Agent task updated'
+  if (event.type === 'task.completed') return summary || 'Agent task completed'
+  if (event.type === 'assistant.message.completed' && text) return text
+  if (event.type === 'permission.requested') return `Approval requested for ${toolName}`
+  if (event.type === 'permission.resolved') return decision ? `Confirmed: ${decision}` : 'Approval confirmed'
+  if (event.type === 'run.result') return event.data.is_error ? 'Research ended with an error' : 'Research response prepared'
+  return activityLabel(event)
+}
+
+function formatDuration(milliseconds: number): string {
+  const seconds = Math.max(0, Math.floor(milliseconds / 1000))
+  if (seconds < 60) return `${seconds}s`
+  const minutes = Math.floor(seconds / 60)
+  const remainder = seconds % 60
+  return `${minutes}m ${remainder}s`
+}
+
+function processIcon(kind: string): string {
+  if (kind === 'reasoning') return '◇'
+  if (kind === 'tool') return '▣'
+  if (kind === 'agent') return '●'
+  if (kind === 'permission') return '?'
+  if (kind === 'assistant') return '•'
+  return '·'
 }
 
 function WorkspaceAccountMenu({ backendState }: { backendState: string }) {
@@ -148,13 +207,57 @@ export default function WorkspaceComposer({
   onCancel,
   onDecision,
 }: WorkspaceComposerProps) {
+  const [skillsOpen, setSkillsOpen] = useState(false)
+  const [attachedFiles, setAttachedFiles] = useState<File[]>([])
+  const [clock, setClock] = useState(() => Date.now())
+  const composerToolsRef = useRef<HTMLDivElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const sessionOpen = Boolean(project || run)
-  const recentActivity = events.filter((event) => !event.type.endsWith('.delta')).slice(-6).reverse()
-  const latestActor = recentActivity[0]?.actor.name.toLowerCase() ?? ''
+  const traceEvents = events.filter((event) => !event.type.endsWith('.delta') && !event.type.startsWith('assistant.reasoning'))
+  const startedAt = run?.started_at ? new Date(run.started_at).getTime() : run ? new Date(run.created_at).getTime() : clock
+  const finishedAt = run?.finished_at ? new Date(run.finished_at).getTime() : clock
+  const elapsed = formatDuration(finishedAt - startedAt)
+
+  useEffect(() => {
+    if (!skillsOpen) return
+
+    const closeOnOutsidePress = (event: PointerEvent) => {
+      if (!composerToolsRef.current?.contains(event.target as Node)) setSkillsOpen(false)
+    }
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setSkillsOpen(false)
+    }
+
+    document.addEventListener('pointerdown', closeOnOutsidePress)
+    document.addEventListener('keydown', closeOnEscape)
+    return () => {
+      document.removeEventListener('pointerdown', closeOnOutsidePress)
+      document.removeEventListener('keydown', closeOnEscape)
+    }
+  }, [skillsOpen])
+
+  useEffect(() => {
+    if (!isActive) return
+    setClock(Date.now())
+    const timer = window.setInterval(() => setClock(Date.now()), 1000)
+    return () => window.clearInterval(timer)
+  }, [isActive])
+
+  const stageFiles = (event: ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files ?? [])
+    if (files.length) setAttachedFiles((current) => [...current, ...files])
+    event.target.value = ''
+  }
+
+  const selectSkill = (prompt: string) => {
+    onChange(prompt)
+    setSkillsOpen(false)
+  }
+
   const composer = (
     <div className="conversation-composer-dock" data-inline={!sessionOpen}>
       <div className="conversation-context-bar">
-        <span>{project?.name ?? 'New opportunity'}</span>
+        <span>{sessionOpen ? 'New research brief' : project?.name ?? 'New opportunity'}</span>
         <small>{run ? `${label(run.status)} · ${connection}` : 'One shared project truth'}</small>
       </div>
       <form className="conversation-composer" onSubmit={onSubmit}>
@@ -163,14 +266,73 @@ export default function WorkspaceComposer({
           id="workspace-conversation-brief"
           value={value}
           onChange={(event) => onChange(event.target.value)}
-          placeholder="Describe a product, market, capability, or customer..."
-          rows={3}
+          placeholder={sessionOpen ? 'Describe the next question you want OPHIRA to research...' : 'Describe a product, market, capability, or customer...'}
+          rows={sessionOpen ? 1 : 3}
           disabled={busy}
           autoFocus={!sessionOpen}
         />
+        {attachedFiles.length > 0 && (
+          <div className="conversation-attachments" aria-label="Locally staged attachments">
+            <div>
+              {attachedFiles.map((file, index) => (
+                <span key={`${file.name}-${file.size}-${index}`}>
+                  <i aria-hidden="true">↗</i>
+                  <b>{file.name}</b>
+                  <button
+                    type="button"
+                    aria-label={`Remove ${file.name}`}
+                    onClick={() => setAttachedFiles((current) => current.filter((_, currentIndex) => currentIndex !== index))}
+                  >×</button>
+                </span>
+              ))}
+            </div>
+            <small>Local draft only · attachment upload is not connected yet</small>
+          </div>
+        )}
         <div className="conversation-composer-footer">
-          <span><b>Opportunity Lead</b> coordinates Demand · Supply · Capital · Sales</span>
-          <button type="submit" disabled={busy || !value.trim()}>
+          <div className="conversation-tools" ref={composerToolsRef}>
+            <input
+              ref={fileInputRef}
+              className="conversation-file-input"
+              type="file"
+              aria-label="Choose files or images"
+              accept="image/*,.pdf,.txt,.csv,.doc,.docx,.xls,.xlsx,.ppt,.pptx"
+              multiple
+              onChange={stageFiles}
+            />
+            <button
+              className="conversation-tool-add"
+              type="button"
+              aria-label="Add files or images"
+              title="Add files or images"
+              onClick={() => fileInputRef.current?.click()}
+            >＋</button>
+            <button
+              className="conversation-tool-skills"
+              type="button"
+              aria-haspopup="dialog"
+              aria-expanded={skillsOpen}
+              onClick={() => setSkillsOpen((current) => !current)}
+            ><span aria-hidden="true">◇</span> Skills</button>
+
+            {skillsOpen && (
+              <section className="conversation-skills-menu" role="dialog" aria-label="Choose an OPHIRA skill">
+                <header><div><span>Built-in capabilities</span><strong>Use a skill</strong></div><a href="/app/skills">Skill Studio <i aria-hidden="true">→</i></a></header>
+                <div>
+                  {builtInSkills.map((skill) => (
+                    <button key={skill.id} type="button" onClick={() => selectSkill(skill.prompt)}>
+                      <span data-category={skill.category.toLowerCase()}>{skill.code}</span>
+                      <div><strong>{skill.name}</strong><small>{skill.description}</small></div>
+                      <i aria-hidden="true">→</i>
+                    </button>
+                  ))}
+                </div>
+                <footer>Selecting a skill inserts its instructions into this brief for review.</footer>
+              </section>
+            )}
+          </div>
+          <span className="conversation-composer-coordinator"><b>Opportunity Lead</b> coordinates one shared project truth</span>
+          <button className="conversation-submit" type="submit" disabled={busy || !value.trim()}>
             {busy ? 'Researching…' : sessionOpen ? 'Start new research' : 'Start research'} <span aria-hidden="true">→</span>
           </button>
         </div>
@@ -209,15 +371,6 @@ export default function WorkspaceComposer({
               <small>{savedProject.objective}</small>
             </button>
           )) : <p>Your saved opportunity studies will appear here.</p>}
-        </section>
-
-        <section className="conversation-sidebar-agents" aria-labelledby="sidebar-agents-title">
-          <h2 id="sidebar-agents-title">Agent team</h2>
-          <ul>
-            {['Demand', 'Supply', 'Capital', 'Sales'].map((dimension) => (
-              <li key={dimension} data-active={latestActor.includes(dimension.toLowerCase())}><i />{dimension}</li>
-            ))}
-          </ul>
         </section>
 
         <WorkspaceAccountMenu backendState={error ? 'Backend needs attention' : run ? `Backend ${connection}` : 'Backend ready'} />
@@ -286,11 +439,52 @@ export default function WorkspaceComposer({
                   </div>
                 )}
 
-                {reasoningSummary && (
-                  <details className="conversation-reasoning">
-                    <summary>Visible reasoning summary</summary>
-                    <p>{reasoningSummary}</p>
-                  </details>
+                {(reasoningSummary || traceEvents.length > 0) && (
+                  <section className="conversation-process" aria-labelledby="conversation-process-heading">
+                    <header>
+                      <div><span>Claude Agent SDK</span><h2 id="conversation-process-heading">{isActive ? `Running for ${elapsed}` : `${label(run?.status ?? 'Recorded')} · ${elapsed}`}</h2></div>
+                      <small>{traceEvents.length + (reasoningSummary ? 1 : 0)} steps</small>
+                    </header>
+                    <ol>
+                      {reasoningSummary && (
+                        <li data-kind="reasoning">
+                          <details open={isActive}>
+                            <summary>
+                              <i aria-hidden="true">◇</i>
+                              <span><strong>{isActive ? 'Thinking' : 'Thought through the approach'}</strong><small>Reasoning summary emitted by the SDK</small></span>
+                              <b aria-hidden="true">›</b>
+                            </summary>
+                            <div className="conversation-thought-detail"><p>{reasoningSummary}</p></div>
+                          </details>
+                        </li>
+                      )}
+                      {traceEvents.map((event) => {
+                        const kind = eventKind(event)
+                        return (
+                          <li key={event.id} data-kind={kind}>
+                            <details>
+                              <summary>
+                                <i aria-hidden="true">{processIcon(kind)}</i>
+                                <span><strong>{eventTitle(event)}</strong><small>{label(event.actor.name)} · {new Date(event.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</small></span>
+                                <b aria-hidden="true">›</b>
+                              </summary>
+                              <div className="conversation-event-detail">
+                                <dl>
+                                  <div><dt>Event</dt><dd>{event.type}</dd></div>
+                                  <div><dt>Actor</dt><dd>{label(event.actor.type)}</dd></div>
+                                  {event.actor.agent_id && <div><dt>Agent ID</dt><dd>{event.actor.agent_id}</dd></div>}
+                                  {event.tool_use_id && <div><dt>Tool use ID</dt><dd>{event.tool_use_id}</dd></div>}
+                                  {event.parent_id && <div><dt>Parent</dt><dd>{event.parent_id}</dd></div>}
+                                </dl>
+                                <pre>{eventDetail(event)}</pre>
+                              </div>
+                            </details>
+                          </li>
+                        )
+                      })}
+                    </ol>
+                    <p className="conversation-trace-note">Expand any step to inspect the real SDK event, tool input, and tool response. Reasoning is shown only when the SDK emits a summary.</p>
+                  </section>
                 )}
 
                 {permissions.map((permission) => (
@@ -335,16 +529,6 @@ export default function WorkspaceComposer({
                   </section>
                 )}
 
-                {recentActivity.length > 0 && (
-                  <section className="conversation-activity" aria-labelledby="conversation-activity-heading">
-                    <div><h2 id="conversation-activity-heading">Live backend activity</h2><span>{events.length} events</span></div>
-                    <ol>
-                      {recentActivity.map((event) => (
-                        <li key={event.id}><i data-event={event.type} /><span>{activityLabel(event)}</span><small>{event.actor.name}</small></li>
-                      ))}
-                    </ol>
-                  </section>
-                )}
               </article>
             </div>
           </section>
