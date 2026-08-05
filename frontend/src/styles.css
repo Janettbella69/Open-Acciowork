@@ -1,10 +1,10 @@
 :root {
   font-family: 'Avenir Next', Avenir, 'Helvetica Neue', sans-serif;
   color: #1b1a17;
-  background: #f4f1e8;
+  background: #ffffff;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
-  --ophira-ivory: #f4f1e8;
+  --ophira-ivory: #ffffff;
   --ophira-paper: #fffdf8;
   --ophira-ink: #1b1a17;
   --ophira-muted: #716e66;
@@ -45,7 +45,7 @@ img { max-width: 100%; }
 .ophira-brand[data-compact='true'] { color: var(--ophira-paper); }
 .ophira-brand[data-compact='true'] > span { font-size: 13px; }
 
-/* Marketing site: editorial scale, warm paper, one product surface per claim. */
+/* Marketing site: editorial scale, clean white canvas, one product surface per claim. */
 .ophira-site { overflow: hidden; background: var(--ophira-ivory); }
 
 .site-header {
@@ -53,7 +53,7 @@ img { max-width: 100%; }
   z-index: 30;
   top: 0;
   border-bottom: 1px solid rgba(220, 215, 202, 0.84);
-  background: rgba(244, 241, 232, 0.94);
+  background: rgba(255, 255, 255, 0.94);
   backdrop-filter: blur(16px);
 }
 

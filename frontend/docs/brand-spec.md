@@ -17,7 +17,8 @@
 - Product truth: `src/components/Workspace.tsx`.
 
 ## Color palette
-- Background: `#f4f1e8` — warm ivory.
+- Marketing background: `#ffffff` — clean white, matched to the approved reference.
+- Product background: `#f2f0e9` — restrained warm neutral for workspace depth.
 - Surface: `#fffdf8` — paper white.
 - Ink: `#1b1a17` — near black.
 - Primary accent: `#bc7b2c` — mineral gold.
