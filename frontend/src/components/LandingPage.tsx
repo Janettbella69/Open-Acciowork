@@ -143,7 +143,7 @@ export default function LandingPage() {
           </div>
           <div className="manifesto-copy">
             <p>Ophira is not about chasing gold. It is about using wisdom to recognize resources, organize supply, and carry something valuable across distance.</p>
-            <blockquote>发现世界所需，<br />连接能够供应的人。</blockquote>
+            <blockquote>Discover what the world needs.<br />Connect who can supply it.</blockquote>
           </div>
         </section>
 

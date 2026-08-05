@@ -8,7 +8,7 @@ describe('OPHIRA frontend', () => {
     render(<LandingPage />)
 
     expect(screen.getByRole('heading', { level: 1, name: /discover what the world needs/i })).toBeInTheDocument()
-    expect(screen.getByText(/connect who can supply it/i)).toBeInTheDocument()
+    expect(screen.getAllByText(/connect who can supply it/i).length).toBeGreaterThan(0)
     expect(screen.getByRole('textbox', { name: /what opportunity should ophira explore/i })).toHaveAttribute('name', 'brief')
   })
 
