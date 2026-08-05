@@ -34,6 +34,30 @@ class BlockingRuntime(FakeRuntime):
 
 
 @pytest.mark.asyncio
+async def test_runtime_provider_status_never_returns_the_key(tmp_path: Path) -> None:
+    app = create_app(
+        Settings(
+            data_dir=tmp_path,
+            claude_model="qwen3.7-plus",
+            ANTHROPIC_BASE_URL="https://coding.dashscope.aliyuncs.com/apps/anthropic",
+            ANTHROPIC_AUTH_TOKEN="qwen-secret",
+        ),
+        runtime=FakeRuntime(),
+    )
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.get("/api/runtime/provider")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "api_credentials_configured": True,
+        "authentication": "auth_token",
+        "base_url": "https://coding.dashscope.aliyuncs.com/apps/anthropic",
+        "model": "qwen3.7-plus",
+    }
+    assert "qwen-secret" not in response.text
+
+
+@pytest.mark.asyncio
 async def test_project_run_and_protocol_api(tmp_path: Path) -> None:
     runtime = FakeRuntime()
     app = create_app(Settings(data_dir=tmp_path), runtime=runtime)
@@ -67,6 +91,13 @@ async def test_project_run_and_protocol_api(tmp_path: Path) -> None:
             await asyncio.sleep(0.01)
         assert response.json()["status"] == RunStatus.COMPLETED.value
         assert runtime.runs == [run_id]
+
+        response = await client.get(f"/api/projects/{project_id}/runs")
+        assert response.status_code == 200
+        assert [run["id"] for run in response.json()] == [run_id]
+
+        response = await client.get("/api/projects/project_missing/runs")
+        assert response.status_code == 404
 
         events = app.state.ledger.list_events(run_id)
         assert events[0].type == "run.created"

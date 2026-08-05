@@ -6,6 +6,7 @@ import {
   getProject,
   getProtocol,
   getRun,
+  listProjectRuns,
   listProjects,
   resolvePermission,
   runEventUrl,
@@ -38,6 +39,9 @@ export function useOpportunityRuntime() {
   const terminalRef = useRef(false)
   const sawTextDeltaRef = useRef(false)
   const sawReasoningDeltaRef = useRef(false)
+  const runRef = useRef<RunRecord | null>(null)
+  const selectionRef = useRef(0)
+  const [historyLoading, setHistoryLoading] = useState(false)
 
   const closeStream = useCallback(() => {
     eventSourceRef.current?.close()
@@ -53,7 +57,11 @@ export function useOpportunityRuntime() {
   const handleEvent = useCallback((event: OphiraEvent) => {
     const status = event.data.status
     if (typeof status === 'string') {
-      setRun((current) => current ? { ...current, status: status as RunStatus } : current)
+      setRun((current) => {
+        const next = current ? { ...current, status: status as RunStatus } : current
+        runRef.current = next
+        return next
+      })
     }
 
     if (event.type === 'assistant.text.delta' && typeof event.data.text === 'string') {
@@ -112,9 +120,15 @@ export function useOpportunityRuntime() {
     }
 
     const toolName = event.data.tool_name
+    const replayingTerminalRun = runRef.current ? terminalStatuses.has(runRef.current.status) : false
     if (
       event.type === 'run.completed'
-      || (event.type === 'tool.completed' && typeof toolName === 'string' && toolName.startsWith('mcp__ophira__'))
+      || (
+        event.type === 'tool.completed'
+        && typeof toolName === 'string'
+        && toolName.startsWith('mcp__ophira__')
+        && !replayingTerminalRun
+      )
     ) {
       void refreshProject(event.project_id).catch(() => undefined)
     }
@@ -122,8 +136,15 @@ export function useOpportunityRuntime() {
     if (['run.completed', 'run.failed', 'run.cancelled'].includes(event.type)) {
       terminalRef.current = true
       setConnection('closed')
+      setHistoryLoading(false)
       eventSourceRef.current?.close()
-      void Promise.all([refreshProject(event.project_id), getRun(event.run_id).then(setRun)]).catch(
+      void Promise.all([
+        refreshProject(event.project_id),
+        getRun(event.run_id).then((record) => {
+          runRef.current = record
+          setRun(record)
+        }),
+      ]).catch(
         () => undefined,
       )
     }
@@ -152,6 +173,7 @@ export function useOpportunityRuntime() {
   }, [closeStream, handleEvent])
 
   const start = useCallback(async (brief: string) => {
+    selectionRef.current += 1
     closeStream()
     setStarting(true)
     setError('')
@@ -159,6 +181,7 @@ export function useOpportunityRuntime() {
     setAssistantText('')
     setReasoningSummary('')
     setPermissions([])
+    setHistoryLoading(false)
     sawTextDeltaRef.current = false
     sawReasoningDeltaRef.current = false
     try {
@@ -166,6 +189,7 @@ export function useOpportunityRuntime() {
       setProject(nextProject)
       setProjects((current) => [nextProject, ...current])
       const nextRun = await startRun(nextProject.id, brief)
+      runRef.current = nextRun
       setRun(nextRun)
       await connectToRun(nextRun)
       return nextRun
@@ -178,10 +202,41 @@ export function useOpportunityRuntime() {
     }
   }, [closeStream, connectToRun])
 
+  const continueProject = useCallback(async (brief: string) => {
+    if (!project) return start(brief)
+
+    selectionRef.current += 1
+    closeStream()
+    setStarting(true)
+    setError('')
+    setEvents([])
+    setAssistantText('')
+    setReasoningSummary('')
+    setPermissions([])
+    setHistoryLoading(false)
+    sawTextDeltaRef.current = false
+    sawReasoningDeltaRef.current = false
+    try {
+      const nextRun = await startRun(project.id, brief, run?.sdk_session_id)
+      runRef.current = nextRun
+      setRun(nextRun)
+      await connectToRun(nextRun)
+      return nextRun
+    } catch (continueError) {
+      setConnection('closed')
+      setError(errorMessage(continueError))
+      throw continueError
+    } finally {
+      setStarting(false)
+    }
+  }, [closeStream, connectToRun, project, run?.sdk_session_id, start])
+
   const cancel = useCallback(async () => {
     if (!run) return
     try {
-      setRun(await cancelRun(run.id))
+      const cancelled = await cancelRun(run.id)
+      runRef.current = cancelled
+      setRun(cancelled)
     } catch (cancelError) {
       setError(errorMessage(cancelError))
     }
@@ -199,28 +254,62 @@ export function useOpportunityRuntime() {
     }
   }, [run])
 
-  const selectProject = useCallback((selected: OpportunityProject) => {
+  const selectProject = useCallback(async (selected: OpportunityProject): Promise<RunRecord | null> => {
+    const selection = ++selectionRef.current
     closeStream()
     setProject(selected)
     setRun(null)
+    runRef.current = null
     setEvents([])
     setAssistantText('')
     setReasoningSummary('')
     setPermissions([])
     setConnection('idle')
     setError('')
-  }, [closeStream])
+    setHistoryLoading(true)
+    sawTextDeltaRef.current = false
+    sawReasoningDeltaRef.current = false
+    try {
+      const projectRuns = await listProjectRuns(selected.id)
+      if (selectionRef.current !== selection) return null
+      const latestRun = projectRuns[0] ?? null
+      if (!latestRun) {
+        setHistoryLoading(false)
+        return null
+      }
+      runRef.current = latestRun
+      setRun(latestRun)
+      await connectToRun(latestRun)
+      if (selectionRef.current !== selection) {
+        closeStream()
+        return null
+      }
+      if (terminalStatuses.has(latestRun.status)) return latestRun
+      setHistoryLoading(false)
+      return latestRun
+    } catch (selectError) {
+      if (selectionRef.current === selection) {
+        setHistoryLoading(false)
+        setError(errorMessage(selectError))
+        throw selectError
+      }
+      return null
+    }
+  }, [closeStream, connectToRun])
 
   const reset = useCallback(() => {
+    selectionRef.current += 1
     closeStream()
     setProject(null)
     setRun(null)
+    runRef.current = null
     setEvents([])
     setAssistantText('')
     setReasoningSummary('')
     setPermissions([])
     setConnection('idle')
     setError('')
+    setHistoryLoading(false)
   }, [closeStream])
 
   useEffect(() => {
@@ -249,8 +338,10 @@ export function useOpportunityRuntime() {
     connection,
     error,
     starting,
+    historyLoading,
     isActive: run ? !terminalStatuses.has(run.status) : false,
     start,
+    continueProject,
     cancel,
     decidePermission,
     selectProject,

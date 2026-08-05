@@ -4,7 +4,7 @@ import pytest
 from claude_agent_sdk import AssistantMessage, StreamEvent, TextBlock, ThinkingBlock, ToolUseBlock
 
 from ophira_backend.config import Settings
-from ophira_backend.constants import AGENT_NAMES, Dimension, EventType
+from ophira_backend.constants import EventType
 from ophira_backend.events import EventPublisher
 from ophira_backend.models import ProjectCreate
 from ophira_backend.permissions import PermissionBroker
@@ -22,15 +22,20 @@ def build_runtime(tmp_path: Path):
     return ledger, run, runtime
 
 
-def test_sdk_options_use_programmatic_team_and_observable_stream(tmp_path: Path) -> None:
+def test_default_sdk_options_keep_the_agent_general_and_observable(tmp_path: Path) -> None:
     _ledger, run, runtime = build_runtime(tmp_path)
     options = runtime._build_options(run)
 
-    assert set(options.agents or {}) == {AGENT_NAMES[item] for item in Dimension}
+    assert options.agents is None
     assert options.include_partial_messages is True
     assert options.include_hook_events is True
     assert options.thinking == {"type": "adaptive", "display": "summarized"}
-    assert "Agent" in options.allowed_tools
+    assert "Read" in (options.tools or [])
+    assert "Write" in (options.tools or [])
+    assert "Bash" in (options.tools or [])
+    assert "Agent" not in (options.tools or [])
+    assert "不要把请求强制归入预设意图" in options.system_prompt
+    assert runtime._query_prompt(run) == "Start"
     assert options.strict_mcp_config is True
     assert options.env == {}
     assert set(options.hooks or {}) >= {
@@ -57,6 +62,40 @@ def test_sdk_key_is_passed_to_subprocess_without_entering_events(tmp_path: Path)
 
     options = runtime._build_options(run)
     assert options.env["ANTHROPIC_API_KEY"] == "sk-ant-test-secret"
+    assert ledger.list_events(run.id) == []
+
+
+def test_sdk_uses_anthropic_compatible_gateway_configuration(tmp_path: Path) -> None:
+    ledger = FileLedger(tmp_path)
+    project = ledger.create_project(ProjectCreate(name="Kettle", objective="Validate"))
+    run = ledger.create_run(project.id, "Start")
+    events = EventPublisher(ledger)
+    permissions = PermissionBroker(ledger, events, timeout_seconds=30)
+    runtime = ClaudeAgentRuntime(
+        Settings(
+            data_dir=tmp_path,
+            claude_model="glm-5.2[1m]",
+            ANTHROPIC_BASE_URL="https://open.bigmodel.cn/api/anthropic",
+            ANTHROPIC_AUTH_TOKEN="glm-secret",
+        ),
+        ledger,
+        events,
+        permissions,
+    )
+
+    options = runtime._build_options(run)
+
+    assert options.model == "glm-5.2[1m]"
+    assert options.env == {
+        "ANTHROPIC_BASE_URL": "https://open.bigmodel.cn/api/anthropic",
+        "ANTHROPIC_AUTH_TOKEN": "glm-secret",
+        "ANTHROPIC_MODEL": "glm-5.2[1m]",
+        "ANTHROPIC_DEFAULT_HAIKU_MODEL": "glm-5.2[1m]",
+        "ANTHROPIC_DEFAULT_FABLE_MODEL": "glm-5.2[1m]",
+        "ANTHROPIC_DEFAULT_SONNET_MODEL": "glm-5.2[1m]",
+        "ANTHROPIC_DEFAULT_OPUS_MODEL": "glm-5.2[1m]",
+        "CLAUDE_CODE_SUBAGENT_MODEL": "glm-5.2[1m]",
+    }
     assert ledger.list_events(run.id) == []
 
 

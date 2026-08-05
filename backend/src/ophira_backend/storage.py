@@ -156,6 +156,18 @@ class FileLedger:
             raise LedgerNotFoundError(run_id)
         return RunRecord.model_validate_json(path.read_text(encoding="utf-8"))
 
+    def list_runs(self, project_id: str) -> list[RunRecord]:
+        self.get_project(project_id)
+        runs: list[RunRecord] = []
+        for path in self.runs_dir.glob("*/run.json"):
+            try:
+                run = RunRecord.model_validate_json(path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                continue
+            if run.project_id == project_id:
+                runs.append(run)
+        return sorted(runs, key=lambda run: run.created_at, reverse=True)
+
     def update_run(self, run_id: str, **changes: Any) -> RunRecord:
         with self._lock_for(run_id):
             run = self.get_run(run_id)

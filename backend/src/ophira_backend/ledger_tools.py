@@ -216,7 +216,7 @@ def build_ledger_mcp_server(
 
     @tool(
         "record_stage_decision",
-        "Record the Opportunity Lead's stage gate, weakest dimension, rationale, and next action.",
+        "Optionally record a durable stage decision, its rationale, and the next action.",
         {
             "type": "object",
             "properties": {

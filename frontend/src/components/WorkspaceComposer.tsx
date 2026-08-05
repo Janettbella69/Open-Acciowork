@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'react'
+import Markdown from 'react-markdown'
 import {
   dimensions,
   type OpportunityProject,
@@ -23,6 +24,7 @@ type WorkspaceComposerProps = {
   reasoningSummary: string
   permissions: PendingPermission[]
   connection: string
+  historyLoading: boolean
   isActive: boolean
   onChange: (value: string) => void
   onSubmit: (event: FormEvent<HTMLFormElement>) => void
@@ -199,6 +201,7 @@ export default function WorkspaceComposer({
   reasoningSummary,
   permissions,
   connection,
+  historyLoading,
   isActive,
   onChange,
   onSubmit,
@@ -213,10 +216,21 @@ export default function WorkspaceComposer({
   const composerToolsRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const sessionOpen = Boolean(project || run)
+  const hasProjectTruth = Boolean(project && (
+    project.evidence.length
+    || project.hypotheses.length
+    || Object.values(project.assessments).some((assessment) => (
+      assessment.status !== 'unverified'
+      || assessment.score > 0
+      || assessment.summary
+      || assessment.gaps.length
+    ))
+  ))
   const traceEvents = events.filter((event) => !event.type.endsWith('.delta') && !event.type.startsWith('assistant.reasoning'))
   const startedAt = run?.started_at ? new Date(run.started_at).getTime() : run ? new Date(run.created_at).getTime() : clock
   const finishedAt = run?.finished_at ? new Date(run.finished_at).getTime() : clock
   const elapsed = formatDuration(finishedAt - startedAt)
+  const processSteps = traceEvents.length + (reasoningSummary ? 1 : 0)
 
   useEffect(() => {
     if (!skillsOpen) return
@@ -256,17 +270,19 @@ export default function WorkspaceComposer({
 
   const composer = (
     <div className="conversation-composer-dock" data-inline={!sessionOpen}>
-      <div className="conversation-context-bar">
-        <span>{sessionOpen ? 'New research brief' : project?.name ?? 'New opportunity'}</span>
-        <small>{run ? `${label(run.status)} · ${connection}` : 'One shared project truth'}</small>
-      </div>
       <form className="conversation-composer" onSubmit={onSubmit}>
-        <label htmlFor="workspace-conversation-brief">Ask Ophira</label>
+        <label className="conversation-visually-hidden" htmlFor="workspace-conversation-brief">Ask Ophira</label>
         <textarea
           id="workspace-conversation-brief"
           value={value}
           onChange={(event) => onChange(event.target.value)}
-          placeholder={sessionOpen ? 'Describe the next question you want OPHIRA to research...' : 'Describe a product, market, capability, or customer...'}
+          onKeyDown={(event) => {
+            if ((event.metaKey || event.ctrlKey) && event.key === 'Enter' && !busy && value.trim()) {
+              event.preventDefault()
+              event.currentTarget.form?.requestSubmit()
+            }
+          }}
+          placeholder={sessionOpen ? 'Continue this conversation…' : 'Message Ophira…'}
           rows={sessionOpen ? 1 : 3}
           disabled={busy}
           autoFocus={!sessionOpen}
@@ -286,7 +302,7 @@ export default function WorkspaceComposer({
                 </span>
               ))}
             </div>
-            <small>Local draft only · attachment upload is not connected yet</small>
+            <small>Selected locally for this draft</small>
           </div>
         )}
         <div className="conversation-composer-footer">
@@ -331,9 +347,10 @@ export default function WorkspaceComposer({
               </section>
             )}
           </div>
-          <span className="conversation-composer-coordinator"><b>Opportunity Lead</b> coordinates one shared project truth</span>
-          <button className="conversation-submit" type="submit" disabled={busy || !value.trim()}>
-            {busy ? 'Researching…' : sessionOpen ? 'Start new research' : 'Start research'} <span aria-hidden="true">→</span>
+          <span className="conversation-composer-coordinator">⌘ Enter to send</span>
+          <button className="conversation-submit" type="submit" aria-label={busy ? 'Working' : 'Send'} disabled={busy || !value.trim()}>
+            <span className="conversation-submit-label">{busy ? 'Working…' : 'Send'}</span>
+            <span aria-hidden="true">↑</span>
           </button>
         </div>
       </form>
@@ -343,24 +360,24 @@ export default function WorkspaceComposer({
   )
 
   return (
-    <div className="conversation-entry">
+    <div className="conversation-entry" data-session={sessionOpen}>
       <aside className="conversation-sidebar">
         <a className="conversation-sidebar-brand" href="/" aria-label="Back to OPHIRA website"><Brand /></a>
 
         <button className="conversation-new-research" type="button" onClick={onNewResearch}>
-          <span aria-hidden="true">＋</span> New research
+          <span aria-hidden="true">＋</span> New conversation
         </button>
 
         <nav className="conversation-sidebar-nav" aria-label="Workspace navigation">
           <p>Workspace</p>
-          <a href="/app" aria-current="page"><span>01</span>Opportunity studio</a>
+          <a href="/app" aria-current="page"><span>01</span>Agent workspace</a>
           <a href="/app/schedules"><span>02</span>Scheduled tasks</a>
           <a href="/app/skills"><span>03</span>Skill Studio</a>
         </nav>
 
         <section className="conversation-sidebar-projects" aria-labelledby="sidebar-projects-title">
           <div><h2 id="sidebar-projects-title">Recent projects</h2><span>{projects.length}</span></div>
-          {projects.length > 0 ? projects.slice(0, 6).map((savedProject) => (
+          {projects.length > 0 ? projects.map((savedProject) => (
             <button
               key={savedProject.id}
               type="button"
@@ -368,24 +385,26 @@ export default function WorkspaceComposer({
               onClick={() => onSelectProject(savedProject.id)}
             >
               <span>{savedProject.name}</span>
-              <small>{savedProject.objective}</small>
+              <small>{label(savedProject.stage)} · {new Date(savedProject.updated_at).toLocaleDateString([], { month: 'short', day: 'numeric' })}</small>
             </button>
-          )) : <p>Your saved opportunity studies will appear here.</p>}
+          )) : <p>Your saved conversations will appear here.</p>}
         </section>
 
         <WorkspaceAccountMenu backendState={error ? 'Backend needs attention' : run ? `Backend ${connection}` : 'Backend ready'} />
       </aside>
 
       <main className="conversation-entry-main" data-session={sessionOpen}>
-        <a href="/" className="conversation-site-link">Website <span aria-hidden="true">↗</span></a>
+        {!sessionOpen && (
+          <a href="/" className="conversation-site-link">Website <span aria-hidden="true">↗</span></a>
+        )}
 
         {!sessionOpen ? (
           <div className="conversation-entry-center">
             <div className="conversation-entry-mark" aria-hidden="true">
               <img src="/ophira-mark.svg" alt="" width="48" height="48" />
             </div>
-            <p className="conversation-entry-kicker">Opportunity Lead</p>
-            <h1>What opportunity should we explore?</h1>
+            <p className="conversation-entry-kicker">Ophira</p>
+            <h1>What are you working on?</h1>
 
             {composer}
 
@@ -403,88 +422,95 @@ export default function WorkspaceComposer({
             </section>
           </div>
         ) : (
-          <section className="conversation-session" aria-labelledby="conversation-session-title">
-            <header className="conversation-session-header">
-              <div>
-                <p>Opportunity Lead · One project truth</p>
-                <h1 id="conversation-session-title">{project?.name ?? value}</h1>
-              </div>
-              <div className="conversation-run-state">
-                <span data-status={run?.status ?? 'saved'}>{label(run?.status ?? 'Saved')}</span>
-                {run && <small>{connection} · Trace {run.trace_id}</small>}
-                {isActive && <button type="button" onClick={onCancel}>Cancel</button>}
-              </div>
-            </header>
-
+          <section className="conversation-session" aria-label="Conversation with Ophira">
             <div className="conversation-thread">
               <article className="conversation-user-message">
-                <span>You</span>
-                <p>{project?.objective ?? value}</p>
+                <p>{run?.prompt ?? project?.objective ?? value}</p>
               </article>
 
               <article className="conversation-agent-message">
-                <header>
-                  <span><img src="/ophira-mark.svg" alt="" width="24" height="24" /></span>
-                  <div><strong>Opportunity Lead</strong><small>{run ? `${label(run.status)} · ${connection}` : 'Saved project'}</small></div>
-                </header>
+                {(run || historyLoading) && (
+                  <div className="conversation-activity">
+                    <details className="conversation-process">
+                      <summary>
+                        <span>{historyLoading ? 'Restoring history' : isActive ? `Working for ${elapsed}` : `Ran for ${elapsed}`}</span>
+                        <i aria-hidden="true">›</i>
+                      </summary>
+                      <div className="conversation-process-body">
+                        <header>
+                          <span>{historyLoading ? 'Restoring' : label(run?.status ?? 'Saved')}</span>
+                          <small>{processSteps} {processSteps === 1 ? 'event' : 'events'} · {connection}</small>
+                        </header>
+                        {(reasoningSummary || traceEvents.length > 0) && (
+                          <ol>
+                            {reasoningSummary && (
+                              <li data-kind="reasoning">
+                                <details>
+                                  <summary>
+                                    <i aria-hidden="true">◇</i>
+                                    <span><strong>{isActive ? 'Thinking' : 'Approach'}</strong><small>Reasoning summary</small></span>
+                                    <b aria-hidden="true">›</b>
+                                  </summary>
+                                  <div className="conversation-thought-detail"><p>{reasoningSummary}</p></div>
+                                </details>
+                              </li>
+                            )}
+                            {traceEvents.map((event) => {
+                              const kind = eventKind(event)
+                              return (
+                                <li key={event.id} data-kind={kind}>
+                                  <details>
+                                    <summary>
+                                      <i aria-hidden="true">{processIcon(kind)}</i>
+                                      <span><strong>{eventTitle(event)}</strong><small>{label(event.actor.name)} · {new Date(event.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</small></span>
+                                      <b aria-hidden="true">›</b>
+                                    </summary>
+                                    <div className="conversation-event-detail">
+                                      <dl>
+                                        <div><dt>Event</dt><dd>{event.type}</dd></div>
+                                        <div><dt>Actor</dt><dd>{label(event.actor.type)}</dd></div>
+                                        {event.actor.agent_id && <div><dt>Agent ID</dt><dd>{event.actor.agent_id}</dd></div>}
+                                        {event.tool_use_id && <div><dt>Tool use ID</dt><dd>{event.tool_use_id}</dd></div>}
+                                        {event.parent_id && <div><dt>Parent</dt><dd>{event.parent_id}</dd></div>}
+                                      </dl>
+                                      <pre>{eventDetail(event)}</pre>
+                                    </div>
+                                  </details>
+                                </li>
+                              )
+                            })}
+                          </ol>
+                        )}
+                        {run && <p className="conversation-trace-note">Trace {run.trace_id}</p>}
+                      </div>
+                    </details>
+                    {isActive && <button type="button" onClick={onCancel}>Cancel</button>}
+                  </div>
+                )}
 
-                {assistantText ? (
-                  <p className="conversation-agent-output">{assistantText}</p>
+                {historyLoading ? (
+                  <div className="conversation-agent-waiting" role="status">
+                    <i aria-hidden="true" />
+                    <p>Restoring the recorded response and activity…</p>
+                  </div>
+                ) : assistantText ? (
+                  <div className="conversation-agent-output">
+                    <Markdown>{assistantText}</Markdown>
+                  </div>
+                ) : run?.status === 'failed' ? (
+                  <div className="conversation-run-outcome" data-status="failed" role="alert">
+                    <strong>Run failed</strong>
+                    <p>{run.error || 'The backend ended this run without a response.'}</p>
+                  </div>
                 ) : (
                   <div className="conversation-agent-waiting" role="status">
                     {isActive && <i aria-hidden="true" />}
                     <p>{isActive
-                      ? 'The backend is connected. Opportunity Lead is coordinating the specialist Agents…'
-                      : run?.error || 'This project truth is loaded from the backend. Start a new research brief to run the team again.'}</p>
+                      ? 'Ophira is working and using the available tools as needed…'
+                      : run?.status === 'cancelled'
+                        ? 'This run was cancelled.'
+                        : 'Send a message to continue from this project.'}</p>
                   </div>
-                )}
-
-                {(reasoningSummary || traceEvents.length > 0) && (
-                  <section className="conversation-process" aria-labelledby="conversation-process-heading">
-                    <header>
-                      <div><span>Claude Agent SDK</span><h2 id="conversation-process-heading">{isActive ? `Running for ${elapsed}` : `${label(run?.status ?? 'Recorded')} · ${elapsed}`}</h2></div>
-                      <small>{traceEvents.length + (reasoningSummary ? 1 : 0)} steps</small>
-                    </header>
-                    <ol>
-                      {reasoningSummary && (
-                        <li data-kind="reasoning">
-                          <details open={isActive}>
-                            <summary>
-                              <i aria-hidden="true">◇</i>
-                              <span><strong>{isActive ? 'Thinking' : 'Thought through the approach'}</strong><small>Reasoning summary emitted by the SDK</small></span>
-                              <b aria-hidden="true">›</b>
-                            </summary>
-                            <div className="conversation-thought-detail"><p>{reasoningSummary}</p></div>
-                          </details>
-                        </li>
-                      )}
-                      {traceEvents.map((event) => {
-                        const kind = eventKind(event)
-                        return (
-                          <li key={event.id} data-kind={kind}>
-                            <details>
-                              <summary>
-                                <i aria-hidden="true">{processIcon(kind)}</i>
-                                <span><strong>{eventTitle(event)}</strong><small>{label(event.actor.name)} · {new Date(event.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</small></span>
-                                <b aria-hidden="true">›</b>
-                              </summary>
-                              <div className="conversation-event-detail">
-                                <dl>
-                                  <div><dt>Event</dt><dd>{event.type}</dd></div>
-                                  <div><dt>Actor</dt><dd>{label(event.actor.type)}</dd></div>
-                                  {event.actor.agent_id && <div><dt>Agent ID</dt><dd>{event.actor.agent_id}</dd></div>}
-                                  {event.tool_use_id && <div><dt>Tool use ID</dt><dd>{event.tool_use_id}</dd></div>}
-                                  {event.parent_id && <div><dt>Parent</dt><dd>{event.parent_id}</dd></div>}
-                                </dl>
-                                <pre>{eventDetail(event)}</pre>
-                              </div>
-                            </details>
-                          </li>
-                        )
-                      })}
-                    </ol>
-                    <p className="conversation-trace-note">Expand any step to inspect the real SDK event, tool input, and tool response. Reasoning is shown only when the SDK emits a summary.</p>
-                  </section>
                 )}
 
                 {permissions.map((permission) => (
@@ -498,35 +524,41 @@ export default function WorkspaceComposer({
                   </section>
                 ))}
 
-                {project && (
-                  <section className="conversation-project-truth" aria-labelledby="project-truth-heading">
-                    <div><span>Live project truth</span><h2 id="project-truth-heading">Four dimensions, one decision.</h2></div>
-                    <div className="conversation-assessment-grid">
-                      {dimensions.map((dimension) => {
-                        const assessment = project.assessments[dimension]
-                        return (
-                          <article key={dimension}>
-                            <span>{label(dimension)}</span>
-                            <strong>{assessment.score}</strong>
-                            <small data-status={assessment.status}>{label(assessment.status)}</small>
-                            <p>{assessment.summary || assessment.gaps[0] || 'Waiting for the specialist Agent.'}</p>
-                          </article>
-                        )
-                      })}
-                    </div>
-                    {project.evidence.length > 0 && (
-                      <div className="conversation-evidence-ledger">
-                        <div><strong>Evidence ledger</strong><span>{project.evidence.length} records</span></div>
-                        {project.evidence.slice(-4).reverse().map((item) => (
-                          <article key={item.id}>
-                            <small>{label(item.kind)} · {label(item.dimension)}</small>
-                            <p>{item.claim}</p>
-                            <span>{item.source_title}</span>
-                          </article>
-                        ))}
+                {project && hasProjectTruth && (
+                  <details className="conversation-project-truth">
+                    <summary>
+                      <span>Project record</span>
+                      <small>{project.evidence.length} evidence records</small>
+                      <i aria-hidden="true">›</i>
+                    </summary>
+                    <div className="conversation-project-truth-body">
+                      <div className="conversation-assessment-grid">
+                        {dimensions.map((dimension) => {
+                          const assessment = project.assessments[dimension]
+                          return (
+                            <article key={dimension}>
+                              <span>{label(dimension)}</span>
+                              <strong>{assessment.score}</strong>
+                              <small data-status={assessment.status}>{label(assessment.status)}</small>
+                              <p>{assessment.summary || assessment.gaps[0] || 'No recorded assessment.'}</p>
+                            </article>
+                          )
+                        })}
                       </div>
-                    )}
-                  </section>
+                      {project.evidence.length > 0 && (
+                        <div className="conversation-evidence-ledger">
+                          <div><strong>Evidence ledger</strong><span>{project.evidence.length} records</span></div>
+                          {project.evidence.slice(-4).reverse().map((item) => (
+                            <article key={item.id}>
+                              <small>{label(item.kind)} · {label(item.dimension)}</small>
+                              <p>{item.claim}</p>
+                              <span>{item.source_title}</span>
+                            </article>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </details>
                 )}
 
               </article>

@@ -19,6 +19,7 @@ describe('WorkspaceComposer', () => {
         reasoningSummary=""
         permissions={[]}
         connection="idle"
+        historyLoading={false}
         isActive={false}
         onChange={onChange}
         onSubmit={vi.fn()}
@@ -29,23 +30,21 @@ describe('WorkspaceComposer', () => {
       />,
     )
 
-    expect(screen.getByRole('heading', { level: 1, name: /what opportunity should we explore/i })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { level: 1, name: /what are you working on/i })).toBeInTheDocument()
     const primaryComposer = screen.getByRole('textbox', { name: /ask ophira/i })
     expect(primaryComposer).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /start research/i })).toBeDisabled()
-    expect(screen.getByRole('link', { name: /01 opportunity studio/i })).toHaveAttribute('href', '/app')
+    expect(screen.getByRole('button', { name: /send/i })).toBeDisabled()
+    expect(screen.getByRole('link', { name: /01 agent workspace/i })).toHaveAttribute('href', '/app')
     expect(screen.getByRole('link', { name: /03 skill studio/i })).toHaveAttribute('href', '/app/skills')
     expect(screen.queryByRole('link', { name: /04 settings/i })).not.toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: /agent team/i })).not.toBeInTheDocument()
 
-    const demandShortcut = screen.getByRole('button', { name: /find a real unmet need/i })
-    expect(primaryComposer.compareDocumentPosition(demandShortcut) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-
-    fireEvent.click(demandShortcut)
-    expect(onChange).toHaveBeenCalledWith(expect.stringMatching(/unmet customer need/i))
+    expect(screen.getByRole('heading', { name: /start with a validation task/i })).toBeInTheDocument()
+    expect(screen.getAllByRole('button', { name: /demand|supply|capital|sales/i })).toHaveLength(4)
+    expect(onChange).not.toHaveBeenCalled()
   })
 
-  it('stages local attachments and inserts built-in skill instructions', () => {
+  it('keeps add files and skills as separate composer controls', () => {
     const onChange = vi.fn()
     render(
       <WorkspaceComposer
@@ -61,6 +60,7 @@ describe('WorkspaceComposer', () => {
         reasoningSummary=""
         permissions={[]}
         connection="idle"
+        historyLoading={false}
         isActive={false}
         onChange={onChange}
         onSubmit={vi.fn()}
@@ -74,7 +74,6 @@ describe('WorkspaceComposer', () => {
     const attachment = new File(['supplier notes'], 'supplier-notes.pdf', { type: 'application/pdf' })
     fireEvent.change(screen.getByLabelText(/choose files or images/i), { target: { files: [attachment] } })
     expect(screen.getByLabelText(/locally staged attachments/i)).toHaveTextContent('supplier-notes.pdf')
-    expect(screen.getByText(/attachment upload is not connected yet/i)).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: /skills/i }))
     expect(screen.getByRole('dialog', { name: /choose an ophira skill/i })).toBeInTheDocument()
@@ -101,6 +100,7 @@ describe('WorkspaceComposer', () => {
         reasoningSummary=""
         permissions={[]}
         connection="idle"
+        historyLoading={false}
         isActive={false}
         onChange={vi.fn()}
         onSubmit={vi.fn()}
@@ -142,10 +142,11 @@ describe('WorkspaceComposer', () => {
             data: { tool_name: 'WebSearch', tool_input: { query: 'buyer signals' }, tool_response: { result: 'three verified sources' } },
           },
         ]}
-        assistantText="Research completed with three verified sources."
+        assistantText={'## Result\n\nResearch completed with three verified sources.'}
         reasoningSummary="I compared the available buyer evidence before selecting the next validation step."
         permissions={[]}
         connection="live"
+        historyLoading={false}
         isActive={true}
         onChange={vi.fn()}
         onSubmit={vi.fn()}
@@ -156,10 +157,49 @@ describe('WorkspaceComposer', () => {
       />,
     )
 
-    expect(screen.getByRole('heading', { name: /running for/i })).toBeInTheDocument()
+    const activitySummary = screen.getByText(/working for/i).closest('summary')
+    expect(activitySummary?.parentElement).not.toHaveAttribute('open')
+    fireEvent.click(activitySummary!)
+
+    expect(screen.getByRole('heading', { name: 'Result' })).toBeInTheDocument()
+    expect(screen.getByText(/websearch completed/i)).toBeVisible()
+    const reasoningSummary = screen.getByText('Thinking').closest('summary')
+    fireEvent.click(reasoningSummary!)
     expect(screen.getByText(/compared the available buyer evidence/i)).toBeVisible()
-    expect(screen.getByText(/websearch completed/i)).toBeInTheDocument()
     expect(screen.getAllByText(/three verified sources/i)).toHaveLength(2)
-    expect(screen.getByText(/reasoning is shown only when the sdk emits a summary/i)).toBeInTheDocument()
+    expect(screen.getByText(/trace trace_1/i)).toBeVisible()
+  })
+
+  it('shows a real history restore state without fabricating project results', () => {
+    render(
+      <WorkspaceComposer
+        value=""
+        busy
+        notice=""
+        error=""
+        projects={[]}
+        project={null}
+        run={{
+          id: 'run_1', trace_id: 'trace_1', project_id: 'project_1', prompt: 'Review this market', status: 'completed',
+          sdk_session_id: 'session_1', error: null, created_at: '2026-08-05T10:00:00Z', started_at: '2026-08-05T10:00:00Z', finished_at: '2026-08-05T10:01:00Z',
+        }}
+        events={[]}
+        assistantText=""
+        reasoningSummary=""
+        permissions={[]}
+        connection="connecting"
+        historyLoading
+        isActive={false}
+        onChange={vi.fn()}
+        onSubmit={vi.fn()}
+        onNewResearch={vi.fn()}
+        onSelectProject={vi.fn()}
+        onCancel={vi.fn()}
+        onDecision={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByRole('status')).toHaveTextContent(/restoring the recorded response/i)
+    expect(screen.queryByRole('heading', { name: /recorded assessment/i })).not.toBeInTheDocument()
   })
 })

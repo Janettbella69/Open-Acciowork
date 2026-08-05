@@ -12,7 +12,12 @@ cp backend/.env.example backend/.env
 .venv/bin/uvicorn ophira_backend.main:app --app-dir backend/src --reload
 ```
 
-An Anthropic API key or a supported Claude Code login is required for real Agent runs. Project and run records default to `backend/data/` and are ignored by Git.
+An Anthropic API key or a supported Claude Code login is required for real Agent runs.
+Anthropic-compatible gateways are configured with `ANTHROPIC_BASE_URL`, either
+`ANTHROPIC_AUTH_TOKEN` or `ANTHROPIC_API_KEY`, and `OPHIRA_CLAUDE_MODEL`. See
+[`../docs/model-providers.md`](../docs/model-providers.md) for current DeepSeek, Kimi,
+GLM, and Qwen examples. Project and run records default to `backend/data/` and are
+ignored by Git.
 
 ## Verify
 

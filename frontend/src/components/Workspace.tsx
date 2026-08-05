@@ -22,12 +22,16 @@ export default function Workspace() {
     const brief = briefInput.trim()
     if (!brief) return
 
-    setNotice('Creating one shared project truth and starting Opportunity Lead…')
+    setNotice('Starting Ophira…')
     try {
-      await runtime.start(brief)
+      if (runtime.project) {
+        await runtime.continueProject(brief)
+      } else {
+        await runtime.start(brief)
+      }
       normalizeWorkspaceUrl()
       setBriefInput('')
-      setNotice('Backend connected. Live Agent activity is streaming into this conversation.')
+      setNotice('Backend connected. Live activity is streaming into this conversation.')
     } catch {
       setNotice('The research run could not start. Your brief is still here so you can try again.')
     }
@@ -38,22 +42,29 @@ export default function Workspace() {
     runtime.reset()
     setBriefInput('')
     normalizeWorkspaceUrl()
-    setNotice('Start with a product, market, capability, or customer question.')
+    setNotice('Start with whatever you want to accomplish.')
   }
 
-  const selectSavedProject = (projectId: string) => {
+  const selectSavedProject = async (projectId: string) => {
     const project = runtime.projects.find((item) => item.id === projectId)
     if (!project) return
-    runtime.selectProject(project)
     setBriefInput('')
     normalizeWorkspaceUrl()
-    setNotice('Saved project truth loaded from the backend.')
+    setNotice('Loading the saved project truth and run history…')
+    try {
+      const loadedRun = await runtime.selectProject(project)
+      setNotice(loadedRun
+        ? ''
+        : 'This project has no recorded run yet. Send a message to begin.')
+    } catch {
+      setNotice('The recorded run history could not be loaded. The project truth below is still current.')
+    }
   }
 
   return (
     <WorkspaceComposer
       value={briefInput}
-      busy={runtime.starting || runtime.isActive}
+      busy={runtime.starting || runtime.isActive || runtime.historyLoading}
       notice={notice}
       error={runtime.error}
       projects={runtime.projects}
@@ -64,11 +75,12 @@ export default function Workspace() {
       reasoningSummary={runtime.reasoningSummary}
       permissions={runtime.permissions}
       connection={runtime.connection}
+      historyLoading={runtime.historyLoading}
       isActive={runtime.isActive}
       onChange={setBriefInput}
       onSubmit={runAnalysis}
       onNewResearch={() => void startNewResearch()}
-      onSelectProject={selectSavedProject}
+      onSelectProject={(projectId) => void selectSavedProject(projectId)}
       onCancel={() => void runtime.cancel()}
       onDecision={(requestId, decision) => void runtime.decidePermission(requestId, decision)}
     />

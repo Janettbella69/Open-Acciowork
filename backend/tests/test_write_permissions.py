@@ -69,30 +69,21 @@ async def test_write_outside_workspace_denied_without_asking(tmp_path: Path) -> 
 
 
 @pytest.mark.asyncio
-async def test_write_inside_workspace_goes_through_broker(tmp_path: Path) -> None:
+async def test_write_inside_workspace_is_allowed_without_a_permission_round_trip(
+    tmp_path: Path,
+) -> None:
     ledger, permissions, runtime = build_runtime(tmp_path)
     agent = ledger.create_agent(AgentCreate(name="通用", template=AgentTemplate.GENERAL))
     project = ledger.create_project(ProjectCreate(name="Kettle", objective="Validate"))
     run = ledger.create_run(project.id, "Start", agent_id=agent.id)
     options = runtime._build_options(run)
 
-    task = asyncio.create_task(
-        options.can_use_tool("Write", {"file_path": "report.md"}, FakeToolContext())
-    )
-    for _ in range(200):
-        if permissions._pending:
-            break
-        await asyncio.sleep(0.01)
-    assert len(permissions._pending) == 1
-    request_id = next(iter(permissions._pending))
-    await permissions.resolve(
-        run.id,
-        request_id,
-        PermissionResolution(decision=PermissionDecision.ALLOW_ONCE),
+    result = await options.can_use_tool(
+        "Write", {"file_path": "report.md"}, FakeToolContext()
     )
 
-    result = await task
     assert isinstance(result, PermissionResultAllow)
+    assert permissions._pending == {}
 
 
 @pytest.mark.asyncio

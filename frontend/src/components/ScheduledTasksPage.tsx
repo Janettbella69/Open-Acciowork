@@ -20,7 +20,7 @@ type ScheduledTaskDraft = {
   name: string
   prompt: string
   cadence: ScheduleCadence
-  agent: 'opportunity' | 'demand' | 'supply' | 'capital' | 'sales'
+  agent: 'adaptive' | 'opportunity' | 'demand' | 'supply' | 'capital' | 'sales'
   createdAt: string
 }
 
@@ -66,7 +66,7 @@ export default function ScheduledTasksPage() {
   const [name, setName] = useState('')
   const [prompt, setPrompt] = useState('')
   const [cadence, setCadence] = useState<ScheduleCadence>('daily_morning')
-  const [agent, setAgent] = useState<ScheduledTaskDraft['agent']>('opportunity')
+  const [agent, setAgent] = useState<ScheduledTaskDraft['agent']>('adaptive')
 
   useEffect(() => {
     window.localStorage.setItem(storageKey, JSON.stringify(tasks))
@@ -85,7 +85,7 @@ export default function ScheduledTasksPage() {
     setName(template?.name ?? '')
     setPrompt(template?.prompt ?? '')
     setCadence(template?.cadence ?? 'daily_morning')
-    setAgent('opportunity')
+    setAgent('adaptive')
     setCreatorOpen(true)
   }
 
@@ -123,7 +123,7 @@ export default function ScheduledTasksPage() {
 
       <main className="schedules-main">
         <header className="schedules-header">
-          <div><p>OPHIRA automation</p><h1>Scheduled tasks</h1><span>Prepare recurring work for Opportunity Lead and the specialist Agent team.</span></div>
+          <div><p>OPHIRA automation</p><h1>Scheduled tasks</h1><span>Prepare recurring work and let Ophira choose the useful capabilities at run time.</span></div>
           <div className="schedules-actions">
             <div role="group" aria-label="Scheduled task view">
               <button type="button" data-active={view === 'templates'} onClick={() => setView('templates')}>Templates</button>
@@ -182,7 +182,7 @@ export default function ScheduledTasksPage() {
               <label>Recurring brief<textarea value={prompt} onChange={(event) => setPrompt(event.target.value)} rows={5} placeholder="Describe what the Agent should prepare..." required /></label>
               <div>
                 <label>Cadence<select value={cadence} onChange={(event) => setCadence(event.target.value as ScheduleCadence)}>{Object.entries(cadenceLabels).map(([value, text]) => <option key={value} value={value}>{text}</option>)}</select></label>
-                <label>Agent<select value={agent} onChange={(event) => setAgent(event.target.value as ScheduledTaskDraft['agent'])}><option value="opportunity">Opportunity Lead</option><option value="demand">Demand</option><option value="supply">Supply</option><option value="capital">Capital</option><option value="sales">Sales</option></select></label>
+                <label>Agent<select value={agent} onChange={(event) => setAgent(event.target.value as ScheduledTaskDraft['agent'])}><option value="adaptive">Adaptive · Ophira chooses</option><option value="opportunity">Opportunity exploration</option><option value="demand">Demand perspective</option><option value="supply">Supply perspective</option><option value="capital">Capital perspective</option><option value="sales">Sales perspective</option></select></label>
               </div>
               <p>This creates a local draft only. No task will run or contact an external service.</p>
               <footer><button type="button" onClick={() => setCreatorOpen(false)}>Cancel</button><button type="submit">Save draft <span aria-hidden="true">→</span></button></footer>

@@ -98,6 +98,10 @@ def create_app(
     async def health() -> dict[str, str]:
         return {"status": "ok", "service": "ophira-backend"}
 
+    @application.get("/api/runtime/provider")
+    async def runtime_provider() -> dict[str, str | bool | None]:
+        return settings.provider_status()
+
     @application.get("/api/meta/protocol")
     async def protocol_metadata() -> dict[str, list[str] | str]:
         return {
@@ -129,6 +133,13 @@ def create_app(
     async def get_project(project_id: str) -> OpportunityProject:
         try:
             return ledger.get_project(project_id)
+        except (LedgerNotFoundError, ValueError) as exc:
+            raise HTTPException(status_code=404, detail="Project not found") from exc
+
+    @application.get("/api/projects/{project_id}/runs", response_model=list[RunRecord])
+    async def list_project_runs(project_id: str) -> list[RunRecord]:
+        try:
+            return ledger.list_runs(project_id)
         except (LedgerNotFoundError, ValueError) as exc:
             raise HTTPException(status_code=404, detail="Project not found") from exc
 

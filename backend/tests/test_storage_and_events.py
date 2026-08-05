@@ -20,6 +20,17 @@ def test_file_ledger_keeps_manifest_summary_and_detail(tmp_path: Path) -> None:
     assert (tmp_path / "runs" / run.id / "summary.json").exists()
 
 
+def test_file_ledger_lists_project_runs_newest_first(tmp_path: Path) -> None:
+    ledger = FileLedger(tmp_path)
+    first_project = ledger.create_project(ProjectCreate(name="Kettle", objective="Validate EU"))
+    second_project = ledger.create_project(ProjectCreate(name="Lamp", objective="Validate US"))
+    first_run = ledger.create_run(first_project.id, "First pass")
+    second_run = ledger.create_run(first_project.id, "Second pass")
+    ledger.create_run(second_project.id, "Separate project")
+
+    assert [run.id for run in ledger.list_runs(first_project.id)] == [second_run.id, first_run.id]
+
+
 @pytest.mark.asyncio
 async def test_event_sequence_is_replayable_and_redacted(tmp_path: Path) -> None:
     ledger = FileLedger(tmp_path)

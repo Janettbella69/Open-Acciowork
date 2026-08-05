@@ -78,10 +78,10 @@ export default function SkillsPage() {
     <div className="skills-shell">
       <aside className="conversation-sidebar skills-sidebar">
         <a className="conversation-sidebar-brand" href="/" aria-label="Back to OPHIRA website"><Brand /></a>
-        <a className="conversation-new-research" href="/app"><span aria-hidden="true">＋</span> New research</a>
+        <a className="conversation-new-research" href="/app"><span aria-hidden="true">＋</span> New conversation</a>
         <nav className="conversation-sidebar-nav" aria-label="Workspace navigation">
           <p>Workspace</p>
-          <a href="/app"><span>01</span>Opportunity studio</a>
+          <a href="/app"><span>01</span>Agent workspace</a>
           <a href="/app/schedules"><span>02</span>Scheduled tasks</a>
           <a href="/app/skills" aria-current="page"><span>03</span>Skill Studio</a>
         </nav>
@@ -115,13 +115,13 @@ export default function SkillsPage() {
             <div>
               <span>Featured operating skill</span>
               <h2 id="featured-skill-heading">Opportunity Validation Brief</h2>
-              <p>Coordinate Demand, Supply, Capital, and Sales around one project truth before committing resources.</p>
+              <p>Use several commercial perspectives when they help, without forcing every request through the same sequence.</p>
               <a href="/app">Start with this workflow <span aria-hidden="true">→</span></a>
             </div>
             <dl>
               <div><dt>Inputs</dt><dd>Market question · constraints · target</dd></div>
               <div><dt>Output</dt><dd>Evidence gaps · stop conditions · next test</dd></div>
-              <div><dt>Owner</dt><dd>Opportunity Lead</dd></div>
+              <div><dt>Owner</dt><dd>Ophira</dd></div>
             </dl>
           </section>
         )}

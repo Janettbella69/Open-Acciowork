@@ -41,6 +41,7 @@ class RunStatus(StrEnum):
     QUEUED = "queued"
     RUNNING = "running"
     WAITING_PERMISSION = "waiting_permission"
+    PAUSED = "paused"
     CANCELLING = "cancelling"
     COMPLETED = "completed"
     FAILED = "failed"

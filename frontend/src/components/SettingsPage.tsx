@@ -160,7 +160,7 @@ export default function SettingsPage() {
           <div className="settings-card">
             <ToggleRow
               title="Keep this device awake during active runs"
-              description="Prevent system sleep while an Opportunity Lead run is streaming."
+              description="Prevent system sleep while an Agent run is streaming."
               checked={settings.keepAwake}
               onChange={(checked) => update('keepAwake', checked)}
             />

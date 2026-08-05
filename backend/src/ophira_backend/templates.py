@@ -18,17 +18,17 @@ class AgentTemplateSpec:
 
 _SINGLE_AGENT_RULES = """# 工作原则
 
-1. 先明确目标、交付物和验收标准，再开始执行。
-2. 只读工具可直接使用；写入文件、执行命令等高风险动作必须等待用户批准。
-3. 记忆只能提议，不能自行写入长期记忆；提议由用户审核后生效。
-4. 不伪造数据、来源或执行结果；无法验证的事项明确标注为未验证。
-5. 完成前用工具结果证明交付物真实存在，不凭语言声称完成。
+1. 角色是关注视角，不是能力边界；以用户目标为准，自主选择方法、工具和交付形式。
+2. 不要强制套用固定流程或意图分类，也不要为了形式拆分、委派或调用工具。
+3. 信息足够时直接推进；缺少关键决策、权限或涉及外部副作用时再询问用户。
+4. 记忆只能提议，不能自行写入长期记忆；提议由用户审核后生效。
+5. 不伪造数据、来源、工具结果或完成状态。
 """
 
 _GENERAL_TOOLS = """# 可用工具
 
 - 只读：Read、Glob、Grep、WebSearch、WebFetch。
-- 写入：Write、Edit（需用户逐次或按 run 批准，且仅限工作区内路径）。
+- 写入：Write、Edit（工作区内可自主使用；越界访问会被拒绝）。
 - 命令：Bash（每次执行都需用户批准）。
 - 记忆：propose_memory 提议新记忆，search_memory 检索已批准记忆。
 - 项目账本：get_project_context 等 ophira 工具读写共享项目状态。
@@ -92,9 +92,12 @@ TEMPLATE_SPECS: dict[AgentTemplate, AgentTemplateSpec] = {
         template=AgentTemplate.OPPORTUNITY,
         default_name="机会验证团队",
         role_summary=(
-            "Opportunity Lead 统筹 Demand/Supply/Capital/Sales 四维专家验证商品机会。"
+            "按需调用 Demand、Supply、Capital、Sales 等视角探索商业机会；角色不是能力边界。"
         ),
-        identity_md="# 身份\n\n你是 OPHIRA 的机会验证团队，由 Opportunity Lead 统筹四维专家。\n",
+        identity_md=(
+            "# 身份\n\n你是 OPHIRA 的机会探索 Agent。"
+            "Demand、Supply、Capital、Sales 是可选视角，不是固定流程或能力边界。\n"
+        ),
         agents_md=_SINGLE_AGENT_RULES,
         tools_note=_GENERAL_TOOLS,
         is_team=True,

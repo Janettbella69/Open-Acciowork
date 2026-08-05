@@ -71,10 +71,21 @@ export function getProject(projectId: string): Promise<OpportunityProject> {
   return request<OpportunityProject>(`/api/projects/${projectId}`)
 }
 
-export function startRun(projectId: string, prompt: string): Promise<RunRecord> {
+export function listProjectRuns(projectId: string): Promise<RunRecord[]> {
+  return request<RunRecord[]>(`/api/projects/${projectId}/runs`)
+}
+
+export function startRun(
+  projectId: string,
+  prompt: string,
+  resumeSessionId?: string | null,
+): Promise<RunRecord> {
   return request<RunRecord>(`/api/projects/${projectId}/runs`, {
     method: 'POST',
-    body: JSON.stringify({ prompt }),
+    body: JSON.stringify({
+      prompt,
+      ...(resumeSessionId ? { resume_session_id: resumeSessionId } : {}),
+    }),
   })
 }
 

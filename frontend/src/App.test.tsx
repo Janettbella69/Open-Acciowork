@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { OpportunityProject, OphiraEvent, RunRecord } from './api/types'
 import App from './App'
@@ -53,6 +53,7 @@ const run: RunRecord = {
 }
 
 let eventSequence = 0
+let storedProjects: OpportunityProject[] = []
 
 function jsonResponse(body: unknown, status = 200): Response {
   return {
@@ -111,6 +112,7 @@ describe('OPHIRA frontend', () => {
     window.history.replaceState({}, '', '/app')
     MockEventSource.instances = []
     eventSequence = 0
+    storedProjects = []
     vi.stubGlobal('EventSource', MockEventSource)
     vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
       const url = String(input)
@@ -124,11 +126,12 @@ describe('OPHIRA frontend', () => {
           permission_decisions: [],
         })
       }
-      if (url.endsWith('/api/projects') && !init?.method) return jsonResponse([])
+      if (url.endsWith('/api/projects') && !init?.method) return jsonResponse(storedProjects)
       if (url.endsWith('/api/projects') && init?.method === 'POST') return jsonResponse(project, 201)
-      if (url.endsWith(`/api/projects/${project.id}/runs`)) return jsonResponse(run, 202)
+      if (url.endsWith(`/api/projects/${project.id}/runs`) && init?.method === 'POST') return jsonResponse(run, 202)
+      if (url.endsWith(`/api/projects/${project.id}/runs`)) return jsonResponse([{ ...run, status: 'completed', finished_at: timestamp }])
       if (url.endsWith(`/api/projects/${project.id}`)) return jsonResponse(project)
-      if (url.endsWith(`/api/runs/${run.id}`)) return jsonResponse({ ...run, status: 'completed' })
+      if (url.endsWith(`/api/runs/${run.id}`)) return jsonResponse({ ...run, status: 'completed', sdk_session_id: 'session_test', finished_at: timestamp })
       throw new Error(`Unexpected request: ${init?.method ?? 'GET'} ${url}`)
     }))
   })
@@ -150,18 +153,18 @@ describe('OPHIRA frontend', () => {
     render(<App />)
 
     expect(screen.getByRole('heading', { level: 1, name: 'Skills' })).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: /01 opportunity studio/i })).toHaveAttribute('href', '/app')
+    expect(screen.getByRole('link', { name: /01 agent workspace/i })).toHaveAttribute('href', '/app')
     expect(screen.getByRole('link', { name: /03 skill studio/i })).toHaveAttribute('aria-current', 'page')
-    expect(screen.getByRole('link', { name: /new research/i })).toHaveAttribute('href', '/app')
+    expect(screen.getByRole('link', { name: /new conversation/i })).toHaveAttribute('href', '/app')
   })
 
   it('creates a live backend run and renders observable SDK events', async () => {
     render(<Workspace />)
-    await screen.findByRole('heading', { name: /what opportunity should we explore/i })
+    await screen.findByRole('heading', { name: /what are you working on/i })
     const input = screen.getByRole('textbox', { name: /ask ophira/i })
 
     fireEvent.change(input, { target: { value: project.objective } })
-    fireEvent.click(screen.getByRole('button', { name: /start research/i }))
+    fireEvent.click(screen.getByRole('button', { name: /send/i }))
 
     expect(screen.getAllByText(project.objective).length).toBeGreaterThan(0)
     await screen.findByText(/backend connected/i)
@@ -190,21 +193,71 @@ describe('OPHIRA frontend', () => {
     const input = await screen.findByRole('textbox', { name: /ask ophira/i })
     expect(input).toHaveValue('你好')
 
-    fireEvent.click(screen.getByRole('button', { name: /start research/i }))
+    fireEvent.click(screen.getByRole('button', { name: /send/i }))
 
     await screen.findByText(/backend connected/i)
-    expect(screen.getByRole('heading', { level: 1, name: project.name })).toBeInTheDocument()
+    expect(await screen.findByRole('region', { name: /conversation with ophira/i })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { level: 1, name: project.name })).not.toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: /turn a market question into a commercial path/i })).not.toBeInTheDocument()
     expect(window.location.pathname).toBe('/app')
     expect(window.location.search).toBe('')
   })
 
-  it('uses a validation shortcut to prepare the primary conversation box', async () => {
+  it('keeps the primary input open-ended instead of injecting a preset workflow', async () => {
     render(<Workspace />)
     const input = await screen.findByRole('textbox', { name: /ask ophira/i })
 
-    fireEvent.click(screen.getByRole('button', { name: /test whether our capability can travel/i }))
+    fireEvent.change(input, { target: { value: 'Help me reason through an unfamiliar problem.' } })
 
-    expect((input as HTMLTextAreaElement).value).toMatch(/best fits our current product and supply capability/i)
+    expect(input).toHaveValue('Help me reason through an unfamiliar problem.')
+    expect(screen.getByRole('heading', { name: /start with a validation task/i })).toBeInTheDocument()
+  })
+
+  it('continues inside the same project and resumes the model session', async () => {
+    render(<Workspace />)
+    const input = await screen.findByRole('textbox', { name: /ask ophira/i })
+
+    fireEvent.change(input, { target: { value: project.objective } })
+    fireEvent.click(screen.getByRole('button', { name: /send/i }))
+    await screen.findByText(/backend connected/i)
+
+    const source = MockEventSource.instances[0]
+    act(() => {
+      source.emit('run.completed', runtimeEvent('run.completed', { status: 'completed' }))
+    })
+    await waitFor(() => expect(screen.getByText(/ran for/i)).toBeInTheDocument())
+
+    const followUp = screen.getByRole('textbox', { name: /ask ophira/i })
+    fireEvent.change(followUp, { target: { value: 'Now challenge the strongest assumption.' } })
+    fireEvent.click(screen.getByRole('button', { name: /send/i }))
+
+    await waitFor(() => {
+      const runPosts = vi.mocked(fetch).mock.calls.filter(([request, init]) => (
+        String(request).endsWith(`/api/projects/${project.id}/runs`) && init?.method === 'POST'
+      ))
+      expect(runPosts).toHaveLength(2)
+      expect(JSON.parse(String(runPosts[1][1]?.body))).toEqual({
+        prompt: 'Now challenge the strongest assumption.',
+        resume_session_id: 'session_test',
+      })
+    })
+  })
+
+  it('restores the latest recorded response when a saved project is selected', async () => {
+    storedProjects = [project]
+    render(<Workspace />)
+
+    const savedProject = await screen.findByRole('button', { name: new RegExp(project.name, 'i') })
+    fireEvent.click(savedProject)
+
+    expect(await screen.findByText(/restoring the recorded response/i)).toBeInTheDocument()
+    const source = MockEventSource.instances[0]
+    act(() => {
+      source.emit('assistant.text.delta', runtimeEvent('assistant.text.delta', { text: 'Restored from the durable event log.' }))
+      source.emit('run.completed', runtimeEvent('run.completed', { status: 'completed' }))
+    })
+
+    expect(await screen.findByText('Restored from the durable event log.')).toBeInTheDocument()
+    expect(screen.queryByText(/four dimensions, one decision/i)).not.toBeInTheDocument()
   })
 })

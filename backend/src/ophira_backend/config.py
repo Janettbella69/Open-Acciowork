@@ -2,7 +2,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Annotated
 
-from pydantic import Field, SecretStr, field_validator
+from pydantic import AliasChoices, Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 BACKEND_DIR = Path(__file__).resolve().parents[2]
@@ -14,6 +14,7 @@ class Settings(BaseSettings):
         env_file=BACKEND_DIR / ".env",
         env_file_encoding="utf-8",
         extra="ignore",
+        populate_by_name=True,
     )
 
     data_dir: Path = BACKEND_DIR / "data"
@@ -23,14 +24,79 @@ class Settings(BaseSettings):
     ]
     host: str = "127.0.0.1"
     port: int = Field(default=8000, ge=1, le=65_535)
-    claude_model: str | None = None
+    claude_model: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("OPHIRA_CLAUDE_MODEL", "ANTHROPIC_MODEL"),
+    )
+    anthropic_base_url: str | None = Field(
+        default=None,
+        validation_alias="ANTHROPIC_BASE_URL",
+    )
+    anthropic_auth_token: SecretStr | None = Field(
+        default=None,
+        validation_alias="ANTHROPIC_AUTH_TOKEN",
+    )
     anthropic_api_key: SecretStr | None = Field(
         default=None,
         validation_alias="ANTHROPIC_API_KEY",
     )
+    claude_default_haiku_model: str | None = Field(
+        default=None,
+        validation_alias="ANTHROPIC_DEFAULT_HAIKU_MODEL",
+    )
+    claude_default_fable_model: str | None = Field(
+        default=None,
+        validation_alias="ANTHROPIC_DEFAULT_FABLE_MODEL",
+    )
+    claude_default_sonnet_model: str | None = Field(
+        default=None,
+        validation_alias="ANTHROPIC_DEFAULT_SONNET_MODEL",
+    )
+    claude_default_opus_model: str | None = Field(
+        default=None,
+        validation_alias="ANTHROPIC_DEFAULT_OPUS_MODEL",
+    )
+    claude_subagent_model: str | None = Field(
+        default=None,
+        validation_alias="CLAUDE_CODE_SUBAGENT_MODEL",
+    )
+    claude_effort_level: str | None = Field(
+        default=None,
+        validation_alias="CLAUDE_CODE_EFFORT_LEVEL",
+    )
+    claude_auto_compact_window: int | None = Field(
+        default=None,
+        ge=1,
+        validation_alias="CLAUDE_CODE_AUTO_COMPACT_WINDOW",
+    )
+    claude_max_context_tokens: int | None = Field(
+        default=None,
+        ge=1,
+        validation_alias="CLAUDE_CODE_MAX_CONTEXT_TOKENS",
+    )
     permission_timeout_seconds: int = Field(default=300, ge=10, le=3_600)
     max_turns: int = Field(default=40, ge=1, le=500)
     max_budget_usd: float = Field(default=10, gt=0, le=1_000)
+
+    @field_validator(
+        "claude_model",
+        "anthropic_base_url",
+        "anthropic_auth_token",
+        "anthropic_api_key",
+        "claude_default_haiku_model",
+        "claude_default_fable_model",
+        "claude_default_sonnet_model",
+        "claude_default_opus_model",
+        "claude_subagent_model",
+        "claude_effort_level",
+        mode="before",
+    )
+    @classmethod
+    def empty_string_is_unset(cls, value: object) -> object:
+        if isinstance(value, str):
+            normalized = value.strip()
+            return normalized or None
+        return value
 
     @field_validator("cors_origins", mode="before")
     @classmethod
@@ -38,6 +104,56 @@ class Settings(BaseSettings):
         if isinstance(value, str):
             return [item.strip() for item in value.split(",") if item.strip()]
         return value
+
+    def claude_sdk_env(self) -> dict[str, str]:
+        """Environment passed only to the Claude Code subprocess."""
+        env: dict[str, str] = {}
+        if self.anthropic_base_url:
+            env["ANTHROPIC_BASE_URL"] = self.anthropic_base_url
+        if self.anthropic_auth_token:
+            env["ANTHROPIC_AUTH_TOKEN"] = self.anthropic_auth_token.get_secret_value()
+        if self.anthropic_api_key:
+            env["ANTHROPIC_API_KEY"] = self.anthropic_api_key.get_secret_value()
+
+        if self.claude_model:
+            env["ANTHROPIC_MODEL"] = self.claude_model
+
+        model_mappings = {
+            "ANTHROPIC_DEFAULT_HAIKU_MODEL": self.claude_default_haiku_model,
+            "ANTHROPIC_DEFAULT_FABLE_MODEL": self.claude_default_fable_model,
+            "ANTHROPIC_DEFAULT_SONNET_MODEL": self.claude_default_sonnet_model,
+            "ANTHROPIC_DEFAULT_OPUS_MODEL": self.claude_default_opus_model,
+            "CLAUDE_CODE_SUBAGENT_MODEL": self.claude_subagent_model,
+        }
+        for name, configured_model in model_mappings.items():
+            model = configured_model or self.claude_model
+            if model:
+                env[name] = model
+
+        if self.claude_effort_level:
+            env["CLAUDE_CODE_EFFORT_LEVEL"] = self.claude_effort_level
+        if self.claude_auto_compact_window:
+            env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] = str(self.claude_auto_compact_window)
+        if self.claude_max_context_tokens:
+            env["CLAUDE_CODE_MAX_CONTEXT_TOKENS"] = str(self.claude_max_context_tokens)
+        return env
+
+    def provider_status(self) -> dict[str, str | bool | None]:
+        """Return runtime provider metadata without exposing credentials."""
+        if self.anthropic_auth_token:
+            authentication = "auth_token"
+        elif self.anthropic_api_key:
+            authentication = "api_key"
+        else:
+            authentication = "claude_code_login"
+        return {
+            "api_credentials_configured": bool(
+                self.anthropic_auth_token or self.anthropic_api_key
+            ),
+            "authentication": authentication,
+            "base_url": self.anthropic_base_url,
+            "model": self.claude_model,
+        }
 
 
 @lru_cache

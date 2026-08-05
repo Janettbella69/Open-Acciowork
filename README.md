@@ -48,7 +48,11 @@ cp backend/.env.example backend/.env
 .venv/bin/uvicorn ophira_backend.main:app --app-dir backend/src --reload
 ```
 
-Set `ANTHROPIC_API_KEY` in `backend/.env`, or use a supported Claude Code login. Then start the frontend in a second terminal:
+Set an Anthropic API key in `backend/.env`, or pair `ANTHROPIC_BASE_URL` with the
+provider credential and model for an Anthropic-compatible gateway. DeepSeek, Kimi,
+GLM, and Qwen examples are documented in [`docs/model-providers.md`](docs/model-providers.md).
+The backend passes this configuration directly to Claude Code; it does not translate
+requests through an OpenAI-compatible API. Then start the frontend in a second terminal:
 
 ```bash
 cd frontend

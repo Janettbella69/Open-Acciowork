@@ -5,10 +5,12 @@ from .constants import (
     DELEGATION_TOOL,
     LEDGER_TOOL_NAMES,
     READ_ONLY_BUILTIN_TOOLS,
+    SHELL_BUILTIN_TOOLS,
     TOOL_GET_PROJECT_CONTEXT,
     TOOL_RECORD_EVIDENCE,
     TOOL_RECORD_HYPOTHESIS,
     TOOL_UPDATE_ASSESSMENT,
+    WRITE_BUILTIN_TOOLS,
     Dimension,
 )
 
@@ -33,26 +35,26 @@ SPECIALIST_RESPONSIBILITIES = {
 
 
 def _specialist_prompt(dimension: Dimension) -> str:
-    return f"""你是 OPHIRA 的 {AGENT_NAMES[dimension]}，只负责 {dimension.value} 维度。
+    return f"""你是 OPHIRA 的 {AGENT_NAMES[dimension]}，优先关注 {dimension.value} 视角。
 
 核心责任：{SPECIALIST_RESPONSIBILITIES[dimension]}
 
 工作规则：
-1. 开始时调用 get_project_context，使用共享项目里的目标、约束、假设和证据；不要建立私有版本。
-2. 只验证 Opportunity Lead 指派的具体缺口。先说明简短的验证路径，再执行检索和工具调用。
+1. 这个角色是关注视角，不是能力边界。以用户目标和当前任务为准，自主决定方法与工具。
+2. 项目上下文、证据账本与专业工具按需使用；不要为了流程完整而调用。
 3. 技术或市场事实优先官方、原始和当前来源；明确标注 observed_fact、user_statement、
    community_signal 或 inference。
-4. 通过 record_hypothesis 补充可证伪假设，通过 record_evidence 写入证据，
-   通过 update_assessment 更新本维度。
+4. 需要持久化商业判断时，可通过 record_hypothesis、record_evidence 和 update_assessment 写入账本。
 5. 缺少来源、报价、认证或样本时必须记录为缺口，不得猜测为已验证。
-6. 给 Lead 返回结论、证据 ID、仍缺什么和下一步；不要替 Lead 做跨维度阶段决策。
-7. 输出用户可见的进度摘要，但不要声称输出私有思维链。
+6. 可以跨越本视角解决相邻问题；必要时说明哪些部分超出自己的主要专长。
 """
 
 
 def build_specialist_agents() -> dict[str, AgentDefinition]:
     tools = [
         *READ_ONLY_BUILTIN_TOOLS,
+        *WRITE_BUILTIN_TOOLS,
+        *SHELL_BUILTIN_TOOLS,
         TOOL_GET_PROJECT_CONTEXT,
         TOOL_RECORD_HYPOTHESIS,
         TOOL_RECORD_EVIDENCE,
@@ -74,7 +76,7 @@ def lead_system_prompt(project_id: str, trace_id: str) -> str:
     agent_descriptions = "\n".join(
         f"- {AGENT_NAMES[item]}: {SPECIALIST_RESPONSIBILITIES[item]}" for item in Dimension
     )
-    return f"""你是 OPHIRA Opportunity Lead，商品机会项目的唯一负责人。
+    return f"""你是 OPHIRA 的机会探索 Agent。这个模板提供几个可选专业视角，但不规定固定流程。
 
 project_id: {project_id}
 trace_id: {trace_id}
@@ -82,22 +84,11 @@ trace_id: {trace_id}
 团队：
 {agent_descriptions}
 
-你负责：
-- 定义每个专业 Agent 要验证的可证伪假设；
-- 确保所有 Agent 使用同一项目目标、约束、假设和证据账本；
-- 比较 demand、supply、capital、sales 四项，识别证据最薄弱的一环；
-- 判断当前阶段应 advance、hold 还是 stop；
-- 只调用最适合补齐当前缺口的专业 Agent，必要时再调用下一个。
-
-每次运行必须遵循：
-1. 先调用 get_project_context。用简短、可见的状态说明接下来验证什么，不输出或声称输出私有思维链。
-2. 检查项目是否已有可证伪假设；不足时用 record_hypothesis 建立假设和验证标准。
-3. 依据现有 assessment 分数、证据质量与 gaps 找最薄弱维度，再使用 Agent 工具定向委派。
-   不要为了形式固定运行全部四个 Agent。
-4. 专业 Agent 返回后重新读取共享项目，检查证据是否真的支持结论，
-   并明确事实、用户陈述、社区信号和推断。
-5. 用 record_stage_decision 记录 advance/hold/stop、最薄弱维度、理由、下一步和对应 Agent。
-6. 最终答复给出：当前判断、四维简表、最薄弱环节、阶段决策、证据缺口和下一步。
+自主工作：
+- 直接理解用户目标，不要先做固定意图分类。
+- 四个专业角色只是可选视角；是否委派、委派给谁以及是否跨角色工作都由你判断。
+- 项目账本用于需要长期保存的事实、证据和决策，不是每次运行都必须填写的表格。
+- 不要求四维齐全、阶段决策或固定格式；选择最能完成当前目标的路径和输出。
 
 禁止事项：
 - 不得伪造市场数据、供应商、报价、认证、成本或客户意向；
@@ -108,4 +99,10 @@ trace_id: {trace_id}
 
 
 def lead_tools() -> list[str]:
-    return [*READ_ONLY_BUILTIN_TOOLS, DELEGATION_TOOL, *LEDGER_TOOL_NAMES]
+    return [
+        *READ_ONLY_BUILTIN_TOOLS,
+        *WRITE_BUILTIN_TOOLS,
+        *SHELL_BUILTIN_TOOLS,
+        DELEGATION_TOOL,
+        *LEDGER_TOOL_NAMES,
+    ]
