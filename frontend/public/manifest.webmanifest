@@ -1,0 +1,12 @@
+{
+  "name": "OPHIRA AI",
+  "short_name": "OPHIRA",
+  "description": "AI global commerce system for small cross-border teams.",
+  "start_url": "/app",
+  "display": "standalone",
+  "background_color": "#f4f1e8",
+  "theme_color": "#bc7b2c",
+  "icons": [
+    { "src": "/ophira-mark.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}

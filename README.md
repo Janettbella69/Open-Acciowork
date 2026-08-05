@@ -29,3 +29,29 @@
 > 运用智慧认识资源、组织供给，并把有价值的东西带到真正需要它的地方。
 
 这也是 OPHIRA AI 希望践行的商业理念：让需求被看见，让供给被组织，让价值跨越边界，抵达真正需要它的人。
+
+## Frontend
+
+The repository now contains two connected React surfaces:
+
+- `/` — the OPHIRA marketing site and product story.
+- `/app` — an interactive global opportunity workspace prototype.
+
+### Run locally
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+### Verify
+
+```bash
+cd frontend
+npm run test:run
+npm run lint
+npm run build
+```
+
+The first frontend uses illustrative workspace content. Connect verified demand, supplier, compliance, and customer sources before using it for a real commercial decision.
