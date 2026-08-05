@@ -7,18 +7,29 @@ from claude_agent_sdk import create_sdk_mcp_server, tool
 
 from .constants import (
     MCP_SERVER_NAME,
+    USER_SCOPE_ID,
     Dimension,
     EvidenceKind,
+    MemoryKind,
+    MemoryScope,
+    MemorySensitivity,
+    MemorySource,
     ProjectStage,
     StageDecisionValue,
     ValidationStatus,
 )
+from .memory import MemoryProvider, gather_approved
 from .models import DimensionAssessment, Evidence, Hypothesis, StageDecision
 from .storage import FileLedger
 
 
 def _tool_result(value: Any, *, is_error: bool = False) -> dict[str, Any]:
-    if hasattr(value, "model_dump"):
+    if isinstance(value, list):
+        value = [
+            item.model_dump(mode="json") if hasattr(item, "model_dump") else item
+            for item in value
+        ]
+    elif hasattr(value, "model_dump"):
         value = value.model_dump(mode="json")
     return {
         "content": [
@@ -31,7 +42,12 @@ def _tool_result(value: Any, *, is_error: bool = False) -> dict[str, Any]:
     }
 
 
-def build_ledger_mcp_server(ledger: FileLedger, project_id: str):
+def build_ledger_mcp_server(
+    ledger: FileLedger,
+    project_id: str,
+    memory: MemoryProvider | None = None,
+    agent_id: str | None = None,
+):
     @tool(
         "get_project_context",
         "Read the authoritative OPHIRA project, hypotheses, evidence, assessments, and decisions.",
@@ -248,14 +264,84 @@ def build_ledger_mcp_server(ledger: FileLedger, project_id: str):
         ledger.update_project(project_id, mutate)
         return _tool_result(result)
 
+    tools = [
+        get_project_context,
+        record_hypothesis,
+        record_evidence,
+        update_assessment,
+        record_stage_decision,
+    ]
+
+    if memory is not None:
+
+        @tool(
+            "propose_memory",
+            "Propose a durable memory (preference, fact, decision, or lesson). "
+            "It becomes active only after user approval.",
+            {
+                "type": "object",
+                "properties": {
+                    "text": {"type": "string", "minLength": 1, "maxLength": 4000},
+                    "kind": {"type": "string", "enum": [item.value for item in MemoryKind]},
+                    "sensitivity": {
+                        "type": "string",
+                        "enum": [item.value for item in MemorySensitivity],
+                    },
+                    "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+                },
+                "required": ["text", "kind"],
+                "additionalProperties": False,
+            },
+        )
+        async def propose_memory(args: dict[str, Any]) -> dict[str, Any]:
+            scope = MemoryScope.AGENT if agent_id else MemoryScope.PROJECT
+            scope_id = agent_id or project_id
+            item = memory.propose(
+                scope=scope,
+                scope_id=scope_id,
+                text=args["text"],
+                kind=MemoryKind(args["kind"]),
+                source=MemorySource.AGENT_PROPOSAL,
+                sensitivity=MemorySensitivity(args["sensitivity"])
+                if args.get("sensitivity")
+                else None,
+                confidence=args.get("confidence", 1.0),
+                created_by=agent_id or "agent",
+            )
+            return _tool_result(item)
+
+        @tool(
+            "search_memory",
+            "Search approved memories for the current user, project, and agent scopes.",
+            {
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string"},
+                    "limit": {"type": "integer", "minimum": 1, "maximum": 20},
+                },
+                "required": [],
+                "additionalProperties": False,
+            },
+        )
+        async def search_memory(args: dict[str, Any]) -> dict[str, Any]:
+            pairs = [
+                (MemoryScope.USER, USER_SCOPE_ID),
+                (MemoryScope.PROJECT, project_id),
+            ]
+            if agent_id:
+                pairs.append((MemoryScope.AGENT, agent_id))
+            items = gather_approved(
+                memory,
+                pairs,
+                query=args.get("query") or None,
+                limit=args.get("limit", 8),
+            )
+            return _tool_result(items)
+
+        tools.extend([propose_memory, search_memory])
+
     return create_sdk_mcp_server(
         name=MCP_SERVER_NAME,
         version="0.1.0",
-        tools=[
-            get_project_context,
-            record_hypothesis,
-            record_evidence,
-            update_assessment,
-            record_stage_decision,
-        ],
+        tools=tools,
     )

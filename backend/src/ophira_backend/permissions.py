@@ -4,7 +4,7 @@ import asyncio
 from dataclasses import dataclass
 from typing import Any
 
-from .constants import EventType, PermissionDecision, RunStatus
+from .constants import SHELL_BUILTIN_TOOLS, EventType, PermissionDecision, RunStatus
 from .events import EventPublisher, redact
 from .models import EventActor, PermissionResolution, new_id
 from .storage import FileLedger
@@ -123,7 +123,8 @@ class PermissionBroker:
             if pending is None or pending.run_id != run_id:
                 raise PermissionNotFoundError(request_id)
             if resolution.decision == PermissionDecision.ALLOW_RUN:
-                self._run_allowed_tools.setdefault(run_id, set()).add(pending.tool_name)
+                if pending.tool_name not in SHELL_BUILTIN_TOOLS:
+                    self._run_allowed_tools.setdefault(run_id, set()).add(pending.tool_name)
             if not pending.future.done():
                 pending.future.set_result(resolution)
         await self.events.publish(

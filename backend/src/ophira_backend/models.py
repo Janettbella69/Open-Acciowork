@@ -1,14 +1,21 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Literal
 from uuid import uuid4
 
-from pydantic import BaseModel, ConfigDict, Field, HttpUrl
+from pydantic import BaseModel, ConfigDict, Field, HttpUrl, model_validator
 
 from .constants import (
+    AgentTemplate,
     Dimension,
     EvidenceKind,
+    MemoryKind,
+    MemoryScope,
+    MemorySensitivity,
+    MemorySource,
+    MemoryStatus,
+    MissedRunPolicy,
     PermissionDecision,
     ProjectStage,
     RunStatus,
@@ -108,6 +115,8 @@ class OpportunityProject(APIModel):
 
 class RunCreate(APIModel):
     prompt: str = Field(min_length=1, max_length=40_000)
+    agent_id: str | None = None
+    resume_session_id: str | None = None
 
 
 class RunRecord(APIModel):
@@ -115,6 +124,9 @@ class RunRecord(APIModel):
     trace_id: str = Field(default_factory=lambda: new_id("trace"))
     project_id: str
     prompt: str
+    agent_id: str | None = None
+    schedule_id: str | None = None
+    resume_session_id: str | None = None
     status: RunStatus = RunStatus.QUEUED
     sdk_session_id: str | None = None
     error: str | None = None
@@ -157,3 +169,92 @@ class RunSummary(APIModel):
 class PermissionResolution(APIModel):
     decision: PermissionDecision
     reason: str = Field(default="", max_length=2_000)
+
+
+class AgentProfile(APIModel):
+    id: str = Field(default_factory=lambda: new_id("agent"))
+    name: str = Field(min_length=1, max_length=160)
+    template: AgentTemplate
+    role_description: str = Field(default="", max_length=4_000)
+    model: str | None = None
+    revision: int = 1
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
+
+
+class AgentCreate(APIModel):
+    name: str = Field(min_length=1, max_length=160)
+    template: AgentTemplate
+    role_description: str = Field(default="", max_length=4_000)
+    model: str | None = None
+
+
+class AgentUpdate(APIModel):
+    name: str | None = Field(default=None, min_length=1, max_length=160)
+    role_description: str | None = Field(default=None, max_length=4_000)
+    model: str | None = None
+
+
+class MemoryItem(APIModel):
+    id: str = Field(default_factory=lambda: new_id("mem"))
+    scope: MemoryScope
+    scope_id: str
+    text: str = Field(min_length=1, max_length=4_000)
+    kind: MemoryKind
+    source: MemorySource
+    confidence: float = Field(default=1.0, ge=0, le=1)
+    sensitivity: MemorySensitivity = MemorySensitivity.NORMAL
+    status: MemoryStatus = MemoryStatus.PROPOSED
+    version: int = 1
+    created_by: str = Field(default="system", max_length=160)
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
+
+
+class MemoryCreate(APIModel):
+    scope: MemoryScope
+    scope_id: str = Field(min_length=1, max_length=160)
+    text: str = Field(min_length=1, max_length=4_000)
+    kind: MemoryKind
+    sensitivity: MemorySensitivity = MemorySensitivity.NORMAL
+
+
+class MemoryDecision(APIModel):
+    decision: Literal["approve", "reject", "disable"]
+    reason: str = Field(default="", max_length=2_000)
+
+
+class MemoryRollback(APIModel):
+    version: int = Field(ge=1)
+
+
+class Schedule(APIModel):
+    id: str = Field(default_factory=lambda: new_id("schedule"))
+    project_id: str
+    agent_id: str | None = None
+    prompt: str = Field(min_length=1, max_length=40_000)
+    cron: str | None = None
+    run_once_at: datetime | None = None
+    timezone: str = "UTC"
+    missed_run_policy: MissedRunPolicy = MissedRunPolicy.SKIP
+    enabled: bool = True
+    next_fire_at: datetime | None = None
+    last_fire_at: datetime | None = None
+    last_run_id: str | None = None
+    created_at: datetime = Field(default_factory=utc_now)
+
+
+class ScheduleCreate(APIModel):
+    project_id: str = Field(min_length=1, max_length=160)
+    agent_id: str | None = None
+    prompt: str = Field(min_length=1, max_length=40_000)
+    cron: str | None = Field(default=None, min_length=9, max_length=120)
+    run_once_at: datetime | None = None
+    timezone: str = Field(default="UTC", max_length=64)
+    missed_run_policy: MissedRunPolicy = MissedRunPolicy.SKIP
+
+    @model_validator(mode="after")
+    def exactly_one_trigger(self) -> ScheduleCreate:
+        if (self.cron is None) == (self.run_once_at is None):
+            raise ValueError("exactly one of cron or run_once_at is required")
+        return self

@@ -21,6 +21,8 @@ These rules apply to every contributor and AI agent in this repository.
 
 - Use one source of truth for event types, statuses, tool names, configuration, and error codes. Consumers import these definitions; do not retype protocol strings.
 - Persist project state and evidence in a structured file ledger. Chat context and model memory are not authoritative storage.
+- Each agent owns a core directory under `data/agents/{agent_id}/` (`IDENTITY.md`, `AGENTS.md`, `SOUL.md`, `USER.md`, `MEMORY.md`, `TOOLS.md`, `diary/`, `workspace/`). Prompt assembly always pins the security preamble first; agent-writable files must not be able to override it.
+- Agent memory writes are proposals only. Memory persists through the `MemoryProvider` port (file-backed today, Managed Agents adaptable later); only user-approved memories are injected into prompts or searchable by agents.
 - Keep business capabilities behind ports/adapters. Claude Agent SDK integration belongs in an adapter and must not modify SDK internals.
 - Prefer official framework extension points. Do not rebuild session, subagent, permission, hook, or tool mechanisms already supplied by Claude Agent SDK.
 - Add a new abstraction only when wrong coupling has a concrete cost: unsafe consequences, different change cadence, different consumers, or different deployment.

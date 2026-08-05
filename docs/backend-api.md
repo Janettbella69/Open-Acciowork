@@ -11,8 +11,13 @@ The backend owns opportunity state, Claude Agent SDK orchestration, permissions,
 5. `POST /api/runs/{run_id}/cancel` interrupts the SDK client and cancels the run.
 6. `GET /api/projects` lists durable projects ordered by recent updates.
 7. `GET /api/projects/{project_id}` and `GET /api/runs/{run_id}` return durable snapshots.
+8. `POST /api/agents` creates an agent from a template (`general`, `research`, `sourcing`, `marketing`, `docs`, `opportunity`) and generates its Agent Core files. `POST /api/agents/{agent_id}/update` bumps `revision`; running sessions keep their snapshot. Pass `agent_id` in the run creation body to run as that agent (omit it for the legacy opportunity team), and `resume_session_id` to continue a prior SDK session.
+9. `POST /api/memory` records a user-entered (immediately approved) memory; `GET /api/memory?scope=&scope_id=&status=` lists; `POST /api/memory/{id}/decision` takes `approve`/`reject`/`disable`; `POST /api/memory/{id}/rollback` restores a prior version. Agent-proposed memories (via the `propose_memory` MCP tool) stay `proposed` until a user decision; only `approved` memories are injected into prompts or returned by `search_memory`.
+10. `POST /api/schedules` (exactly one of `cron` or `run_once_at`, plus `timezone` and `missed_run_policy`) creates an automation; `POST /api/schedules/{id}/pause|resume|run` manage it. Missed fires while the app was down reconcile at startup: `catch_up` fires once (coalesced), `skip` advances. A schedule never overlaps its own still-active run. Scheduled runs use the same permission broker; unapproved high-risk calls time out into denial.
 
-`GET /api/meta/protocol` is the single machine-readable source for event names, run statuses, dimensions, stages, and permission decisions. Frontend code should fetch or generate types from it instead of maintaining a second enum list.
+Write tools (`Write`, `Edit`) and `Bash` are available to single-agent templates but are never pre-approved: each call pauses the run at `permission.requested`. Write paths must resolve inside the run workspace — symlink escapes are denied without asking. `Bash` requires per-call approval and cannot be reused via `allow_run`.
+
+`GET /api/meta/protocol` is the single machine-readable source for event names, run statuses, dimensions, stages, permission decisions, agent templates, memory scopes/statuses, and missed-run policies. Frontend code should fetch or generate types from it instead of maintaining a second enum list.
 
 ## SSE replay
 

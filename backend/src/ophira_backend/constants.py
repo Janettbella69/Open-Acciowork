@@ -89,11 +89,57 @@ class EventType(StrEnum):
     SDK_RATE_LIMIT = "sdk.rate_limit"
     RUN_RESULT = "run.result"
 
+    SCHEDULE_FIRED = "schedule.fired"
+
 
 class PermissionDecision(StrEnum):
     ALLOW_ONCE = "allow_once"
     ALLOW_RUN = "allow_run"
     DENY = "deny"
+
+
+class AgentTemplate(StrEnum):
+    GENERAL = "general"
+    RESEARCH = "research"
+    SOURCING = "sourcing"
+    MARKETING = "marketing"
+    DOCS = "docs"
+    OPPORTUNITY = "opportunity"
+
+
+class MemoryScope(StrEnum):
+    USER = "user"
+    PROJECT = "project"
+    AGENT = "agent"
+
+
+class MemoryKind(StrEnum):
+    PREFERENCE = "preference"
+    FACT = "fact"
+    DECISION = "decision"
+    LESSON = "lesson"
+
+
+class MemorySource(StrEnum):
+    USER = "user"
+    AGENT_PROPOSAL = "agent_proposal"
+
+
+class MemorySensitivity(StrEnum):
+    NORMAL = "normal"
+    SENSITIVE = "sensitive"
+
+
+class MemoryStatus(StrEnum):
+    PROPOSED = "proposed"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+    DISABLED = "disabled"
+
+
+class MissedRunPolicy(StrEnum):
+    CATCH_UP = "catch_up"
+    SKIP = "skip"
 
 
 LEAD_AGENT = "opportunity-lead"
@@ -110,6 +156,8 @@ TOOL_RECORD_HYPOTHESIS = "mcp__ophira__record_hypothesis"
 TOOL_RECORD_EVIDENCE = "mcp__ophira__record_evidence"
 TOOL_UPDATE_ASSESSMENT = "mcp__ophira__update_assessment"
 TOOL_RECORD_STAGE_DECISION = "mcp__ophira__record_stage_decision"
+TOOL_PROPOSE_MEMORY = "mcp__ophira__propose_memory"
+TOOL_SEARCH_MEMORY = "mcp__ophira__search_memory"
 
 LEDGER_TOOL_NAMES = [
     TOOL_GET_PROJECT_CONTEXT,
@@ -119,5 +167,16 @@ LEDGER_TOOL_NAMES = [
     TOOL_RECORD_STAGE_DECISION,
 ]
 
+MEMORY_TOOL_NAMES = [
+    TOOL_PROPOSE_MEMORY,
+    TOOL_SEARCH_MEMORY,
+]
+
+OPHIRA_TOOL_NAMES = [*LEDGER_TOOL_NAMES, *MEMORY_TOOL_NAMES]
+
 READ_ONLY_BUILTIN_TOOLS = ["Read", "Glob", "Grep", "WebSearch", "WebFetch"]
+WRITE_BUILTIN_TOOLS = ["Write", "Edit"]
+SHELL_BUILTIN_TOOLS = ["Bash"]
 DELEGATION_TOOL = "Agent"
+
+USER_SCOPE_ID = "default"

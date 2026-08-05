@@ -31,8 +31,22 @@ class RunManager:
         self.runtime = runtime
         self._tasks: dict[str, asyncio.Task[None]] = {}
 
-    async def create_and_start(self, project_id: str, prompt: str) -> RunRecord:
-        run = self.ledger.create_run(project_id, prompt)
+    async def create_and_start(
+        self,
+        project_id: str,
+        prompt: str,
+        *,
+        agent_id: str | None = None,
+        schedule_id: str | None = None,
+        resume_session_id: str | None = None,
+    ) -> RunRecord:
+        run = self.ledger.create_run(
+            project_id,
+            prompt,
+            agent_id=agent_id,
+            schedule_id=schedule_id,
+            resume_session_id=resume_session_id,
+        )
         await self.events.publish(
             run.id,
             EventType.RUN_CREATED,

@@ -8,11 +8,14 @@ from pathlib import Path
 from typing import Any
 
 from .models import (
+    AgentCreate,
+    AgentProfile,
     EventEnvelope,
     OpportunityProject,
     ProjectCreate,
     RunRecord,
     RunSummary,
+    Schedule,
     utc_now,
 )
 
@@ -28,9 +31,13 @@ class FileLedger:
         self.root = root.resolve()
         self.projects_dir = self.root / "projects"
         self.runs_dir = self.root / "runs"
+        self.agents_dir = self.root / "agents"
+        self.schedules_dir = self.root / "schedules"
         self.manifest_path = self.root / "_manifest.jsonl"
         self.projects_dir.mkdir(parents=True, exist_ok=True)
         self.runs_dir.mkdir(parents=True, exist_ok=True)
+        self.agents_dir.mkdir(parents=True, exist_ok=True)
+        self.schedules_dir.mkdir(parents=True, exist_ok=True)
         self._locks: dict[str, threading.RLock] = {}
         self._locks_guard = threading.Lock()
 
@@ -114,9 +121,23 @@ class FileLedger:
             self._atomic_write(self._project_path(project_id), project)
             return project
 
-    def create_run(self, project_id: str, prompt: str) -> RunRecord:
+    def create_run(
+        self,
+        project_id: str,
+        prompt: str,
+        *,
+        agent_id: str | None = None,
+        schedule_id: str | None = None,
+        resume_session_id: str | None = None,
+    ) -> RunRecord:
         self.get_project(project_id)
-        run = RunRecord(project_id=project_id, prompt=prompt)
+        run = RunRecord(
+            project_id=project_id,
+            prompt=prompt,
+            agent_id=agent_id,
+            schedule_id=schedule_id,
+            resume_session_id=resume_session_id,
+        )
         summary = RunSummary(
             run_id=run.id,
             project_id=project_id,
@@ -208,3 +229,73 @@ class FileLedger:
         workspace = self.projects_dir / self._safe_id(project_id) / "workspace"
         workspace.mkdir(parents=True, exist_ok=True)
         return workspace
+
+    def _agent_path(self, agent_id: str) -> Path:
+        return self.agents_dir / self._safe_id(agent_id) / "agent.json"
+
+    def create_agent(self, payload: AgentCreate) -> AgentProfile:
+        agent = AgentProfile(**payload.model_dump())
+        with self._lock_for(agent.id):
+            self._atomic_write(self._agent_path(agent.id), agent)
+        return agent
+
+    def get_agent(self, agent_id: str) -> AgentProfile:
+        path = self._agent_path(agent_id)
+        if not path.exists():
+            raise LedgerNotFoundError(agent_id)
+        return AgentProfile.model_validate_json(path.read_text(encoding="utf-8"))
+
+    def list_agents(self) -> list[AgentProfile]:
+        agents: list[AgentProfile] = []
+        for path in self.agents_dir.glob("*/agent.json"):
+            try:
+                agents.append(AgentProfile.model_validate_json(path.read_text(encoding="utf-8")))
+            except (OSError, ValueError):
+                continue
+        return sorted(agents, key=lambda agent: agent.updated_at, reverse=True)
+
+    def update_agent(self, agent_id: str, **changes: Any) -> AgentProfile:
+        with self._lock_for(agent_id):
+            agent = self.get_agent(agent_id)
+            updated = agent.model_copy(update=changes)
+            updated.revision = agent.revision + 1
+            updated.updated_at = utc_now()
+            self._atomic_write(self._agent_path(agent_id), updated)
+            return updated
+
+    def agent_core_dir(self, agent_id: str) -> Path:
+        self.get_agent(agent_id)
+        core_dir = self.agents_dir / self._safe_id(agent_id)
+        core_dir.mkdir(parents=True, exist_ok=True)
+        return core_dir
+
+    def _schedule_path(self, schedule_id: str) -> Path:
+        return self.schedules_dir / self._safe_id(schedule_id) / "schedule.json"
+
+    def create_schedule(self, schedule: Schedule) -> Schedule:
+        self.get_project(schedule.project_id)
+        with self._lock_for(schedule.id):
+            self._atomic_write(self._schedule_path(schedule.id), schedule)
+        return schedule
+
+    def get_schedule(self, schedule_id: str) -> Schedule:
+        path = self._schedule_path(schedule_id)
+        if not path.exists():
+            raise LedgerNotFoundError(schedule_id)
+        return Schedule.model_validate_json(path.read_text(encoding="utf-8"))
+
+    def list_schedules(self) -> list[Schedule]:
+        schedules: list[Schedule] = []
+        for path in self.schedules_dir.glob("*/schedule.json"):
+            try:
+                schedules.append(Schedule.model_validate_json(path.read_text(encoding="utf-8")))
+            except (OSError, ValueError):
+                continue
+        return sorted(schedules, key=lambda schedule: schedule.created_at, reverse=True)
+
+    def update_schedule(self, schedule_id: str, **changes: Any) -> Schedule:
+        with self._lock_for(schedule_id):
+            schedule = self.get_schedule(schedule_id)
+            updated = schedule.model_copy(update=changes)
+            self._atomic_write(self._schedule_path(schedule_id), updated)
+            return updated

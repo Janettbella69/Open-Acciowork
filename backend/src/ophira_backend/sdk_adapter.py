@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
+from pathlib import Path
 from typing import Any
 
 from claude_agent_sdk import (
@@ -24,24 +25,44 @@ from claude_agent_sdk import (
     ToolUseBlock,
 )
 
+from .agent_core import MAX_MEMORY_ITEMS, assemble_system_prompt
 from .agents import build_specialist_agents, lead_system_prompt
 from .config import Settings
 from .constants import (
     DELEGATION_TOOL,
-    LEDGER_TOOL_NAMES,
+    OPHIRA_TOOL_NAMES,
     READ_ONLY_BUILTIN_TOOLS,
+    SHELL_BUILTIN_TOOLS,
+    USER_SCOPE_ID,
+    WRITE_BUILTIN_TOOLS,
     EventType,
+    MemoryScope,
     PermissionDecision,
 )
 from .events import EventPublisher, redact
 from .ledger_tools import build_ledger_mcp_server
+from .memory import MemoryProvider, gather_approved
 from .models import EventActor, RunRecord
 from .permissions import PermissionBroker
 from .storage import FileLedger
+from .templates import TEMPLATE_SPECS
 
 
 class AgentRunError(RuntimeError):
     pass
+
+
+def _path_within(root: Path, candidate: str | None) -> bool:
+    """Resolve candidate against root; symlink-safe containment check."""
+    if not candidate:
+        return False
+    try:
+        path = Path(candidate)
+        resolved = (root / path).resolve() if not path.is_absolute() else path.resolve()
+        resolved.relative_to(root)
+    except (OSError, ValueError):
+        return False
+    return True
 
 
 class ClaudeAgentRuntime:
@@ -53,13 +74,20 @@ class ClaudeAgentRuntime:
         ledger: FileLedger,
         events: EventPublisher,
         permissions: PermissionBroker,
+        memory: MemoryProvider | None = None,
     ) -> None:
         self.settings = settings
         self.ledger = ledger
         self.events = events
         self.permissions = permissions
+        self.memory = memory
         self._clients: dict[str, ClaudeSDKClient] = {}
         self._clients_lock = asyncio.Lock()
+
+    def _is_team(self, run: RunRecord) -> bool:
+        if not run.agent_id:
+            return True
+        return TEMPLATE_SPECS[self.ledger.get_agent(run.agent_id).template].is_team
 
     async def run(self, run: RunRecord) -> None:
         options = self._build_options(run)
@@ -68,7 +96,7 @@ class ClaudeAgentRuntime:
             async with self._clients_lock:
                 self._clients[run.id] = client
             try:
-                await client.query(self._query_prompt(run))
+                await client.query(self._query_prompt(run, self._is_team(run)))
                 async for message in client.receive_response():
                     await self._map_message(run.id, message)
                     if isinstance(message, ResultMessage) and message.is_error:
@@ -87,12 +115,28 @@ class ClaudeAgentRuntime:
             await client.interrupt()
 
     def _build_options(self, run: RunRecord) -> ClaudeAgentOptions:
-        mcp_server = build_ledger_mcp_server(self.ledger, run.project_id)
+        agent = self.ledger.get_agent(run.agent_id) if run.agent_id else None
+        spec = TEMPLATE_SPECS[agent.template] if agent else None
+        # Runs without an agent keep the legacy opportunity-team behavior.
+        is_team = spec.is_team if spec else True
+        mcp_server = build_ledger_mcp_server(
+            self.ledger,
+            run.project_id,
+            memory=self.memory,
+            agent_id=run.agent_id,
+        )
+        workspace = self.ledger.workspace_for_project(run.project_id).resolve()
         sdk_env = {}
         if self.settings.anthropic_api_key:
             sdk_env["ANTHROPIC_API_KEY"] = self.settings.anthropic_api_key.get_secret_value()
 
         async def can_use_tool(tool_name: str, tool_input: dict[str, Any], context):
+            if tool_name in WRITE_BUILTIN_TOOLS:
+                candidate = tool_input.get("file_path")
+                if not _path_within(workspace, candidate if isinstance(candidate, str) else None):
+                    return PermissionResultDeny(
+                        message=f"Path {candidate!r} is outside the run workspace."
+                    )
             context_data = dataclasses.asdict(context)
             resolution = await self.permissions.request(
                 run.id,
@@ -117,14 +161,37 @@ class ClaudeAgentRuntime:
             "SubagentStart": [HookMatcher(hooks=[self._hook(run.id)])],
             "SubagentStop": [HookMatcher(hooks=[self._hook(run.id)])],
         }
-        return ClaudeAgentOptions(
-            tools=[*READ_ONLY_BUILTIN_TOOLS, DELEGATION_TOOL],
-            allowed_tools=[
+        if is_team:
+            builtin_tools = [*READ_ONLY_BUILTIN_TOOLS, DELEGATION_TOOL]
+            allowed_tools = [*READ_ONLY_BUILTIN_TOOLS, DELEGATION_TOOL, *OPHIRA_TOOL_NAMES]
+            system_prompt = lead_system_prompt(run.project_id, run.trace_id)
+            subagents = build_specialist_agents()
+        else:
+            builtin_tools = [
                 *READ_ONLY_BUILTIN_TOOLS,
-                DELEGATION_TOOL,
-                *LEDGER_TOOL_NAMES,
-            ],
-            system_prompt=lead_system_prompt(run.project_id, run.trace_id),
+                *WRITE_BUILTIN_TOOLS,
+                *SHELL_BUILTIN_TOOLS,
+            ]
+            # Write/Edit/Bash are deliberately absent so the broker gates them.
+            allowed_tools = [*READ_ONLY_BUILTIN_TOOLS, *OPHIRA_TOOL_NAMES]
+            memories = []
+            if self.memory is not None:
+                memories = gather_approved(
+                    self.memory,
+                    [
+                        (MemoryScope.USER, USER_SCOPE_ID),
+                        (MemoryScope.PROJECT, run.project_id),
+                        (MemoryScope.AGENT, agent.id),
+                    ],
+                    limit=MAX_MEMORY_ITEMS,
+                )
+            core_dir = self.ledger.agent_core_dir(agent.id)
+            system_prompt = assemble_system_prompt(agent, core_dir, spec, memories)
+            subagents = None
+        return ClaudeAgentOptions(
+            tools=builtin_tools,
+            allowed_tools=allowed_tools,
+            system_prompt=system_prompt,
             mcp_servers={"ophira": mcp_server},
             strict_mcp_config=True,
             permission_mode="default",
@@ -132,14 +199,15 @@ class ClaudeAgentRuntime:
             hooks=hooks,
             include_partial_messages=True,
             include_hook_events=True,
-            agents=build_specialist_agents(),
-            model=self.settings.claude_model,
+            agents=subagents,
+            model=(agent.model if agent and agent.model else self.settings.claude_model),
             max_turns=self.settings.max_turns,
             max_budget_usd=self.settings.max_budget_usd,
-            cwd=self.ledger.workspace_for_project(run.project_id),
+            cwd=workspace,
             env=sdk_env,
             setting_sources=[],
             thinking={"type": "adaptive", "display": "summarized"},
+            resume=run.resume_session_id,
         )
 
     def _hook(self, run_id: str):
@@ -407,9 +475,16 @@ class ClaudeAgentRuntime:
                     tool_use_id=block.id,
                 )
     @staticmethod
-    def _query_prompt(run: RunRecord) -> str:
-        return f"""用户请求：
+    def _query_prompt(run: RunRecord, is_team: bool) -> str:
+        if is_team:
+            return f"""用户请求：
 {run.prompt}
 
 请管理 project_id={run.project_id} 的商品机会验证。
 所有事实、假设、评估和阶段决策必须写入共享项目账本。"""
+        return f"""用户请求：
+{run.prompt}
+
+请在 project_id={run.project_id} 对应的工作区内完成任务，
+遵守系统提示中的安全政策与工作原则。写入文件或执行命令前等待用户批准；
+完成后用工具结果证明交付物真实存在。"""
