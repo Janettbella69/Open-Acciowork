@@ -1,0 +1,44 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "ophira-backend"
+version = "0.1.0"
+description = "OPHIRA opportunity-team backend built on Claude Agent SDK"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "claude-agent-sdk==0.2.82",
+  "fastapi>=0.115,<1",
+  # Claude Agent SDK 0.2.82 uses the MCP 1.x low-level Server decorator API.
+  "mcp>=1.23,<2",
+  "pydantic-settings>=2.7,<3",
+  "sse-starlette>=2.2,<4",
+  "uvicorn[standard]>=0.34,<1",
+]
+
+[project.optional-dependencies]
+dev = [
+  "httpx>=0.28,<1",
+  "pytest>=8.3,<9",
+  "pytest-asyncio>=0.25,<2",
+  "ruff>=0.9,<1",
+]
+
+[project.scripts]
+ophira-api = "ophira_backend.main:run"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/ophira_backend"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "ASYNC"]
