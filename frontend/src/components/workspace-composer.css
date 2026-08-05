@@ -115,7 +115,7 @@
   min-width: 0;
   height: 100vh;
   overflow: auto;
-  padding: clamp(118px, 17vh, 190px) 40px 300px;
+  padding: clamp(86px, 10vh, 118px) 40px 96px;
   text-align: center;
 }
 
@@ -231,6 +231,7 @@
 .conversation-activity li small { color: #7f8386; font-size: var(--ophira-type-small); }
 
 .conversation-composer-dock { position: fixed; z-index: 30; bottom: 28px; left: calc(264px + (100vw - 264px) / 2); width: min(1120px, calc(100vw - 264px - 64px)); transform: translateX(-50%); }
+.conversation-composer-dock[data-inline='true'] { position: relative; z-index: 1; right: auto; bottom: auto; left: auto; width: min(100%, 1120px); margin: 42px auto 0; transform: none; }
 .conversation-context-bar { display: flex; min-height: 50px; margin: 0 20px -12px; align-items: flex-start; justify-content: space-between; gap: 20px; border-radius: 22px 22px 0 0; padding: 13px 22px 20px; color: #666a6d; background: #f5f5f4; font-size: var(--ophira-type-small); }
 .conversation-context-bar span { font-weight: 700; }
 .conversation-context-bar small { color: #7f8386; font-size: var(--ophira-type-small); }
@@ -267,6 +268,7 @@
   .conversation-new-research span { font-size: 20px; }
   .conversation-sidebar-nav, .conversation-sidebar-projects, .conversation-sidebar-agents, .conversation-account { display: none; }
   .conversation-entry-main { height: auto; min-height: 100vh; padding: 126px 18px 280px; overflow: visible; }
+  .conversation-entry-main[data-session='false'] { padding-bottom: 80px; }
   .conversation-entry-main[data-session='true'] { padding: 96px 18px 286px; }
   .conversation-site-link { top: 13px; right: 74px; }
   .conversation-entry-center > h1 { font-size: 38px; }
@@ -275,6 +277,7 @@
   .conversation-quick-grid button { min-height: 118px; padding: 15px; }
   .conversation-quick-grid strong { font-size: var(--ophira-type-title); }
   .conversation-composer-dock { right: 14px; bottom: 14px; left: 14px; width: auto; transform: none; }
+  .conversation-composer-dock[data-inline='true'] { right: auto; bottom: auto; left: auto; width: 100%; margin-top: 32px; }
   .conversation-context-bar { margin-inline: 10px; }
   .conversation-context-bar small { display: none; }
   .conversation-composer { border-radius: 20px; padding: 16px; }

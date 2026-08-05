@@ -30,11 +30,17 @@ describe('WorkspaceComposer', () => {
     )
 
     expect(screen.getByRole('heading', { level: 1, name: /what opportunity should we explore/i })).toBeInTheDocument()
-    expect(screen.getByRole('textbox', { name: /ask ophira/i })).toBeInTheDocument()
+    const primaryComposer = screen.getByRole('textbox', { name: /ask ophira/i })
+    expect(primaryComposer).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /start research/i })).toBeDisabled()
+    expect(screen.getByRole('link', { name: /01 opportunity studio/i })).toHaveAttribute('href', '/app')
+    expect(screen.getByRole('link', { name: /03 skill studio/i })).toHaveAttribute('href', '/app/skills')
     expect(screen.queryByRole('link', { name: /04 settings/i })).not.toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: /find a real unmet need/i }))
+    const demandShortcut = screen.getByRole('button', { name: /find a real unmet need/i })
+    expect(primaryComposer.compareDocumentPosition(demandShortcut) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+
+    fireEvent.click(demandShortcut)
     expect(onChange).toHaveBeenCalledWith(expect.stringMatching(/unmet customer need/i))
   })
 

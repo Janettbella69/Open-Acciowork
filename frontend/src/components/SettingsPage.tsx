@@ -15,6 +15,8 @@ type LocalSettings = {
   browserAccess: 'ask' | 'disabled'
   computerControl: 'ask' | 'disabled'
   computerDiscoverable: boolean
+  workspaceMemory: boolean
+  conversationMemory: boolean
 }
 
 const storageKey = 'ophira-workspace-settings'
@@ -32,6 +34,8 @@ const defaultSettings: LocalSettings = {
   browserAccess: 'ask',
   computerControl: 'disabled',
   computerDiscoverable: false,
+  workspaceMemory: true,
+  conversationMemory: false,
 }
 
 function loadSettings(): LocalSettings {
@@ -87,10 +91,11 @@ export default function SettingsPage() {
           <a href="#general" aria-current={activeSection === 'general' ? 'page' : undefined} onClick={() => setActiveSection('general')}><span>02</span>General</a>
           <a href="#runtime" aria-current={activeSection === 'runtime' ? 'page' : undefined} onClick={() => setActiveSection('runtime')}><span>03</span>Runtime</a>
           <a href="#language" aria-current={activeSection === 'language' ? 'page' : undefined} onClick={() => setActiveSection('language')}><span>04</span>Language</a>
+          <a href="#memory" aria-current={activeSection === 'memory' ? 'page' : undefined} onClick={() => setActiveSection('memory')}><span>05</span>Memory</a>
           <p>Integrations</p>
-          <a href="#plugins" aria-current={activeSection === 'plugins' ? 'page' : undefined} onClick={() => setActiveSection('plugins')}><span>05</span>Plugins</a>
-          <a href="#browser" aria-current={activeSection === 'browser' ? 'page' : undefined} onClick={() => setActiveSection('browser')}><span>06</span>Browser</a>
-          <a href="#computer-control" aria-current={activeSection === 'computer-control' ? 'page' : undefined} onClick={() => setActiveSection('computer-control')}><span>07</span>Computer control</a>
+          <a href="#plugins" aria-current={activeSection === 'plugins' ? 'page' : undefined} onClick={() => setActiveSection('plugins')}><span>06</span>Plugins</a>
+          <a href="#browser" aria-current={activeSection === 'browser' ? 'page' : undefined} onClick={() => setActiveSection('browser')}><span>07</span>Browser</a>
+          <a href="#computer-control" aria-current={activeSection === 'computer-control' ? 'page' : undefined} onClick={() => setActiveSection('computer-control')}><span>08</span>Computer control</a>
         </nav>
         <div className="settings-sidebar-note">
           <span>Saved locally</span>
@@ -184,8 +189,27 @@ export default function SettingsPage() {
           </div>
         </section>
 
+        <section id="memory" className="settings-section" aria-labelledby="memory-heading">
+          <div className="settings-section-heading"><span>05</span><div><h2 id="memory-heading">Memory</h2><p>Control which workspace context Ophira may carry into future research sessions.</p></div></div>
+          <div className="settings-card">
+            <ToggleRow
+              title="Workspace memory"
+              description="Keep approved project facts, decisions, and operating preferences available across future sessions in this browser."
+              checked={settings.workspaceMemory}
+              onChange={(checked) => update('workspaceMemory', checked)}
+            />
+            <ToggleRow
+              title="Reference recent conversations"
+              description="Allow relevant context from recent project conversations to be considered when a new session begins."
+              checked={settings.conversationMemory}
+              onChange={(checked) => update('conversationMemory', checked)}
+            />
+          </div>
+          <p className="settings-integration-note">These controls save your local memory preference. Runtime use begins after the backend memory policy is connected.</p>
+        </section>
+
         <section className="settings-section" aria-labelledby="integrations-heading">
-          <div className="settings-section-heading"><span>05</span><div><h2 id="integrations-heading">Integrations</h2><p>Set the local permission gate for external tools used by the Agent team.</p></div></div>
+          <div className="settings-section-heading"><span>06</span><div><h2 id="integrations-heading">Integrations</h2><p>Set the local permission gate for external tools used by the Agent team.</p></div></div>
           <div className="settings-card">
             <label id="plugins" className="settings-row settings-select-row settings-integration-row">
               <span><strong>Plugins</strong><small>Allow Agents to request tools supplied by connected plugin providers.</small><em>Local permission preference</em></span>
@@ -213,7 +237,7 @@ export default function SettingsPage() {
         </section>
 
         <section id="computer-control" className="settings-section settings-computer-control" aria-labelledby="computer-control-heading">
-          <div className="settings-section-heading"><span>07</span><div><h2 id="computer-control-heading">Computer control</h2><p>Prepare this workspace for a trusted companion device without exposing it by default.</p></div></div>
+          <div className="settings-section-heading"><span>08</span><div><h2 id="computer-control-heading">Computer control</h2><p>Prepare this workspace for a trusted companion device without exposing it by default.</p></div></div>
           <div className="settings-card">
             <ToggleRow
               title="Allow this computer to be discovered and controlled"

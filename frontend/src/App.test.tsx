@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { OpportunityProject, OphiraEvent, RunRecord } from './api/types'
+import App from './App'
 import LandingPage from './components/LandingPage'
 import Workspace from './components/Workspace'
 
@@ -142,6 +143,16 @@ describe('OPHIRA frontend', () => {
     expect(screen.getByRole('heading', { level: 1, name: /discover what the world needs/i })).toBeInTheDocument()
     expect(screen.getAllByText(/connect who can supply it/i).length).toBeGreaterThan(0)
     expect(screen.getByRole('textbox', { name: /what opportunity should ophira explore/i })).toHaveAttribute('name', 'brief')
+  })
+
+  it('routes the product skill studio without replacing the research workspace', () => {
+    window.history.replaceState({}, '', '/app/skills')
+    render(<App />)
+
+    expect(screen.getByRole('heading', { level: 1, name: 'Skills' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /01 opportunity studio/i })).toHaveAttribute('href', '/app')
+    expect(screen.getByRole('link', { name: /03 skill studio/i })).toHaveAttribute('aria-current', 'page')
+    expect(screen.getByRole('link', { name: /new research/i })).toHaveAttribute('href', '/app')
   })
 
   it('creates a live backend run and renders observable SDK events', async () => {

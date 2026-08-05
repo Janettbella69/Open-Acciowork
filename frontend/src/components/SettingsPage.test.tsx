@@ -16,6 +16,16 @@ describe('SettingsPage', () => {
     const fullAccess = screen.getByRole('switch', { name: /full access/i })
     expect(fullAccess).not.toBeChecked()
 
+    const memoryLink = screen.getByRole('link', { name: /05 memory/i })
+    fireEvent.click(memoryLink)
+    expect(memoryLink).toHaveAttribute('aria-current', 'page')
+
+    expect(screen.getByRole('switch', { name: /^workspace memory/i })).toBeChecked()
+    const conversationMemory = screen.getByRole('switch', { name: /reference recent conversations/i })
+    expect(conversationMemory).not.toBeChecked()
+    fireEvent.click(conversationMemory)
+    expect(stored.get('ophira-workspace-settings')).toContain('"conversationMemory":true')
+
     fireEvent.click(fullAccess)
     expect(fullAccess).toBeChecked()
     expect(stored.get('ophira-workspace-settings')).toContain('"fullAccess":true')

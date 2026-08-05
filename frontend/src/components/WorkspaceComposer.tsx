@@ -151,6 +151,34 @@ export default function WorkspaceComposer({
   const sessionOpen = Boolean(project || run)
   const recentActivity = events.filter((event) => !event.type.endsWith('.delta')).slice(-6).reverse()
   const latestActor = recentActivity[0]?.actor.name.toLowerCase() ?? ''
+  const composer = (
+    <div className="conversation-composer-dock" data-inline={!sessionOpen}>
+      <div className="conversation-context-bar">
+        <span>{project?.name ?? 'New opportunity'}</span>
+        <small>{run ? `${label(run.status)} · ${connection}` : 'One shared project truth'}</small>
+      </div>
+      <form className="conversation-composer" onSubmit={onSubmit}>
+        <label htmlFor="workspace-conversation-brief">Ask Ophira</label>
+        <textarea
+          id="workspace-conversation-brief"
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          placeholder="Describe a product, market, capability, or customer..."
+          rows={3}
+          disabled={busy}
+          autoFocus={!sessionOpen}
+        />
+        <div className="conversation-composer-footer">
+          <span><b>Opportunity Lead</b> coordinates Demand · Supply · Capital · Sales</span>
+          <button type="submit" disabled={busy || !value.trim()}>
+            {busy ? 'Researching…' : sessionOpen ? 'Start new research' : 'Start research'} <span aria-hidden="true">→</span>
+          </button>
+        </div>
+      </form>
+      {notice && <p className="conversation-notice" role="status">{notice}</p>}
+      {error && <p className="conversation-error" role="alert">{error}</p>}
+    </div>
+  )
 
   return (
     <div className="conversation-entry">
@@ -165,7 +193,7 @@ export default function WorkspaceComposer({
           <p>Workspace</p>
           <a href="/app" aria-current="page"><span>01</span>Opportunity studio</a>
           <a href="/app/schedules"><span>02</span>Scheduled tasks</a>
-          <a href="/"><span>03</span>Marketing site</a>
+          <a href="/app/skills"><span>03</span>Skill Studio</a>
         </nav>
 
         <section className="conversation-sidebar-projects" aria-labelledby="sidebar-projects-title">
@@ -205,6 +233,8 @@ export default function WorkspaceComposer({
             </div>
             <p className="conversation-entry-kicker">Opportunity Lead</p>
             <h1>What opportunity should we explore?</h1>
+
+            {composer}
 
             <section className="conversation-quick-starts" aria-labelledby="quick-starts-title">
               <h2 id="quick-starts-title">Start with a validation task</h2>
@@ -320,32 +350,7 @@ export default function WorkspaceComposer({
           </section>
         )}
 
-        <div className="conversation-composer-dock">
-          <div className="conversation-context-bar">
-            <span>{project?.name ?? 'New opportunity'}</span>
-            <small>{run ? `${label(run.status)} · ${connection}` : 'One shared project truth'}</small>
-          </div>
-          <form className="conversation-composer" onSubmit={onSubmit}>
-            <label htmlFor="workspace-conversation-brief">Ask Ophira</label>
-            <textarea
-              id="workspace-conversation-brief"
-              value={value}
-              onChange={(event) => onChange(event.target.value)}
-              placeholder="Describe a product, market, capability, or customer..."
-              rows={3}
-              disabled={busy}
-              autoFocus={!sessionOpen}
-            />
-            <div className="conversation-composer-footer">
-              <span><b>Opportunity Lead</b> coordinates Demand · Supply · Capital · Sales</span>
-              <button type="submit" disabled={busy || !value.trim()}>
-                {busy ? 'Researching…' : sessionOpen ? 'Start new research' : 'Start research'} <span aria-hidden="true">→</span>
-              </button>
-            </div>
-          </form>
-          {notice && <p className="conversation-notice" role="status">{notice}</p>}
-          {error && <p className="conversation-error" role="alert">{error}</p>}
-        </div>
+        {sessionOpen && composer}
       </main>
     </div>
   )
