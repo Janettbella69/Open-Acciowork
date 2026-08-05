@@ -32,6 +32,7 @@ describe('WorkspaceComposer', () => {
     expect(screen.getByRole('heading', { level: 1, name: /what opportunity should we explore/i })).toBeInTheDocument()
     expect(screen.getByRole('textbox', { name: /ask ophira/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /start research/i })).toBeDisabled()
+    expect(screen.queryByRole('link', { name: /04 settings/i })).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: /find a real unmet need/i }))
     expect(onChange).toHaveBeenCalledWith(expect.stringMatching(/unmet customer need/i))

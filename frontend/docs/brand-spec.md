@@ -27,13 +27,13 @@
 - Avoid: saturated purple/blue AI gradients and glossy gold effects.
 
 ## Typography
-- Display: `Iowan Old Style`, `Palatino Linotype`, Palatino, Georgia, serif.
-- Body: `Avenir Next`, Avenir, `Helvetica Neue`, sans-serif.
-- Data: `SFMono-Regular`, Consolas, `Liberation Mono`, monospace.
+- Marketing display: `Iowan Old Style`, `Palatino Linotype`, Palatino, Georgia, serif.
+- Product interface: `Avenir Next`, Avenir, `Helvetica Neue`, Arial, sans-serif. Product headings and controls stay in this single B2B sans-serif family.
+- Data: `SFMono-Regular`, Consolas, `Liberation Mono`, monospace, reserved for indexes, trace IDs, and technical metadata.
 
 ## System
 - Marketing type scale: `88 / 64 / 48 / 32 / 20 / 16 / 13`.
-- Product type scale: `28 / 20 / 16 / 14 / 12`.
+- Product type scale: `48 / 32 / 20 / 16 / 14 / 12`; no product copy renders below `12px`.
 - Spacing: `4 / 8 / 12 / 16 / 24 / 32 / 48 / 64 / 96`.
 - Motion: 160–600ms, restrained rise/fade with cubic-bezier `(0.22, 1, 0.36, 1)`.
 - Section pattern: one editorial claim paired with one real product surface.

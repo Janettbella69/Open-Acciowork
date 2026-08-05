@@ -166,7 +166,6 @@ export default function WorkspaceComposer({
           <a href="/app" aria-current="page"><span>01</span>Opportunity studio</a>
           <a href="/app/schedules"><span>02</span>Scheduled tasks</a>
           <a href="/"><span>03</span>Marketing site</a>
-          <a href="/app/settings"><span>04</span>Settings</a>
         </nav>
 
         <section className="conversation-sidebar-projects" aria-labelledby="sidebar-projects-title">

@@ -8,6 +8,7 @@ Updated: 2026-08-05
 | Build a usable frontend product surface | Delivered | `/app` keeps the empty, running, completed, failed, and saved-project states inside one conversation workspace |
 | Keep website briefs on the formal workspace | Delivered | `/app?brief=...` seeds the primary composer, then normalizes to `/app` after the brief is consumed; starting a run never switches to the retired dashboard |
 | Provide an account-to-settings navigation flow | Delivered | Clicking the workspace identity opens an accessible account menu; Settings routes to `/app/settings`, while outside press and Escape close the menu |
+| Keep the product navigation focused and readable for B2B users | Delivered | The workspace rail exposes only Opportunity studio, Scheduled tasks, and Marketing site; Settings remains in the account menu, and all product surfaces use a 48 / 32 / 20 / 16 / 14 / 12 sans-serif type scale |
 | Expose external capability policies | Delivered | Settings includes Plugins, Browser, and Computer control permission preferences; high-risk computer control defaults to disabled |
 | Prepare recurring Agent work | Delivered | `/app/schedules` provides categorized templates and a functional local task-draft creator; automatic execution is explicitly deferred until the scheduler API is connected |
 | Prepare trusted companion-device control | Delivered | Computer control settings include discovery/control and keep-awake preferences plus an honest pairing placeholder; no fake QR code or mobile account is shown before secure pairing services exist |
