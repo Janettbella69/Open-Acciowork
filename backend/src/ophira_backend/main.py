@@ -69,6 +69,10 @@ def create_app(
     async def create_project(payload: ProjectCreate) -> OpportunityProject:
         return ledger.create_project(payload)
 
+    @application.get("/api/projects", response_model=list[OpportunityProject])
+    async def list_projects() -> list[OpportunityProject]:
+        return ledger.list_projects()
+
     @application.get("/api/projects/{project_id}", response_model=OpportunityProject)
     async def get_project(project_id: str) -> OpportunityProject:
         try:

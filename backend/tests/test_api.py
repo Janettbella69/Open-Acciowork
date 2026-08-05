@@ -49,6 +49,10 @@ async def test_project_run_and_protocol_api(tmp_path: Path) -> None:
         assert response.status_code == 201
         project_id = response.json()["id"]
 
+        response = await client.get("/api/projects")
+        assert response.status_code == 200
+        assert [project["id"] for project in response.json()] == [project_id]
+
         response = await client.post(
             f"/api/projects/{project_id}/runs",
             json={"prompt": "Find the weakest dimension"},

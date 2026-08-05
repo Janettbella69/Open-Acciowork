@@ -1,5 +1,9 @@
 import { useMemo, useState } from 'react'
+import { dimensions, type Dimension } from '../api/types'
+import { useOpportunityRuntime } from '../api/useOpportunityRuntime'
 import Brand from './Brand'
+import { LiveDimensionView, LiveProjectTruth, RunActivity } from './RuntimePanels'
+import WorkspaceComposer from './WorkspaceComposer'
 import { opportunitySignals, type Opportunity } from '../data'
 
 type WorkspaceView = 'project' | 'demand' | 'supply' | 'capital' | 'sales'
@@ -133,6 +137,7 @@ function SalesPlan({ opportunity }: { opportunity: Opportunity }) {
 }
 
 export default function Workspace() {
+  const runtime = useOpportunityRuntime()
   const initialBrief = new URLSearchParams(window.location.search).get('brief') ?? ''
   const [activeView, setActiveView] = useState<WorkspaceView>('project')
   const [selectedId, setSelectedId] = useState(opportunitySignals[0].id)
@@ -146,16 +151,36 @@ export default function Workspace() {
     [selectedId],
   )
 
-  const runAnalysis = (event: React.FormEvent<HTMLFormElement>) => {
+  const latestDecision = runtime.project?.stage_decisions.at(-1)
+  const weakestDimension: Dimension = latestDecision?.weakest_dimension ?? dimensions.reduce(
+    (weakest, dimension) => {
+      if (!runtime.project) return weakest
+      return runtime.project.assessments[dimension].score < runtime.project.assessments[weakest].score
+        ? dimension
+        : weakest
+    },
+    'demand' as Dimension,
+  )
+  const weakestLabel = weakestDimension[0].toUpperCase() + weakestDimension.slice(1)
+
+  const runAnalysis = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     const nextBrief = briefInput.trim()
     if (!nextBrief) return
     setCurrentBrief(nextBrief)
-    setNotice('Research brief ready. Connect live sources to begin validation.')
+    setNotice('Creating the shared project ledger and starting Opportunity Lead…')
     setActiveView('project')
+    try {
+      await runtime.start(nextBrief)
+      setNotice('Live analysis started. The observable SDK trace is streaming below.')
+    } catch {
+      setNotice('The live analysis could not start. Check the backend connection and credentials.')
+    }
   }
 
-  const startNewAnalysis = () => {
+  const startNewAnalysis = async () => {
+    if (runtime.isActive) await runtime.cancel()
+    runtime.reset()
     setBriefInput('')
     setCurrentBrief('New market opportunity')
     setNotice('Start with a product, market, capability, or customer question.')
@@ -163,11 +188,35 @@ export default function Workspace() {
     setRailOpen(false)
   }
 
+  const selectSavedProject = (projectId: string) => {
+    const project = runtime.projects.find((item) => item.id === projectId)
+    if (!project) return
+    runtime.selectProject(project)
+    setCurrentBrief(project.objective)
+    setBriefInput(project.objective)
+    setActiveView('project')
+  }
+
+  if (!runtime.project && !runtime.run) {
+    return (
+      <WorkspaceComposer
+        value={briefInput}
+        busy={runtime.starting || runtime.isActive}
+        notice={notice}
+        error={notice.includes('could not start') ? runtime.error : ''}
+        projects={runtime.projects}
+        onChange={setBriefInput}
+        onSubmit={runAnalysis}
+        onSelectProject={selectSavedProject}
+      />
+    )
+  }
+
   return (
     <div className="ophira-workspace">
       <aside className="workspace-rail" data-open={railOpen}>
         <a className="workspace-brand-link" href="/" aria-label="Back to OPHIRA website"><Brand compact /></a>
-        <button className="new-analysis" type="button" onClick={startNewAnalysis}><span>＋</span>New analysis</button>
+        <button className="new-analysis" type="button" onClick={() => void startNewAnalysis()}><span>＋</span>New analysis</button>
 
         <nav aria-label="Workspace views">
           <p>Commerce system</p>
@@ -180,17 +229,33 @@ export default function Workspace() {
 
         <div className="project-list">
           <p>Recent studies</p>
-          {projectNames.map((project, index) => <button key={project} type="button" onClick={() => setSelectedId(opportunitySignals[index].id)}>{project}</button>)}
+          {runtime.projects.slice(0, 6).map((project) => (
+            <button key={project.id} type="button" onClick={() => {
+              runtime.selectProject(project)
+              setCurrentBrief(project.objective)
+              setActiveView('project')
+              setRailOpen(false)
+            }}>{project.name}</button>
+          ))}
+          {runtime.projects.length === 0 && <small>No live projects yet</small>}
+          <p className="example-projects-label">Examples</p>
+          {projectNames.map((project, index) => <button key={project} type="button" onClick={() => {
+            runtime.reset()
+            setSelectedId(opportunitySignals[index].id)
+            setCurrentBrief(opportunitySignals[index].title)
+            setActiveView('project')
+            setRailOpen(false)
+          }}>{project}</button>)}
         </div>
 
-        <div className="workspace-profile"><span>JB</span><div><strong>Ophira workspace</strong><small>Prototype mode</small></div></div>
+        <div className="workspace-profile"><span>JB</span><div><strong>Ophira workspace</strong><small>{runtime.error ? 'Backend offline' : 'Backend connected'}</small></div></div>
       </aside>
 
       <main className="workspace-main">
         <header className="workspace-topbar">
           <button className="rail-toggle" type="button" aria-label="Open workspace navigation" onClick={() => setRailOpen((open) => !open)}><span /><span /></button>
           <div><span>Opportunity studio</span><strong>{currentBrief}</strong></div>
-          <div className="topbar-actions"><span>Illustrative data</span><a href="/">Website ↗</a></div>
+          <div className="topbar-actions"><span>{runtime.project ? 'Live project' : 'Illustrative data'}</span><a href="/">Website ↗</a></div>
         </header>
 
         <div className="workspace-content">
@@ -198,49 +263,79 @@ export default function Workspace() {
             <div><p>Global opportunity research</p><h1 id="workspace-title">Turn a market question into a commercial path.</h1></div>
             <form onSubmit={runAnalysis}>
               <label htmlFor="workspace-brief">Research brief</label>
-              <div><input id="workspace-brief" value={briefInput} onChange={(event) => setBriefInput(event.target.value)} placeholder="What market, capability, or customer should we explore?" /><button type="submit">Analyze <span aria-hidden="true">→</span></button></div>
+              <div><input id="workspace-brief" value={briefInput} onChange={(event) => setBriefInput(event.target.value)} placeholder="What market, capability, or customer should we explore?" disabled={runtime.starting || runtime.isActive} /><button type="submit" disabled={runtime.starting || runtime.isActive}>{runtime.starting ? 'Starting…' : runtime.isActive ? 'Running…' : 'Analyze'} <span aria-hidden="true">→</span></button></div>
             </form>
             {notice && <p className="analysis-notice" role="status">{notice}</p>}
+            {runtime.error && <p className="analysis-error" role="alert">{runtime.error}</p>}
           </section>
 
           <div className="research-body">
             <section className="research-surface">
               {activeView === 'project' && (
                 <>
-                  <div className="surface-heading"><div><span>Opportunity Lead</span><h2>One project truth. One weakest link.</h2></div><button type="button">Stage: Discovery</button></div>
-                  <div className="signal-list">
-                    {opportunitySignals.map((opportunity, index) => (
-                      <button key={opportunity.id} type="button" data-active={selectedId === opportunity.id} onClick={() => setSelectedId(opportunity.id)}>
-                        <span>{String(index + 1).padStart(2, '0')}</span>
-                        <div><small>{opportunity.region} · {opportunity.category}</small><strong>{opportunity.title}</strong></div>
-                        <i aria-hidden="true">→</i>
-                      </button>
-                    ))}
-                  </div>
-                  <OpportunityDetail opportunity={selectedOpportunity} />
+                  <div className="surface-heading"><div><span>Opportunity Lead</span><h2>One project truth. One weakest link.</h2></div><button type="button">Stage: {runtime.project ? runtime.project.stage.replaceAll('_', ' ') : 'Discovery'}</button></div>
+                  {runtime.project ? (
+                    <LiveProjectTruth project={runtime.project} onSelectDimension={(dimension) => setActiveView(dimension)} />
+                  ) : (
+                    <>
+                      <div className="signal-list">
+                        {opportunitySignals.map((opportunity, index) => (
+                          <button key={opportunity.id} type="button" data-active={selectedId === opportunity.id} onClick={() => setSelectedId(opportunity.id)}>
+                            <span>{String(index + 1).padStart(2, '0')}</span>
+                            <div><small>{opportunity.region} · {opportunity.category}</small><strong>{opportunity.title}</strong></div>
+                            <i aria-hidden="true">→</i>
+                          </button>
+                        ))}
+                      </div>
+                      <OpportunityDetail opportunity={selectedOpportunity} />
+                    </>
+                  )}
                 </>
               )}
-              {activeView === 'demand' && <DemandValidation opportunity={selectedOpportunity} />}
-              {activeView === 'supply' && <SupplyFit opportunity={selectedOpportunity} />}
-              {activeView === 'capital' && <CapitalModel opportunity={selectedOpportunity} />}
-              {activeView === 'sales' && <SalesPlan opportunity={selectedOpportunity} />}
+              {activeView !== 'project' && runtime.project && <LiveDimensionView project={runtime.project} dimension={activeView} />}
+              {activeView === 'demand' && !runtime.project && <DemandValidation opportunity={selectedOpportunity} />}
+              {activeView === 'supply' && !runtime.project && <SupplyFit opportunity={selectedOpportunity} />}
+              {activeView === 'capital' && !runtime.project && <CapitalModel opportunity={selectedOpportunity} />}
+              {activeView === 'sales' && !runtime.project && <SalesPlan opportunity={selectedOpportunity} />}
             </section>
 
             <aside className="workspace-inspector">
-              <div className="inspector-heading"><span>Decision thread</span><small>Sample</small></div>
-              <h2>{selectedOpportunity.title}</h2>
-              <dl>
-                <div><dt>Market</dt><dd>{selectedOpportunity.region}</dd></div>
-                <div><dt>Buyer context</dt><dd>{selectedOpportunity.category}</dd></div>
-                <div><dt>Weakest link</dt><dd>{selectedOpportunity.weakestDimension}</dd></div>
-              </dl>
-              <div className="inspector-next"><span>Next move</span><p>{selectedOpportunity.nextMove}</p></div>
+              <div className="inspector-heading"><span>Decision thread</span><small>{runtime.project ? runtime.run?.status ?? 'Saved' : 'Sample'}</small></div>
+              <h2>{runtime.project?.name ?? selectedOpportunity.title}</h2>
+              {runtime.project ? (
+                <dl>
+                  <div><dt>Stage</dt><dd>{runtime.project.stage.replaceAll('_', ' ')}</dd></div>
+                  <div><dt>Revision</dt><dd>{runtime.project.revision}</dd></div>
+                  <div><dt>Weakest link</dt><dd>{weakestLabel}</dd></div>
+                </dl>
+              ) : (
+                <dl>
+                  <div><dt>Market</dt><dd>{selectedOpportunity.region}</dd></div>
+                  <div><dt>Buyer context</dt><dd>{selectedOpportunity.category}</dd></div>
+                  <div><dt>Weakest link</dt><dd>{selectedOpportunity.weakestDimension}</dd></div>
+                </dl>
+              )}
+              <div className="inspector-next"><span>Next move</span><p>{latestDecision?.next_actions[0] ?? (runtime.project ? 'Wait for Opportunity Lead to record the next gate.' : selectedOpportunity.nextMove)}</p></div>
               <ol className="progress-thread">
-                {workspaceViews.map((view, index) => <li key={view.id} data-active={activeView === view.id} data-done={workspaceViews.findIndex((item) => item.id === activeView) > index}><span />{view.label}</li>)}
+                {workspaceViews.map((view, index) => <li key={view.id} data-active={activeView === view.id} data-done={runtime.project && view.id !== 'project' ? runtime.project.assessments[view.id].status === 'validated' : workspaceViews.findIndex((item) => item.id === activeView) > index}><span />{view.label}</li>)}
               </ol>
-              <button type="button" onClick={() => setActiveView(selectedOpportunity.weakestDimension.toLowerCase() as WorkspaceView)}>Validate weakest link <span aria-hidden="true">→</span></button>
+              <button type="button" onClick={() => setActiveView(runtime.project ? weakestDimension : selectedOpportunity.weakestDimension.toLowerCase() as WorkspaceView)}>Validate weakest link <span aria-hidden="true">→</span></button>
             </aside>
           </div>
+
+          {runtime.run && (
+            <RunActivity
+              run={runtime.run}
+              events={runtime.events}
+              assistantText={runtime.assistantText}
+              reasoningSummary={runtime.reasoningSummary}
+              permissions={runtime.permissions}
+              connection={runtime.connection}
+              isActive={runtime.isActive}
+              onCancel={() => void runtime.cancel()}
+              onDecision={(requestId, decision) => void runtime.decidePermission(requestId, decision)}
+            />
+          )}
         </div>
       </main>
     </div>

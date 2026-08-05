@@ -90,6 +90,17 @@ class FileLedger:
             raise LedgerNotFoundError(project_id)
         return OpportunityProject.model_validate_json(path.read_text(encoding="utf-8"))
 
+    def list_projects(self) -> list[OpportunityProject]:
+        projects: list[OpportunityProject] = []
+        for path in self.projects_dir.glob("*/project.json"):
+            try:
+                projects.append(
+                    OpportunityProject.model_validate_json(path.read_text(encoding="utf-8"))
+                )
+            except (OSError, ValueError):
+                continue
+        return sorted(projects, key=lambda project: project.updated_at, reverse=True)
+
     def update_project(
         self,
         project_id: str,

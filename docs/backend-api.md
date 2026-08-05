@@ -9,7 +9,8 @@ The backend owns opportunity state, Claude Agent SDK orchestration, permissions,
 3. `GET /api/runs/{run_id}/events` opens a replayable Server-Sent Events stream.
 4. `POST /api/runs/{run_id}/permissions/{request_id}` resolves a pending tool request with `allow_once`, `allow_run`, or `deny`.
 5. `POST /api/runs/{run_id}/cancel` interrupts the SDK client and cancels the run.
-6. `GET /api/projects/{project_id}` and `GET /api/runs/{run_id}` return durable snapshots.
+6. `GET /api/projects` lists durable projects ordered by recent updates.
+7. `GET /api/projects/{project_id}` and `GET /api/runs/{run_id}` return durable snapshots.
 
 `GET /api/meta/protocol` is the single machine-readable source for event names, run statuses, dimensions, stages, and permission decisions. Frontend code should fetch or generate types from it instead of maintaining a second enum list.
 

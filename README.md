@@ -39,11 +39,24 @@ The repository now contains two connected React surfaces:
 
 ### Run locally
 
+Start the backend from the repository root:
+
+```bash
+python3.11 -m venv .venv
+.venv/bin/pip install -e './backend[dev]'
+cp backend/.env.example backend/.env
+.venv/bin/uvicorn ophira_backend.main:app --app-dir backend/src --reload
+```
+
+Set `ANTHROPIC_API_KEY` in `backend/.env`, or use a supported Claude Code login. Then start the frontend in a second terminal:
+
 ```bash
 cd frontend
 npm install
 npm run dev
 ```
+
+Open `http://localhost:5173/app`. Vite proxies `/api` and the SSE stream to `http://127.0.0.1:8000`. For separate deployments, copy `frontend/.env.example` and set `VITE_OPHIRA_API_URL` to the backend origin.
 
 ### Verify
 
@@ -54,4 +67,4 @@ npm run lint
 npm run build
 ```
 
-The first frontend uses illustrative workspace content. Connect verified demand, supplier, compliance, and customer sources before using it for a real commercial decision.
+The workspace keeps illustrative examples as an empty-state, then switches to the durable backend project ledger as soon as a live analysis starts. Commercial conclusions still require verified sources and user review.

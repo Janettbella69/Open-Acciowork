@@ -88,6 +88,9 @@ class ClaudeAgentRuntime:
 
     def _build_options(self, run: RunRecord) -> ClaudeAgentOptions:
         mcp_server = build_ledger_mcp_server(self.ledger, run.project_id)
+        sdk_env = {}
+        if self.settings.anthropic_api_key:
+            sdk_env["ANTHROPIC_API_KEY"] = self.settings.anthropic_api_key.get_secret_value()
 
         async def can_use_tool(tool_name: str, tool_input: dict[str, Any], context):
             context_data = dataclasses.asdict(context)
@@ -134,6 +137,7 @@ class ClaudeAgentRuntime:
             max_turns=self.settings.max_turns,
             max_budget_usd=self.settings.max_budget_usd,
             cwd=self.ledger.workspace_for_project(run.project_id),
+            env=sdk_env,
             setting_sources=[],
             thinking={"type": "adaptive", "display": "summarized"},
         )

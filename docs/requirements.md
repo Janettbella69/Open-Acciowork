@@ -13,6 +13,7 @@ Updated: 2026-08-05
 | Sales Agent validates sales executability | Backend | Delivered | Programmatic SDK subagent |
 | All five agents use the same project, hypotheses, constraints, and evidence | Backend | Delivered | Structured, atomic per-project file ledger and in-process MCP tools |
 | Frontend can render intermediate process and tool-call details | Backend | Delivered | Replayable SSE contract for text, summarized reasoning, tool, permission, task, subagent, usage, cost, and result events |
+| Connect the pushed frontend to the backend | Full stack | Delivered | Typed client, Vite development proxy, project/run flow, protocol-driven SSE listeners, live ledger views, approvals, and cancellation |
 | Expose the entire private model chain-of-thought | Backend | Omitted | Not an available or appropriate application surface; visible SDK reasoning summaries are labeled and streamed |
 | Follow the supplied Feishu production AI coding rules | Repository | Delivered | Rules codified in `AGENTS.md`; file ledger, trace, logging, stop conditions, and requirement gate reflected in architecture |
 | Build frontend | Separate frontend agent | Deferred | Explicitly assigned by the user to another agent; backend provides an integration contract |

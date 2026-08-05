@@ -32,6 +32,7 @@ def test_sdk_options_use_programmatic_team_and_observable_stream(tmp_path: Path)
     assert options.thinking == {"type": "adaptive", "display": "summarized"}
     assert "Agent" in options.allowed_tools
     assert options.strict_mcp_config is True
+    assert options.env == {}
     assert set(options.hooks or {}) >= {
         "PreToolUse",
         "PostToolUse",
@@ -39,6 +40,24 @@ def test_sdk_options_use_programmatic_team_and_observable_stream(tmp_path: Path)
         "SubagentStart",
         "SubagentStop",
     }
+
+
+def test_sdk_key_is_passed_to_subprocess_without_entering_events(tmp_path: Path) -> None:
+    ledger = FileLedger(tmp_path)
+    project = ledger.create_project(ProjectCreate(name="Kettle", objective="Validate"))
+    run = ledger.create_run(project.id, "Start")
+    events = EventPublisher(ledger)
+    permissions = PermissionBroker(ledger, events, timeout_seconds=30)
+    runtime = ClaudeAgentRuntime(
+        Settings(data_dir=tmp_path, ANTHROPIC_API_KEY="sk-ant-test-secret"),
+        ledger,
+        events,
+        permissions,
+    )
+
+    options = runtime._build_options(run)
+    assert options.env["ANTHROPIC_API_KEY"] == "sk-ant-test-secret"
+    assert ledger.list_events(run.id) == []
 
 
 @pytest.mark.asyncio

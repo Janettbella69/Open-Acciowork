@@ -11,3 +11,6 @@ __pycache__/
 *.py[cod]
 backend/data/
 backend/.env
+frontend/.env
+frontend/.env.*
+!frontend/.env.example
