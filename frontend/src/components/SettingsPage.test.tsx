@@ -1,0 +1,23 @@
+import { fireEvent, render, screen } from '@testing-library/react'
+import SettingsPage from './SettingsPage'
+
+describe('SettingsPage', () => {
+  it('keeps high-risk access disabled until the user enables it', () => {
+    const stored = new Map<string, string>()
+    Object.defineProperty(window, 'localStorage', {
+      configurable: true,
+      value: {
+        getItem: (key: string) => stored.get(key) ?? null,
+        setItem: (key: string, value: string) => stored.set(key, value),
+      },
+    })
+    render(<SettingsPage />)
+
+    const fullAccess = screen.getByRole('switch', { name: /full access/i })
+    expect(fullAccess).not.toBeChecked()
+
+    fireEvent.click(fullAccess)
+    expect(fullAccess).toBeChecked()
+    expect(stored.get('ophira-workspace-settings')).toContain('"fullAccess":true')
+  })
+})
