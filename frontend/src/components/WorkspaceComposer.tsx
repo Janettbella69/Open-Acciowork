@@ -1,4 +1,4 @@
-import type { FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import {
   dimensions,
   type OpportunityProject,
@@ -64,6 +64,69 @@ function activityLabel(event: OphiraEvent): string {
   return label(event.type)
 }
 
+function WorkspaceAccountMenu({ backendState }: { backendState: string }) {
+  const [open, setOpen] = useState(false)
+  const rootRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+
+    const closeOnOutsidePress = (event: PointerEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false)
+    }
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setOpen(false)
+    }
+
+    document.addEventListener('pointerdown', closeOnOutsidePress)
+    document.addEventListener('keydown', closeOnEscape)
+    return () => {
+      document.removeEventListener('pointerdown', closeOnOutsidePress)
+      document.removeEventListener('keydown', closeOnEscape)
+    }
+  }, [open])
+
+  return (
+    <div className="conversation-account" ref={rootRef}>
+      {open && (
+        <section className="conversation-account-menu" role="dialog" aria-label="Workspace account menu">
+          <header>
+            <span>OP</span>
+            <div><strong>Ophira workspace</strong><small>Local development workspace</small></div>
+          </header>
+
+          <div className="conversation-account-plan">
+            <div><strong>Developer preview</strong><span>Local</span></div>
+            <p><span>Runtime</span><strong>{backendState}</strong></p>
+            <small>Usage follows the AI provider configured on this backend.</small>
+          </div>
+
+          <nav aria-label="Account destinations">
+            <a href="/app/settings"><span><strong>Settings</strong><small>Permissions, runtime, and language</small></span><i aria-hidden="true">→</i></a>
+            <a href="/"><span><strong>Homepage</strong><small>Return to the OPHIRA website</small></span><i aria-hidden="true">↗</i></a>
+            <a href="https://github.com/Janettbella69/Ophira-ai" target="_blank" rel="noreferrer"><span><strong>GitHub</strong><small>Open the source repository</small></span><i aria-hidden="true">↗</i></a>
+          </nav>
+
+          <footer>Account authentication and billing are not enabled in this local build.</footer>
+        </section>
+      )}
+
+      <button
+        className="conversation-sidebar-profile"
+        type="button"
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        aria-label="Open account menu for Ophira workspace"
+        onClick={() => setOpen((current) => !current)}
+      >
+        <span>OP</span>
+        <div><strong>Ophira workspace</strong><small>{backendState}</small></div>
+        <i aria-hidden="true">⌃</i>
+      </button>
+    </div>
+  )
+}
+
 export default function WorkspaceComposer({
   value,
   busy,
@@ -101,8 +164,9 @@ export default function WorkspaceComposer({
         <nav className="conversation-sidebar-nav" aria-label="Workspace navigation">
           <p>Workspace</p>
           <a href="/app" aria-current="page"><span>01</span>Opportunity studio</a>
-          <a href="/"><span>02</span>Marketing site</a>
-          <a href="/app/settings"><span>03</span>Settings</a>
+          <a href="/app/schedules"><span>02</span>Scheduled tasks</a>
+          <a href="/"><span>03</span>Marketing site</a>
+          <a href="/app/settings"><span>04</span>Settings</a>
         </nav>
 
         <section className="conversation-sidebar-projects" aria-labelledby="sidebar-projects-title">
@@ -129,13 +193,7 @@ export default function WorkspaceComposer({
           </ul>
         </section>
 
-        <div className="conversation-sidebar-profile">
-          <span>OP</span>
-          <div>
-            <strong>Ophira workspace</strong>
-            <small>{error ? 'Backend needs attention' : run ? `Backend ${connection}` : 'Backend ready'}</small>
-          </div>
-        </div>
+        <WorkspaceAccountMenu backendState={error ? 'Backend needs attention' : run ? `Backend ${connection}` : 'Backend ready'} />
       </aside>
 
       <main className="conversation-entry-main" data-session={sessionOpen}>
