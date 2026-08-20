@@ -1,5 +1,9 @@
 import type {
   Artifact,
+  Connector,
+  Evidence,
+  EvidenceStatus,
+  EvidenceStatusChange,
   MemoryItem,
   OpportunityProject,
   ProtocolMetadata,
@@ -8,6 +12,7 @@ import type {
   RunMode,
   RunRecord,
   Schedule,
+  SkillTestResult,
   SkillVersion,
 } from './types'
 
@@ -153,6 +158,64 @@ export function preflightProvider(providerId: string): Promise<ProviderPreflight
     `/api/providers/${encodeURIComponent(providerId)}/preflight`,
     { method: 'POST' },
   )
+}
+
+export function listProjectEvidence(
+  projectId: string,
+  params: { q?: string; kind?: string; status?: string; tag?: string; limit?: number } = {},
+): Promise<Evidence[]> {
+  const search = new URLSearchParams()
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== '') search.set(key, String(value))
+  }
+  const suffix = search.toString() ? `?${search}` : ''
+  return request<Evidence[]>(`/api/projects/${projectId}/evidence${suffix}`)
+}
+
+export function setEvidenceStatus(
+  projectId: string,
+  evidenceId: string,
+  status: EvidenceStatus,
+): Promise<EvidenceStatusChange> {
+  return request<EvidenceStatusChange>(
+    `/api/projects/${projectId}/evidence/${evidenceId}/status`,
+    { method: 'POST', body: JSON.stringify({ status }) },
+  )
+}
+
+export function testSkill(skillId: string): Promise<SkillTestResult> {
+  return request<SkillTestResult>(`/api/skills/${encodeURIComponent(skillId)}/test`, {
+    method: 'POST',
+  })
+}
+
+export function listConnectors(): Promise<Connector[]> {
+  return request<Connector[]>('/api/connectors')
+}
+
+export function checkConnectorHealth(connectorId: string): Promise<Connector> {
+  return request<Connector>(`/api/connectors/${encodeURIComponent(connectorId)}/health-check`, {
+    method: 'POST',
+  })
+}
+
+export function patchSchedule(
+  scheduleId: string,
+  changes: Partial<{
+    prompt: string
+    cron: string | null
+    run_once_at: string | null
+    timezone: string
+    missed_run_policy: 'catch_up' | 'skip'
+    provider_profile_id: string | null
+    mode: RunMode
+    enabled: boolean
+  }>,
+): Promise<Schedule> {
+  return request<Schedule>(`/api/schedules/${scheduleId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(changes),
+  })
 }
 
 export function listSkills(): Promise<SkillVersion[]> {

@@ -175,3 +175,13 @@
 @media (prefers-reduced-motion: reduce) {
   .skill-card { transition: none; }
 }
+
+/* Skill package test */
+.skill-card-buttons { display: flex; gap: 6px; }
+.skill-test-result { margin-top: 8px; border-radius: 8px; padding: 8px 10px; background: rgba(185, 28, 28, 0.06); font-size: 12px; }
+.skill-test-result[data-ok='true'] { background: rgba(22, 128, 61, 0.07); }
+.skill-test-result ul { margin: 6px 0 0; padding: 0; list-style: none; display: grid; gap: 3px; }
+.skill-test-result li[data-status='failed'] { color: #b91c1c; }
+.skill-test-result li[data-status='warning'] { color: #92400e; }
+.skill-test-result li span { margin-right: 4px; }
+.skill-test-result li b { margin-right: 4px; }

@@ -44,6 +44,7 @@ function baseProps() {
     onAttachedFilesChange: vi.fn(),
     onModeChange: vi.fn(),
     onSubmit: vi.fn(),
+    onProjectRefresh: vi.fn(),
     onNewResearch: vi.fn(),
     onSelectProject: vi.fn(),
     onCancel: vi.fn(),

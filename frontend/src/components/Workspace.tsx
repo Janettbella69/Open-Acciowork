@@ -87,6 +87,7 @@ export default function Workspace() {
       onAttachedFilesChange={setAttachedFiles}
       onModeChange={setRunMode}
       onSubmit={runAnalysis}
+      onProjectRefresh={() => void runtime.refreshActiveProject()}
       onNewResearch={() => void startNewResearch()}
       onSelectProject={(projectId) => void selectSavedProject(projectId)}
       onCancel={() => void runtime.cancel()}

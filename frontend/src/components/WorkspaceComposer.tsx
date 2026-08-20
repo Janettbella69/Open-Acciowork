@@ -10,6 +10,7 @@ import {
 } from '../api/types'
 import { builtInSkills } from '../data/skillCatalog'
 import Brand from './Brand'
+import EvidenceDrawer from './EvidenceDrawer'
 import './workspace-composer.css'
 
 type WorkspaceComposerProps = {
@@ -33,6 +34,7 @@ type WorkspaceComposerProps = {
   onAttachedFilesChange: (files: File[]) => void
   onModeChange: (mode: RunMode) => void
   onSubmit: (event: FormEvent<HTMLFormElement>) => void
+  onProjectRefresh: () => void
   onNewResearch: () => void
   onSelectProject: (projectId: string) => void
   onCancel: () => void
@@ -214,6 +216,7 @@ export default function WorkspaceComposer({
   onAttachedFilesChange,
   onModeChange,
   onSubmit,
+  onProjectRefresh,
   onNewResearch,
   onSelectProject,
   onCancel,
@@ -573,23 +576,22 @@ export default function WorkspaceComposer({
                       {project.evidence.length > 0 && (
                         <div className="conversation-evidence-ledger">
                           <div><strong>Evidence ledger</strong><span>{project.evidence.length} records</span></div>
-                          {project.evidence.slice(-4).reverse().map((item) => (
-                            <article key={item.id}>
-                              <small>{label(item.kind)} · {label(item.dimension ?? item.source_type)}</small>
-                              <p>{item.claim}</p>
-                              <span>{item.source_title} · {new Date(item.retrieved_at).toLocaleDateString()}</span>
-                            </article>
-                          ))}
+                          <EvidenceDrawer project={project} onChanged={onProjectRefresh} />
                         </div>
                       )}
                       {project.decisions.length > 0 && (
                         <div className="conversation-evidence-ledger">
                           <div><strong>Decisions</strong><span>{project.decisions.length} recorded</span></div>
                           {project.decisions.slice(-3).reverse().map((decision) => (
-                            <article key={decision.id}>
+                            <article key={decision.id} data-status={decision.status}>
                               <small>{label(decision.decision_type)} · {label(decision.status)}</small>
                               <p>{decision.outcome}</p>
                               <span>{decision.evidence_ids.length} linked evidence records</span>
+                              {decision.invalidated_by_evidence_ids.length > 0 && (
+                                <em className="conversation-decision-invalidated" role="alert">
+                                  ⚠ {decision.invalidated_by_evidence_ids.length} 条依据证据已失效，需复核
+                                </em>
+                              )}
                             </article>
                           ))}
                         </div>

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
-import { errorMessage, listSkills, setSkillEnabled } from '../api/client'
-import type { SkillVersion } from '../api/types'
+import { errorMessage, listSkills, setSkillEnabled, testSkill } from '../api/client'
+import type { SkillTestResult, SkillVersion } from '../api/types'
 import Brand from './Brand'
 import './workspace-composer.css'
 import './skills-page.css'
@@ -14,6 +14,8 @@ export default function SkillsPage() {
   const [query, setQuery] = useState('')
   const [error, setError] = useState('')
   const [updating, setUpdating] = useState('')
+  const [testing, setTesting] = useState('')
+  const [testResults, setTestResults] = useState<Record<string, SkillTestResult>>({})
 
   useEffect(() => {
     let active = true
@@ -41,6 +43,19 @@ export default function SkillsPage() {
       setError(errorMessage(toggleError))
     } finally {
       setUpdating('')
+    }
+  }
+
+  const runSkillTest = async (skill: SkillVersion) => {
+    setTesting(skill.id)
+    setError('')
+    try {
+      const result = await testSkill(skill.id)
+      setTestResults((current) => ({ ...current, [skill.id]: result }))
+    } catch (testError) {
+      setError(errorMessage(testError))
+    } finally {
+      setTesting('')
     }
   }
 
@@ -113,10 +128,28 @@ export default function SkillsPage() {
                     <p>{skill.description}</p>
                     <footer>
                       <span>v{skill.version} · {skill.content_hash.slice(0, 8)}</span>
-                      <button type="button" disabled={updating === skill.id} onClick={() => void toggleSkill(skill)}>
-                        {updating === skill.id ? 'Saving…' : skill.enabled ? 'Disable' : 'Enable'}
-                      </button>
+                      <span className="skill-card-buttons">
+                        <button type="button" disabled={testing === skill.id} onClick={() => void runSkillTest(skill)}>
+                          {testing === skill.id ? 'Testing…' : 'Test'}
+                        </button>
+                        <button type="button" disabled={updating === skill.id} onClick={() => void toggleSkill(skill)}>
+                          {updating === skill.id ? 'Saving…' : skill.enabled ? 'Disable' : 'Enable'}
+                        </button>
+                      </span>
                     </footer>
+                    {testResults[skill.id] && (
+                      <div className="skill-test-result" data-ok={testResults[skill.id].ok} role="status">
+                        <strong>{testResults[skill.id].ok ? '✓ Package test passed' : '✗ Package test failed'}</strong>
+                        <ul>
+                          {testResults[skill.id].checks.map((check) => (
+                            <li key={check.name} data-status={check.status}>
+                              <span>{check.status === 'passed' ? '✓' : check.status === 'warning' ? '⚠' : '✗'}</span>
+                              <b>{check.name}</b> {check.detail}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
                   </div>
                 </article>
               ))}

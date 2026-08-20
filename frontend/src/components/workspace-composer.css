@@ -427,3 +427,28 @@
   .conversation-new-research, .conversation-quick-grid button, .conversation-composer, .conversation-submit, .conversation-tool-add, .conversation-tool-skills, .conversation-sidebar-profile > i { transition: none; }
   .conversation-account-menu, .conversation-skills-menu { animation: none; }
 }
+
+/* Evidence drawer (FR-09/FR-10) */
+.evidence-drawer { display: grid; gap: 12px; }
+.evidence-drawer-controls { display: flex; flex-wrap: wrap; gap: 8px; }
+.evidence-drawer-controls input, .evidence-drawer-controls select { border: 1px solid rgba(15, 23, 42, 0.18); border-radius: 8px; padding: 6px 10px; font: inherit; font-size: 13px; }
+.evidence-drawer-notice { border-radius: 8px; padding: 8px 12px; background: rgba(22, 128, 61, 0.08); color: #166534; font-size: 13px; }
+.evidence-drawer-empty { color: rgba(15, 23, 42, 0.55); font-size: 13px; }
+.evidence-card { border: 1px solid rgba(15, 23, 42, 0.1); border-radius: 10px; padding: 10px 12px; display: grid; gap: 6px; }
+.evidence-card[data-status='stale'] { opacity: 0.75; border-style: dashed; }
+.evidence-card[data-status='removed'] { opacity: 0.5; border-style: dashed; }
+.evidence-card header { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.evidence-card header span { font-size: 11px; border-radius: 999px; padding: 1px 8px; background: rgba(15, 23, 42, 0.07); }
+.evidence-card header span[data-kind='observed_fact'] { background: rgba(22, 128, 61, 0.12); color: #166534; }
+.evidence-card header span[data-kind='inference'] { background: rgba(180, 83, 9, 0.12); color: #92400e; }
+.evidence-card header span[data-kind='community_signal'] { background: rgba(29, 78, 216, 0.1); color: #1d4ed8; }
+.evidence-card header span[data-status='stale'], .evidence-card header span[data-status='removed'] { background: rgba(185, 28, 28, 0.1); color: #b91c1c; }
+.evidence-card header b { margin-left: auto; font-size: 11px; color: rgba(15, 23, 42, 0.6); }
+.evidence-card footer { display: grid; gap: 2px; font-size: 12px; color: rgba(15, 23, 42, 0.65); }
+.evidence-card footer em { color: rgba(180, 83, 9, 0.9); font-style: normal; }
+.evidence-card blockquote { margin: 0; padding: 6px 10px; border-left: 3px solid rgba(15, 23, 42, 0.15); font-size: 12px; color: rgba(15, 23, 42, 0.7); }
+.evidence-card-actions { display: flex; gap: 6px; }
+.evidence-card-actions button { border: 1px solid rgba(15, 23, 42, 0.18); background: #fff; border-radius: 7px; padding: 4px 10px; font: inherit; font-size: 12px; cursor: pointer; }
+.evidence-card-actions button[data-tone='danger'] { color: #b91c1c; border-color: rgba(185, 28, 28, 0.4); }
+.evidence-card-actions button:disabled { opacity: 0.55; cursor: default; }
+.conversation-decision-invalidated { display: block; color: #b45309; font-style: normal; font-size: 12px; }

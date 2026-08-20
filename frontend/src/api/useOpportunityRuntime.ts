@@ -309,6 +309,15 @@ export function useOpportunityRuntime() {
     }
   }, [closeStream, connectToRun])
 
+  const refreshActiveProject = useCallback(async () => {
+    if (!project) return
+    try {
+      await refreshProject(project.id)
+    } catch {
+      // The ledger view refresh is best-effort; the drawer shows its own errors.
+    }
+  }, [project, refreshProject])
+
   const reset = useCallback(() => {
     selectionRef.current += 1
     closeStream()
@@ -357,6 +366,7 @@ export function useOpportunityRuntime() {
     cancel,
     decidePermission,
     selectProject,
+    refreshActiveProject,
     reset,
   }
 }

@@ -222,6 +222,39 @@ export type ProviderPreflightResult = {
   checked_at: string
 }
 
+export type EvidenceStatus = 'active' | 'stale' | 'removed'
+
+export type EvidenceStatusChange = {
+  evidence: Evidence
+  affected_decision_ids: string[]
+}
+
+export type SkillCheck = {
+  name: string
+  status: 'passed' | 'warning' | 'failed'
+  detail: string
+}
+
+export type SkillTestResult = {
+  skill_id: string
+  ok: boolean
+  checks: SkillCheck[]
+  checked_at: string
+}
+
+export type Connector = {
+  id: string
+  type: string
+  display_name: string
+  scope: string
+  secret_env: string | null
+  endpoint: string | null
+  enabled: boolean
+  health: 'unknown' | 'ok' | 'no_credential' | 'unreachable'
+  last_checked_at: string | null
+  created_at: string
+}
+
 export type SkillVersion = {
   id: string
   namespace: string
