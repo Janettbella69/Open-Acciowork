@@ -65,10 +65,18 @@ Open `http://localhost:5173/app`. Vite proxies `/api` and the SSE stream to `htt
 ### Verify
 
 ```bash
+# backend（若刚移动/重命名过仓库，先 python3.11 -m venv .venv --clear 重建 venv）
+.venv/bin/ruff check backend/src backend/tests
+PYTHONPATH=backend/src .venv/bin/pytest backend/tests
+
+# frontend
 cd frontend
 npm run test:run
 npm run lint
 npm run build
 ```
+
+真端点验收（花钱，环境变量门控）：Green Path 3 连过与 Provider 合约测试见
+[`backend/README.md`](backend/README.md)；评测体系与报告见 [`evals/README.md`](evals/README.md)。
 
 The workspace keeps illustrative examples as an empty-state, then switches to the durable backend project ledger as soon as a live analysis starts. Commercial conclusions still require verified sources and user review.
