@@ -43,3 +43,8 @@ target-version = "py311"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "ASYNC"]
+
+[tool.ruff.lint.per-file-ignores]
+# Long Chinese prompt text and event-fixture data lines are data, not code.
+"**/greenpath.py" = ["E501"]
+"**/test_greenpath_verifier.py" = ["E501"]
