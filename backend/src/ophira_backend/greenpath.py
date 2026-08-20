@@ -45,6 +45,7 @@ RESUME_PROMPT = (
 
 READ_TOOLS = {"Read"}
 WEB_TOOLS = {"WebSearch", "WebFetch"}
+FALLBACK_WEB_TOOL_PREFIX = "mcp__ophira_web__"
 SKILL_TOOLS = {"Skill"}
 BASH_TOOLS = {"Bash"}
 WRITE_TOOLS = {"Write"}
@@ -130,6 +131,8 @@ def verify_events(
     deny_sequence: int | None = None
     last_sequence = 0
     web_failures = 0
+    native_web_seen = False
+    fallback_web_seen = False
 
     for event in events:
         last_sequence = max(last_sequence, event.sequence)
@@ -141,6 +144,11 @@ def verify_events(
                 coverage["read"] = True
             if name in WEB_TOOLS:
                 coverage["web"] = True
+                native_web_seen = True
+            if name.startswith(FALLBACK_WEB_TOOL_PREFIX):
+                # FR-23 sanctioned fallback counts as web coverage, flagged degraded.
+                coverage["web"] = True
+                fallback_web_seen = True
             if _is_skill_use(event):
                 coverage["skill"] = True
             if name.startswith("mcp__ophira_"):
@@ -184,6 +192,8 @@ def verify_events(
     if not coverage["web"] and web_failures:
         # Provider lacks native Web tools (FR-23 territory): attempted and observable.
         coverage["web"] = True
+        verdict.web_degraded = True
+    if fallback_web_seen and not native_web_seen:
         verdict.web_degraded = True
 
     verdict.tool_coverage = coverage

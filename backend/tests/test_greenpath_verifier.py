@@ -195,3 +195,26 @@ def test_required_coverage_can_be_narrowed_for_l2_tasks() -> None:
         events, expect_deny=False, required_coverage=("read", "mcp", "write")
     )
     assert all(not item.startswith("tool:") for item in narrowed.missing)
+
+
+def test_fallback_web_mcp_counts_as_degraded_web_coverage() -> None:
+    events = []
+    for event in happy_path_events():
+        if event.data.get("tool_name") == "WebSearch":
+            continue
+        events.append(event)
+    events.append(
+        ev(99, "tool.started", {
+            "tool_name": "mcp__ophira_web__search_public_web",
+            "tool_input": {"query": "blender"},
+        })
+    )
+    events = [
+        event.model_copy(update={"sequence": index + 1, "id": f"run_x:{index + 1}"})
+        for index, event in enumerate(events)
+    ]
+
+    verdict = verify_events(events)
+
+    assert verdict.tool_coverage["web"] is True
+    assert verdict.web_degraded is True

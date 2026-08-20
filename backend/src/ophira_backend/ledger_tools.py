@@ -14,6 +14,7 @@ from .constants import (
     MARKET_MCP_SERVER_NAME,
     SUPPLIER_MCP_SERVER_NAME,
     USER_SCOPE_ID,
+    WEB_MCP_SERVER_NAME,
     DecisionStatus,
     Dimension,
     EvidenceKind,
@@ -814,8 +815,9 @@ def build_mcp_servers(
     project_id: str,
     memory: MemoryProvider | None = None,
     agent_id: str | None = None,
+    settings: Any | None = None,
 ) -> dict[str, Any]:
-    return {
+    servers = {
         LEDGER_MCP_SERVER_NAME: build_ledger_mcp_server(
             ledger,
             project_id,
@@ -827,3 +829,8 @@ def build_mcp_servers(
         CUSTOMER_MCP_SERVER_NAME: build_customer_mcp_server(),
         COMMERCE_MATH_MCP_SERVER_NAME: build_commerce_math_mcp_server(),
     }
+    if settings is not None:
+        from .web_tools import build_web_mcp_server
+
+        servers[WEB_MCP_SERVER_NAME] = build_web_mcp_server(settings)
+    return servers

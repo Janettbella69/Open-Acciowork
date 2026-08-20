@@ -187,6 +187,7 @@ MARKET_MCP_SERVER_NAME = "ophira_market"
 SUPPLIER_MCP_SERVER_NAME = "ophira_supplier"
 CUSTOMER_MCP_SERVER_NAME = "ophira_customer"
 COMMERCE_MATH_MCP_SERVER_NAME = "ophira_commerce_math"
+WEB_MCP_SERVER_NAME = "ophira_web"
 
 TOOL_GET_PROJECT_CONTEXT = "mcp__ophira_ledger__read_project_context"
 TOOL_SEARCH_EVIDENCE = "mcp__ophira_ledger__search_evidence"
@@ -198,6 +199,9 @@ TOOL_UPDATE_ASSESSMENT = "mcp__ophira_ledger__update_assessment"
 TOOL_RECORD_STAGE_DECISION = "mcp__ophira_ledger__record_stage_decision"
 TOOL_PROPOSE_MEMORY = "mcp__ophira_ledger__propose_memory"
 TOOL_SEARCH_MEMORY = "mcp__ophira_ledger__search_memory"
+
+TOOL_SEARCH_PUBLIC_WEB = "mcp__ophira_web__search_public_web"
+TOOL_FETCH_PAGE_SNAPSHOT = "mcp__ophira_web__fetch_page_snapshot"
 
 TOOL_RECORD_MARKET_SIGNAL = "mcp__ophira_market__record_market_signal"
 TOOL_COMPARE_SUPPLIER_QUOTES = "mcp__ophira_supplier__compare_supplier_quotes"
@@ -229,7 +233,17 @@ DOMAIN_TOOL_NAMES = [
     TOOL_CALCULATE_UNIT_ECONOMICS,
 ]
 
-OPHIRA_TOOL_NAMES = [*LEDGER_TOOL_NAMES, *MEMORY_TOOL_NAMES, *DOMAIN_TOOL_NAMES]
+WEB_TOOL_NAMES = [
+    TOOL_SEARCH_PUBLIC_WEB,
+    TOOL_FETCH_PAGE_SNAPSHOT,
+]
+
+OPHIRA_TOOL_NAMES = [
+    *LEDGER_TOOL_NAMES,
+    *MEMORY_TOOL_NAMES,
+    *DOMAIN_TOOL_NAMES,
+    *WEB_TOOL_NAMES,
+]
 
 READ_ONLY_MCP_TOOL_NAMES = [
     TOOL_GET_PROJECT_CONTEXT,
@@ -239,6 +253,8 @@ READ_ONLY_MCP_TOOL_NAMES = [
     TOOL_RANK_CUSTOMER_CANDIDATES,
     TOOL_CALCULATE_LANDED_COST,
     TOOL_CALCULATE_UNIT_ECONOMICS,
+    # FR-23 fallback retrieval: public read-only, same trust level as native Web tools.
+    *WEB_TOOL_NAMES,
 ]
 
 READ_ONLY_BUILTIN_TOOLS = ["Read", "Glob", "Grep", "WebSearch", "WebFetch"]

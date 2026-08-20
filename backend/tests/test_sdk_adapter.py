@@ -57,6 +57,7 @@ def test_default_sdk_options_keep_the_agent_general_and_observable(tmp_path: Pat
         "ophira_supplier",
         "ophira_customer",
         "ophira_commerce_math",
+        "ophira_web",
     }
     assert set(options.hooks or {}) >= {
         "PreToolUse",

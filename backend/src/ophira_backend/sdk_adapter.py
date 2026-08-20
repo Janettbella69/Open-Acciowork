@@ -371,6 +371,7 @@ class ClaudeAgentRuntime:
                 run.project_id,
                 memory=self.memory,
                 agent_id=run.agent_id,
+                settings=self.settings,
             ),
             strict_mcp_config=True,
             permission_mode="default",

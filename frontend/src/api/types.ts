@@ -183,6 +183,8 @@ export type ProviderCapabilities = {
   prompt_caching: boolean
   extended_thinking: boolean
   tool_search: boolean
+  native_web_search?: boolean
+  native_web_fetch?: boolean
   context_window_tokens?: number | null
 }
 

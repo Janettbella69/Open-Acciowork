@@ -75,6 +75,12 @@ class Settings(BaseSettings):
         ge=1,
         validation_alias="CLAUDE_CODE_MAX_CONTEXT_TOKENS",
     )
+    # FR-23 retrieval fallback (ophira_web MCP). "none" keeps search honestly
+    # unconfigured — the tool then returns a structured error instead of fake results.
+    search_provider: str = Field(default="none", pattern="^(none|serper|tavily)$")
+    search_api_key: SecretStr | None = None
+    web_fetch_max_bytes: int = Field(default=2_000_000, ge=10_000, le=20_000_000)
+    web_timeout_seconds: float = Field(default=20, ge=1, le=120)
     permission_timeout_seconds: int = Field(default=300, ge=10, le=3_600)
     # A bad credential can make the SDK hang instead of failing fast (observed with
     # DeepSeek + an invalid token in the 2026-08-20 contract run); preflight must

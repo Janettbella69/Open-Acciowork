@@ -175,6 +175,11 @@ export default function ProviderSettings() {
                 {provider.production_eligible ? 'Production eligible' : 'Not production-cleared'}
               </span>
               <span data-tone="neutral">{provider.region}</span>
+              <span data-tone={provider.capabilities.native_web_search ? 'ok' : 'warn'}>
+                {provider.capabilities.native_web_search
+                  ? 'Web: native search'
+                  : 'Web: fallback via ophira_web MCP (FR-23)'}
+              </span>
               {capabilityLabels.map(([key, label]) => (
                 <span key={key} data-tone={provider.capabilities[key] ? 'ok' : 'off'}>
                   {label}: {provider.capabilities[key] ? 'yes' : 'no'}

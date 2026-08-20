@@ -268,6 +268,10 @@ class ProviderCapabilities(APIModel):
     prompt_caching: bool = False
     extended_thinking: bool = False
     tool_search: bool = False
+    # Measured by the contract suite (never copied from vendor docs, PRD §4.9).
+    # False means runs on this provider rely on the FR-23 ophira_web fallback.
+    native_web_search: bool = False
+    native_web_fetch: bool = False
     context_window_tokens: int | None = Field(default=None, ge=1)
 
 
