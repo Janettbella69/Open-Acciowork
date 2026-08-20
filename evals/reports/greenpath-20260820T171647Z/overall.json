@@ -1,0 +1,24 @@
+{
+  "provider": "deepseek",
+  "rounds_requested": 1,
+  "all_passed": true,
+  "generated_at": "2026-08-20T17:18:36.888738+00:00",
+  "summaries": [
+    {
+      "round": 1,
+      "run_id": "run_07d76f9c885b4e7fb37ab94b850495d0",
+      "passed": true,
+      "verdict_missing": [],
+      "project_missing": [],
+      "sse_replay_ok": true,
+      "resume_ok": true,
+      "resume_error": null,
+      "web_degraded": false,
+      "cost_usd_list_price": 0.5483260000000001,
+      "num_turns": 14,
+      "served_models": [
+        "deepseek-v4-pro"
+      ]
+    }
+  ]
+}
