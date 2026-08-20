@@ -1,0 +1,75 @@
+{
+  "generated_at": "2026-08-20T16:13:05.275054+00:00",
+  "run": {
+    "id": "run_891a39cba8bb47889883fb5ef8cdd79b",
+    "trace_id": "trace_71e44188e4b840a9b0d36fc5fee84bbf",
+    "project_id": "project_19bed20b7ea644909eccd76c80c76c73",
+    "status": "completed",
+    "mode": "standard",
+    "provider_profile_id": "deepseek",
+    "sdk_session_id": "1c5f00be-4b29-4cc4-8427-81d6716b9ddb",
+    "error": null,
+    "error_code": null,
+    "created_at": "2026-08-20T16:11:21.954730Z",
+    "finished_at": "2026-08-20T16:12:53.720594Z"
+  },
+  "verdict": {
+    "tool_coverage": {
+      "read": true,
+      "web": true,
+      "skill": true,
+      "mcp": true,
+      "bash": true,
+      "write": true,
+      "edit": true
+    },
+    "web_degraded": false,
+    "subagent_events": 0,
+    "permission_requests": 5,
+    "permission_flow_ok": true,
+    "deny_then_continue_ok": false,
+    "sequence_contiguous": true,
+    "run_completed": true,
+    "result_is_error": false,
+    "served_models": [
+      "deepseek-v4-pro"
+    ],
+    "total_cost_usd": 0.539852,
+    "num_turns": 14,
+    "missing": [
+      "permission:deny_then_continue_missing"
+    ]
+  },
+  "project_missing": [],
+  "event_count": 4551,
+  "event_type_counts": {
+    "run.created": 1,
+    "run.started": 1,
+    "sdk.system": 13,
+    "assistant.message.started": 12,
+    "assistant.reasoning_summary.delta": 2390,
+    "assistant.reasoning_summary.completed": 12,
+    "assistant.text.delta": 467,
+    "assistant.message.completed": 12,
+    "tool.input.delta": 1584,
+    "tool.planned": 12,
+    "tool.started": 12,
+    "tool.completed": 12,
+    "run.status": 10,
+    "permission.requested": 5,
+    "permission.resolved": 5,
+    "run.result": 1,
+    "run.completed": 1,
+    "artifact.registered": 1
+  },
+  "notes": {
+    "sse_replay_ok": true,
+    "sse_checkpoint": 2275,
+    "sse_replayed_count": 2276,
+    "resume_run_id": "run_1ca1f6671fb546f3b4c050c0ae757d24",
+    "resume_ok": true,
+    "resume_error": null,
+    "policy_denied": [],
+    "policy_allowed_count": 5
+  }
+}

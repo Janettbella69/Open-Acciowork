@@ -1,0 +1,75 @@
+{
+  "generated_at": "2026-08-20T16:22:47.277667+00:00",
+  "run": {
+    "id": "run_c72e6e556a684b17a2834d3b750cd8aa",
+    "trace_id": "trace_be0c77dda46b49f392d28356d4db42f7",
+    "project_id": "project_dd97c134314244899eddfcc25e90cdfa",
+    "status": "completed",
+    "mode": "standard",
+    "provider_profile_id": "deepseek",
+    "sdk_session_id": "238455a5-6583-478c-863f-886709ec5527",
+    "error": null,
+    "error_code": null,
+    "created_at": "2026-08-20T16:21:03.423283Z",
+    "finished_at": "2026-08-20T16:22:36.652267Z"
+  },
+  "verdict": {
+    "tool_coverage": {
+      "read": true,
+      "web": true,
+      "skill": true,
+      "mcp": true,
+      "bash": true,
+      "write": true,
+      "edit": true
+    },
+    "web_degraded": false,
+    "subagent_events": 0,
+    "permission_requests": 7,
+    "permission_flow_ok": true,
+    "deny_then_continue_ok": true,
+    "sequence_contiguous": true,
+    "run_completed": true,
+    "result_is_error": false,
+    "served_models": [
+      "deepseek-v4-pro"
+    ],
+    "total_cost_usd": 0.520554,
+    "num_turns": 14,
+    "missing": []
+  },
+  "project_missing": [],
+  "event_count": 4639,
+  "event_type_counts": {
+    "run.created": 1,
+    "run.started": 1,
+    "sdk.system": 13,
+    "assistant.message.started": 12,
+    "assistant.reasoning_summary.delta": 2378,
+    "assistant.reasoning_summary.completed": 12,
+    "assistant.text.delta": 529,
+    "assistant.message.completed": 12,
+    "tool.input.delta": 1615,
+    "tool.planned": 12,
+    "tool.started": 12,
+    "tool.completed": 11,
+    "run.status": 14,
+    "permission.requested": 7,
+    "permission.resolved": 7,
+    "run.result": 1,
+    "run.completed": 1,
+    "artifact.registered": 1
+  },
+  "notes": {
+    "sse_replay_ok": true,
+    "sse_checkpoint": 2319,
+    "sse_replayed_count": 2320,
+    "resume_run_id": "run_7ffd0c7f35484d41bdfdec1719fee8b9",
+    "resume_ok": true,
+    "resume_error": null,
+    "policy_denied": [
+      "Bash"
+    ],
+    "policy_allowed_count": 6
+  }
+}
