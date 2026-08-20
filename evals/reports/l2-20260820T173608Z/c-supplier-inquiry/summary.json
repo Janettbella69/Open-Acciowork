@@ -1,0 +1,67 @@
+{
+  "generated_at": "2026-08-20T17:49:45.343063+00:00",
+  "run": {
+    "id": "run_79ef0f4bffa34695948ae44ef11d3dc2",
+    "trace_id": "trace_e4f5ad4fcbbf4235be6b345c6d208c77",
+    "project_id": "project_b7368a544076414fa988d62c7a6728a5",
+    "status": "completed",
+    "mode": "standard",
+    "provider_profile_id": "deepseek",
+    "sdk_session_id": "be80f0e9-90f3-4a04-83f3-b358e0038cc8",
+    "error": null,
+    "error_code": null,
+    "created_at": "2026-08-20T17:47:08.343860Z",
+    "finished_at": "2026-08-20T17:49:45.237646Z"
+  },
+  "verdict": {
+    "tool_coverage": {
+      "read": true,
+      "web": false,
+      "skill": true,
+      "mcp": true,
+      "bash": true,
+      "write": true,
+      "edit": false
+    },
+    "web_degraded": false,
+    "subagent_events": 0,
+    "permission_requests": 6,
+    "permission_flow_ok": true,
+    "deny_then_continue_ok": false,
+    "sequence_contiguous": true,
+    "run_completed": true,
+    "result_is_error": false,
+    "served_models": [
+      "deepseek-v4-pro"
+    ],
+    "total_cost_usd": 0.543269,
+    "num_turns": 11,
+    "missing": []
+  },
+  "project_missing": [],
+  "event_count": 11252,
+  "event_type_counts": {
+    "run.created": 1,
+    "run.started": 1,
+    "sdk.system": 8,
+    "assistant.message.started": 7,
+    "assistant.reasoning_summary.delta": 7682,
+    "assistant.reasoning_summary.completed": 7,
+    "tool.input.delta": 2657,
+    "tool.planned": 9,
+    "tool.started": 9,
+    "tool.completed": 9,
+    "run.status": 12,
+    "permission.requested": 6,
+    "permission.resolved": 6,
+    "assistant.text.delta": 831,
+    "assistant.message.completed": 3,
+    "run.result": 1,
+    "run.completed": 1,
+    "artifact.registered": 2
+  },
+  "notes": {
+    "scenario": "C",
+    "minimum_pass": "- compare_supplier_quotes 被用于口径拉平；缺 lead_days 之类的数据缺口被指出而非脑补。\n- 询盘是可编辑草稿文件且显式标注未发送；没有出现任何真实外发行为。\n- \"推荐接触\"的排序理由回链到账本证据。\n"
+  }
+}
