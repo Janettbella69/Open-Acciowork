@@ -1,4 +1,15 @@
 import { useEffect, useState, type FormEvent } from 'react'
+import {
+  createSchedule,
+  errorMessage,
+  getRun,
+  listProjects,
+  listSchedules,
+  pauseSchedule,
+  resumeSchedule,
+  runSchedule,
+} from '../api/client'
+import type { OpportunityProject, RunRecord, Schedule } from '../api/types'
 import Brand from './Brand'
 import './scheduled-tasks-page.css'
 
@@ -14,17 +25,6 @@ type ScheduleTemplate = {
   cadence: ScheduleCadence
   prompt: string
 }
-
-type ScheduledTaskDraft = {
-  id: string
-  name: string
-  prompt: string
-  cadence: ScheduleCadence
-  agent: 'adaptive' | 'opportunity' | 'demand' | 'supply' | 'capital' | 'sales'
-  createdAt: string
-}
-
-const storageKey = 'ophira-scheduled-task-drafts'
 
 const templates: ScheduleTemplate[] = [
   { id: 'morning-brief', code: 'AM', name: 'Morning opportunity brief', description: 'Summarize new market signals, priority evidence, and today’s next actions.', category: 'daily', cadence: 'daily_morning', prompt: 'Prepare a morning opportunity brief with new signals, evidence gaps, and the three highest-priority actions.' },
@@ -51,26 +51,68 @@ const cadenceLabels: Record<ScheduleCadence, string> = {
   every_six_hours: 'Every 6 hours',
 }
 
-function loadTaskDrafts(): ScheduledTaskDraft[] {
+const cadenceCron: Record<ScheduleCadence, string> = {
+  daily_morning: '0 8 * * *',
+  daily_evening: '0 18 * * *',
+  weekly_monday: '0 9 * * 1',
+  every_six_hours: '0 */6 * * *',
+}
+
+function browserTimezone(): string {
   try {
-    return JSON.parse(window.localStorage.getItem(storageKey) ?? '[]') as ScheduledTaskDraft[]
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
   } catch {
-    return []
+    return 'UTC'
   }
+}
+
+function fireTime(value: string | null): string {
+  if (!value) return '—'
+  return new Date(value).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 }
 
 export default function ScheduledTasksPage() {
   const [view, setView] = useState<'templates' | 'tasks'>('templates')
-  const [tasks, setTasks] = useState<ScheduledTaskDraft[]>(loadTaskDrafts)
+  const [schedules, setSchedules] = useState<Schedule[]>([])
+  const [projects, setProjects] = useState<OpportunityProject[]>([])
+  const [lastRuns, setLastRuns] = useState<Record<string, RunRecord>>({})
+  const [backendState, setBackendState] = useState<'loading' | 'online' | 'offline'>('loading')
+  const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
+  const [busy, setBusy] = useState('')
+
   const [creatorOpen, setCreatorOpen] = useState(false)
-  const [name, setName] = useState('')
   const [prompt, setPrompt] = useState('')
   const [cadence, setCadence] = useState<ScheduleCadence>('daily_morning')
-  const [agent, setAgent] = useState<ScheduledTaskDraft['agent']>('adaptive')
+  const [projectId, setProjectId] = useState('')
 
   useEffect(() => {
-    window.localStorage.setItem(storageKey, JSON.stringify(tasks))
-  }, [tasks])
+    let active = true
+    void Promise.all([listSchedules(), listProjects()])
+      .then(async ([loadedSchedules, loadedProjects]) => {
+        if (!active) return
+        setSchedules(loadedSchedules)
+        setProjects(loadedProjects)
+        setBackendState('online')
+        const withRuns = loadedSchedules.filter((item) => item.last_run_id)
+        const runs = await Promise.all(
+          withRuns.map((item) => getRun(item.last_run_id!).catch(() => null)),
+        )
+        if (!active) return
+        const map: Record<string, RunRecord> = {}
+        withRuns.forEach((item, index) => {
+          const run = runs[index]
+          if (run) map[item.id] = run
+        })
+        setLastRuns(map)
+      })
+      .catch((loadError) => {
+        if (!active) return
+        setBackendState('offline')
+        setError(errorMessage(loadError))
+      })
+    return () => { active = false }
+  }, [])
 
   useEffect(() => {
     if (!creatorOpen) return
@@ -82,26 +124,63 @@ export default function ScheduledTasksPage() {
   }, [creatorOpen])
 
   const openCreator = (template?: ScheduleTemplate) => {
-    setName(template?.name ?? '')
     setPrompt(template?.prompt ?? '')
     setCadence(template?.cadence ?? 'daily_morning')
-    setAgent('adaptive')
+    setProjectId(projects[0]?.id ?? '')
+    setError('')
     setCreatorOpen(true)
   }
 
-  const createDraft = (event: FormEvent<HTMLFormElement>) => {
+  const submitSchedule = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
-    if (!name.trim() || !prompt.trim()) return
-    setTasks((current) => [{
-      id: `schedule_${Date.now()}`,
-      name: name.trim(),
-      prompt: prompt.trim(),
-      cadence,
-      agent,
-      createdAt: new Date().toISOString(),
-    }, ...current])
-    setCreatorOpen(false)
-    setView('tasks')
+    if (!prompt.trim() || !projectId) return
+    setBusy('create')
+    setError('')
+    try {
+      const created = await createSchedule({
+        project_id: projectId,
+        prompt: prompt.trim(),
+        cron: cadenceCron[cadence],
+        timezone: browserTimezone(),
+        mode: 'standard',
+      })
+      setSchedules((current) => [created, ...current])
+      setCreatorOpen(false)
+      setView('tasks')
+      setNotice('Schedule created. It runs on the backend scheduler — this device can go offline.')
+    } catch (createError) {
+      setError(errorMessage(createError))
+    } finally {
+      setBusy('')
+    }
+  }
+
+  const toggleEnabled = async (schedule: Schedule) => {
+    setBusy(schedule.id)
+    setError('')
+    try {
+      const updated = schedule.enabled
+        ? await pauseSchedule(schedule.id)
+        : await resumeSchedule(schedule.id)
+      setSchedules((current) => current.map((item) => (item.id === updated.id ? updated : item)))
+    } catch (toggleError) {
+      setError(errorMessage(toggleError))
+    } finally {
+      setBusy('')
+    }
+  }
+
+  const fireNow = async (schedule: Schedule) => {
+    setBusy(`run:${schedule.id}`)
+    setError('')
+    try {
+      const run = await runSchedule(schedule.id)
+      setNotice(`Manual run ${run.id} started (${run.status}). Watch it in the workspace.`)
+    } catch (runError) {
+      setError(errorMessage(runError))
+    } finally {
+      setBusy('')
+    }
   }
 
   return (
@@ -117,38 +196,81 @@ export default function ScheduledTasksPage() {
         </nav>
         <div className="schedules-sidebar-footer">
           <a href="/app/settings">Settings <span aria-hidden="true">→</span></a>
-          <p>Drafts stay on this device until the backend scheduler is connected.</p>
+          <p>Schedules run on the OPHIRA backend — they do not depend on this device staying awake.</p>
         </div>
       </aside>
 
       <main className="schedules-main">
         <header className="schedules-header">
-          <div><p>OPHIRA automation</p><h1>Scheduled tasks</h1><span>Prepare recurring work and let Ophira choose the useful capabilities at run time.</span></div>
+          <div><p>OPHIRA automation</p><h1>Scheduled tasks</h1><span>Recurring work executed by the backend scheduler with the same project ledger and permissions.</span></div>
           <div className="schedules-actions">
             <div role="group" aria-label="Scheduled task view">
               <button type="button" data-active={view === 'templates'} onClick={() => setView('templates')}>Templates</button>
-              <button type="button" data-active={view === 'tasks'} onClick={() => setView('tasks')}>My tasks <span>{tasks.length}</span></button>
+              <button type="button" data-active={view === 'tasks'} onClick={() => setView('tasks')}>My tasks <span>{schedules.length}</span></button>
             </div>
             <button type="button" onClick={() => openCreator()}><span aria-hidden="true">＋</span> New task</button>
           </div>
         </header>
 
         <section className="schedules-runtime-note" aria-label="Scheduler connection status">
-          <div><span>Scheduler status</span><strong>Draft mode</strong></div>
-          <p>Tasks can be prepared and saved locally. Automatic execution will remain off until a scheduler API, account identity, and delivery channel are connected.</p>
+          <div>
+            <span>Scheduler status</span>
+            <strong>
+              {backendState === 'online' ? 'Connected · server-side execution' : backendState === 'loading' ? 'Connecting…' : 'Backend unavailable'}
+            </strong>
+          </div>
+          <p>
+            {backendState === 'online'
+              ? 'Tasks fire on the backend even when this browser is closed. Failures and expired credentials are shown on each task.'
+              : backendState === 'loading'
+                ? 'Loading schedules from the backend…'
+                : `The scheduler API could not be reached. ${error}`}
+          </p>
         </section>
+
+        {notice && <p className="schedules-notice" role="status">{notice}</p>}
+        {error && backendState === 'online' && <p className="schedules-error" role="alert">{error}</p>}
 
         {view === 'tasks' ? (
           <section className="schedules-task-list" aria-labelledby="saved-tasks-heading">
-            <div><h2 id="saved-tasks-heading">My task drafts</h2><span>{tasks.length} saved locally</span></div>
-            {tasks.length ? tasks.map((task) => (
-              <article key={task.id}>
-                <span>{task.agent.slice(0, 2).toUpperCase()}</span>
-                <div><strong>{task.name}</strong><p>{task.prompt}</p></div>
-                <small>{cadenceLabels[task.cadence]} · Draft</small>
-              </article>
-            )) : (
-              <div className="schedules-empty"><strong>No task drafts yet.</strong><p>Choose a template or create a task from your own recurring brief.</p><button type="button" onClick={() => setView('templates')}>Browse templates</button></div>
+            <div><h2 id="saved-tasks-heading">My scheduled tasks</h2><span>{schedules.length} on the backend</span></div>
+            {schedules.length ? schedules.map((schedule) => {
+              const lastRun = lastRuns[schedule.id]
+              const projectName = projects.find((item) => item.id === schedule.project_id)?.name ?? schedule.project_id
+              return (
+                <article key={schedule.id} data-enabled={schedule.enabled}>
+                  <span>{schedule.enabled ? 'ON' : '⏸'}</span>
+                  <div>
+                    <strong>{schedule.prompt}</strong>
+                    <p>
+                      <code>{schedule.cron ?? schedule.run_once_at ?? ''}</code> · {schedule.timezone} · {projectName}
+                    </p>
+                    <p>
+                      Next {fireTime(schedule.next_fire_at)} · Last {fireTime(schedule.last_fire_at)}
+                      {!schedule.enabled && <em> · Paused</em>}
+                    </p>
+                    {lastRun && lastRun.status === 'failed' && (
+                      <p className="schedules-run-error" role="alert">
+                        Last run failed{lastRun.error_code ? <>: <code>{lastRun.error_code}</code></> : ''}
+                        {lastRun.error ? <> — {lastRun.error}</> : ''}
+                      </p>
+                    )}
+                    {lastRun && lastRun.status !== 'failed' && (
+                      <p className="schedules-run-ok">Last run {lastRun.status}</p>
+                    )}
+                  </div>
+                  <div className="schedules-row-actions">
+                    <button type="button" disabled={busy === schedule.id} onClick={() => void toggleEnabled(schedule)}>
+                      {schedule.enabled ? 'Pause' : 'Resume'}
+                    </button>
+                    <button type="button" disabled={busy === `run:${schedule.id}`} onClick={() => void fireNow(schedule)}>
+                      Run now
+                    </button>
+                  </div>
+                </article>
+              )
+            }) : (
+              <div className="schedules-empty"><strong>No scheduled tasks yet.</strong><p>Choose a template or create a task from your own recurring brief.</p><button type="button" onClick={() => setView('templates')}>Browse templates</button></div>
             )}
           </section>
         ) : (
@@ -176,16 +298,20 @@ export default function ScheduledTasksPage() {
           if (event.target === event.currentTarget) setCreatorOpen(false)
         }}>
           <section className="schedule-creator" role="dialog" aria-modal="true" aria-labelledby="schedule-creator-heading">
-            <header><div><span>Local task draft</span><h2 id="schedule-creator-heading">Create scheduled task</h2></div><button type="button" aria-label="Close task creator" onClick={() => setCreatorOpen(false)}>×</button></header>
-            <form onSubmit={createDraft}>
-              <label>Task name<input value={name} onChange={(event) => setName(event.target.value)} placeholder="Weekly opportunity review" required /></label>
+            <header><div><span>Backend schedule</span><h2 id="schedule-creator-heading">Create scheduled task</h2></div><button type="button" aria-label="Close task creator" onClick={() => setCreatorOpen(false)}>×</button></header>
+            <form onSubmit={(event) => void submitSchedule(event)}>
               <label>Recurring brief<textarea value={prompt} onChange={(event) => setPrompt(event.target.value)} rows={5} placeholder="Describe what the Agent should prepare..." required /></label>
               <div>
                 <label>Cadence<select value={cadence} onChange={(event) => setCadence(event.target.value as ScheduleCadence)}>{Object.entries(cadenceLabels).map(([value, text]) => <option key={value} value={value}>{text}</option>)}</select></label>
-                <label>Agent<select value={agent} onChange={(event) => setAgent(event.target.value as ScheduledTaskDraft['agent'])}><option value="adaptive">Adaptive · Ophira chooses</option><option value="opportunity">Opportunity exploration</option><option value="demand">Demand perspective</option><option value="supply">Supply perspective</option><option value="capital">Capital perspective</option><option value="sales">Sales perspective</option></select></label>
+                <label>Project<select value={projectId} onChange={(event) => setProjectId(event.target.value)} required>
+                  <option value="" disabled>Select a project</option>
+                  {projects.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+                </select></label>
               </div>
-              <p>This creates a local draft only. No task will run or contact an external service.</p>
-              <footer><button type="button" onClick={() => setCreatorOpen(false)}>Cancel</button><button type="submit">Save draft <span aria-hidden="true">→</span></button></footer>
+              {!projects.length && <p>还没有项目——先在 workspace 发起一次对话创建项目，再回来挂定时任务。</p>}
+              <p>Runs on the backend scheduler in timezone {browserTimezone()} ({cadenceCron[cadence]}). The Agent keeps the same ledger, permissions, and provider profile rules.</p>
+              {error && <p className="schedules-error" role="alert">{error}</p>}
+              <footer><button type="button" onClick={() => setCreatorOpen(false)}>Cancel</button><button type="submit" disabled={busy === 'create' || !projects.length}>{busy === 'create' ? 'Creating…' : 'Create schedule'} <span aria-hidden="true">→</span></button></footer>
             </form>
           </section>
         </div>
