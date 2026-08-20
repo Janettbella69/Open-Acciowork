@@ -520,6 +520,28 @@ def build_ledger_mcp_server(
     )
 
 
+def filter_market_signals(
+    ledger: FileLedger,
+    project_id: str,
+    *,
+    query: str = "",
+    signal_type: str = "",
+    limit: int = 20,
+) -> list:
+    """Read-only view over evidence tagged market-signal; limit applies post-filter."""
+    candidates = ledger.search_evidence(
+        project_id, query=query, tag="market-signal", limit=max(limit * 5, 100)
+    )
+    needle = signal_type.strip().casefold()
+    if needle:
+        candidates = [
+            item
+            for item in candidates
+            if needle in {value.casefold() for value in item.tags}
+        ]
+    return candidates[:limit]
+
+
 def build_market_mcp_server(ledger: FileLedger, project_id: str):
     @tool(
         "record_market_signal",
@@ -564,10 +586,37 @@ def build_market_mcp_server(ledger: FileLedger, project_id: str):
         ledger.update_project(project_id, lambda project: project.evidence.append(evidence))
         return _tool_result(evidence)
 
+    @tool(
+        "search_market_signals",
+        "Search market signals already recorded in this project's evidence ledger "
+        "by text or signal type. Returns sourced records with retrieval times; "
+        "never live platform data and never a viability judgment.",
+        {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string"},
+                "signal_type": {"type": "string"},
+                "limit": {"type": "integer", "minimum": 1, "maximum": 100},
+            },
+            "required": [],
+            "additionalProperties": False,
+        },
+    )
+    async def search_market_signals(args: dict[str, Any]) -> dict[str, Any]:
+        return _tool_result(
+            filter_market_signals(
+                ledger,
+                project_id,
+                query=str(args.get("query") or ""),
+                signal_type=str(args.get("signal_type") or ""),
+                limit=args.get("limit", 20),
+            )
+        )
+
     return create_sdk_mcp_server(
         name=MARKET_MCP_SERVER_NAME,
         version="1.0.0",
-        tools=[record_market_signal],
+        tools=[record_market_signal, search_market_signals],
     )
 
 

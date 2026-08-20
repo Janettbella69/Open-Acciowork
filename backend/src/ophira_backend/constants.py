@@ -204,6 +204,7 @@ TOOL_SEARCH_PUBLIC_WEB = "mcp__ophira_web__search_public_web"
 TOOL_FETCH_PAGE_SNAPSHOT = "mcp__ophira_web__fetch_page_snapshot"
 
 TOOL_RECORD_MARKET_SIGNAL = "mcp__ophira_market__record_market_signal"
+TOOL_SEARCH_MARKET_SIGNALS = "mcp__ophira_market__search_market_signals"
 TOOL_COMPARE_SUPPLIER_QUOTES = "mcp__ophira_supplier__compare_supplier_quotes"
 TOOL_RANK_CUSTOMER_CANDIDATES = "mcp__ophira_customer__rank_customer_candidates"
 TOOL_CALCULATE_LANDED_COST = "mcp__ophira_commerce_math__calculate_landed_cost"
@@ -227,6 +228,7 @@ MEMORY_TOOL_NAMES = [
 
 DOMAIN_TOOL_NAMES = [
     TOOL_RECORD_MARKET_SIGNAL,
+    TOOL_SEARCH_MARKET_SIGNALS,
     TOOL_COMPARE_SUPPLIER_QUOTES,
     TOOL_RANK_CUSTOMER_CANDIDATES,
     TOOL_CALCULATE_LANDED_COST,
@@ -248,6 +250,7 @@ OPHIRA_TOOL_NAMES = [
 READ_ONLY_MCP_TOOL_NAMES = [
     TOOL_GET_PROJECT_CONTEXT,
     TOOL_SEARCH_EVIDENCE,
+    TOOL_SEARCH_MARKET_SIGNALS,
     TOOL_SEARCH_MEMORY,
     TOOL_COMPARE_SUPPLIER_QUOTES,
     TOOL_RANK_CUSTOMER_CANDIDATES,
