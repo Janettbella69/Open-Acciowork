@@ -1,6 +1,6 @@
 # OPHIRA Phase 0 收口（Green Path + 评测 + 前端两页 + CLAUDE.md）Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** 完成 PRD v2.1 Phase 0 出口标准：Green Path E2E 真端点 3 连过、providers/skills/preflight 单测与 Provider 合约测试报告、前端定时任务页与设置页 Provider UI 接真后端、§3.11 评测体系脚手架落地，并按用户目标创建根 CLAUDE.md。
 
@@ -41,9 +41,9 @@
 
 **Interfaces:** 无代码接口。内容必须覆盖：项目一句话定位与 PRD 指针；目录结构（backend/frontend/docs/evals）；红线摘要（指向 AGENTS.md §Product boundary/Architecture，不复制全文）；常用命令（venv 重建、backend 起服 / pytest / ruff，frontend dev / test:run / lint / build，Green Path 与合约测试运行方式）；数据与密钥路径警告（`backend/data/` gitignored、`backend/data/secrets/` 永不读取/提交）；验证纪律（改动后跑对应目录的测试；声称完成前给证据）。
 
-- [ ] **Step 1:** 写 CLAUDE.md（≤120 行，中文，命令保留英文）。
-- [ ] **Step 2:** 校对命令逐条真实可跑（与 README/pyproject/package.json 对照）。
-- [ ] **Step 3:** Commit `docs: add root CLAUDE.md for agent sessions`。
+- [x] **Step 1:** 写 CLAUDE.md（≤120 行，中文，命令保留英文）。
+- [x] **Step 2:** 校对命令逐条真实可跑（与 README/pyproject/package.json 对照）。
+- [x] **Step 3:** Commit `docs: add root CLAUDE.md for agent sessions`。
 
 ### Task 2: preflight() 单元测试
 
@@ -56,9 +56,9 @@
 
 FakeClient 骨架（脚本化消息流，async context manager + `query()` no-op + `receive_response()` 逐条 yield 构造好的 `SystemMessage(subtype="init", data={"session_id":..., "skills":[...]})`、`AssistantMessage(content=[ToolUseBlock(id, "mcp__ophira_preflight__health", {})], model=...)`、`ResultMessage(...)`）。用 `functools.partial`/闭包参数化消息清单。
 
-- [ ] **Step 1:** 写 6 个失败测试（先断言现状接口）。
-- [ ] **Step 2:** `PYTHONPATH=backend/src .venv/bin/pytest backend/tests/test_preflight.py -v` 全部通过（预检代码已存在，测试应直接绿；若发现真 bug 则修）。
-- [ ] **Step 3:** Commit `test: cover preflight success and all failure classifications`。
+- [x] **Step 1:** 写 6 个失败测试（先断言现状接口）。
+- [x] **Step 2:** `PYTHONPATH=backend/src .venv/bin/pytest backend/tests/test_preflight.py -v` 全部通过（预检代码已存在，测试应直接绿；若发现真 bug 则修）。
+- [x] **Step 3:** Commit `test: cover preflight success and all failure classifications`。
 
 ### Task 3: providers/skills registry 单元测试补齐
 
@@ -70,9 +70,9 @@ FakeClient 骨架（脚本化消息流，async context manager + `query()` no-op
 - providers：`build_worker_env` 清空三凭据后仅注入所选 profile 凭据、全档位模型映射回落 `profile.model`、独立 `CLAUDE_CONFIG_DIR`；vault 文件 0600/目录 0700；`snapshot()` 不含 `secret_configured`/`last_error_message`；`upsert` 保留上次预检结果；`default_profile_id` 偏好 environment、无凭据返回 None；`classify_provider_error` 8 类映射表逐条；`_safe_id` 拒 `../`。
 - skills：真实插件目录发现 4 个 skill（namespace=`ophira-core`）；`set_enabled(False)` 持久化且 `runtime_selection()` 变列表；全启用返回 `"all"`；`snapshot()` 含 id/version/content_hash；损坏 frontmatter 抛 ValueError（tmp 插件夹造例）。
 
-- [ ] **Step 1:** 写测试。
-- [ ] **Step 2:** 跑对应文件 pytest 全绿。
-- [ ] **Step 3:** Commit `test: provider registry env isolation and skill registry discovery`。
+- [x] **Step 1:** 写测试。
+- [x] **Step 2:** 跑对应文件 pytest 全绿。
+- [x] **Step 3:** Commit `test: provider registry env isolation and skill registry discovery`。
 
 ### Task 4: 架构静态门禁（§6.1 → L1）
 
@@ -85,8 +85,8 @@ FakeClient 骨架（脚本化消息流，async context manager + `query()` no-op
 3. `_build_options` 产物断言：sandbox 三键、`setting_sources==[]`、`strict_mcp_config`、普通模式 `disallowed_tools==["Agent"]` 且 `agents is None`（复用 test_sdk_adapter 的 build_runtime 方式，防回归双保险）。
 4. 事件脱敏 canary：发布含 `sk-ant-xxxx`、`Bearer abc`、`api_key=zzz` 的事件后，events.jsonl 原文 0 命中明文。
 
-- [ ] **Step 1:** 写 4 组测试并跑绿。
-- [ ] **Step 2:** Commit `test: architecture static gates as L1 checks`。
+- [x] **Step 1:** 写 4 组测试并跑绿。
+- [x] **Step 2:** Commit `test: architecture static gates as L1 checks`。
 
 ### Task 5: Green Path harness 模块 + 离线验证器测试
 
@@ -104,9 +104,9 @@ FakeClient 骨架（脚本化消息流，async context manager + `query()` no-op
 
 **离线测试:** 手工构造事件序列喂 `verify_events`：完整覆盖 → 全 True；含 `subagent.started` → 违规；缺 Edit → missing 含 edit；sequence 跳号 → contiguous False。
 
-- [ ] **Step 1:** 写 fixtures（合成报价 3 行 CSV + 约束 md）。
-- [ ] **Step 2:** 写 verify_events 离线测试（红）→ 实现 greenpath.py → 测试绿。
-- [ ] **Step 3:** Commit `feat: green path harness with offline-verifiable assertions`。
+- [x] **Step 1:** 写 fixtures（合成报价 3 行 CSV + 约束 md）。
+- [x] **Step 2:** 写 verify_events 离线测试（红）→ 实现 greenpath.py → 测试绿。
+- [x] **Step 3:** Commit `feat: green path harness with offline-verifiable assertions`。
 
 ### Task 6: Green Path 真端点 3 连过（DeepSeek）
 
@@ -117,9 +117,9 @@ FakeClient 骨架（脚本化消息流，async context manager + `query()` no-op
 **Interfaces:** 复用 Task 5 全部；round 2 用 round 1 的 `sdk_session_id` 作 `resume_session_id` 验证会话续接（PRD §6.2"会话恢复续改"）；每轮新建独立 project。SSE 断线续传单独验证：round 3 期间用 httpx 流式 GET `/api/runs/{id}/events` 读 N 条断开，再带 `Last-Event-ID` 重连，断言序号衔接不重不漏。
 预算护栏：`OPHIRA_MAX_BUDGET_USD=2`、`OPHIRA_MAX_TURNS=40`、DeepSeek `budget_scale` 维持 profile 值。
 
-- [ ] **Step 1:** 写脚本；先 `--rounds 1` 试跑，修 prompt/policy 直到单轮全断言过。
-- [ ] **Step 2:** 连跑 3 轮全过，bundle 落 `evals/reports/greenpath-<ts>/round-{1,2,3}/`。
-- [ ] **Step 3:** 检查报告无密钥泄漏后 Commit `feat: green path E2E passes 3 consecutive live rounds on DeepSeek`（含报告）。
+- [x] **Step 1:** 写脚本；先 `--rounds 1` 试跑，修 prompt/policy 直到单轮全断言过。
+- [x] **Step 2:** 连跑 3 轮全过，bundle 落 `evals/reports/greenpath-<ts>/round-{1,2,3}/`。
+- [x] **Step 3:** 检查报告无密钥泄漏后 Commit `feat: green path E2E passes 3 consecutive live rounds on DeepSeek`（含报告）。
 
 ### Task 7: Provider 合约测试套件 + DeepSeek 报告
 
@@ -131,9 +131,9 @@ FakeClient 骨架（脚本化消息流，async context manager + `query()` no-op
 1. 基本文本+流式增量；2. 模型身份断言（响应 `AssistantMessage.model` 以配置模型为前缀——DeepSeek 防静默映射）；3. Read→Write→Edit 文件链（临时 cwd）；4. Bash 执行；5. 进程内 MCP 单调用；6. Plugin Skill 发现（SystemMessage.skills）；7. WebSearch 可用性探测（失败记录降级而非 fail——能力矩阵字段）；8. 图片消息块（DeepSeek 预期失败→记录）；9. 错误映射：坏 token 临时 profile → `AUTH_REVOKED_OR_INVALID`。
 输出：`evals/reports/provider-contract-<provider>-<date>.md` 逐用例 PASS/FAIL/DEGRADED + 能力矩阵建议值。
 
-- [ ] **Step 1:** 写套件（无 env 时 pytest skip 干净）。
-- [ ] **Step 2:** `OPHIRA_CONTRACT_PROVIDER=deepseek` 真跑，产报告；Anthropic/GLM 无可用凭据照实记"未跑：无凭据/额度"。
-- [ ] **Step 3:** Commit `test: provider contract suite with live DeepSeek report`。
+- [x] **Step 1:** 写套件（无 env 时 pytest skip 干净）。
+- [x] **Step 2:** `OPHIRA_CONTRACT_PROVIDER=deepseek` 真跑，产报告；Anthropic/GLM 无可用凭据照实记"未跑：无凭据/额度"。
+- [x] **Step 3:** Commit `test: provider contract suite with live DeepSeek report`。
 
 ### Task 8: 前端存量测试债修复（回到全绿基线）
 
@@ -142,9 +142,9 @@ FakeClient 骨架（脚本化消息流，async context manager + `query()` no-op
 - Modify: `frontend/src/components/WorkspaceComposer.test.tsx`（补必填 props：`attachedFiles={[]}` `mode="standard"` `onAttachedFilesChange` `onModeChange`；run fixtures 同上补field；文件上传交互断言对齐现组件）
 - Rewrite: `frontend/src/components/SkillsPage.test.tsx`（`vi.stubGlobal('fetch', ...)` 模拟 `/api/skills` 与 enable 端点；断言渲染 4 skill、搜索过滤、toggle 调 POST 并更新按钮态）
 
-- [ ] **Step 1:** 逐文件修复。
-- [ ] **Step 2:** `npm run test:run` 15/15 绿；`npm run lint` 干净。
-- [ ] **Step 3:** Commit `test(frontend): repair stale fixtures and rewrite SkillsPage test against live API`。
+- [x] **Step 1:** 逐文件修复。
+- [x] **Step 2:** `npm run test:run` 15/15 绿；`npm run lint` 干净。
+- [x] **Step 3:** Commit `test(frontend): repair stale fixtures and rewrite SkillsPage test against live API`。
 
 ### Task 9: 设置页 Provider UI + 记忆审批（P0-4a）
 
@@ -157,10 +157,10 @@ FakeClient 骨架（脚本化消息流，async context manager + `query()` no-op
 UI 要求（PRD P0-4）：Provider 列表（display_name/model/base_url/region/secret_configured/last_verified_at/last_error_code+message/能力矩阵 badges：images/prompt_caching/extended_thinking/tool_search）；编辑表单（id、display_name、base_url、auth_env_name 下拉、model、secret 输入 type=password 留空=不改、region、production_eligible）；**不回显 Key**（只显示"已配置"）；"Run preflight"按钮显示结果（ok→绿 verified 时间；错→error_code+可操作修复文案，即后端 message）；错误修复动作=文案+重新编辑入口。记忆分区：列出 `status=proposed` 项，Approve/Reject 按钮调 decideMemory 并原位更新。
 测试（先写红）：mock client 模块（`vi.mock('../api/client')`），断言：列表渲染 DeepSeek profile；secret 输入不预填；保存调 `saveProvider` 且 payload 不含空 secret 键；preflight 成功渲染 verified、失败渲染 error message；proposed memory approve 调 `decideMemory('mem_1','approve')`。
 
-- [ ] **Step 1:** 写红测试。
-- [ ] **Step 2:** 实现分区组件（可拆 `ProviderSettings.tsx` 子组件放同目录）。
-- [ ] **Step 3:** vitest 绿 + lint。
-- [ ] **Step 4:** Commit `feat(frontend): real provider management and memory approvals in settings`。
+- [x] **Step 1:** 写红测试。
+- [x] **Step 2:** 实现分区组件（可拆 `ProviderSettings.tsx` 子组件放同目录）。
+- [x] **Step 3:** vitest 绿 + lint。
+- [x] **Step 4:** Commit `feat(frontend): real provider management and memory approvals in settings`。
 
 ### Task 10: 定时任务页接真后端（P0-4b）
 
@@ -173,8 +173,8 @@ UI 要求（PRD P0-4）：Provider 列表（display_name/model/base_url/region/s
 行为：加载时并行拉 schedules+projects；"My tasks"= 真 Schedule 列表（prompt、cron、timezone、enabled、next_fire_at、last_fire_at；last_run_id 有值时拉 `getRun` 显示最近状态，`failed` 显示 error_code——"失败和凭据失效可见"）；每行 Pause/Resume/Run now；创建对话框：模板带 cadence→cron 映射表（`daily_morning→0 8 * * *`、`daily_evening→0 18 * * *`、`weekly_monday→0 9 * * 1`、`every_six_hours→0 */6 * * *`），timezone 取 `Intl.DateTimeFormat().resolvedOptions().timeZone`，必须选 project（下拉列出现有项目；无项目则提示先去 workspace 创建）；移除 localStorage 草稿与"Draft mode"横幅，状态条改为真连接态（加载失败显示后端不可达）。旧 agent 选择器（demand/supply/…）删除——违反单 Agent 口径。
 测试：mock client；断言真实列表渲染（含 next_fire_at 与 last run failed 的 error 可见）、从模板创建调 `createSchedule` 且 cron 映射正确、Pause 调 `pauseSchedule`、Run now 调 `runSchedule`。
 
-- [ ] **Step 1:** 写红测试 → 实现 → 绿 + lint。
-- [ ] **Step 2:** Commit `feat(frontend): scheduled tasks page drives the real backend scheduler`。
+- [x] **Step 1:** 写红测试 → 实现 → 绿 + lint。
+- [x] **Step 2:** Commit `feat(frontend): scheduled tasks page drives the real backend scheduler`。
 
 ### Task 11: evals/ 脚手架（§3.11）
 
@@ -187,8 +187,8 @@ UI 要求（PRD P0-4）：Provider 列表（display_name/model/base_url/region/s
 - Create: `evals/failure-modes.md`（开放编码→轴向合并两步法模板 + 空表：id/表现/根因轴/断言归属 L1|L2|L3）
 - Create: `backend/scripts/run_l2.py`（读 evals/tasks/*.yaml → drive_run → verify_events + minimum_pass 文件断言 → 汇总报告到 evals/reports/l2-<ts>/；`--task` 过滤、`--provider`）
 
-- [ ] **Step 1:** 写全部文件；`run_l2.py --task b-product-validation --dry-run`（不打端点，仅装配校验）通过。
-- [ ] **Step 2:** Commit `feat: eval pyramid scaffolding with benchmark task set v0`。
+- [x] **Step 1:** 写全部文件；`run_l2.py --task b-product-validation --dry-run`（不打端点，仅装配校验）通过。
+- [x] **Step 2:** Commit `feat: eval pyramid scaffolding with benchmark task set v0`。
 
 ### Task 12: CI 工作流
 
@@ -197,8 +197,8 @@ UI 要求（PRD P0-4）：Provider 列表（display_name/model/base_url/region/s
 
 **Produces:** push/PR 到 main 触发两 job：backend（setup-python 3.11 → `pip install -e './backend[dev]'` → `ruff check backend/src backend/tests` → `pytest backend/tests`，live/contract 用例因无 env 自动 skip）；frontend（setup-node 20 → `npm ci` → `npm run lint` → `npm run test:run` → `npm run build`，working-directory frontend）。
 
-- [ ] **Step 1:** 写 workflow；本地把等价命令跑一遍绿（CI 语法无法本地验证，命令逐条验证）。
-- [ ] **Step 2:** Commit `ci: static gates, tests, lint, and build on push`。
+- [x] **Step 1:** 写 workflow；本地把等价命令跑一遍绿（CI 语法无法本地验证，命令逐条验证）。
+- [x] **Step 2:** Commit `ci: static gates, tests, lint, and build on push`。
 
 ### Task 13: 文档收口
 
@@ -207,15 +207,15 @@ UI 要求（PRD P0-4）：Provider 列表（display_name/model/base_url/region/s
 - Modify: `README.md`（Verify 段补 backend 测试命令与 venv 重建注意）
 - Check/Modify: `docs/backend-api.md`（照对 main.py 现有 30 端点，过时处修正——只修事实错误不扩写）
 
-- [ ] **Step 1:** 逐文件修订。
-- [ ] **Step 2:** Commit `docs: align READMEs and API doc with single-agent reality`。
+- [x] **Step 1:** 逐文件修订。
+- [x] **Step 2:** Commit `docs: align READMEs and API doc with single-agent reality`。
 
 ### Task 14: 终验、tag、push、汇报
 
-- [ ] **Step 1:** 全量验证：`ruff check backend/src backend/tests`；`PYTHONPATH=backend/src .venv/bin/pytest backend/tests`（预期 >70 passed，live skip）；`npm run test:run`（预期全部绿）；`npm run lint`；`npm run build`。
-- [ ] **Step 2:** `git tag phase0-complete` 于最终提交。
-- [ ] **Step 3:** `git push origin main --tags`（失败则报告认证问题，不阻塞）。
-- [ ] **Step 4:** 汇报：Phase 0 出口清单逐项证据（PRD §6.2/§6.3/§6.6 对照）、成本合计、遗留项（FR-23 降级、Anthropic/GLM 合约缺凭据、judge 待 gold 校准、门槛数值待基线填定）。更新 auto-memory。
+- [x] **Step 1:** 全量验证：`ruff check backend/src backend/tests`；`PYTHONPATH=backend/src .venv/bin/pytest backend/tests`（预期 >70 passed，live skip）；`npm run test:run`（预期全部绿）；`npm run lint`；`npm run build`。
+- [x] **Step 2:** `git tag phase0-complete` 于最终提交。
+- [x] **Step 3:** `git push origin main --tags`（失败则报告认证问题，不阻塞）。
+- [x] **Step 4:** 汇报：Phase 0 出口清单逐项证据（PRD §6.2/§6.3/§6.6 对照）、成本合计、遗留项（FR-23 降级、Anthropic/GLM 合约缺凭据、judge 待 gold 校准、门槛数值待基线填定）。更新 auto-memory。
 
 ## Self-Review
 

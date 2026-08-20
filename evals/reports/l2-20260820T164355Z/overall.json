@@ -1,0 +1,16 @@
+{
+  "provider": "deepseek",
+  "generated_at": "2026-08-20T16:48:27.245328+00:00",
+  "all_passed": true,
+  "results": [
+    {
+      "task": "b-product-validation",
+      "passed": true,
+      "verdict_missing": [],
+      "task_missing": [],
+      "cost_usd_list_price": 0.821134,
+      "num_turns": 21,
+      "run_id": "run_9ca3f8e6437046968de6b9deb1e5db15"
+    }
+  ]
+}
