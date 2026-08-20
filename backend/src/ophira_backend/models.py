@@ -161,6 +161,15 @@ class OpportunityProject(APIModel):
     updated_at: datetime = Field(default_factory=utc_now)
 
 
+class EvidenceStatusUpdate(APIModel):
+    status: EvidenceStatus
+
+
+class EvidenceStatusChange(APIModel):
+    evidence: Evidence
+    affected_decision_ids: list[str] = Field(default_factory=list)
+
+
 class RunCreate(APIModel):
     prompt: str = Field(min_length=1, max_length=40_000)
     agent_id: str | None = None

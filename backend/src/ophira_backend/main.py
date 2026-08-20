@@ -17,6 +17,8 @@ from .constants import (
     AgentTemplate,
     Dimension,
     EventType,
+    EvidenceKind,
+    EvidenceStatus,
     MemoryScope,
     MemorySource,
     MemoryStatus,
@@ -34,6 +36,9 @@ from .models import (
     AgentProfile,
     AgentUpdate,
     Artifact,
+    Evidence,
+    EvidenceStatusChange,
+    EvidenceStatusUpdate,
     MemoryCreate,
     MemoryDecision,
     MemoryItem,
@@ -198,6 +203,39 @@ def create_app(
                 status_code=404,
                 detail="Project not found or path invalid",
             ) from exc
+
+    @application.get("/api/projects/{project_id}/evidence", response_model=list[Evidence])
+    async def list_project_evidence(
+        project_id: str,
+        q: Annotated[str, Query(max_length=500)] = "",
+        kind: EvidenceKind | None = None,
+        tag: Annotated[str | None, Query(max_length=120)] = None,
+        status_filter: Annotated[EvidenceStatus | None, Query(alias="status")] = None,
+        limit: Annotated[int, Query(ge=1, le=200)] = 50,
+    ) -> list[Evidence]:
+        try:
+            return ledger.search_evidence(
+                project_id, query=q, kind=kind, tag=tag, status=status_filter, limit=limit
+            )
+        except (LedgerNotFoundError, ValueError) as exc:
+            raise HTTPException(status_code=404, detail="Project not found") from exc
+
+    @application.post(
+        "/api/projects/{project_id}/evidence/{evidence_id}/status",
+        response_model=EvidenceStatusChange,
+    )
+    async def update_evidence_status(
+        project_id: str,
+        evidence_id: str,
+        payload: EvidenceStatusUpdate,
+    ) -> EvidenceStatusChange:
+        try:
+            evidence, affected = ledger.update_evidence_status(
+                project_id, evidence_id, payload.status
+            )
+        except (LedgerNotFoundError, ValueError) as exc:
+            raise HTTPException(status_code=404, detail="Project or evidence not found") from exc
+        return EvidenceStatusChange(evidence=evidence, affected_decision_ids=affected)
 
     @application.get("/api/projects/{project_id}/artifacts", response_model=list[Artifact])
     async def list_project_artifacts(project_id: str) -> list[Artifact]:

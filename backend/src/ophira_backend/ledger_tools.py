@@ -18,6 +18,7 @@ from .constants import (
     Dimension,
     EvidenceKind,
     EvidenceSourceType,
+    EvidenceStatus,
     MemoryKind,
     MemoryScope,
     MemorySensitivity,
@@ -97,24 +98,50 @@ def build_ledger_mcp_server(
         },
     )
     async def search_evidence(args: dict[str, Any]) -> dict[str, Any]:
-        query = str(args.get("query") or "").strip().casefold()
         kind = args.get("kind")
-        tag = str(args.get("tag") or "").strip().casefold()
-        matches = []
-        for item in reversed(ledger.get_project(project_id).evidence):
-            haystack = " ".join(
-                [item.claim, item.source_title, item.excerpt or "", *item.tags]
-            ).casefold()
-            if query and query not in haystack:
-                continue
-            if kind and item.kind != EvidenceKind(kind):
-                continue
-            if tag and tag not in {value.casefold() for value in item.tags}:
-                continue
-            matches.append(item)
-            if len(matches) >= args.get("limit", 20):
-                break
+        matches = ledger.search_evidence(
+            project_id,
+            query=str(args.get("query") or ""),
+            kind=EvidenceKind(kind) if kind else None,
+            tag=args.get("tag"),
+            limit=args.get("limit", 20),
+        )
         return _tool_result(matches)
+
+    @tool(
+        "update_evidence_status",
+        "Mark project evidence active, stale, or removed. Decisions citing stale or "
+        "removed evidence are flagged needs_review automatically (FR-10).",
+        {
+            "type": "object",
+            "properties": {
+                "evidence_id": {"type": "string", "minLength": 1},
+                "status": {
+                    "type": "string",
+                    "enum": [item.value for item in EvidenceStatus],
+                },
+            },
+            "required": ["evidence_id", "status"],
+            "additionalProperties": False,
+        },
+    )
+    async def update_evidence_status(args: dict[str, Any]) -> dict[str, Any]:
+        from .storage import LedgerNotFoundError
+
+        try:
+            evidence, affected = ledger.update_evidence_status(
+                project_id, args["evidence_id"], EvidenceStatus(args["status"])
+            )
+        except LedgerNotFoundError:
+            return _tool_result(
+                {"error": f"unknown evidence id: {args['evidence_id']}"}, is_error=True
+            )
+        return _tool_result(
+            {
+                "evidence": evidence.model_dump(mode="json"),
+                "affected_decision_ids": affected,
+            }
+        )
 
     @tool(
         "record_hypothesis",
@@ -413,6 +440,7 @@ def build_ledger_mcp_server(
         record_hypothesis,
         record_evidence,
         record_decision,
+        update_evidence_status,
         update_assessment,
         record_stage_decision,
     ]

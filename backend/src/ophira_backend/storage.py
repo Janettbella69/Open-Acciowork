@@ -10,12 +10,13 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from .constants import RunMode
+from .constants import DecisionStatus, EvidenceKind, EvidenceStatus, RunMode
 from .models import (
     AgentCreate,
     AgentProfile,
     Artifact,
     EventEnvelope,
+    Evidence,
     OpportunityProject,
     ProjectCreate,
     RunRecord,
@@ -248,6 +249,85 @@ class FileLedger:
                 "timestamp": utc_now().isoformat(),
             },
         )
+
+    def search_evidence(
+        self,
+        project_id: str,
+        *,
+        query: str = "",
+        kind: EvidenceKind | None = None,
+        tag: str | None = None,
+        status: EvidenceStatus | None = None,
+        limit: int = 20,
+    ) -> list[Evidence]:
+        """Newest-first evidence search shared by the MCP tool and the HTTP API."""
+        needle = query.strip().casefold()
+        tag_needle = (tag or "").strip().casefold()
+        matches: list[Evidence] = []
+        for item in reversed(self.get_project(project_id).evidence):
+            haystack = " ".join(
+                [item.claim, item.source_title, item.excerpt or "", *item.tags]
+            ).casefold()
+            if needle and needle not in haystack:
+                continue
+            if kind and item.kind != kind:
+                continue
+            if tag_needle and tag_needle not in {value.casefold() for value in item.tags}:
+                continue
+            if status and item.status != status:
+                continue
+            matches.append(item)
+            if len(matches) >= limit:
+                break
+        return matches
+
+    def update_evidence_status(
+        self,
+        project_id: str,
+        evidence_id: str,
+        status: EvidenceStatus,
+    ) -> tuple[Evidence, list[str]]:
+        """FR-10 invalidation propagation.
+
+        stale/removed: linked decisions record the evidence id in
+        `invalidated_by_evidence_ids` and active decisions drop to needs_review.
+        active: the id is cleared again; a decision returns to active only when no
+        other invalidating evidence remains (a needs_review set by other causes is kept).
+        """
+        affected: list[str] = []
+        updated: Evidence | None = None
+
+        def mutate(project: OpportunityProject) -> None:
+            nonlocal updated
+            evidence = next(
+                (item for item in project.evidence if item.id == evidence_id), None
+            )
+            if evidence is None:
+                raise LedgerNotFoundError(evidence_id)
+            evidence.status = status
+            updated = evidence
+            invalidating = status in {EvidenceStatus.STALE, EvidenceStatus.REMOVED}
+            for decision in project.decisions:
+                if evidence_id not in decision.evidence_ids:
+                    continue
+                if invalidating:
+                    if evidence_id not in decision.invalidated_by_evidence_ids:
+                        decision.invalidated_by_evidence_ids.append(evidence_id)
+                    if decision.status == DecisionStatus.ACTIVE:
+                        decision.status = DecisionStatus.NEEDS_REVIEW
+                    affected.append(decision.id)
+                elif evidence_id in decision.invalidated_by_evidence_ids:
+                    decision.invalidated_by_evidence_ids.remove(evidence_id)
+                    if (
+                        not decision.invalidated_by_evidence_ids
+                        and decision.status == DecisionStatus.NEEDS_REVIEW
+                    ):
+                        decision.status = DecisionStatus.ACTIVE
+                    affected.append(decision.id)
+
+        self.update_project(project_id, mutate)
+        assert updated is not None
+        return updated, affected
 
     def workspace_for_project(self, project_id: str) -> Path:
         self.get_project(project_id)
