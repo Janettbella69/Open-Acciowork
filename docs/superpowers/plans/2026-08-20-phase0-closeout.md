@@ -222,3 +222,32 @@ UI 要求（PRD P0-4）：Provider 列表（display_name/model/base_url/region/s
 - Spec coverage：P0 两个 ✗（定时前端打通=Task 10；Green Path E2E+合约=Task 6/7）✔；P0-3 单测=Task 2/3 ✔；P0-4 Provider UI=Task 9 ✔；§3.11=Task 11（+6 复用）✔；§6.1 CI=Task 4+12 ✔；CLAUDE.md=Task 1 ✔；P0-0 提交+tag=各任务提交+Task 14 tag ✔。FR-23 检索降级：PRD §5 归 Phase 1，明确遗留。记忆审批 UI（P0 △）=Task 9 ✔。
 - Placeholder scan：无 TBD；judge 门槛留空是 PRD 明文要求（非占位符）。
 - Type consistency：`drive_run`/`verify_events`/`write_bundle` 签名在 Task 5/6/11 一致；client.ts 函数名与 Task 9/10 一致（已照抄现源码）。
+
+---
+
+## 追加批次 A（2026-08-20 用户拍板）：P0 残余清零
+
+### Task A1: FR-10 证据失效联动 + 证据查询 API
+- Modify: `storage.py`（`update_evidence_status` 传播到 Decision：stale/removed→追加 `invalidated_by_evidence_ids`+ACTIVE→NEEDS_REVIEW；恢复 active→反向清理；`search_evidence` 下沉复用）、`ledger_tools.py`（新 MCP 工具 `update_evidence_status`，权限门控；`search_evidence` 改调 storage）、`main.py`（`POST /api/projects/{pid}/evidence/{eid}/status`、`GET /api/projects/{pid}/evidence`）、`models.py`（`EvidenceStatusChange` 响应体）
+- [x] 测试先行：storage 传播矩阵（置疑/恢复/多决策/无关决策）、API 两端点、MCP 工具注册
+- [x] Commit
+
+### Task A2: FR-23 检索 MCP 降级（ophira_web）
+- Create: `web_tools.py`（`fetch_page_snapshot`：SSRF 防护【私网/环回/link-local/metadata/非 http(s) 拒绝、逐跳重验、限体积】+ 文本抽取；`search_public_web`：可插拔检索 API【serper/tavily/brave】，未配置时返回结构化 SEARCH_API_NOT_CONFIGURED 而非伪造结果）
+- Modify: `config.py`（search provider/key/限额）、`constants.py`、`ledger_tools.build_mcp_servers`（6 服务）、`.env.example`、`models.py` ProviderCapabilities 增 `native_web_search/native_web_fetch`、ProviderSettings 徽章"Web 能力等级"、greenpath 验证器认可 `mcp__ophira_web__*` 为降级 web 覆盖
+- [x] 测试：SSRF 矩阵、无 key 结构化错、mock 检索、体积上限；sdk_adapter 服务器集合断言更新
+- [x] Commit
+
+### Task A3: §4.15 其余待补 API
+- `POST /api/skills/{id}/test`：确定性包检（frontmatter/引用文件存在/内容哈希/密钥扫描/危险命令扫描/allowed-tools 不生效警告）→ SkillTestResult
+- Connector 最小注册表（file-backed，§4.11 字段）+ `GET /api/connectors` + `POST /api/connectors/{id}/health-check`（secret 存在性+可选连通探测；不伪造集成）
+- `PATCH /api/schedules/{id}`（ScheduleUpdate 全可选字段+触发器互斥校验+next_fire 重算）
+- [x] 各自测试 + Commit
+
+### Task A4: 前端——证据抽屉 + Skill 测试入口
+- client.ts 增量（listProjectEvidence/setEvidenceStatus/testSkill/patchSchedule/listConnectors）；useOpportunityRuntime 暴露 refreshActiveProject
+- `EvidenceDrawer.tsx`：kind 徽章（观测事实/用户陈述/社区信号/推断）、来源链接/路径、retrieved_at/observed_at、置信度、freshness_note、status 操作（置疑/移除/恢复→调 API→提示 N 条结论需复核）、筛选；Decisions 区 needs_review 徽章
+- SkillsPage 每卡 "Test" 按钮渲染检查结果
+- [x] vitest 先行 + lint + build + Commit
+### Task A5: 终验
+- [x] 全量测试两端；单轮 Green Path 真端点回归（6 MCP 服务）；docs/backend-api.md 增补；push；memory 更新；对照表汇报
