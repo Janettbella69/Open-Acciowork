@@ -106,6 +106,8 @@ function runtimeEvent(type: string, data: Record<string, unknown>): OphiraEvent 
     run_id: run.id,
     project_id: project.id,
     trace_id: run.trace_id,
+    sdk_session_id: null,
+    provider_profile_id: null,
     timestamp,
     actor: { type: 'agent', name: 'opportunity-lead', agent_id: null },
     parent_id: null,

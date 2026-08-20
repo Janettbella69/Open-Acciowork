@@ -183,6 +183,7 @@ export type ProviderCapabilities = {
   prompt_caching: boolean
   extended_thinking: boolean
   tool_search: boolean
+  context_window_tokens?: number | null
 }
 
 export type ProviderProfile = {
@@ -191,6 +192,12 @@ export type ProviderProfile = {
   base_url: string | null
   auth_env_name: 'ANTHROPIC_API_KEY' | 'ANTHROPIC_AUTH_TOKEN'
   model: string
+  default_haiku_model?: string | null
+  default_sonnet_model?: string | null
+  default_opus_model?: string | null
+  subagent_model?: string | null
+  budget_scale?: number
+  terms_checked_at?: string | null
   region: string
   production_eligible: boolean
   enabled: boolean

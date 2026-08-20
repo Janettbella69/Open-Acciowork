@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
 import Brand from './Brand'
+import MemoryReview from './MemoryReview'
+import ProviderSettings from './ProviderSettings'
 import './settings-page.css'
 
 type LocalSettings = {
@@ -70,7 +72,7 @@ function ToggleRow({
 
 export default function SettingsPage() {
   const [settings, setSettings] = useState<LocalSettings>(loadSettings)
-  const [activeSection, setActiveSection] = useState('permissions')
+  const [activeSection, setActiveSection] = useState('providers')
 
   useEffect(() => {
     window.localStorage.setItem(storageKey, JSON.stringify(settings))
@@ -86,16 +88,19 @@ export default function SettingsPage() {
         <a className="settings-back" href="/app"><span aria-hidden="true">←</span> Back to workspace</a>
         <a className="settings-brand" href="/" aria-label="OPHIRA website"><Brand /></a>
         <nav aria-label="Settings sections">
+          <p>Runtime</p>
+          <a href="#providers" aria-current={activeSection === 'providers' ? 'page' : undefined} onClick={() => setActiveSection('providers')}><span>01</span>Model providers</a>
+          <a href="#memory-review" aria-current={activeSection === 'memory-review' ? 'page' : undefined} onClick={() => setActiveSection('memory-review')}><span>02</span>Memory review</a>
           <p>Workspace settings</p>
-          <a href="#permissions" aria-current={activeSection === 'permissions' ? 'page' : undefined} onClick={() => setActiveSection('permissions')}><span>01</span>Permissions</a>
-          <a href="#general" aria-current={activeSection === 'general' ? 'page' : undefined} onClick={() => setActiveSection('general')}><span>02</span>General</a>
-          <a href="#runtime" aria-current={activeSection === 'runtime' ? 'page' : undefined} onClick={() => setActiveSection('runtime')}><span>03</span>Runtime</a>
-          <a href="#language" aria-current={activeSection === 'language' ? 'page' : undefined} onClick={() => setActiveSection('language')}><span>04</span>Language</a>
-          <a href="#memory" aria-current={activeSection === 'memory' ? 'page' : undefined} onClick={() => setActiveSection('memory')}><span>05</span>Memory</a>
+          <a href="#permissions" aria-current={activeSection === 'permissions' ? 'page' : undefined} onClick={() => setActiveSection('permissions')}><span>03</span>Permissions</a>
+          <a href="#general" aria-current={activeSection === 'general' ? 'page' : undefined} onClick={() => setActiveSection('general')}><span>04</span>General</a>
+          <a href="#runtime" aria-current={activeSection === 'runtime' ? 'page' : undefined} onClick={() => setActiveSection('runtime')}><span>05</span>Runtime</a>
+          <a href="#language" aria-current={activeSection === 'language' ? 'page' : undefined} onClick={() => setActiveSection('language')}><span>06</span>Language</a>
+          <a href="#memory" aria-current={activeSection === 'memory' ? 'page' : undefined} onClick={() => setActiveSection('memory')}><span>07</span>Memory</a>
           <p>Integrations</p>
-          <a href="#plugins" aria-current={activeSection === 'plugins' ? 'page' : undefined} onClick={() => setActiveSection('plugins')}><span>06</span>Plugins</a>
-          <a href="#browser" aria-current={activeSection === 'browser' ? 'page' : undefined} onClick={() => setActiveSection('browser')}><span>07</span>Browser</a>
-          <a href="#computer-control" aria-current={activeSection === 'computer-control' ? 'page' : undefined} onClick={() => setActiveSection('computer-control')}><span>08</span>Computer control</a>
+          <a href="#plugins" aria-current={activeSection === 'plugins' ? 'page' : undefined} onClick={() => setActiveSection('plugins')}><span>08</span>Plugins</a>
+          <a href="#browser" aria-current={activeSection === 'browser' ? 'page' : undefined} onClick={() => setActiveSection('browser')}><span>09</span>Browser</a>
+          <a href="#computer-control" aria-current={activeSection === 'computer-control' ? 'page' : undefined} onClick={() => setActiveSection('computer-control')}><span>10</span>Computer control</a>
         </nav>
         <div className="settings-sidebar-note">
           <span>Saved locally</span>
@@ -110,8 +115,18 @@ export default function SettingsPage() {
           <span>Configure how the opportunity team accesses context and asks for approval.</span>
         </header>
 
+        <section id="providers" className="settings-section" aria-labelledby="providers-heading">
+          <div className="settings-section-heading"><span>01</span><div><h2 id="providers-heading">Model providers</h2><p>Anthropic-compatible endpoints the Agent runs on. Keys are stored in the backend vault and never shown again.</p></div></div>
+          <ProviderSettings />
+        </section>
+
+        <section id="memory-review" className="settings-section" aria-labelledby="memory-review-heading">
+          <div className="settings-section-heading"><span>02</span><div><h2 id="memory-review-heading">Memory review</h2><p>Agent memory proposals take effect only after your explicit approval.</p></div></div>
+          <MemoryReview />
+        </section>
+
         <section id="permissions" className="settings-section" aria-labelledby="permissions-heading">
-          <div className="settings-section-heading"><span>01</span><div><h2 id="permissions-heading">Permissions</h2><p>Choose what the Agent team can access without interrupting your work.</p></div></div>
+          <div className="settings-section-heading"><span>03</span><div><h2 id="permissions-heading">Permissions</h2><p>Choose what the Agent team can access without interrupting your work.</p></div></div>
           <div className="settings-card">
             <ToggleRow
               title="Workspace access"
@@ -136,7 +151,7 @@ export default function SettingsPage() {
         </section>
 
         <section id="general" className="settings-section" aria-labelledby="general-heading">
-          <div className="settings-section-heading"><span>02</span><div><h2 id="general-heading">General</h2><p>Set the default behavior for new opportunity studies.</p></div></div>
+          <div className="settings-section-heading"><span>04</span><div><h2 id="general-heading">General</h2><p>Set the default behavior for new opportunity studies.</p></div></div>
           <div className="settings-card">
             <label className="settings-row settings-select-row">
               <span><strong>Default approval mode</strong><small>How Ophira should handle tool and external-action requests.</small></span>
@@ -156,7 +171,7 @@ export default function SettingsPage() {
         </section>
 
         <section id="runtime" className="settings-section" aria-labelledby="runtime-heading">
-          <div className="settings-section-heading"><span>03</span><div><h2 id="runtime-heading">Runtime</h2><p>Control long-running research and approval waits.</p></div></div>
+          <div className="settings-section-heading"><span>05</span><div><h2 id="runtime-heading">Runtime</h2><p>Control long-running research and approval waits.</p></div></div>
           <div className="settings-card">
             <ToggleRow
               title="Keep this device awake during active runs"
@@ -176,7 +191,7 @@ export default function SettingsPage() {
         </section>
 
         <section id="language" className="settings-section" aria-labelledby="language-heading">
-          <div className="settings-section-heading"><span>04</span><div><h2 id="language-heading">Language</h2><p>Choose the interface language for this browser.</p></div></div>
+          <div className="settings-section-heading"><span>06</span><div><h2 id="language-heading">Language</h2><p>Choose the interface language for this browser.</p></div></div>
           <div className="settings-card">
             <label className="settings-row settings-select-row">
               <span><strong>Interface language</strong><small>Research evidence keeps its original source language.</small></span>
@@ -190,7 +205,7 @@ export default function SettingsPage() {
         </section>
 
         <section id="memory" className="settings-section" aria-labelledby="memory-heading">
-          <div className="settings-section-heading"><span>05</span><div><h2 id="memory-heading">Memory</h2><p>Control which workspace context Ophira may carry into future research sessions.</p></div></div>
+          <div className="settings-section-heading"><span>07</span><div><h2 id="memory-heading">Memory</h2><p>Control which workspace context Ophira may carry into future research sessions.</p></div></div>
           <div className="settings-card">
             <ToggleRow
               title="Workspace memory"
@@ -209,7 +224,7 @@ export default function SettingsPage() {
         </section>
 
         <section className="settings-section" aria-labelledby="integrations-heading">
-          <div className="settings-section-heading"><span>06</span><div><h2 id="integrations-heading">Integrations</h2><p>Set the local permission gate for external tools used by the Agent team.</p></div></div>
+          <div className="settings-section-heading"><span>08</span><div><h2 id="integrations-heading">Integrations</h2><p>Set the local permission gate for external tools used by the Agent team.</p></div></div>
           <div className="settings-card">
             <label id="plugins" className="settings-row settings-select-row settings-integration-row">
               <span><strong>Plugins</strong><small>Allow Agents to request tools supplied by connected plugin providers.</small><em>Local permission preference</em></span>
@@ -237,7 +252,7 @@ export default function SettingsPage() {
         </section>
 
         <section id="computer-control" className="settings-section settings-computer-control" aria-labelledby="computer-control-heading">
-          <div className="settings-section-heading"><span>08</span><div><h2 id="computer-control-heading">Computer control</h2><p>Prepare this workspace for a trusted companion device without exposing it by default.</p></div></div>
+          <div className="settings-section-heading"><span>10</span><div><h2 id="computer-control-heading">Computer control</h2><p>Prepare this workspace for a trusted companion device without exposing it by default.</p></div></div>
           <div className="settings-card">
             <ToggleRow
               title="Allow this computer to be discovered and controlled"

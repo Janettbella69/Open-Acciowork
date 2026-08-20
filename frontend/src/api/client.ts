@@ -130,6 +130,15 @@ export type ProviderInput = {
   secret?: string
   region?: string
   production_eligible?: boolean
+  // The backend upsert replaces the whole profile, so the editor must round-trip
+  // the tier mappings and capability matrix or a save would silently reset them.
+  default_haiku_model?: string | null
+  default_sonnet_model?: string | null
+  default_opus_model?: string | null
+  subagent_model?: string | null
+  budget_scale?: number
+  terms_checked_at?: string | null
+  capabilities?: import('./types').ProviderCapabilities
 }
 
 export function saveProvider(providerId: string, input: ProviderInput): Promise<ProviderProfile> {
