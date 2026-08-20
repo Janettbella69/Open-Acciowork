@@ -1,10 +1,24 @@
-# OPHIRA AI PRD 与技术架构 v2.0
+# OPHIRA AI PRD 与技术架构 v2.1
 
-> 文档状态：Draft v2.0，可进入产品评审与技术方案评审
+> 文档状态：Draft v2.1，可进入产品评审与技术方案评审
 > 研究基线：2026-08-20（v1.1 为 2026-08-05）
 > 产品方向：面向出海小B的 AI 全球商业执行系统（对标 Accio Work）
 > 架构基线：Claude Agent SDK 单主 Agent，保留 Claude Code 原生能力
 > 本文合并 PRD 与技术架构；产品需求、架构约束和验收标准共同构成范围基线。
+
+## v2.0 → v2.1 主要修订（2026-08-20，同日）
+
+| # | 修订 | 依据 |
+|---|---|---|
+| 1 | **品类定位对齐**：Accio Work 官方定位＝"外贸人的 OpenClaw / 专为中小企业打造的跨境生意工作台"；新增常驻 Agent 平台品类基线（Claude Cowork / OpenClaw / Hermes Agent / Codex 四原型调研，§2.6） | 用户提供官方定位 + 四平台官方文档核实 |
+| 2 | **单 Agent 红线细化（用户拍板）**：普通模式放宽"只读临时子代理"；固定角色的多 Agent 团队任何模式仍禁止（§1.1、FR-01、§4.8） | Cowork/Codex/Claude Code 均原生具备；上下文经济学需要 |
+| 3 | **主动服务与渠道提级（用户拍板 IM 形态）**：IM 渠道按 Claude Tag 形态、心跳巡检、前瞻意图、通知收件箱、移动远程审批（FR-15/24/25/26、§4.16） | 品类五件套 table stakes；Accio Mobile Beta 实证 |
+| 4 | **记忆蒸馏提案化**：后台蒸馏 + 人审闸门 + 结构化溯源分级 + 容量上限（FR-14、§4.16） | OpenClaw Dreaming / Codex Memories / Hermes 容量上限 / Cursor 记忆反转教训 |
+| 5 | **浏览器双路线与"截图即证据"**（FR-20 修订；内嵌先行为建议默认，待拍板） | Cursor/Codex 内嵌路线 GA 实证 vs Accio 接管真实 Chrome 路线 |
+| 6 | **权限增补**：删除文件任何模式必须确认、Auto 自审档、once/session/persistent 粒度（§4.10） | Cowork 误删 11GB 事故铁律等品类实证 |
+| 7 | **产物补洞**：图像/视频生成 MCP（FR-27） | Accio/Codex 均有；跨境 Listing 素材刚需 |
+| 8 | **全量核对补丁**：办公格式产物（FR-16）、首批连接器矩阵（FR-21）、结构化追问表单（FR-28）、内容营销 Skill 族（§4.7） | 对 Accio Work 功能清单逐项核对后的残余项 |
+| 9 | **自动化评测体系**（§3.11、§6.6）：三层评测金字塔 + 错误分析先行 + judge 必经 gold 校准（TPR/TNR）方进发布门禁 | 用户拍板；"可审计"承诺必须可度量 |
 
 ## v1.1 → v2.0 主要修订
 
@@ -38,7 +52,7 @@ v2.0 的核心新判断：**架构目标已基本代码就绪，当前最大风�
 | 不允许直连模型替代 SDK | 业务代码不得用 OpenAI SDK、Anthropic Client SDK 或裸 `/v1/messages` 实现核心 Agent；不得以"兼容性"为由回退 |
 | 不使用固定编排框架 | 不引入 LangGraph、LangChain、Dify 或自研状态机来决定下一步；由主 Agent 结合上下文自主选择工具和 Skill |
 | 保留 Claude Code 原生能力 | 使用 `claude_code` tools preset，保留 Read、Write、Edit、Bash、代码执行、Glob、Grep、WebSearch、WebFetch、Skill 等能力；权限控制不等于删除能力 |
-| 常规任务单 Agent | 普通会话隐藏 `Agent` 子代理工具；只有显式进入 Deep Research 模式才允许受控的临时子 Agent |
+| 常规任务单主 Agent，禁角色型团队 | 一个主 Agent 对结果负全责；普通模式允许主 Agent 按需派**只读、临时、预算受限**的研究子代理（v2.1 放宽，用户拍板），证据与产物仍只由主 Agent 写入账本；固定角色的多 Agent 团队任何模式都不做；Deep Research 是大规模并行研究的显式重模式 |
 | 领域能力用官方扩展点 | 外部系统和确定性动作封装为 MCP；方法论封装为文件型 Skill；复杂处理由原生 Bash/代码执行或 Skill 附带脚本完成 |
 | 国产模型只走 Anthropic 协议 | 通过每个厂商官方 Anthropic-compatible Base URL 和 Key 配置 Claude Agent SDK；项目内不实现 OpenAI 格式适配器 |
 | 证据与副作用可治理 | 事实必须带来源、时间和置信度；写文件、执行命令、登录态浏览器、外发消息等按风险分级并可由用户授权 |
@@ -125,6 +139,20 @@ v2.0 的核心新判断：**架构目标已基本代码就绪，当前最大风�
 - 用户愿意提供 BYOK 模型 Key，或接受 OPHIRA 托管模型额度；两种商业模式由相同 Provider Profile 支撑。（Accio 用积分制托管多厂商模型的做法证明托管模式可行，其"积分消耗过快"投诉说明**成本透明**是可攻击的差异点。）
 - 平台销量、关键词热度等"实时数据"必须来自授权 API、用户登录态页面或可引用的公开来源；没有数据许可时不得伪装成平台官方实时数据。
 
+### 2.6 常驻 Agent 平台品类基线（v2.1 新增，2026-08-20 核实）
+
+Accio Work 官方对标口径为 "agentic platforms like Claude Cowork and OpenClaw"，市场定位为"外贸人的 OpenClaw / 专为中小企业打造的跨境生意工作台"。品类四个原型的关键机制：
+
+| | Claude Cowork（Anthropic） | OpenClaw（开源，~387k star） | Hermes Agent（Nous，~233k star） | OpenAI Codex |
+|---|---|---|---|---|
+| 本质 | Claude Code harness 换壳的知识工作 Agent（**与 OPHIRA 同底座**，SKILL.md/插件格式互通） | 常驻个人分身网关，IM 渠道形态的发明者 | 模型无关 harness，国产模型端点一等公民 | ChatGPT 的 agent 内核（2026-07 合并） |
+| 记忆 | 项目作用域记忆（与 OPHIRA 同构） | 五层信任模型 + SQLite 溯源列（untrusted 结构性排除）+ Dreaming 三阶段蒸馏 | MEMORY.md 容量硬上限 + 启动冻结快照 + FTS5 情景检索 + 写入人审开关 | AGENTS.md（人定规则）+ Memories（自动蒸馏）双层 |
+| 进化 | 无自改（人装插件） | Skill Workshop 提案→扫描→apply（默认 auto 是其隐患）；SOUL 自改仅"告知"约定 | 自主造 Skill + Curator + write_approval 闸门；SOUL 仅人可改 | 无自改闭环（Memories 积累 + Agent Imports） |
+| 主动 | 云端定时 + "ping 手机做决策" | heartbeat + HEARTBEAT_OK 静音 + standing intents（防唠叨预算） | cron 拉新会话投递渠道 + 空闲 heartbeat | RRULE 定时 + Scheduled 收件箱 |
+| 教训 | 误删用户 11GB → "删除永远确认"铁律 | ClawHavoc 1184 恶意 skill、一键 RCE、2026-03 被禁用于中国国企 | —（治理开关前置） | 分支名注入漏洞 |
+
+两个结论：① 品类六件套＝**常驻 / 渠道 / 记忆 / 主动 / 进化 / 可审计**——前五件是 table stakes，第六件是 OPHIRA 的差异位；② 各家治理机制几乎都是事故后补的，OPHIRA 把治理做在第一版是后发优势。机制吸收明细见 §4.16。
+
 ---
 
 ## 3. 产品需求文档
@@ -183,6 +211,8 @@ v2.0 的核心新判断：**架构目标已基本代码就绪，当前最大风�
 
 **不是搜索框，也不是"AI 团队开会"的表演，而是拥有商业能力包、工具箱和持久工作区的一个执行 Agent。**
 
+对位一句话（v2.1，对齐品类定位）：Accio Work 是"外贸人的 OpenClaw，货在阿里"；**OPHIRA 是"外贸人的常驻数字员工"——证据可审计、模型与数据主权在用户自己手里。**
+
 #### 与 Accio Work 的差异化（v2.0 新增）
 
 | 维度 | Accio Work | OPHIRA |
@@ -192,7 +222,7 @@ v2.0 的核心新判断：**架构目标已基本代码就绪，当前最大风�
 | 模型 | 托管积分制、多厂商倍率计费，成本不透明（用户投诉积分消耗过快） | BYOK + Anthropic 协议 Provider Profile，成本=厂商牌价，`max_budget_usd` 逐运行熔断 |
 | 数据主权 | 数据过阿里基础设施；有疑似跨账户泄漏投诉 | 本地优先工作区 + 每租户/每 Profile 隔离（`CLAUDE_CONFIG_DIR`、凭据白名单、路径防逃逸）——把隔离做成可验证的卖点 |
 | 生态 | 深度绑定 Alibaba.com 供给侧 | 平台无关；渠道只是数据源与连接器参数 |
-| 分发 | 桌面 App + IM 渠道 + Agent Hub | MVP 为本地 Web 工作台；IM/桌面壳列入 P2 观察项（Accio 验证了需求，但不改变架构） |
+| 分发 | 桌面 App + IM 渠道 + Agent Hub + Mobile 遥控 PC | 本地 Web 工作台先行；IM 渠道按 **Claude Tag 形态**进 P1（主 Agent 以成员身份进用户的飞书/微信群，v2.1 用户拍板）；移动端＝同一控制面的远程审批面（服务端架构天然占优，无需 Accio 式 keep-PC-awake） |
 
 Accio 同时也**抬高了 table stakes**：权限四态与审计日志、分层记忆、SKILL.md 能力包、定时任务、浏览器登录态操作，用户会默认期待。OPHIRA 的对应能力在 FR 表中均有落点，实现次序见 §5。
 
@@ -276,17 +306,21 @@ Accio 同时也**抬高了 table stakes**：权限四态与审计日志、分层
 - △ 正常模式禁止子 Agent；Deep Research 开关及预算/只读约束（已实现为受控 Beta）。
 - ✗ **Green Path E2E 与 Provider 合约测试**（Phase 0 出口标准，零进展）。
 
-#### P1：紧随其后
+#### P1：紧随其后（v2.1 重排）
 
-- 用户登录态浏览器连接器和平台/店铺授权连接器。
+- IM 渠道（Claude Tag 形态，先飞书后微信，FR-24）与移动远程审批（FR-25）。
+- 主动巡检、前瞻意图与通知收件箱（FR-26、§4.16）；`ophira_automation` MCP 暴露给 Agent。
+- 内嵌受控浏览器 + 操作截图入证据账本（FR-20 路线一）；平台/店铺授权连接器。
+- 图像/视频生成 MCP（FR-27）；记忆蒸馏提案生成器（§4.16）。
 - 更多市场与平台 Skills、合规数据源、物流与汇率工具。
 - 供应商联系、Listing 发布等外部动作的预览—批准—执行闭环。
 - 检索 MCP 降级路径（针对不支持原生 WebSearch/WebFetch 的 Provider）。
 - 桌面桥或桌面壳，使本地文件与真实浏览器能力更自然。
 
-#### P2：观察项（Accio 验证过需求，不改变架构）
+#### P2：观察项
 
-- IM 渠道分发（飞书/微信/Telegram 等）——把已批准的 Agent 会话接入聊天入口。
+- 接管用户真实 Chrome 的浏览器路线（复用登录态与设备指纹，Accio Relay 式，FR-20 路线二）。
+- "从重复任务中提议新 Skill"（Hermes/OpenClaw 形态；提案制、强制人审 + 安全扫描，见 §4.7）。
 - 团队协作、评论、项目模板、Skill 私有仓库和组织策略。
 - 知识库（项目级参考资料索引，服务检索而非替代证据账本）。
 
@@ -303,7 +337,7 @@ Accio 同时也**抬高了 table stakes**：权限四态与审计日志、分层
 
 | ID | 优先级 | 需求 | 可验收标准 | 现状 |
 |---|---:|---|---|---|
-| FR-01 | P0 | 单主 Agent | 普通运行只创建一个 Claude Agent SDK 主会话；`Agent` 工具不可见或被阻止；无固定节点编排 | △ 已实现（`agents=None` + disallow，测试覆盖） |
+| FR-01 | P0 | 单主 Agent + 受限子代理 | 一个主 Agent 会话对结果负全责；普通模式可派**只读临时子代理**（仅 Read/Glob/Grep/Web/只读 MCP，轮次与预算受限，不写账本、不得再派生）；无固定角色团队与固定节点编排 | 🔁 v2.1 修订（现实现为普通模式禁 Agent，需按新口径放开并同步测试） |
 | FR-02 | P0 | SDK 唯一模型运行时 | 业务运行追踪可证明由 `ClaudeSDKClient`/`query()` 发起；项目代码不存在替代核心循环的模型 Client 调用 | △ 已实现 |
 | FR-03 | P0 | 原生能力完整 | 同一 Agent 可使用 Read、Write、Edit、Bash/代码、Glob、Grep、WebSearch/WebFetch 和 Skill；高风险调用受权限控制而非被架构移除 | △ presets 就绪，待真实端点验证 |
 | FR-04 | P0 | 自由规划与工具选择 | 同一目标允许不同工具序列；后端不维护业务步骤枚举或状态迁移图 | △ 已实现 |
@@ -315,17 +349,22 @@ Accio 同时也**抬高了 table stakes**：权限四态与审计日志、分层
 | FR-10 | P0 | 结论可追溯 | Go/Test/No-go、候选排序等结论回链证据和假设；删除/过期证据后标记受影响结论 | △ `Decision.invalidated_by_evidence_ids` 就绪；失效联动逻辑待做 |
 | FR-11 | P0 | MCP 领域工具 | 市场、供应商、客户/成交、商业计算、台账至少各一个真实可用 MCP 工具；结构化结果、来源和明确错误 | △ 5 服务 14 工具已建 |
 | FR-12 | P0 | Skills | Skill 是运行时可发现的 `SKILL.md` 能力包；可被 Agent 按意图自主触发；一次运行锁定 Skill 版本 | △ 已实现（插件 + 内容哈希 + 快照） |
-| FR-13 | P0 | 权限 | 安全读取自动批准；写文件、Bash 和外部副作用按规则询问；用户看到工具、参数摘要、影响范围并能本次允许/拒绝 | △ 已实现；建议补 ask_once/persistent 粒度（对齐 Accio 心智，见 §4.10） |
-| FR-14 | P0 | 记忆 | Agent 只能提交记忆提案；用户批准后进入稳定记忆；可搜索、纠正、撤回且后续运行可验证生效 | △ 后端就绪；审批 UI 待接 |
-| FR-15 | P0 | 自动化 | 用户确认后创建计划；显示下次运行、时区、输入、权限上限、最近状态；凭据失效时暂停并通知 | ✗ 后端就绪，前端本地草稿 |
-| FR-16 | P0 | 产物 | 创建并继续编辑 Markdown、CSV/JSON、图片说明或脚本等文件；产物记录生成运行、版本、引用证据和下载地址 | △ 已实现 |
+| FR-13 | P0 | 权限 | 安全读取自动批准；写文件、Bash 和外部副作用按规则询问；**删除文件在任何模式下必须确认**；授权粒度支持本次/本会话/持久（带范围与有效期）；可选 Auto 自审档 | △ 部分实现；v2.1 增补三项（§4.10） |
+| FR-14 | P0 | 记忆 | Agent 只能提交记忆提案；用户批准后进入稳定记忆；可搜索、纠正、撤回且后续运行可验证生效；后台蒸馏任务可从运行日记生成候选记忆但**只能进提案队列**（§4.16）；记忆带来源分级与容量上限 | △ 后端就绪；蒸馏管线与审批 UI 待做 |
+| FR-15 | P0 | 自动化与主动链路 | 用户确认后创建计划（服务端常驻执行，不依赖用户设备开机）；显示下次运行、时区、输入、权限上限、最近状态；凭据失效时暂停并通知；巡检结果**无变化即静默**（HEARTBEAT_OK 语义），有变化进通知收件箱并可投递渠道 | ✗ 后端 Scheduler 就绪；前端本地草稿；巡检/收件箱/投递未开始 |
+| FR-16 | P0 | 产物 | 创建并继续编辑 Markdown、CSV/JSON、图片说明或脚本等文件；P1 起支持办公格式产物——XLSX（带真实公式）、DOCX、PPTX（经原生代码执行生成，Accio/Cowork 同能力）；产物记录生成运行、版本、引用证据和下载地址 | △ 已实现（办公格式待做） |
 | FR-17 | P0 | 运行可观测性 | 事件带 `trace_id/run_id/session_id`；记录工具、时长、结果状态、授权和资源用量，不存储私有思维链 | △ 27 事件 + 脱敏就绪 |
 | FR-18 | P0 | 错误恢复 | 工具失败不丢失已生成证据与文件；从失败点继续或新建分支；区分模型、Provider、MCP、权限和网络错误 | △ 已实现 |
 | FR-19 | P0/Beta | Deep Research | 仅显式模式启用子 Agent；子 Agent 默认只读、有最大数量/轮次/预算/时限；只有主 Agent 写最终台账 | △ 已实现（3 只读子代理） |
-| FR-20 | P1 | 授权浏览器 | 在用户现有登录态中读取页面；点击提交、发消息、改价格等动作单独授权并保留审计记录 | ✗ |
-| FR-21 | P1 | 连接器管理 | 每个 MCP/连接器显示能力、数据范围、凭据状态、最近健康检查和可撤销授权 | ✗ |
+| FR-20 | P1 | 受控浏览器（双路线） | 路线一（P1，建议默认，待拍板）：内嵌受控浏览器——独立 profile、域白名单、敏感动作强制确认；路线二（P2 评估）：接管用户真实 Chrome（复用登录态与设备指纹）；两条路线下**每次浏览器操作留存截图与动作记录并写入证据账本** | ✗ |
+| FR-21 | P1 | 连接器管理 | 每个 MCP/连接器显示能力、数据范围、凭据状态、最近健康检查和可撤销授权；首批连接器矩阵：邮箱（Gmail/Outlook）、店铺后台（Amazon Seller Central、Shopify、阿里国际站/速卖通）、社媒（Instagram/TikTok）、微信（WeChat）与飞书（Feishu/Lark）——客户/供应商沟通记录、文档/多维表格读写与消息触达，外发消息走高风险授权；作为 IM 渠道的群内协作另见 FR-24 | ✗ |
 | FR-22 | P1 | 团队治理 | 项目角色、Skill 发布、Provider 使用、外部动作由组织策略约束，运行仍由一个主 Agent 执行 | ✗ |
 | FR-23 | P0（新增） | Web 能力降级 | Provider 不支持原生 WebSearch/WebFetch 时，Agent 仍可通过已认证的检索 MCP 完成公开信息获取；UI 明示当前 Provider 的 Web 能力等级 | ✗ |
+| FR-24 | P1（v2.1） | IM 渠道（Claude Tag 形态） | 主 Agent 以成员身份加入用户的飞书/微信等群；群内 @ 派活、回帖交付带证据的结论；权限卡片可在群内解决；渠道消息进入同一项目账本；禁止多人设 Agent 群聊 | ✗ |
+| FR-25 | P1（v2.1） | 移动远程审批 | 权限请求与关键通知抵达手机；用户远程查看参数摘要并批准/拒绝（复用现有权限 API）；权限等待支持挂起至小时级而非固定 300 秒超时；可远程发起新任务 | ✗ |
+| FR-26 | P1（v2.1） | 主动巡检与前瞻意图 | 用户可授权"盯着 X、发生 Y 才告诉我"的常驻意图，带冷却期/最大触发次数/过期时间的防唠叨约束；巡检受逐运行预算约束；结果进收件箱 | ✗ |
+| FR-27 | P1（v2.1） | 图像/视频生成 | 经生成模型 MCP 产出 Listing 主图草稿、A+ 素材、社媒图文；生成产物与来源素材登记为 Artifact 并关联证据 | ✗ |
+| FR-28 | P2（v2.1） | 结构化追问表单 | 除对话式追问外，Agent 可发起结构化表单/选项卡一次性收集关键约束（目标市场、预算、履约方式等），结果写入项目约束记录 | ✗ |
 
 ### 3.9 非功能需求
 
@@ -386,6 +425,34 @@ Accio 同时也**抬高了 table stakes**：权限四态与审计日志、分层
 - 工作区越界、跨租户访问、密钥泄漏事件数，目标为 0。
 - 每个完成任务的授权打断次数；过高表示权限设计阻碍体验。
 - 单任务成本、时长、工具失败率和无效循环率。
+
+### 3.11 自动化评测体系（v2.1 新增）
+
+OPHIRA 的差异化承诺是"可审计"；评测体系把这个承诺变成**可度量、可回归、可对外出示**的工程事实。评测产物（基准任务集、失败模式分类法、judge 校准报告、每版本评测报告）随版本发布，本身是产品可信度的一部分。
+
+#### 评测金字塔（自动化程度递减、判断含量递增）
+
+| 层 | 对象 | 方法 | 触发 |
+|---|---|---|---|
+| L1 确定性检查 | 结构与安全不变量 | 代码断言：Evidence 必填字段（source/retrieved_at）非空、商业计算工具复算一致、事件脱敏 canary 0 命中、权限边界用例（路径越界/密钥/内网）、架构静态门禁（§6.1） | 每次 commit（CI） |
+| L2 行为与能力 | 端到端任务轨迹 | Green Path 扩展为评测 harness：多起点固定任务集回放，断言工具覆盖、权限正确触发、无违规子代理、产物落盘；记录任务完成率/成本/时长/工具失败率 | 每 PR + 每日 |
+| L3 质量判定 | 结论与证据质量 | LLM-as-Judge 按护栏指标判定：证据覆盖率、无来源具体数据率、事实/推断混淆率、结论—证据回链有效性；**judge 必须先经人工 gold 集校准，TPR/TNR 达标才可采信** | 版本发布 + 线上抽样 |
+
+#### 建设顺序（错误分析先行，不先写 judge）
+
+1. **基准任务集 v0**：覆盖场景 A/B/C/D 的固定 fixture 任务（需求侧起点/供给侧起点/单品验证/供应商询盘），合成数据与脱敏真实材料混合；每个任务定义最低合格输出。
+2. **错误分析**：跑基准集收集 traces，人工开放编码归纳失败模式分类法，再轴向合并；失败模式决定分工——**能用代码断言的失败模式不上 judge**。
+3. **Judge 编写与校准**：每个主观维度一个 judge prompt；人工标注 gold 集（标注口径文档化，gold 由项目负责人本人标）；划分 train/dev/test；汇报 TPR/TNR；未达校准门槛的 judge 只作参考信号，不进发布门禁。
+4. **回归化**：Provider 合约测试（§4.9）、SDK 升级、Skill 版本变更、系统提示词修改必须重跑 L1+L2；重大变更加跑 L3。
+5. **线上线下同口径**：§3.10 护栏指标与离线 judge 共用同一套定义与 prompt；线上抽样监控直接复用已校准 judge。
+
+#### 门槛口径模板（数值留空，跑出基线后填定，不预填演示数字）
+
+- L2 基准集任务完成率 ≥ __%；单任务成本 P95 ≤ __ USD、时长 P95 ≤ __ min
+- 证据覆盖率 ≥ __%；无来源具体数据率 ≤ __%；事实/推断混淆率 ≤ __%
+- Judge 校准门槛：TPR ≥ __、TNR ≥ __，未达标的维度不得进入 §6.6 发布门禁
+
+评测资产目录：`evals/`（基准集、gold 标注、judge prompts、校准报告、每版本评测报告）。
 
 ---
 
@@ -514,6 +581,7 @@ v2.0 增补建议（不改变红线，按需采纳）：
 - **`output_format`**：对"运行结束生成结构化摘要"这类需要严格 schema 的输出，可用 JSON Schema 约束 result；不用于替代自由产物。
 - **`fallback_model`**：同一 Provider 内的模型降级（例如主模型限流时回退同厂商小模型）；跨 Provider 切换仍必须显式走 Profile，不自动。
 - **`user`** 字段：传租户/用户标识用于审计与成本归集。
+- **普通模式只读子代理（v2.1，用户拍板）**：`agents=` 在普通模式注入只读临时研究子代理定义（工具仅 Read/Glob/Grep/WebSearch/WebFetch + 只读 MCP，`disallowedTools=["Write","Edit","Bash","Agent","Task"]`，maxTurns 与预算受限），`disallowed_tools` 不再含 `"Agent"`；账本写入仍只属主 Agent。仓库现状为普通模式禁 Agent，需按此修改并同步测试断言。
 - 预检配置维持独立收紧版：`permission_mode="dontAsk"`、仅 health 工具自动批准、`disallowed_tools=["Agent","Write","Edit","Bash"]`、`max_turns=4`、预算 ≤0.25 USD。
 
 ### 4.5 OPHIRA 系统提示词边界（不变）
@@ -534,7 +602,8 @@ v2.0 增补建议（不改变红线，按需采纳）：
 | `ophira_compliance`（未建） | — | `lookup_requirements`、`check_claim_language`、`list_required_documents` | 读取；必须返回法规来源和有效日期 |
 | `ophira_web`（新增规划，FR-23） | — | `search_public_web`、`fetch_page_snapshot`（走已授权检索 API） | 公开读取低；作为原生 WebSearch/WebFetch 的 Provider 降级路径 |
 | `ophira_browser`（未建，P1） | — | `read_current_page`、`extract_table`、`click`、`submit_form` | 读取按域策略；点击/提交逐次授权 |
-| `ophira_automation`（未建；后端 Scheduler 已有，暂未暴露为 Agent 工具） | — | `create_schedule`、`pause_schedule`、`send_notification` | 创建/外发需授权并幂等 |
+| `ophira_automation`（未建；后端 Scheduler 已有，暂未暴露为 Agent 工具） | — | `create_schedule`、`pause_schedule`、`create_standing_intent`（前瞻意图，带冷却/次数/过期约束）、`send_notification`（渠道投递 + 收件箱） | 创建/外发需授权并幂等 |
+| `ophira_media`（新增规划，FR-27） | — | `generate_image`、`edit_image`、`generate_video_draft`（接生成模型 API） | 生成本身低风险；发布到店铺/社媒走外发授权 |
 
 \* 仅当注入 MemoryProvider 时注册。
 
@@ -562,13 +631,23 @@ ophira-capabilities/
 
 Skill 生命周期（维持 v1.1）：Draft → Review（扫密钥/越权指令/固定过期事实/伪装权限 frontmatter）→ Publish（不可变版本+内容哈希）→ Enable（Run 保存启用列表和版本快照）→ Observe → Rollback。用户自定义 Skill 进入单独租户 Plugin 目录，只读挂载、版本化、安全扫描。
 
-（竞品参照：Accio 预置 100+ Skill 并让 Agent 自动"收割"重复工作流为新 Skill。OPHIRA 的 Skill 数量策略是少而精 + 证据标准内嵌；"从重复任务中提议新 Skill"可作为 P2 观察项，且提议必须走人审发布，不自动生效。）
+#### Skills 与 Plugins 的品类对照与 v2.1 口径
 
-### 4.8 单 Agent 与 Deep Research 边界（已实现）
+- **格式即生态**：Cowork 与 Claude Code 用的就是同一套 Agent Skills 标准（SKILL.md）与同一套插件格式（`.claude-plugin/plugin.json`）——`ophira-core` 天然与官方生态互通，Anthropic 开源的 11 个知识工作插件（sales/marketing/finance 等，Apache-2.0）可直接作为 OPHIRA 领域 Skill 的参考蓝本甚至改造来源。
+- **数量差距与补齐策略**：Accio 预置 100+ 认证 Skill，OPHIRA 现有 4 个。策略仍是少而精 + 证据标准内嵌，但 P1 按场景族扩到约 10–15 个（市场调研/供应尽调/成本测算/询盘谈判/Listing/合规/客户开发/监控巡检/内容营销——TikTok 脚本与社媒图文，产出经 FR-27 媒体能力落地），每个 Skill 附 `references/` 证据规则与输出模板。
+- **Skill 自创建（P2，提案制）**：Hermes（自主蒸馏 SKILL.md + `write_approval` 闸门）与 OpenClaw（Skill Workshop 提案→扫描→apply）证明"Agent 从重复工作流提议新 Skill"可行，但 OpenClaw 的 `approvalPolicy` 默认 auto 是隐患，OPHIRA 一律 pending 人审。
+- **安全扫描是生死线**：ClawHub 市场被审计出 1184 个历史恶意 Skill（伪装加密钱包/YouTube 工具投毒）。OPHIRA Skill 生命周期的 Review 步骤必须包含自动化内容扫描（密钥、外传指令、危险命令、伪装权限 frontmatter），第三方 Skill 引入走信任分级，`dangerous` 判定不可 force 通过。
+- **渐进披露**：SDK 原生按需加载 SKILL.md 正文与 reference 文件（Hermes 的三级加载同理），Skill 数量增长不等比消耗上下文——这是扩到几十个 Skill 的前提，无需额外机制。
 
-- 正常模式：一个主 Agent 拥有全部经授权的原生工具、Skills 和 MCP；`agents=None`、`disallowed_tools=["Agent"]`（有测试断言）。
-- Deep Research（显式选择，UI 标注 "explicit beta"）：注入 3 个临时研究子代理 `source-mapper` / `multilingual-researcher` / `conflict-verifier`；各自仅 Read/Glob/Grep/WebSearch/WebFetch + 只读 ledger 工具；`disallowedTools=["Write","Edit","Bash","Agent","Task"]`；`maxTurns=12`；只有主 Agent 写最终台账。
-- 待补：子代理总预算与统一取消的显性 UI；"预计额外资源"提示。
+### 4.8 单 Agent 与子代理边界（v2.1 修订）
+
+三层口径，从松到严：
+
+- **普通模式（v2.1 放宽，用户拍板）**：一个主 Agent 对结果负全责，可按需派**只读临时研究子代理**——无人设、无固定角色；工具仅 Read/Glob/Grep/WebSearch/WebFetch + 只读 MCP，`disallowedTools=["Write","Edit","Bash","Agent","Task"]`，轮次与预算受限；结论、证据、产物仍只由主 Agent 写入账本。定性：这是上下文经济学工具（避免大量阅读塞爆主上下文），不是工作流——拆不拆、怎么拆由主 Agent 临场决定。Cowork/Codex/Claude Code 均默认具备此能力。
+- **Deep Research（显式重模式）**：多语种、大范围并行研究；现实现为 3 个只读子代理（`source-mapper`/`multilingual-researcher`/`conflict-verifier`，`maxTurns=12`）；带总预算、统一取消与"预计额外资源"提示（UI 待补）。
+- **任何模式禁止**：固定角色多 Agent 团队（Accio 式 1 TL + N 人设群聊）、子代理写账本、子代理再派生子代理。
+
+仓库现状为普通模式 `disallowed_tools=["Agent"]` + `agents=None`（有测试断言）——按 v2.1 口径需改为注入只读临时子代理定义，并同步修改 §6.1/§6.2 门槛断言。
 
 ### 4.9 Provider 与国产模型接入（v2.0 全面更新）
 
@@ -635,7 +714,13 @@ Claude Agent SDK worker 只接收 Anthropic 协议环境配置。OPHIRA 不安�
 - **Bash 授权永不按 run 缓存**（有测试）；权限等待超时自动 deny 并发 `permission.timed_out`。
 - SDK `sandbox` 启用且禁 `dangerouslyDisableSandbox`；文件 checkpoint 只回滚文件工具修改，Bash 造成的改动需容器卷快照/项目版本提交兜底（口径不变）。
 
-v2.0 增补建议：授权粒度向"本次 / 本会话 / 持久（带范围与有效期）"扩展并落审计（对齐 Accio 的 once/session/persistent 用户心智；持久授权必须显示范围、可撤销、有过期）；权限决策审计文件化（等价 `permissions/audit.jsonl` 的可导出形态）。
+v2.1 增补（吸收品类实证教训）：
+
+- 授权粒度"本次 / 本会话 / 持久（带范围与有效期）"并落审计（Accio/Cursor 共识；持久授权必须显示范围、可撤销、有过期）；权限决策审计可导出。
+- **删除文件在任何模式下必须确认**——来自 Cowork 误删用户 11GB 文件后的产品铁律。
+- 可选 **Auto 自审档**：介于逐项批准与全自动之间，模型先评估动作安全性、拦下不安全项（Cowork 三档模型）；默认档仍为逐项询问。
+- 浏览器操作每一步留存截图与动作日志并写入证据账本（Codex "demos over diffs" 形态）；"读取页面"与"执行动作"分开授权维持不变。
+- 权限等待支持挂起（FR-25）：run 进入 waiting_permission 后可持久等待移动端远程决策，替代固定 300 秒超时 deny。
 
 Prompt Injection 防线维持 v1.1：外部内容一律标记为不可信数据；MCP 返回结构化事实而非可覆盖策略的"隐藏提示词"；Hooks 监测异常凭据访问、越界路径、外传与提权；浏览器"读取页面"与"执行动作"分开授权。
 
@@ -704,9 +789,26 @@ PATCH  /api/schedules/{id}
 
 `POST /runs` 的关键输入只有用户意图、附件/链接、项目、模式和可选 Provider；前端不得提交固定 workflow/stage；后端生成不可变的 Provider、Skill、MCP 和 Policy 快照（已实现）。
 
+### 4.16 记忆蒸馏与主动服务机制（v2.1 新增）
+
+#### 记忆：自动蒸馏 + 人审闸门（兼得品类体验与可审计）
+
+- **来源分级（借 OpenClaw 五层信任模型）**：记忆与证据共用结构化溯源字段 `origin ∈ {owner, agent, untrusted, system}`——外部内容（网页/文件/邮件）一律 untrusted，**在候选生成之前就被结构性排除**出记忆蒸馏，防记忆投毒；该字段由系统写入，模型不可伪造。
+- **蒸馏管线（借 OpenClaw Dreaming / Codex Memories）**：定时后台任务读取运行日记与转录，蒸馏候选记忆——产物**只能进入 MemoryProposal 队列**，人审批准后生效；每条候选带来源运行与文件锚点；批准前后均可回滚（版本历史已实现）。
+- **容量与质量（借 Hermes）**：稳定记忆设字符上限（现有注入上限 8 条/4000 字符维持）；超限写入返回错误并要求先合并旧条目——用容量约束逼出蒸馏质量。
+- **任务作用域经验记忆（借 Cursor Automations 先例）**：每个 Schedule 可积累仅作用于该任务的运行经验（如上次抓取失败的选择器、阈值校准），不进入全局记忆、不需逐条人审——"给人的策略层要人审，给例行任务的经验层可积累"。
+
+#### 主动服务：巡检 → 判断 → 触达 → 授权
+
+- **心跳巡检**：Schedule 的一种预设，复用项目上下文；**无变化即静默**（OpenClaw `HEARTBEAT_OK` 语义）——运行结论为"无事发生"时不打扰用户，只留运行痕迹。
+- **前瞻意图（standing intents）**：用户说"X 发生时告诉我"→ 带触发条件的待命意图，配防唠叨预算：冷却期 / 最大触发次数 / 过期时间（OpenClaw 实证默认 24h / 3 次 / 90 天可作起点）。
+- **通知收件箱 + 渠道投递**：巡检与定时任务结果进集中收件箱（未读标记，Codex 形态）；重要事件经 `send_notification` 投递到 IM 渠道/手机。
+- **移动远程审批**：权限请求推送至手机并远程解决（FR-25）；权限等待改为可挂起，避免常驻运行在人不在场时被超时 deny 杀死。
+- **IM 渠道（Claude Tag 形态，用户拍板）**：主 Agent 以成员身份进入用户的飞书/微信群，@ 提及派活、回帖交付、群内解决权限卡片；渠道只是控制面的入口适配器——消息进来仍是同一主 Agent 的 run，写同一账本。
+
 ---
 
-## 5. 分阶段落地（v2.0 更新）
+## 5. 分阶段落地（v2.1 更新）
 
 ### Phase 0：恢复可信的 Agent Green Path —— **代码基本就绪，出口未过**
 
@@ -728,11 +830,15 @@ PATCH  /api/schedules/{id}
 
 ### Phase 2：从判断到供需与客户连接
 
-- 供应商搜索/对比、到岸成本/现金/敏感性、客户/渠道研究与 CRM 记录等 MCP 扩展；供应尽调、成本分析、询盘和 Listing 实验 Skills 深化；Artifact 版本与证据关联；外部动作预览—批准—执行基础能力。
+- 供应商搜索/对比、到岸成本/现金/敏感性、客户/渠道研究与 CRM 记录等 MCP 扩展；供应尽调、成本分析、询盘和 Listing 实验 Skills 深化（P1 目标 10–15 个场景族 Skill，见 §4.7）；图像/视频生成 MCP（FR-27，Listing 主图与 A+ 素材）；Artifact 版本与证据关联；外部动作预览—批准—执行基础能力。
 
-### Phase 3：记忆、自动化和连接器
+### Phase 3：主动服务、渠道与连接器（v2.1 扩充）
 
-- 记忆审批体验完整化；`ophira_automation` MCP 暴露给 Agent（自然语言→可审阅计划→用户确认→Schedule）；登录态浏览器和授权平台连接器；Skill Registry 用户自定义与回滚。
+- 记忆审批体验完整化；记忆蒸馏提案生成器（§4.16）。
+- `ophira_automation` MCP 暴露给 Agent（自然语言→可审阅计划→用户确认→Schedule）；心跳巡检 + 前瞻意图 + 通知收件箱。
+- IM 渠道（Claude Tag 形态，先飞书后微信，FR-24）与移动远程审批（FR-25）。
+- 内嵌受控浏览器 + 截图入证据账本（FR-20 路线一）；授权平台连接器。
+- Skill Registry 用户自定义与回滚。
 
 ### Phase 4：Deep Research 正式化与团队治理
 
@@ -748,14 +854,14 @@ PATCH  /api/schedules/{id}
 
 - 核心后端依赖存在 `claude-agent-sdk`；业务代码不得导入 OpenAI Client、Anthropic Client、LangGraph、LangChain 或 Dify SDK 实现 Agent。
 - `ClaudeAgentOptions.tools` 使用 `claude_code` preset；`system_prompt` 使用 preset + `append`。
-- 正常模式 `Agent` 被阻止且 `agents is None`；Deep Research 才例外。
+- 普通模式子代理仅限只读临时研究定义（禁 Write/Edit/Bash/Agent/Task，轮次与预算受限）；账本写入工具对子代理不可见；任何模式无固定角色团队（v2.1 口径）。
 - 应用 Skill 由 Plugin/`SKILL.md` 提供；不得把 prompt 从数据库拼进用户消息冒充 Skill。
 - MCP 显式传入 SDK，`strict_mcp_config=True`。
 - （新增）`sandbox.enabled=True` 且 `allowUnsandboxedCommands=False` 不得被关闭；worker env 构建必须先清空三个模型凭据变量。
 
 ### 6.2 Agent 能力端到端门槛（= Green Path，不变）
 
-临时工作区跨境任务验证同一主 Agent：读报价 CSV → WebSearch/WebFetch 留 URL → 自主触发 Skill → 商业计算 MCP → Bash/代码处理数据 → Write 报告 → Edit 修改 → 写 Evidence/Artifact → 高风险 Bash 权限请求 → 会话恢复续改 → 全程无子 Agent。连续 3 次通过。
+临时工作区跨境任务验证同一主 Agent：读报价 CSV → WebSearch/WebFetch 留 URL → 自主触发 Skill → 商业计算 MCP → Bash/代码处理数据 → Write 报告 → Edit 修改 → 写 Evidence/Artifact → 高风险 Bash 权限请求 → 会话恢复续改 → 子代理若出现则仅为只读研究型且未写账本（v2.1 口径）。连续 3 次通过。
 
 ### 6.3 Provider 门槛（更新）
 
@@ -773,6 +879,10 @@ PATCH  /api/schedules/{id}
 
 从需求侧、供给侧和客户侧开始的开放式基准任务都能产出有来源、时间和限制说明的机会判断与执行产物；用户能理解事实/代理信号/计算/推断的区别；Skills 和自动化页面的操作真实改变后端配置；用户可取消运行、解决权限、恢复会话、编辑产物、批准/拒绝记忆和暂停计划。
 
+### 6.6 评测门槛（v2.1 新增）
+
+发布清单在 §6.1–6.5 之上增加：L1 确定性检查全绿；L2 基准集通过率达 §3.11 门槛口径；L3 各维度 judge 存在**有效的校准报告**（gold 集、TPR/TNR、标注口径）且达标——无校准报告的 judge 结果不得作为发布依据。评测报告归档进版本发布物。
+
 ---
 
 ## 7. 风险与开放决策
@@ -788,7 +898,7 @@ PATCH  /api/schedules/{id}
 | BYOK 还是托管 | 架构同时支持；早期 BYOK 降低供应风险，并把"成本=厂商牌价+逐运行熔断"做成对 Accio 积分制的显性优势 | 付费转化要求一键使用和统一账单 |
 | 国产 Provider 商用资格 | 协议兼容与商用资格分开；默认只上架已审查套餐；Coding Plan 一律排除 | 厂商条款、套餐或 Base URL 变化 |
 | Provider 能力不齐 | 能力矩阵显式降级（图片、WebFetch、thinking），FR-23 检索 MCP 兜底，不换 Agent Runtime | 某 Provider 长期无法完成关键 tool use 合约 |
-| 竞争节奏（新增） | 不与 Accio 拼功能面宽度（团队/建站/视频/IM）；拼可追溯、成本透明、数据主权三点 | Accio 补齐证据链或开放 BYOK 时重估 |
+| 竞争节奏 | 不与 Accio 拼功能面宽度（团队/建站/Agent Hub）；拼可追溯、成本透明、数据主权三点；对国内 B 端可用"OpenClaw 同款能力 + 可治理"作合规叙事（OpenClaw 已被禁止用于国企，ClawHub 曾现 1184 个恶意 skill） | Accio 补齐证据链或开放 BYOK 时重估 |
 | 自动化副作用 | 定时研究可自动；外发/提交默认每次批准 | 用户建立明确范围、对象和有效期的授权策略 |
 | Deep Research 成本 | 默认关闭、显式启用、强预算 | 单 Agent 基准任务持续无法达到覆盖要求 |
 | 四维旧数据迁移 | 兼容读取，映射为标签/视图（已实现） | 依赖阶段审批的真实用户规模变大 |
@@ -808,7 +918,7 @@ PATCH  /api/schedules/{id}
 | 保留 Bash、Edit、Write、执行代码、Skill 等原生能力 | ADR-002、§4.4（presets 已落地）、§6.2 |
 | 封装 MCP 工具 | §4.6（5 服务 14 工具现状 + 扩展规划） |
 | 封装 Skill | §4.7（ophira-core 插件现状 + 生命周期 + 发现边界） |
-| 绝大部分单 Agent，仅 Deep Research 多 Agent | §3.5、FR-01/19、§4.8（已实现） |
+| 绝大部分单 Agent，仅 Deep Research 多 Agent | §3.5、FR-01/19、§4.8；v2.1 经用户拍板细化：普通模式允许只读临时子代理，角色型团队任何模式禁止 |
 | 不写死工作流，由聪明 Agent 按需操作 | §3.4、ADR-003、§4.3、§6.2 |
 | 国产模型改 Base URL，使用 Anthropic 格式 | §4.9（8+ 家官方端点 2026-08-20 核实、商用红线、合约测试） |
 
@@ -839,6 +949,14 @@ PATCH  /api/schedules/{id}
 - 官网：[accio.com/work](https://www.accio.com/work)（"Your AI Business Team That Turns Ideas Into Profits"）· [About](https://www.accio.com/about-us)
 - 官方文档（静态全文路径 `accio.com/work/documents/en/{slug}.html`）：agent-tools-guide · permissions-guide · browser-use-guide · agent-memory-guide · help-about · help-credits · help-billing · help-channels · agent-collaboration-overview · changelog（v0.5.1 2026-03-31 → v0.28.1 2026-08-06）
 - 报道：[PRNewswire 发布稿（2026-03）](https://www.prnewswire.com/news-releases/alibaba-international-launches-accio-work-an-enterprise-ai-agent-for-global-businesses-302721683.html) · [MIT Technology Review（2026-04）](https://www.technologyreview.com/2026/04/06/1135118/ai-online-seller-alibaba-accio/) · [Caixin（2026-03）](https://www.caixinglobal.com/2026-03-25/alibaba-launches-ai-agent-for-small-businesses-with-international-ambitions-102427318.html) · [Digital Commerce 360（2026-07，Sourcing Toolkit 与 230K 企业）](https://www.digitalcommerce360.com/2026/07/24/alibaba-accio-work-agentic-ai-b2b-sourcing/)
+
+### 品类基线（常驻 Agent 平台，2026-08-20 核实）
+
+- Claude Cowork：claude.com/product/cowork · support.claude.com 系列文档（get-started / safety / projects / scheduled tasks / team-enterprise）· claude.com/blog/cowork-web-mobile · github.com/anthropics/knowledge-work-plugins
+- OpenClaw：docs.openclaw.ai（memory-architecture / dreaming / skill-workshop / heartbeat / automation / security）· en.wikipedia.org/wiki/OpenClaw
+- Hermes Agent：hermes-agent.nousresearch.com/docs（memory / skills / heartbeat / cron / providers）· github.com/NousResearch/hermes-agent
+- OpenAI Codex：learn.chatgpt.com/docs（app / computer-use / browser / automations / customization/memories / pricing）· github.com/openai/codex
+- Cursor（附注）：cursor.com/docs/agent/tools/browser · cursor.com/changelog（3.0 / Automations）
 
 ### 本项目
 
