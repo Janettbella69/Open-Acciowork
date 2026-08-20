@@ -11,7 +11,7 @@
 | # | 修订 | 依据 |
 |---|---|---|
 | 1 | **品类定位对齐**：Accio Work 官方定位＝"外贸人的 OpenClaw / 专为中小企业打造的跨境生意工作台"；新增常驻 Agent 平台品类基线（Claude Cowork / OpenClaw / Hermes Agent / Codex 四原型调研，§2.6） | 用户提供官方定位 + 四平台官方文档核实 |
-| 2 | **单 Agent 红线细化（用户拍板）**：普通模式放宽"只读临时子代理"；固定角色的多 Agent 团队任何模式仍禁止（§1.1、FR-01、§4.8） | Cowork/Codex/Claude Code 均原生具备；上下文经济学需要 |
+| 2 | **单 Agent 红线细化**：普通模式"只读临时子代理"放宽方案已成稿但**待拍板（2026-08-20 用户改为再考虑，暂维持普通模式禁 Agent 的现状）**；固定角色的多 Agent 团队任何模式仍禁止（§1.1、FR-01、§4.8） | Cowork/Codex/Claude Code 均原生具备；上下文经济学需要 |
 | 3 | **主动服务与渠道提级（用户拍板 IM 形态）**：IM 渠道按 Claude Tag 形态、心跳巡检、前瞻意图、通知收件箱、移动远程审批（FR-15/24/25/26、§4.16） | 品类五件套 table stakes；Accio Mobile Beta 实证 |
 | 4 | **记忆蒸馏提案化**：后台蒸馏 + 人审闸门 + 结构化溯源分级 + 容量上限（FR-14、§4.16） | OpenClaw Dreaming / Codex Memories / Hermes 容量上限 / Cursor 记忆反转教训 |
 | 5 | **浏览器双路线与"截图即证据"**（FR-20 修订；内嵌先行为建议默认，待拍板） | Cursor/Codex 内嵌路线 GA 实证 vs Accio 接管真实 Chrome 路线 |
@@ -52,7 +52,7 @@ v2.0 的核心新判断：**架构目标已基本代码就绪，当前最大风�
 | 不允许直连模型替代 SDK | 业务代码不得用 OpenAI SDK、Anthropic Client SDK 或裸 `/v1/messages` 实现核心 Agent；不得以"兼容性"为由回退 |
 | 不使用固定编排框架 | 不引入 LangGraph、LangChain、Dify 或自研状态机来决定下一步；由主 Agent 结合上下文自主选择工具和 Skill |
 | 保留 Claude Code 原生能力 | 使用 `claude_code` tools preset，保留 Read、Write、Edit、Bash、代码执行、Glob、Grep、WebSearch、WebFetch、Skill 等能力；权限控制不等于删除能力 |
-| 常规任务单主 Agent，禁角色型团队 | 一个主 Agent 对结果负全责；普通模式允许主 Agent 按需派**只读、临时、预算受限**的研究子代理（v2.1 放宽，用户拍板），证据与产物仍只由主 Agent 写入账本；固定角色的多 Agent 团队任何模式都不做；Deep Research 是大规模并行研究的显式重模式 |
+| 常规任务单主 Agent，禁角色型团队 | 一个主 Agent 对结果负全责；普通模式现状**不派子代理**（"只读临时子代理"放宽方案见 §4.8，待拍板）；固定角色的多 Agent 团队任何模式都不做；Deep Research 是大规模并行研究的显式重模式 |
 | 领域能力用官方扩展点 | 外部系统和确定性动作封装为 MCP；方法论封装为文件型 Skill；复杂处理由原生 Bash/代码执行或 Skill 附带脚本完成 |
 | 国产模型只走 Anthropic 协议 | 通过每个厂商官方 Anthropic-compatible Base URL 和 Key 配置 Claude Agent SDK；项目内不实现 OpenAI 格式适配器 |
 | 证据与副作用可治理 | 事实必须带来源、时间和置信度；写文件、执行命令、登录态浏览器、外发消息等按风险分级并可由用户授权 |
@@ -337,7 +337,7 @@ Accio 同时也**抬高了 table stakes**：权限四态与审计日志、分层
 
 | ID | 优先级 | 需求 | 可验收标准 | 现状 |
 |---|---:|---|---|---|
-| FR-01 | P0 | 单主 Agent + 受限子代理 | 一个主 Agent 会话对结果负全责；普通模式可派**只读临时子代理**（仅 Read/Glob/Grep/Web/只读 MCP，轮次与预算受限，不写账本、不得再派生）；无固定角色团队与固定节点编排 | 🔁 v2.1 修订（现实现为普通模式禁 Agent，需按新口径放开并同步测试） |
+| FR-01 | P0 | 单主 Agent | 一个主 Agent 会话对结果负全责；普通模式禁 `Agent` 工具（现状）；无固定角色团队与固定节点编排。"只读临时子代理"放宽为已成稿提案（§4.8），**待拍板** | △ 已实现（普通模式禁 Agent）；放宽提案挂起 |
 | FR-02 | P0 | SDK 唯一模型运行时 | 业务运行追踪可证明由 `ClaudeSDKClient`/`query()` 发起；项目代码不存在替代核心循环的模型 Client 调用 | △ 已实现 |
 | FR-03 | P0 | 原生能力完整 | 同一 Agent 可使用 Read、Write、Edit、Bash/代码、Glob、Grep、WebSearch/WebFetch 和 Skill；高风险调用受权限控制而非被架构移除 | △ presets 就绪，待真实端点验证 |
 | FR-04 | P0 | 自由规划与工具选择 | 同一目标允许不同工具序列；后端不维护业务步骤枚举或状态迁移图 | △ 已实现 |
@@ -581,7 +581,7 @@ v2.0 增补建议（不改变红线，按需采纳）：
 - **`output_format`**：对"运行结束生成结构化摘要"这类需要严格 schema 的输出，可用 JSON Schema 约束 result；不用于替代自由产物。
 - **`fallback_model`**：同一 Provider 内的模型降级（例如主模型限流时回退同厂商小模型）；跨 Provider 切换仍必须显式走 Profile，不自动。
 - **`user`** 字段：传租户/用户标识用于审计与成本归集。
-- **普通模式只读子代理（v2.1，用户拍板）**：`agents=` 在普通模式注入只读临时研究子代理定义（工具仅 Read/Glob/Grep/WebSearch/WebFetch + 只读 MCP，`disallowedTools=["Write","Edit","Bash","Agent","Task"]`，maxTurns 与预算受限），`disallowed_tools` 不再含 `"Agent"`；账本写入仍只属主 Agent。仓库现状为普通模式禁 Agent，需按此修改并同步测试断言。
+- **普通模式只读子代理（提案，待拍板）**：若放开，`agents=` 在普通模式注入只读临时研究子代理定义（工具仅 Read/Glob/Grep/WebSearch/WebFetch + 只读 MCP，`disallowedTools=["Write","Edit","Bash","Agent","Task"]`，maxTurns 与预算受限），`disallowed_tools` 不再含 `"Agent"`；账本写入仍只属主 Agent。**现状维持普通模式禁 Agent（2026-08-20 用户改为再考虑）**；若日后拍板放开需同步修改测试断言。
 - 预检配置维持独立收紧版：`permission_mode="dontAsk"`、仅 health 工具自动批准、`disallowed_tools=["Agent","Write","Edit","Bash"]`、`max_turns=4`、预算 ≤0.25 USD。
 
 ### 4.5 OPHIRA 系统提示词边界（不变）
@@ -643,11 +643,11 @@ Skill 生命周期（维持 v1.1）：Draft → Review（扫密钥/越权指令/
 
 三层口径，从松到严：
 
-- **普通模式（v2.1 放宽，用户拍板）**：一个主 Agent 对结果负全责，可按需派**只读临时研究子代理**——无人设、无固定角色；工具仅 Read/Glob/Grep/WebSearch/WebFetch + 只读 MCP，`disallowedTools=["Write","Edit","Bash","Agent","Task"]`，轮次与预算受限；结论、证据、产物仍只由主 Agent 写入账本。定性：这是上下文经济学工具（避免大量阅读塞爆主上下文），不是工作流——拆不拆、怎么拆由主 Agent 临场决定。Cowork/Codex/Claude Code 均默认具备此能力。
+- **普通模式（现状：不派子代理）**：一个主 Agent 对结果负全责，`disallowed_tools=["Agent"]`。**放宽提案（待拍板，2026-08-20 用户改为再考虑）**：允许按需派**只读临时研究子代理**——无人设、无固定角色；工具仅 Read/Glob/Grep/WebSearch/WebFetch + 只读 MCP，`disallowedTools=["Write","Edit","Bash","Agent","Task"]`，轮次与预算受限；结论、证据、产物仍只由主 Agent 写入账本。定性：这是上下文经济学工具（避免大量阅读塞爆主上下文），不是工作流——拆不拆、怎么拆由主 Agent 临场决定。Cowork/Codex/Claude Code 均默认具备此能力。
 - **Deep Research（显式重模式）**：多语种、大范围并行研究；现实现为 3 个只读子代理（`source-mapper`/`multilingual-researcher`/`conflict-verifier`，`maxTurns=12`）；带总预算、统一取消与"预计额外资源"提示（UI 待补）。
 - **任何模式禁止**：固定角色多 Agent 团队（Accio 式 1 TL + N 人设群聊）、子代理写账本、子代理再派生子代理。
 
-仓库现状为普通模式 `disallowed_tools=["Agent"]` + `agents=None`（有测试断言）——按 v2.1 口径需改为注入只读临时子代理定义，并同步修改 §6.1/§6.2 门槛断言。
+仓库现状为普通模式 `disallowed_tools=["Agent"]` + `agents=None`（有测试断言），**与当前口径一致，维持不动**；若日后拍板放开，再注入只读临时子代理定义并同步修改 §6.1/§6.2 门槛断言。
 
 ### 4.9 Provider 与国产模型接入（v2.0 全面更新）
 
@@ -721,6 +721,7 @@ v2.1 增补（吸收品类实证教训）：
 - 可选 **Auto 自审档**：介于逐项批准与全自动之间，模型先评估动作安全性、拦下不安全项（Cowork 三档模型）；默认档仍为逐项询问。
 - 浏览器操作每一步留存截图与动作日志并写入证据账本（Codex "demos over diffs" 形态）；"读取页面"与"执行动作"分开授权维持不变。
 - 权限等待支持挂起（FR-25）：run 进入 waiting_permission 后可持久等待移动端远程决策，替代固定 300 秒超时 deny。
+- **包络治理原则（v2.1 补，第一性口径）**：治理作用于运行包络（`max_budget_usd` + `max_turns` + 逐动作授权与路径包含 + 可取消），不作用于能力裁剪——原生能力（含 loop 式会话内循环、bundled skills）一律保留，循环的每一圈仍逐动作穿过同一套权限与预算机制，且 worker 的 run 级生命周期使会话内循环天然自限。需要人批的不是"重复"，而是**跨包络承诺**（在无人看管的未来自动执行，即 Schedule/FR-15 的正当管辖）。
 
 Prompt Injection 防线维持 v1.1：外部内容一律标记为不可信数据；MCP 返回结构化事实而非可覆盖策略的"隐藏提示词"；Hooks 监测异常凭据访问、越界路径、外传与提权；浏览器"读取页面"与"执行动作"分开授权。
 
@@ -918,7 +919,7 @@ PATCH  /api/schedules/{id}
 | 保留 Bash、Edit、Write、执行代码、Skill 等原生能力 | ADR-002、§4.4（presets 已落地）、§6.2 |
 | 封装 MCP 工具 | §4.6（5 服务 14 工具现状 + 扩展规划） |
 | 封装 Skill | §4.7（ophira-core 插件现状 + 生命周期 + 发现边界） |
-| 绝大部分单 Agent，仅 Deep Research 多 Agent | §3.5、FR-01/19、§4.8；v2.1 经用户拍板细化：普通模式允许只读临时子代理，角色型团队任何模式禁止 |
+| 绝大部分单 Agent，仅 Deep Research 多 Agent | §3.5、FR-01/19、§4.8；现状普通模式禁 Agent；"只读临时子代理"放宽提案待拍板；角色型团队任何模式禁止 |
 | 不写死工作流，由聪明 Agent 按需操作 | §3.4、ADR-003、§4.3、§6.2 |
 | 国产模型改 Base URL，使用 Anthropic 格式 | §4.9（8+ 家官方端点 2026-08-20 核实、商用红线、合约测试） |
 
