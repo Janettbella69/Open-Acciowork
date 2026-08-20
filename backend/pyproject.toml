@@ -24,6 +24,8 @@ dev = [
   "httpx>=0.28,<1",
   "pytest>=8.3,<9",
   "pytest-asyncio>=0.25,<2",
+  # Eval harness task specs (evals/tasks/*.yaml) are read by backend/scripts/run_l2.py.
+  "pyyaml>=6,<7",
   "ruff>=0.9,<1",
 ]
 

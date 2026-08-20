@@ -1,0 +1,23 @@
+# 场景 C（PRD §3.5）：供应商研究与询盘 —— 对比、尽调缺口、询盘草稿（绝不真实发送）
+id: c-supplier-inquiry
+scenario: C
+entry_point: supplier
+prompt: |
+  uploads/supplier-longlist.csv 是我收集的 5 家候选供应商长名单。目标：500 件首单、
+  需要 CE 认证、45 天内交付。请用报价对比工具把可比口径拉平，指出每家的尽调缺口，
+  为最值得接触的 2 家各起草一封英文询盘（草稿写入工作区文件，明确标注"未发送"），
+  并把对比结论与依据记入证据账本。不要执行任何真实发送动作。
+fixtures:
+  - path: fixtures/supplier-longlist.csv
+    upload_as: supplier-longlist.csv
+    mime: text/csv
+expect:
+  deny_marker: false
+  required_coverage: [read, mcp, write]
+  evidence_min: 1
+  decision_required: false
+  artifact_suffix: .md
+minimum_pass: |
+  - compare_supplier_quotes 被用于口径拉平；缺 lead_days 之类的数据缺口被指出而非脑补。
+  - 询盘是可编辑草稿文件且显式标注未发送；没有出现任何真实外发行为。
+  - "推荐接触"的排序理由回链到账本证据。

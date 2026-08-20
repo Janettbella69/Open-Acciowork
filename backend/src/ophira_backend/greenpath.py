@@ -104,10 +104,20 @@ def _is_skill_use(event: EventEnvelope) -> bool:
     )
 
 
-def verify_events(events: list[EventEnvelope], *, expect_deny: bool = True) -> GreenPathVerdict:
-    """Pure assertion pass over one run's full ordered event list."""
+def verify_events(
+    events: list[EventEnvelope],
+    *,
+    expect_deny: bool = True,
+    required_coverage: tuple[str, ...] | None = None,
+) -> GreenPathVerdict:
+    """Pure assertion pass over one run's full ordered event list.
+
+    `required_coverage` narrows which tool chains must appear (eval L2 tasks assert a
+    subset); the Green Path gate itself keeps the full seven-link default.
+    """
     verdict = GreenPathVerdict()
     coverage = dict.fromkeys(COVERAGE_KEYS, False)
+    required = COVERAGE_KEYS if required_coverage is None else tuple(required_coverage)
 
     tool_event_types = {
         EventType.TOOL_PLANNED.value,
@@ -196,8 +206,8 @@ def verify_events(events: list[EventEnvelope], *, expect_deny: bool = True) -> G
     sequences = sorted(event.sequence for event in events)
     verdict.sequence_contiguous = sequences == list(range(1, last_sequence + 1))
 
-    for key, hit in coverage.items():
-        if not hit:
+    for key in required:
+        if not coverage.get(key):
             verdict.missing.append(f"tool:{key}")
     if verdict.subagent_events:
         verdict.missing.append("violation:subagent_events_present")

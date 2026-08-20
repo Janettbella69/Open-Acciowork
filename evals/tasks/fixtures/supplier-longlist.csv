@@ -1,0 +1,6 @@
+supplier,location,product,unit_price_usd,moq,lead_days,certs,notes
+Shenzhen Blendco,Shenzhen CN,Portable blender 350ml,6.80,500,28,CE;RoHS,synthetic fixture
+Ningbo Homeware,Ningbo CN,Portable blender 400ml,7.25,300,35,CE,synthetic fixture
+Guangzhou Kitchenline,Guangzhou CN,Portable blender 350ml,6.40,1000,,CE;LFGB,lead time not quoted; synthetic fixture
+Yiwu QuickTrade,Yiwu CN,Portable blender 300ml,5.90,2000,25,,no cert docs provided; synthetic fixture
+Dongguan PowerCup,Dongguan CN,Portable blender 450ml,8.10,500,40,CE;FCC,synthetic fixture

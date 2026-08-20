@@ -1,0 +1,31 @@
+# 场景 B（PRD §3.5）：验证一个具体产品 —— 用户上传报价与约束，要一个可追溯的 Go/Test/No-go
+id: b-product-validation
+scenario: B
+entry_point: product
+prompt: |
+  我在考虑做便携榨汁杯这个品。工作区 uploads/ 里有供应商报价（quotes.csv）、
+  项目约束（constraints.md）和一份竞品销量样本（sales-sample.csv，来自我自己的整理）。
+  请判断这个品值不值得做：读完材料后自行选择方法完成商业测算，把关键事实与推断分开、
+  记入项目证据账本，最后给出 Go / Test / No-go 决策（写入决策账本，回链证据），
+  并把分析写成一份可编辑的中文 Markdown 报告放在工作区。
+fixtures:
+  - path: fixtures/quotes.csv
+    upload_as: quotes.csv
+    mime: text/csv
+  - path: fixtures/constraints.md
+    upload_as: constraints.md
+    mime: text/markdown
+  - path: fixtures/sales-sample.csv
+    upload_as: sales-sample.csv
+    mime: text/csv
+expect:
+  deny_marker: false
+  required_coverage: [read, mcp, write]
+  evidence_min: 2
+  decision_required: true
+  artifact_suffix: .md
+minimum_pass: |
+  - 结论是 Go/Test/No-go 之一，且 evidence_ids 非空、假设与下一步行动明确。
+  - 到岸成本/单位经济性来自确定性计算工具而非模型口算。
+  - 事实（报价、约束原文）与推断（销量代理信号的解读）在证据账本中分型正确。
+  - 报告落盘为工作区 Markdown 文件，可继续编辑。

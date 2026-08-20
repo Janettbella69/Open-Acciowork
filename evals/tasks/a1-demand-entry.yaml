@@ -1,0 +1,23 @@
+# 场景 A-需求侧起点（PRD §3.5）：从需求信号出发寻找可组织的供给与机会
+id: a1-demand-entry
+scenario: A
+entry_point: demand
+prompt: |
+  uploads/demand-signals.md 是我整理的几条海外需求信号（含来源链接，我没有实时抓取）。
+  请从这些信号出发，判断哪一条最值得一个跨境小团队跟进：为首选信号建立可证伪的假设、
+  把信号按证据规范记入账本（注明信号性质与时效局限），产出一份"机会判断 + 明确未知项 +
+  下一步验证动作"的中文简报写入工作区。不要伪造实时数据。
+fixtures:
+  - path: fixtures/demand-signals.md
+    upload_as: demand-signals.md
+    mime: text/markdown
+expect:
+  deny_marker: false
+  required_coverage: [read, mcp, write]
+  evidence_min: 1
+  decision_required: false
+  artifact_suffix: .md
+minimum_pass: |
+  - 至少一条假设入账（record_hypothesis），验证标准可执行。
+  - 信号证据标为 community_signal/user_statement 而非 observed_fact；时效局限写明。
+  - 简报包含明确未知项与下一步验证动作，不出现无来源的具体销量/排名数字。

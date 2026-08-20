@@ -179,3 +179,19 @@ def test_project_state_requires_report_evidence_and_decision() -> None:
         artifacts=[artifact],
     )
     assert verify_project_state(full) == []
+
+
+def test_required_coverage_can_be_narrowed_for_l2_tasks() -> None:
+    events = [event for event in happy_path_events() if event.data.get("tool_name") != "Edit"]
+    events = [
+        event.model_copy(update={"sequence": index + 1, "id": f"run_x:{index + 1}"})
+        for index, event in enumerate(events)
+    ]
+
+    strict = verify_events(events, expect_deny=False)
+    assert "tool:edit" in strict.missing
+
+    narrowed = verify_events(
+        events, expect_deny=False, required_coverage=("read", "mcp", "write")
+    )
+    assert all(not item.startswith("tool:") for item in narrowed.missing)
