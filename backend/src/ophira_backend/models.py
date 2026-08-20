@@ -401,6 +401,45 @@ class MemoryRollback(APIModel):
     version: int = Field(ge=1)
 
 
+class Notification(APIModel):
+    """Inbox entry (FR-15/FR-26): proactive results land here instead of nagging."""
+
+    id: str = Field(default_factory=lambda: new_id("notify"))
+    project_id: str | None = None
+    run_id: str | None = None
+    schedule_id: str | None = None
+    intent_id: str | None = None
+    severity: Literal["info", "warning", "error"] = "info"
+    title: str = Field(min_length=1, max_length=200)
+    body: str = Field(default="", max_length=4_000)
+    read: bool = False
+    created_at: datetime = Field(default_factory=utc_now)
+
+
+class StandingIntent(APIModel):
+    """User-authorized "tell me when X" watcher with an anti-nag budget (§4.16)."""
+
+    id: str = Field(default_factory=lambda: new_id("intent"))
+    project_id: str
+    intent: str = Field(min_length=1, max_length=2_000)
+    cooldown_hours: float = Field(default=24, ge=0, le=24 * 30)
+    max_triggers: int = Field(default=3, ge=1, le=100)
+    expires_at: datetime
+    triggered_count: int = 0
+    last_triggered_at: datetime | None = None
+    enabled: bool = True
+    created_by: str = Field(default="user", max_length=160)
+    created_at: datetime = Field(default_factory=utc_now)
+
+
+class StandingIntentCreate(APIModel):
+    project_id: str = Field(min_length=1, max_length=160)
+    intent: str = Field(min_length=1, max_length=2_000)
+    cooldown_hours: float = Field(default=24, ge=0, le=24 * 30)
+    max_triggers: int = Field(default=3, ge=1, le=100)
+    expires_days: int = Field(default=90, ge=1, le=365)
+
+
 class Schedule(APIModel):
     id: str = Field(default_factory=lambda: new_id("schedule"))
     project_id: str
