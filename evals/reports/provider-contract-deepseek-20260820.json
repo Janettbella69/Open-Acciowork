@@ -1,0 +1,56 @@
+{
+  "provider": "deepseek",
+  "generated_at": "2026-08-20T16:37:37.246779+00:00",
+  "sdk_version": "0.2.82",
+  "results": [
+    {
+      "case": "basic_text_streaming",
+      "status": "PASS",
+      "detail": "served=['deepseek-v4-pro']; streaming=yes",
+      "cost_usd": 0.10296999999999999
+    },
+    {
+      "case": "model_identity",
+      "status": "PASS",
+      "detail": "served model prefix matches deepseek-v4-pro"
+    },
+    {
+      "case": "file_tool_chain",
+      "status": "PASS",
+      "detail": "note.txt=present",
+      "cost_usd": 0.14583999999999997
+    },
+    {
+      "case": "bash_execution",
+      "status": "PASS",
+      "detail": "",
+      "cost_usd": 0.114901
+    },
+    {
+      "case": "mcp_tool_call",
+      "status": "PASS",
+      "detail": "tool_called=True",
+      "cost_usd": 0.115236
+    },
+    {
+      "case": "plugin_skill_discovery",
+      "status": "PASS",
+      "detail": "discovered=11 skills"
+    },
+    {
+      "case": "native_web_tools",
+      "status": "PASS",
+      "detail": "native WebSearch served results"
+    },
+    {
+      "case": "image_blocks",
+      "status": "NOT_TESTED",
+      "detail": "profile declares images=False; live multimodal case deferred to FR-27 work"
+    },
+    {
+      "case": "error_mapping_bad_token",
+      "status": "DEGRADED",
+      "detail": "invalid key hangs the SDK instead of failing fast; bounded by OPHIRA preflight timeout (FR-06 guard)"
+    }
+  ]
+}
