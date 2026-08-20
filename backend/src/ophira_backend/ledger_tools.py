@@ -66,12 +66,14 @@ def _money(value: Decimal) -> float:
     return float(value.quantize(Decimal("0.0001")))
 
 
-def build_ledger_mcp_server(
+def build_ledger_tools(
     ledger: FileLedger,
     project_id: str,
     memory: MemoryProvider | None = None,
     agent_id: str | None = None,
 ):
+    """Tool list for the ledger MCP server; exposed separately so tests can call
+    handlers directly without going through a live SDK session."""
     @tool(
         "read_project_context",
         "Read the authoritative OPHIRA project, evidence, decisions, artifacts, and legacy views.",
@@ -229,13 +231,7 @@ def build_ledger_mcp_server(
         "additionalProperties": False,
     }
 
-    @tool(
-        "record_evidence",
-        "Record sourced evidence with retrieval time, source location, "
-        "evidence type, and confidence.",
-        evidence_schema,
-    )
-    async def record_evidence(args: dict[str, Any]) -> dict[str, Any]:
+    def record_one_evidence(args: dict[str, Any]) -> Evidence:
         observed_at = args.get("observed_at")
         evidence = Evidence(
             dimension=Dimension(args["dimension"]) if args.get("dimension") else None,
@@ -281,7 +277,37 @@ def build_ledger_mcp_server(
                     hypothesis.evidence_ids.append(evidence.id)
 
         ledger.update_project(project_id, mutate)
-        return _tool_result(result)
+        return result
+
+    @tool(
+        "record_evidence",
+        "Record sourced evidence with retrieval time, source location, "
+        "evidence type, and confidence.",
+        evidence_schema,
+    )
+    async def record_evidence(args: dict[str, Any]) -> dict[str, Any]:
+        return _tool_result(record_one_evidence(args))
+
+    @tool(
+        "record_evidence_batch",
+        "Record up to 20 sourced evidence entries in one authorized call. Same "
+        "per-entry rules as record_evidence; duplicates are merged idempotently.",
+        {
+            "type": "object",
+            "properties": {
+                "entries": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 20,
+                    "items": evidence_schema,
+                }
+            },
+            "required": ["entries"],
+            "additionalProperties": False,
+        },
+    )
+    async def record_evidence_batch(args: dict[str, Any]) -> dict[str, Any]:
+        return _tool_result([record_one_evidence(entry) for entry in args["entries"]])
 
     @tool(
         "record_decision",
@@ -440,6 +466,7 @@ def build_ledger_mcp_server(
         search_evidence,
         record_hypothesis,
         record_evidence,
+        record_evidence_batch,
         record_decision,
         update_evidence_status,
         update_assessment,
@@ -513,10 +540,19 @@ def build_ledger_mcp_server(
 
         tools.extend([propose_memory, search_memory])
 
+    return tools
+
+
+def build_ledger_mcp_server(
+    ledger: FileLedger,
+    project_id: str,
+    memory: MemoryProvider | None = None,
+    agent_id: str | None = None,
+):
     return create_sdk_mcp_server(
         name=LEDGER_MCP_SERVER_NAME,
         version="1.0.0",
-        tools=tools,
+        tools=build_ledger_tools(ledger, project_id, memory=memory, agent_id=agent_id),
     )
 
 
