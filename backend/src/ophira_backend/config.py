@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     )
 
     data_dir: Path = BACKEND_DIR / "data"
+    capability_plugin_dir: Path = BACKEND_DIR / "ophira-capabilities"
     cors_origins: Annotated[list[str], NoDecode] = [
         "http://localhost:3000",
         "http://localhost:5173",
@@ -105,9 +106,30 @@ class Settings(BaseSettings):
             return [item.strip() for item in value.split(",") if item.strip()]
         return value
 
-    def claude_sdk_env(self) -> dict[str, str]:
-        """Environment passed only to the Claude Code subprocess."""
-        env: dict[str, str] = {}
+    def claude_sdk_env(self, isolated_config_dir: Path | None = None) -> dict[str, str]:
+        """Build an isolated Claude Code worker environment for the legacy env profile.
+
+        Claude Agent SDK merges this mapping over its host process environment. Empty model
+        credential values deliberately shadow host OAuth/API credentials; the selected credential
+        is then restored below. `CLAUDE_CONFIG_DIR` prevents a revoked host Claude Code login from
+        contaminating an OPHIRA run.
+        """
+        config_dir = (
+            isolated_config_dir or self.data_dir / "runtime-config" / "environment"
+        ).resolve()
+        config_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+        try:
+            config_dir.chmod(0o700)
+        except OSError:
+            pass
+        env: dict[str, str] = {
+            "ANTHROPIC_API_KEY": "",
+            "ANTHROPIC_AUTH_TOKEN": "",
+            "CLAUDE_CODE_OAUTH_TOKEN": "",
+            "CLAUDE_CONFIG_DIR": str(config_dir),
+            "CLAUDE_CODE_DISABLE_AUTO_MEMORY": "1",
+            "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+        }
         if self.anthropic_base_url:
             env["ANTHROPIC_BASE_URL"] = self.anthropic_base_url
         if self.anthropic_auth_token:
@@ -145,7 +167,7 @@ class Settings(BaseSettings):
         elif self.anthropic_api_key:
             authentication = "api_key"
         else:
-            authentication = "claude_code_login"
+            authentication = "not_configured"
         return {
             "api_credentials_configured": bool(
                 self.anthropic_auth_token or self.anthropic_api_key

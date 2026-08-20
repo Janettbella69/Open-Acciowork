@@ -1,4 +1,15 @@
-import type { OpportunityProject, ProtocolMetadata, RunRecord } from './types'
+import type {
+  Artifact,
+  MemoryItem,
+  OpportunityProject,
+  ProtocolMetadata,
+  ProviderPreflightResult,
+  ProviderProfile,
+  RunMode,
+  RunRecord,
+  Schedule,
+  SkillVersion,
+} from './types'
 
 const configuredBaseUrl = import.meta.env.VITE_OPHIRA_API_URL?.trim() ?? ''
 export const apiBaseUrl = configuredBaseUrl.replace(/\/$/, '')
@@ -79,13 +90,112 @@ export function startRun(
   projectId: string,
   prompt: string,
   resumeSessionId?: string | null,
+  mode: RunMode = 'standard',
+  providerProfileId?: string | null,
 ): Promise<RunRecord> {
   return request<RunRecord>(`/api/projects/${projectId}/runs`, {
     method: 'POST',
     body: JSON.stringify({
       prompt,
+      mode,
       ...(resumeSessionId ? { resume_session_id: resumeSessionId } : {}),
+      ...(providerProfileId ? { provider_profile_id: providerProfileId } : {}),
     }),
+  })
+}
+
+export function uploadProjectFile(projectId: string, file: File): Promise<Artifact> {
+  const params = new URLSearchParams({ filename: file.name })
+  if (file.type) params.set('mime', file.type)
+  return request<Artifact>(`/api/projects/${projectId}/files?${params}`, {
+    method: 'POST',
+    body: file,
+    headers: { 'Content-Type': file.type || 'application/octet-stream' },
+  })
+}
+
+export function listProjectArtifacts(projectId: string): Promise<Artifact[]> {
+  return request<Artifact[]>(`/api/projects/${projectId}/artifacts`)
+}
+
+export function listProviders(): Promise<ProviderProfile[]> {
+  return request<ProviderProfile[]>('/api/providers')
+}
+
+export type ProviderInput = {
+  display_name: string
+  base_url: string | null
+  auth_env_name: 'ANTHROPIC_API_KEY' | 'ANTHROPIC_AUTH_TOKEN'
+  model: string
+  secret?: string
+  region?: string
+  production_eligible?: boolean
+}
+
+export function saveProvider(providerId: string, input: ProviderInput): Promise<ProviderProfile> {
+  return request<ProviderProfile>(`/api/providers/${encodeURIComponent(providerId)}`, {
+    method: 'PUT',
+    body: JSON.stringify(input),
+  })
+}
+
+export function preflightProvider(providerId: string): Promise<ProviderPreflightResult> {
+  return request<ProviderPreflightResult>(
+    `/api/providers/${encodeURIComponent(providerId)}/preflight`,
+    { method: 'POST' },
+  )
+}
+
+export function listSkills(): Promise<SkillVersion[]> {
+  return request<SkillVersion[]>('/api/skills')
+}
+
+export function setSkillEnabled(skillId: string, enabled: boolean): Promise<SkillVersion> {
+  return request<SkillVersion>(
+    `/api/skills/${encodeURIComponent(skillId)}/enable?enabled=${enabled}`,
+    { method: 'POST' },
+  )
+}
+
+export function listSchedules(): Promise<Schedule[]> {
+  return request<Schedule[]>('/api/schedules')
+}
+
+export function createSchedule(input: {
+  project_id: string
+  prompt: string
+  cron?: string
+  run_once_at?: string
+  timezone: string
+  mode?: RunMode
+  provider_profile_id?: string | null
+}): Promise<Schedule> {
+  return request<Schedule>('/api/schedules', { method: 'POST', body: JSON.stringify(input) })
+}
+
+export function pauseSchedule(scheduleId: string): Promise<Schedule> {
+  return request<Schedule>(`/api/schedules/${scheduleId}/pause`, { method: 'POST' })
+}
+
+export function resumeSchedule(scheduleId: string): Promise<Schedule> {
+  return request<Schedule>(`/api/schedules/${scheduleId}/resume`, { method: 'POST' })
+}
+
+export function runSchedule(scheduleId: string): Promise<RunRecord> {
+  return request<RunRecord>(`/api/schedules/${scheduleId}/run`, { method: 'POST' })
+}
+
+export function listMemory(): Promise<MemoryItem[]> {
+  return request<MemoryItem[]>('/api/memory')
+}
+
+export function decideMemory(
+  memoryId: string,
+  decision: 'approve' | 'reject' | 'disable',
+): Promise<MemoryItem> {
+  return request<MemoryItem>(`/api/memory/${memoryId}/decision`, {
+    method: 'POST',
+    body: JSON.stringify({ decision, reason: 'Updated by the user in Settings.' }),
   })
 }
 

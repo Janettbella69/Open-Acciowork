@@ -4,10 +4,12 @@ import asyncio
 from collections.abc import Callable
 from typing import Protocol
 
-from .constants import TERMINAL_RUN_STATUSES, EventType, RunStatus
+from .constants import TERMINAL_RUN_STATUSES, EventType, RunMode, RunStatus
 from .events import EventPublisher, redact
 from .models import EventActor, RunRecord, utc_now
 from .permissions import PermissionBroker
+from .providers import ProviderConfigurationError, ProviderRegistry, classify_provider_error
+from .skills import SkillRegistry
 from .storage import FileLedger
 
 
@@ -24,11 +26,15 @@ class RunManager:
         events: EventPublisher,
         permissions: PermissionBroker,
         runtime: AgentRuntime,
+        providers: ProviderRegistry | None = None,
+        skills: SkillRegistry | None = None,
     ) -> None:
         self.ledger = ledger
         self.events = events
         self.permissions = permissions
         self.runtime = runtime
+        self.providers = providers
+        self.skills = skills
         self._tasks: dict[str, asyncio.Task[None]] = {}
 
     async def create_and_start(
@@ -39,18 +45,36 @@ class RunManager:
         agent_id: str | None = None,
         schedule_id: str | None = None,
         resume_session_id: str | None = None,
+        mode: RunMode = RunMode.STANDARD,
+        provider_profile_id: str | None = None,
+        provider_snapshot: dict[str, object] | None = None,
+        skill_snapshot: list[dict[str, object]] | None = None,
     ) -> RunRecord:
+        if provider_profile_id and provider_snapshot is None and self.providers:
+            provider_snapshot = self.providers.snapshot(provider_profile_id)
+        if skill_snapshot is None and self.skills:
+            skill_snapshot = self.skills.snapshot()
         run = self.ledger.create_run(
             project_id,
             prompt,
             agent_id=agent_id,
             schedule_id=schedule_id,
             resume_session_id=resume_session_id,
+            mode=mode,
+            provider_profile_id=provider_profile_id,
+            provider_snapshot=provider_snapshot,
+            skill_snapshot=skill_snapshot,
         )
         await self.events.publish(
             run.id,
             EventType.RUN_CREATED,
-            {"status": run.status, "prompt": run.prompt},
+            {
+                "status": run.status,
+                "prompt": run.prompt,
+                "mode": run.mode,
+                "provider_profile_id": run.provider_profile_id,
+                "skill_snapshot": run.skill_snapshot,
+            },
             actor=EventActor(type="system", name="run-manager"),
         )
         task = asyncio.create_task(self._execute(run.id), name=f"ophira:{run.id}")
@@ -77,18 +101,29 @@ class RunManager:
             return
         except Exception as exc:
             safe_error = str(redact(str(exc)))
+            error_code = (
+                exc.code
+                if isinstance(exc, ProviderConfigurationError)
+                else classify_provider_error(exc)
+            )
             self.ledger.update_run(
                 run_id,
                 status=RunStatus.FAILED,
                 error=safe_error,
+                error_code=error_code,
                 finished_at=utc_now(),
             )
             await self.events.publish(
                 run_id,
                 EventType.RUN_FAILED,
-                {"status": RunStatus.FAILED, "error": safe_error},
+                {
+                    "status": RunStatus.FAILED,
+                    "error": safe_error,
+                    "error_code": error_code,
+                },
                 actor=EventActor(type="system", name="run-manager"),
             )
+            await self._capture_artifacts(run_id)
             self._write_diary(run_id, RunStatus.FAILED, safe_error)
             return
         self.ledger.update_run(
@@ -102,7 +137,25 @@ class RunManager:
             {"status": RunStatus.COMPLETED},
             actor=EventActor(type="system", name="run-manager"),
         )
+        await self._capture_artifacts(run_id)
         self._write_diary(run_id, RunStatus.COMPLETED, "")
+
+    async def _capture_artifacts(self, run_id: str) -> None:
+        try:
+            run = self.ledger.get_run(run_id)
+            artifacts = self.ledger.scan_workspace(run.project_id, run_id=run.id)
+            for artifact in artifacts:
+                if artifact.run_id != run.id:
+                    continue
+                await self.events.publish(
+                    run_id,
+                    EventType.ARTIFACT_REGISTERED,
+                    artifact.model_dump(mode="json"),
+                    actor=EventActor(type="system", name="artifact-ledger"),
+                )
+        except Exception:
+            # Artifact discovery must not rewrite a completed run as failed.
+            return
 
     def _write_diary(self, run_id: str, status: RunStatus, note: str) -> None:
         """Append a work-journal entry for the finished run (PRD diary layer)."""

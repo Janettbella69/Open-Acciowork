@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useOpportunityRuntime } from '../api/useOpportunityRuntime'
+import type { RunMode } from '../api/types'
 import WorkspaceComposer from './WorkspaceComposer'
 
 function importedBrief(): string {
@@ -16,6 +17,8 @@ export default function Workspace() {
   const runtime = useOpportunityRuntime()
   const [briefInput, setBriefInput] = useState(importedBrief)
   const [notice, setNotice] = useState(importedBrief() ? 'Brief imported from the website.' : '')
+  const [attachedFiles, setAttachedFiles] = useState<File[]>([])
+  const [runMode, setRunMode] = useState<RunMode>('standard')
 
   const runAnalysis = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -25,12 +28,13 @@ export default function Workspace() {
     setNotice('Starting Ophira…')
     try {
       if (runtime.project) {
-        await runtime.continueProject(brief)
+        await runtime.continueProject(brief, attachedFiles, runMode)
       } else {
-        await runtime.start(brief)
+        await runtime.start(brief, attachedFiles, runMode)
       }
       normalizeWorkspaceUrl()
       setBriefInput('')
+      setAttachedFiles([])
       setNotice('Backend connected. Live activity is streaming into this conversation.')
     } catch {
       setNotice('The research run could not start. Your brief is still here so you can try again.')
@@ -64,6 +68,8 @@ export default function Workspace() {
   return (
     <WorkspaceComposer
       value={briefInput}
+      attachedFiles={attachedFiles}
+      mode={runMode}
       busy={runtime.starting || runtime.isActive || runtime.historyLoading}
       notice={notice}
       error={runtime.error}
@@ -78,6 +84,8 @@ export default function Workspace() {
       historyLoading={runtime.historyLoading}
       isActive={runtime.isActive}
       onChange={setBriefInput}
+      onAttachedFilesChange={setAttachedFiles}
+      onModeChange={setRunMode}
       onSubmit={runAnalysis}
       onNewResearch={() => void startNewResearch()}
       onSelectProject={(projectId) => void selectSavedProject(projectId)}

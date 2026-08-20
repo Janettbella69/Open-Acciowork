@@ -8,6 +8,7 @@ from typing import Annotated
 import uvicorn
 from fastapi import FastAPI, Header, HTTPException, Query, Request, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from sse_starlette.sse import EventSourceResponse
 
 from .agent_core import create_agent_core
@@ -22,6 +23,8 @@ from .constants import (
     MissedRunPolicy,
     PermissionDecision,
     ProjectStage,
+    ProviderErrorCode,
+    RunMode,
     RunStatus,
 )
 from .events import EventPublisher
@@ -30,6 +33,7 @@ from .models import (
     AgentCreate,
     AgentProfile,
     AgentUpdate,
+    Artifact,
     MemoryCreate,
     MemoryDecision,
     MemoryItem,
@@ -37,16 +41,22 @@ from .models import (
     OpportunityProject,
     PermissionResolution,
     ProjectCreate,
+    ProviderPreflightResult,
+    ProviderProfile,
+    ProviderProfileUpsert,
     RunCreate,
     RunRecord,
     Schedule,
     ScheduleCreate,
+    SkillVersion,
     utc_now,
 )
 from .permissions import PermissionBroker, PermissionNotFoundError
+from .providers import ProviderNotFoundError, ProviderRegistry
 from .runs import AgentRuntime, RunManager
 from .scheduler import ScheduleService, ScheduleValidationError, compute_next_fire, new_schedule
 from .sdk_adapter import ClaudeAgentRuntime
+from .skills import SkillNotFoundError, SkillRegistry
 from .storage import FileLedger, LedgerNotFoundError
 from .templates import TEMPLATE_SPECS
 
@@ -67,8 +77,25 @@ def create_app(
         events,
         timeout_seconds=settings.permission_timeout_seconds,
     )
-    runtime = runtime or ClaudeAgentRuntime(settings, ledger, events, permissions, memory)
-    runs = RunManager(ledger, events, permissions, runtime)
+    providers = ProviderRegistry(settings)
+    skills = SkillRegistry(settings.capability_plugin_dir, settings.data_dir / "skills")
+    runtime = runtime or ClaudeAgentRuntime(
+        settings,
+        ledger,
+        events,
+        permissions,
+        memory,
+        providers=providers,
+        skills=skills,
+    )
+    runs = RunManager(
+        ledger,
+        events,
+        permissions,
+        runtime,
+        providers=providers,
+        skills=skills,
+    )
     scheduler = ScheduleService(ledger, runs, events)
 
     @asynccontextmanager
@@ -84,6 +111,9 @@ def create_app(
     application.state.events = events
     application.state.memory = memory
     application.state.permissions = permissions
+    application.state.providers = providers
+    application.state.skills = skills
+    application.state.runtime = runtime
     application.state.runs = runs
     application.state.scheduler = scheduler
     application.add_middleware(
@@ -108,6 +138,8 @@ def create_app(
             "version": "0.1.0",
             "event_types": [item.value for item in EventType],
             "run_statuses": [item.value for item in RunStatus],
+            "run_modes": [item.value for item in RunMode],
+            "provider_error_codes": [item.value for item in ProviderErrorCode],
             "dimensions": [item.value for item in Dimension],
             "project_stages": [item.value for item in ProjectStage],
             "permission_decisions": [item.value for item in PermissionDecision],
@@ -144,6 +176,45 @@ def create_app(
             raise HTTPException(status_code=404, detail="Project not found") from exc
 
     @application.post(
+        "/api/projects/{project_id}/files",
+        response_model=Artifact,
+        status_code=status.HTTP_201_CREATED,
+    )
+    async def upload_project_file(
+        project_id: str,
+        request: Request,
+        filename: Annotated[str, Query(min_length=1, max_length=240)],
+        mime: Annotated[str | None, Query(max_length=200)] = None,
+    ) -> Artifact:
+        content = await request.body()
+        if not content:
+            raise HTTPException(status_code=400, detail="File is empty")
+        if len(content) > 50 * 1024 * 1024:
+            raise HTTPException(status_code=413, detail="File exceeds the 50 MB MVP limit")
+        try:
+            return ledger.save_upload(project_id, filename, content, mime=mime)
+        except (LedgerNotFoundError, ValueError) as exc:
+            raise HTTPException(
+                status_code=404,
+                detail="Project not found or path invalid",
+            ) from exc
+
+    @application.get("/api/projects/{project_id}/artifacts", response_model=list[Artifact])
+    async def list_project_artifacts(project_id: str) -> list[Artifact]:
+        try:
+            return ledger.get_project(project_id).artifacts
+        except (LedgerNotFoundError, ValueError) as exc:
+            raise HTTPException(status_code=404, detail="Project not found") from exc
+
+    @application.get("/api/projects/{project_id}/artifacts/{artifact_id}/download")
+    async def download_project_artifact(project_id: str, artifact_id: str) -> FileResponse:
+        try:
+            artifact, path = ledger.get_artifact(project_id, artifact_id)
+        except (LedgerNotFoundError, ValueError) as exc:
+            raise HTTPException(status_code=404, detail="Artifact not found") from exc
+        return FileResponse(path, media_type=artifact.mime, filename=artifact.name)
+
+    @application.post(
         "/api/projects/{project_id}/runs",
         response_model=RunRecord,
         status_code=status.HTTP_202_ACCEPTED,
@@ -152,14 +223,67 @@ def create_app(
         try:
             if payload.agent_id:
                 ledger.get_agent(payload.agent_id)
+            provider_profile_id = payload.provider_profile_id or providers.default_profile_id()
+            provider_snapshot = (
+                providers.snapshot(provider_profile_id) if provider_profile_id else None
+            )
             return await runs.create_and_start(
                 project_id,
                 payload.prompt,
                 agent_id=payload.agent_id,
                 resume_session_id=payload.resume_session_id,
+                mode=payload.mode,
+                provider_profile_id=provider_profile_id,
+                provider_snapshot=provider_snapshot,
+                skill_snapshot=skills.snapshot(),
             )
-        except (LedgerNotFoundError, ValueError) as exc:
-            raise HTTPException(status_code=404, detail="Project not found") from exc
+        except (LedgerNotFoundError, ProviderNotFoundError, ValueError) as exc:
+            raise HTTPException(
+                status_code=404,
+                detail="Project, Agent, or Provider not found",
+            ) from exc
+
+    @application.get("/api/providers", response_model=list[ProviderProfile])
+    async def list_providers() -> list[ProviderProfile]:
+        return providers.list()
+
+    @application.put("/api/providers/{provider_id}", response_model=ProviderProfile)
+    async def upsert_provider(
+        provider_id: str,
+        payload: ProviderProfileUpsert,
+    ) -> ProviderProfile:
+        try:
+            return providers.upsert(provider_id, payload)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @application.post(
+        "/api/providers/{provider_id}/preflight",
+        response_model=ProviderPreflightResult,
+    )
+    async def preflight_provider(provider_id: str) -> ProviderPreflightResult:
+        try:
+            providers.get(provider_id)
+            preflight = getattr(runtime, "preflight", None)
+            if preflight is None:
+                raise HTTPException(
+                    status_code=501,
+                    detail="The configured test runtime does not support Provider preflight.",
+                )
+            return await preflight(provider_id)
+        except ProviderNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="Provider not found") from exc
+
+    @application.get("/api/skills", response_model=list[SkillVersion])
+    async def list_skills() -> list[SkillVersion]:
+        return skills.list()
+
+    @application.post("/api/skills/{skill_id:path}/enable", response_model=SkillVersion)
+    async def enable_skill(skill_id: str, enabled: bool = True) -> SkillVersion:
+        try:
+            return skills.set_enabled(skill_id, enabled)
+        except SkillNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="Skill not found") from exc
 
     @application.get("/api/runs/{run_id}", response_model=RunRecord)
     async def get_run(run_id: str) -> RunRecord:

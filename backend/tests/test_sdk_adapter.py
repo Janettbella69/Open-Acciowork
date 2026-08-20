@@ -30,14 +30,26 @@ def test_default_sdk_options_keep_the_agent_general_and_observable(tmp_path: Pat
     assert options.include_partial_messages is True
     assert options.include_hook_events is True
     assert options.thinking == {"type": "adaptive", "display": "summarized"}
-    assert "Read" in (options.tools or [])
-    assert "Write" in (options.tools or [])
-    assert "Bash" in (options.tools or [])
-    assert "Agent" not in (options.tools or [])
-    assert "不要把请求强制归入预设意图" in options.system_prompt
+    assert options.tools == {"type": "preset", "preset": "claude_code"}
+    assert options.disallowed_tools == ["Agent"]
+    assert options.system_prompt["preset"] == "claude_code"
+    assert "不要把请求强制归入预设意图" in options.system_prompt["append"]
     assert runtime._query_prompt(run) == "Start"
     assert options.strict_mcp_config is True
-    assert options.env == {}
+    assert options.env["ANTHROPIC_API_KEY"] == ""
+    assert options.env["ANTHROPIC_AUTH_TOKEN"] == ""
+    assert options.env["CLAUDE_CODE_OAUTH_TOKEN"] == ""
+    assert options.setting_sources == []
+    assert options.skills == "all"
+    assert options.plugins
+    assert options.enable_file_checkpointing is True
+    assert set(options.mcp_servers or {}) == {
+        "ophira_ledger",
+        "ophira_market",
+        "ophira_supplier",
+        "ophira_customer",
+        "ophira_commerce_math",
+    }
     assert set(options.hooks or {}) >= {
         "PreToolUse",
         "PostToolUse",
@@ -88,7 +100,12 @@ def test_sdk_uses_anthropic_compatible_gateway_configuration(tmp_path: Path) -> 
     assert options.model == "glm-5.2[1m]"
     assert options.env == {
         "ANTHROPIC_BASE_URL": "https://open.bigmodel.cn/api/anthropic",
+        "ANTHROPIC_API_KEY": "",
         "ANTHROPIC_AUTH_TOKEN": "glm-secret",
+        "CLAUDE_CODE_OAUTH_TOKEN": "",
+        "CLAUDE_CONFIG_DIR": str(tmp_path / "runtime-config" / "environment"),
+        "CLAUDE_CODE_DISABLE_AUTO_MEMORY": "1",
+        "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
         "ANTHROPIC_MODEL": "glm-5.2[1m]",
         "ANTHROPIC_DEFAULT_HAIKU_MODEL": "glm-5.2[1m]",
         "ANTHROPIC_DEFAULT_FABLE_MODEL": "glm-5.2[1m]",

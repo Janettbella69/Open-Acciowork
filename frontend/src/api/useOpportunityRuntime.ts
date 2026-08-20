@@ -11,12 +11,14 @@ import {
   resolvePermission,
   runEventUrl,
   startRun,
+  uploadProjectFile,
 } from './client'
 import type {
   OpportunityProject,
   OphiraEvent,
   PendingPermission,
   RunRecord,
+  RunMode,
   RunStatus,
 } from './types'
 
@@ -126,7 +128,7 @@ export function useOpportunityRuntime() {
       || (
         event.type === 'tool.completed'
         && typeof toolName === 'string'
-        && toolName.startsWith('mcp__ophira__')
+        && toolName.startsWith('mcp__ophira_')
         && !replayingTerminalRun
       )
     ) {
@@ -172,7 +174,11 @@ export function useOpportunityRuntime() {
     }
   }, [closeStream, handleEvent])
 
-  const start = useCallback(async (brief: string) => {
+  const start = useCallback(async (
+    brief: string,
+    files: File[] = [],
+    mode: RunMode = 'standard',
+  ) => {
     selectionRef.current += 1
     closeStream()
     setStarting(true)
@@ -188,7 +194,8 @@ export function useOpportunityRuntime() {
       const nextProject = await createProject(brief)
       setProject(nextProject)
       setProjects((current) => [nextProject, ...current])
-      const nextRun = await startRun(nextProject.id, brief)
+      if (files.length) await Promise.all(files.map((file) => uploadProjectFile(nextProject.id, file)))
+      const nextRun = await startRun(nextProject.id, brief, null, mode)
       runRef.current = nextRun
       setRun(nextRun)
       await connectToRun(nextRun)
@@ -202,8 +209,12 @@ export function useOpportunityRuntime() {
     }
   }, [closeStream, connectToRun])
 
-  const continueProject = useCallback(async (brief: string) => {
-    if (!project) return start(brief)
+  const continueProject = useCallback(async (
+    brief: string,
+    files: File[] = [],
+    mode: RunMode = 'standard',
+  ) => {
+    if (!project) return start(brief, files, mode)
 
     selectionRef.current += 1
     closeStream()
@@ -217,7 +228,8 @@ export function useOpportunityRuntime() {
     sawTextDeltaRef.current = false
     sawReasoningDeltaRef.current = false
     try {
-      const nextRun = await startRun(project.id, brief, run?.sdk_session_id)
+      if (files.length) await Promise.all(files.map((file) => uploadProjectFile(project.id, file)))
+      const nextRun = await startRun(project.id, brief, run?.sdk_session_id, mode)
       runRef.current = nextRun
       setRun(nextRun)
       await connectToRun(nextRun)

@@ -1,15 +1,20 @@
 from __future__ import annotations
 
+import hashlib
 import json
+import mimetypes
 import os
+import re
 import threading
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from .constants import RunMode
 from .models import (
     AgentCreate,
     AgentProfile,
+    Artifact,
     EventEnvelope,
     OpportunityProject,
     ProjectCreate,
@@ -129,6 +134,10 @@ class FileLedger:
         agent_id: str | None = None,
         schedule_id: str | None = None,
         resume_session_id: str | None = None,
+        mode: RunMode = RunMode.STANDARD,
+        provider_profile_id: str | None = None,
+        provider_snapshot: dict[str, Any] | None = None,
+        skill_snapshot: list[dict[str, Any]] | None = None,
     ) -> RunRecord:
         self.get_project(project_id)
         run = RunRecord(
@@ -137,6 +146,10 @@ class FileLedger:
             agent_id=agent_id,
             schedule_id=schedule_id,
             resume_session_id=resume_session_id,
+            mode=mode,
+            provider_profile_id=provider_profile_id,
+            provider_snapshot=provider_snapshot,
+            skill_snapshot=skill_snapshot or [],
         )
         summary = RunSummary(
             run_id=run.id,
@@ -241,6 +254,122 @@ class FileLedger:
         workspace = self.projects_dir / self._safe_id(project_id) / "workspace"
         workspace.mkdir(parents=True, exist_ok=True)
         return workspace
+
+    @staticmethod
+    def _safe_filename(filename: str) -> str:
+        name = Path(filename).name.strip().replace("\x00", "")
+        name = re.sub(r"[^A-Za-z0-9._ -]+", "_", name)
+        if not name or name in {".", ".."}:
+            raise ValueError("invalid artifact filename")
+        return name[:240]
+
+    def _artifact_path(self, project_id: str, relative_path: str) -> Path:
+        workspace = self.workspace_for_project(project_id).resolve()
+        candidate = (workspace / relative_path).resolve()
+        try:
+            candidate.relative_to(workspace)
+        except ValueError as exc:
+            raise ValueError("artifact path escapes project workspace") from exc
+        return candidate
+
+    def _next_upload_path(self, project_id: str, filename: str) -> tuple[str, Path]:
+        safe_name = self._safe_filename(filename)
+        relative = Path("uploads") / safe_name
+        path = self._artifact_path(project_id, relative.as_posix())
+        path.parent.mkdir(parents=True, exist_ok=True)
+        index = 2
+        while path.exists():
+            suffix = Path(safe_name).suffix
+            stem = Path(safe_name).stem
+            relative = Path("uploads") / f"{stem}.v{index}{suffix}"
+            path = self._artifact_path(project_id, relative.as_posix())
+            index += 1
+        return relative.as_posix(), path
+
+    def save_upload(
+        self,
+        project_id: str,
+        filename: str,
+        content: bytes,
+        *,
+        mime: str | None = None,
+        run_id: str | None = None,
+        source_ids: list[str] | None = None,
+    ) -> Artifact:
+        relative, path = self._next_upload_path(project_id, filename)
+        path.write_bytes(content)
+        return self.register_artifact(
+            project_id,
+            relative,
+            run_id=run_id,
+            source_ids=source_ids,
+            mime=mime,
+        )
+
+    def register_artifact(
+        self,
+        project_id: str,
+        relative_path: str,
+        *,
+        run_id: str | None = None,
+        source_ids: list[str] | None = None,
+        mime: str | None = None,
+    ) -> Artifact:
+        path = self._artifact_path(project_id, relative_path)
+        if path.is_symlink() or not path.is_file():
+            raise ValueError("artifact must be a regular file inside the project workspace")
+        workspace = self.workspace_for_project(project_id).resolve()
+        relative = path.relative_to(workspace).as_posix()
+        checksum = hashlib.sha256(path.read_bytes()).hexdigest()
+        project = self.get_project(project_id)
+        duplicate = next(
+            (
+                item
+                for item in project.artifacts
+                if item.path == relative and item.checksum == checksum
+            ),
+            None,
+        )
+        if duplicate:
+            return duplicate
+        previous_versions = [item.version for item in project.artifacts if item.path == relative]
+        artifact = Artifact(
+            project_id=project_id,
+            path=relative,
+            name=path.name,
+            mime=mime or mimetypes.guess_type(path.name)[0] or "application/octet-stream",
+            version=max(previous_versions, default=0) + 1,
+            run_id=run_id,
+            source_ids=source_ids or [],
+            checksum=checksum,
+            size_bytes=path.stat().st_size,
+            download_url="pending",
+        )
+        artifact.download_url = (
+            f"/api/projects/{project_id}/artifacts/{artifact.id}/download"
+        )
+        self.update_project(project_id, lambda item: item.artifacts.append(artifact))
+        return artifact
+
+    def scan_workspace(self, project_id: str, *, run_id: str | None = None) -> list[Artifact]:
+        workspace = self.workspace_for_project(project_id).resolve()
+        registered: list[Artifact] = []
+        for path in sorted(workspace.rglob("*")):
+            if path.is_symlink() or not path.is_file():
+                continue
+            try:
+                relative = path.resolve().relative_to(workspace).as_posix()
+            except ValueError:
+                continue
+            registered.append(self.register_artifact(project_id, relative, run_id=run_id))
+        return registered
+
+    def get_artifact(self, project_id: str, artifact_id: str) -> tuple[Artifact, Path]:
+        project = self.get_project(project_id)
+        artifact = next((item for item in project.artifacts if item.id == artifact_id), None)
+        if artifact is None:
+            raise LedgerNotFoundError(artifact_id)
+        return artifact, self._artifact_path(project_id, artifact.path)
 
     def _agent_path(self, agent_id: str) -> Path:
         return self.agents_dir / self._safe_id(agent_id) / "agent.json"

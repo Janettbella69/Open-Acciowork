@@ -5,7 +5,7 @@ from httpx import ASGITransport, AsyncClient
 
 from ophira_backend.agent_core import create_agent_core
 from ophira_backend.config import Settings
-from ophira_backend.constants import AgentTemplate
+from ophira_backend.constants import AgentTemplate, RunMode
 from ophira_backend.events import EventPublisher
 from ophira_backend.main import create_app
 from ophira_backend.memory import FileMemoryProvider
@@ -96,16 +96,19 @@ def test_single_agent_options_gate_write_tools_and_pass_resume(tmp_path: Path) -
 
     assert options.agents is None
     assert options.resume == "session-abc"
-    assert "Write" in (options.tools or [])
-    assert "Bash" in (options.tools or [])
+    assert options.tools == {"type": "preset", "preset": "claude_code"}
     assert "Write" not in options.allowed_tools
     assert "Edit" not in options.allowed_tools
     assert "Bash" not in options.allowed_tools
-    assert "Agent" not in (options.tools or [])
-    assert "安全政策" in options.system_prompt
+    assert options.disallowed_tools == ["Agent"]
+    assert options.system_prompt["preset"] == "claude_code"
+    assert "安全政策" in options.system_prompt["append"]
+    assert options.plugins[0]["path"].endswith("ophira-capabilities")
+    assert options.skills == "all"
+    assert options.enable_file_checkpointing is True
 
 
-def test_opportunity_template_keeps_team_options(tmp_path: Path) -> None:
+def test_opportunity_template_is_a_normal_single_agent(tmp_path: Path) -> None:
     ledger, _memory, runtime = build_runtime(tmp_path)
     agent = ledger.create_agent(
         AgentCreate(name="机会团队", template=AgentTemplate.OPPORTUNITY)
@@ -115,6 +118,23 @@ def test_opportunity_template_keeps_team_options(tmp_path: Path) -> None:
 
     options = runtime._build_options(run)
 
+    assert options.agents is None
+    assert options.disallowed_tools == ["Agent"]
+
+
+def test_deep_research_must_be_explicit_and_subagents_are_read_only(tmp_path: Path) -> None:
+    ledger, _memory, runtime = build_runtime(tmp_path)
+    project = ledger.create_project(ProjectCreate(name="Kettle", objective="Validate"))
+    run = ledger.create_run(project.id, "Research", mode=RunMode.DEEP_RESEARCH)
+
+    options = runtime._build_options(run)
+
+    assert options.disallowed_tools == []
     assert options.agents is not None
-    assert len(options.agents) == 4
-    assert "Agent" in options.allowed_tools
+    assert set(options.agents) == {
+        "source-mapper",
+        "multilingual-researcher",
+        "conflict-verifier",
+    }
+    for agent in options.agents.values():
+        assert {"Write", "Edit", "Bash", "Agent"} <= set(agent.disallowedTools or [])

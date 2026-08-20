@@ -15,7 +15,10 @@ def test_comma_separated_cors_origins_from_environment(monkeypatch) -> None:
     ]
 
 
-def test_anthropic_gateway_environment_is_forwarded_without_model_gaps(monkeypatch) -> None:
+def test_anthropic_gateway_environment_is_forwarded_without_model_gaps(
+    monkeypatch,
+    tmp_path,
+) -> None:
     monkeypatch.setenv("ANTHROPIC_BASE_URL", "https://api.deepseek.com/anthropic")
     monkeypatch.setenv("ANTHROPIC_AUTH_TOKEN", "deepseek-secret")
     monkeypatch.setenv("OPHIRA_CLAUDE_MODEL", "deepseek-v4-pro[1m]")
@@ -24,11 +27,16 @@ def test_anthropic_gateway_environment_is_forwarded_without_model_gaps(monkeypat
     monkeypatch.setenv("CLAUDE_CODE_EFFORT_LEVEL", "max")
     monkeypatch.setenv("CLAUDE_CODE_MAX_CONTEXT_TOKENS", "1000000")
 
-    settings = Settings(_env_file=None)
+    settings = Settings(_env_file=None, data_dir=tmp_path)
 
     assert settings.claude_sdk_env() == {
         "ANTHROPIC_BASE_URL": "https://api.deepseek.com/anthropic",
+        "ANTHROPIC_API_KEY": "",
         "ANTHROPIC_AUTH_TOKEN": "deepseek-secret",
+        "CLAUDE_CODE_OAUTH_TOKEN": "",
+        "CLAUDE_CONFIG_DIR": str(tmp_path / "runtime-config" / "environment"),
+        "CLAUDE_CODE_DISABLE_AUTO_MEMORY": "1",
+        "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
         "ANTHROPIC_MODEL": "deepseek-v4-pro[1m]",
         "ANTHROPIC_DEFAULT_HAIKU_MODEL": "deepseek-v4-flash",
         "ANTHROPIC_DEFAULT_FABLE_MODEL": "deepseek-v4-pro[1m]",
@@ -49,17 +57,21 @@ def test_official_anthropic_model_variable_is_accepted(monkeypatch) -> None:
     assert settings.claude_sdk_env()["ANTHROPIC_MODEL"] == "k3-256k"
 
 
-def test_blank_anthropic_values_do_not_override_claude_code_login(monkeypatch) -> None:
+def test_blank_anthropic_values_disable_host_claude_code_login(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("ANTHROPIC_BASE_URL", "  ")
     monkeypatch.setenv("ANTHROPIC_AUTH_TOKEN", "")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "")
 
-    settings = Settings(_env_file=None)
+    settings = Settings(_env_file=None, data_dir=tmp_path)
 
-    assert settings.claude_sdk_env() == {}
+    env = settings.claude_sdk_env()
+    assert env["ANTHROPIC_API_KEY"] == ""
+    assert env["ANTHROPIC_AUTH_TOKEN"] == ""
+    assert env["CLAUDE_CODE_OAUTH_TOKEN"] == ""
+    assert env["CLAUDE_CONFIG_DIR"] == str(tmp_path / "runtime-config" / "environment")
     assert settings.provider_status() == {
         "api_credentials_configured": False,
-        "authentication": "claude_code_login",
+        "authentication": "not_configured",
         "base_url": None,
         "model": None,
     }

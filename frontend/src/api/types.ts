@@ -12,10 +12,12 @@ export type RunStatus =
   | 'completed'
   | 'failed'
   | 'cancelled'
+export type RunMode = 'standard' | 'deep_research'
 
 export type Hypothesis = {
   id: string
-  dimension: Dimension
+  dimension: Dimension | null
+  tags: string[]
   statement: string
   validation_criteria: string[]
   priority: number
@@ -26,15 +28,58 @@ export type Hypothesis = {
 
 export type Evidence = {
   id: string
-  dimension: Dimension
+  dimension: Dimension | null
+  tags: string[]
   kind: 'observed_fact' | 'user_statement' | 'community_signal' | 'inference'
   claim: string
   source_title: string
   source_url: string | null
+  source_type: 'web' | 'file' | 'user' | 'tool' | 'calculation'
+  source_path: string | null
+  retrieved_at: string
+  observed_at: string | null
+  excerpt: string | null
+  location: string | null
+  freshness_note: string | null
+  status: 'active' | 'stale' | 'removed'
   confidence: number
   supports_hypothesis_ids: string[]
   recorded_by: string
   recorded_at: string
+}
+
+export type Decision = {
+  id: string
+  question: string
+  outcome: string
+  decision_type: 'go' | 'test' | 'no_go' | 'ranking' | 'plan' | 'other'
+  rationale: string
+  evidence_ids: string[]
+  hypothesis_ids: string[]
+  assumptions: string[]
+  conditions: string[]
+  next_actions: string[]
+  status: 'active' | 'needs_review' | 'superseded'
+  made_by: string
+  review_at: string | null
+  invalidated_by_evidence_ids: string[]
+  created_at: string
+}
+
+export type Artifact = {
+  id: string
+  project_id: string
+  path: string
+  name: string
+  mime: string
+  version: number
+  run_id: string | null
+  source_ids: string[]
+  checksum: string
+  size_bytes: number
+  download_url: string
+  created_at: string
+  updated_at: string
 }
 
 export type DimensionAssessment = {
@@ -71,8 +116,10 @@ export type OpportunityProject = {
   stage: ProjectStage
   hypotheses: Hypothesis[]
   evidence: Evidence[]
-  assessments: Record<Dimension, DimensionAssessment>
+  assessments: Partial<Record<Dimension, DimensionAssessment>>
   stage_decisions: StageDecision[]
+  decisions: Decision[]
+  artifacts: Artifact[]
   revision: number
   created_at: string
   updated_at: string
@@ -83,9 +130,14 @@ export type RunRecord = {
   trace_id: string
   project_id: string
   prompt: string
+  mode: RunMode
+  provider_profile_id: string | null
+  provider_snapshot: Record<string, unknown> | null
+  skill_snapshot: Array<Record<string, unknown>>
   status: RunStatus
   sdk_session_id: string | null
   error: string | null
+  error_code: string | null
   created_at: string
   started_at: string | null
   finished_at: string | null
@@ -104,6 +156,8 @@ export type OphiraEvent = {
   run_id: string
   project_id: string
   trace_id: string
+  sdk_session_id: string | null
+  provider_profile_id: string | null
   timestamp: string
   actor: EventActor
   parent_id: string | null
@@ -115,9 +169,88 @@ export type ProtocolMetadata = {
   version: string
   event_types: string[]
   run_statuses: string[]
+  run_modes: string[]
+  provider_error_codes: string[]
   dimensions: string[]
   project_stages: string[]
   permission_decisions: string[]
+}
+
+export type ProviderCapabilities = {
+  tool_use: boolean
+  streaming: boolean
+  images: boolean
+  prompt_caching: boolean
+  extended_thinking: boolean
+  tool_search: boolean
+}
+
+export type ProviderProfile = {
+  id: string
+  display_name: string
+  base_url: string | null
+  auth_env_name: 'ANTHROPIC_API_KEY' | 'ANTHROPIC_AUTH_TOKEN'
+  model: string
+  region: string
+  production_eligible: boolean
+  enabled: boolean
+  secret_configured: boolean
+  last_verified_at: string | null
+  last_error_code: string | null
+  last_error_message: string | null
+  capabilities: ProviderCapabilities
+}
+
+export type ProviderPreflightResult = {
+  provider_profile_id: string
+  ok: boolean
+  error_code: string | null
+  message: string
+  sdk_session_id: string | null
+  model: string | null
+  mcp_connected: boolean
+  discovered_skills: string[]
+  checked_at: string
+}
+
+export type SkillVersion = {
+  id: string
+  namespace: string
+  name: string
+  description: string
+  version: string
+  content_hash: string
+  source: 'application' | 'tenant'
+  enabled: boolean
+  path: string
+}
+
+export type Schedule = {
+  id: string
+  project_id: string
+  provider_profile_id: string | null
+  mode: RunMode
+  prompt: string
+  cron: string | null
+  run_once_at: string | null
+  timezone: string
+  enabled: boolean
+  next_fire_at: string | null
+  last_fire_at: string | null
+  last_run_id: string | null
+  created_at: string
+}
+
+export type MemoryItem = {
+  id: string
+  scope: 'user' | 'project' | 'agent'
+  scope_id: string
+  text: string
+  kind: 'preference' | 'fact' | 'decision' | 'lesson'
+  status: 'proposed' | 'approved' | 'rejected' | 'disabled'
+  version: number
+  created_at: string
+  updated_at: string
 }
 
 export type PendingPermission = {

@@ -15,6 +15,26 @@ class EvidenceKind(StrEnum):
     INFERENCE = "inference"
 
 
+class EvidenceSourceType(StrEnum):
+    WEB = "web"
+    FILE = "file"
+    USER = "user"
+    TOOL = "tool"
+    CALCULATION = "calculation"
+
+
+class EvidenceStatus(StrEnum):
+    ACTIVE = "active"
+    STALE = "stale"
+    REMOVED = "removed"
+
+
+class DecisionStatus(StrEnum):
+    ACTIVE = "active"
+    NEEDS_REVIEW = "needs_review"
+    SUPERSEDED = "superseded"
+
+
 class ValidationStatus(StrEnum):
     UNVERIFIED = "unverified"
     IN_PROGRESS = "in_progress"
@@ -46,6 +66,22 @@ class RunStatus(StrEnum):
     COMPLETED = "completed"
     FAILED = "failed"
     CANCELLED = "cancelled"
+
+
+class RunMode(StrEnum):
+    STANDARD = "standard"
+    DEEP_RESEARCH = "deep_research"
+
+
+class ProviderErrorCode(StrEnum):
+    AUTH_REVOKED_OR_INVALID = "AUTH_REVOKED_OR_INVALID"
+    BASE_URL_UNREACHABLE = "BASE_URL_UNREACHABLE"
+    MODEL_NOT_AVAILABLE = "MODEL_NOT_AVAILABLE"
+    QUOTA_OR_BILLING = "QUOTA_OR_BILLING"
+    ANTHROPIC_PROTOCOL_INCOMPATIBLE = "ANTHROPIC_PROTOCOL_INCOMPATIBLE"
+    MCP_INIT_FAILED = "MCP_INIT_FAILED"
+    SKILL_DISCOVERY_FAILED = "SKILL_DISCOVERY_FAILED"
+    SDK_RUNTIME_FAILED = "SDK_RUNTIME_FAILED"
 
 
 TERMINAL_RUN_STATUSES = {
@@ -89,6 +125,9 @@ class EventType(StrEnum):
     SDK_SYSTEM = "sdk.system"
     SDK_RATE_LIMIT = "sdk.rate_limit"
     RUN_RESULT = "run.result"
+
+    ARTIFACT_REGISTERED = "artifact.registered"
+    PROVIDER_PREFLIGHT = "provider.preflight"
 
     SCHEDULE_FIRED = "schedule.fired"
 
@@ -143,27 +182,34 @@ class MissedRunPolicy(StrEnum):
     SKIP = "skip"
 
 
-LEAD_AGENT = "opportunity-lead"
-AGENT_NAMES = {
-    Dimension.DEMAND: "demand-agent",
-    Dimension.SUPPLY: "supply-agent",
-    Dimension.CAPITAL: "capital-agent",
-    Dimension.SALES: "sales-agent",
-}
+LEDGER_MCP_SERVER_NAME = "ophira_ledger"
+MARKET_MCP_SERVER_NAME = "ophira_market"
+SUPPLIER_MCP_SERVER_NAME = "ophira_supplier"
+CUSTOMER_MCP_SERVER_NAME = "ophira_customer"
+COMMERCE_MATH_MCP_SERVER_NAME = "ophira_commerce_math"
 
-MCP_SERVER_NAME = "ophira"
-TOOL_GET_PROJECT_CONTEXT = "mcp__ophira__get_project_context"
-TOOL_RECORD_HYPOTHESIS = "mcp__ophira__record_hypothesis"
-TOOL_RECORD_EVIDENCE = "mcp__ophira__record_evidence"
-TOOL_UPDATE_ASSESSMENT = "mcp__ophira__update_assessment"
-TOOL_RECORD_STAGE_DECISION = "mcp__ophira__record_stage_decision"
-TOOL_PROPOSE_MEMORY = "mcp__ophira__propose_memory"
-TOOL_SEARCH_MEMORY = "mcp__ophira__search_memory"
+TOOL_GET_PROJECT_CONTEXT = "mcp__ophira_ledger__read_project_context"
+TOOL_SEARCH_EVIDENCE = "mcp__ophira_ledger__search_evidence"
+TOOL_RECORD_HYPOTHESIS = "mcp__ophira_ledger__record_hypothesis"
+TOOL_RECORD_EVIDENCE = "mcp__ophira_ledger__record_evidence"
+TOOL_RECORD_DECISION = "mcp__ophira_ledger__record_decision"
+TOOL_UPDATE_ASSESSMENT = "mcp__ophira_ledger__update_assessment"
+TOOL_RECORD_STAGE_DECISION = "mcp__ophira_ledger__record_stage_decision"
+TOOL_PROPOSE_MEMORY = "mcp__ophira_ledger__propose_memory"
+TOOL_SEARCH_MEMORY = "mcp__ophira_ledger__search_memory"
+
+TOOL_RECORD_MARKET_SIGNAL = "mcp__ophira_market__record_market_signal"
+TOOL_COMPARE_SUPPLIER_QUOTES = "mcp__ophira_supplier__compare_supplier_quotes"
+TOOL_RANK_CUSTOMER_CANDIDATES = "mcp__ophira_customer__rank_customer_candidates"
+TOOL_CALCULATE_LANDED_COST = "mcp__ophira_commerce_math__calculate_landed_cost"
+TOOL_CALCULATE_UNIT_ECONOMICS = "mcp__ophira_commerce_math__calculate_unit_economics"
 
 LEDGER_TOOL_NAMES = [
     TOOL_GET_PROJECT_CONTEXT,
+    TOOL_SEARCH_EVIDENCE,
     TOOL_RECORD_HYPOTHESIS,
     TOOL_RECORD_EVIDENCE,
+    TOOL_RECORD_DECISION,
     TOOL_UPDATE_ASSESSMENT,
     TOOL_RECORD_STAGE_DECISION,
 ]
@@ -173,7 +219,25 @@ MEMORY_TOOL_NAMES = [
     TOOL_SEARCH_MEMORY,
 ]
 
-OPHIRA_TOOL_NAMES = [*LEDGER_TOOL_NAMES, *MEMORY_TOOL_NAMES]
+DOMAIN_TOOL_NAMES = [
+    TOOL_RECORD_MARKET_SIGNAL,
+    TOOL_COMPARE_SUPPLIER_QUOTES,
+    TOOL_RANK_CUSTOMER_CANDIDATES,
+    TOOL_CALCULATE_LANDED_COST,
+    TOOL_CALCULATE_UNIT_ECONOMICS,
+]
+
+OPHIRA_TOOL_NAMES = [*LEDGER_TOOL_NAMES, *MEMORY_TOOL_NAMES, *DOMAIN_TOOL_NAMES]
+
+READ_ONLY_MCP_TOOL_NAMES = [
+    TOOL_GET_PROJECT_CONTEXT,
+    TOOL_SEARCH_EVIDENCE,
+    TOOL_SEARCH_MEMORY,
+    TOOL_COMPARE_SUPPLIER_QUOTES,
+    TOOL_RANK_CUSTOMER_CANDIDATES,
+    TOOL_CALCULATE_LANDED_COST,
+    TOOL_CALCULATE_UNIT_ECONOMICS,
+]
 
 READ_ONLY_BUILTIN_TOOLS = ["Read", "Glob", "Grep", "WebSearch", "WebFetch"]
 WRITE_BUILTIN_TOOLS = ["Write", "Edit"]

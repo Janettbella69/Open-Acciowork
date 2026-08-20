@@ -69,7 +69,7 @@ async def test_write_outside_workspace_denied_without_asking(tmp_path: Path) -> 
 
 
 @pytest.mark.asyncio
-async def test_write_inside_workspace_is_allowed_without_a_permission_round_trip(
+async def test_write_inside_workspace_requires_and_honors_user_permission(
     tmp_path: Path,
 ) -> None:
     ledger, permissions, runtime = build_runtime(tmp_path)
@@ -78,9 +78,20 @@ async def test_write_inside_workspace_is_allowed_without_a_permission_round_trip
     run = ledger.create_run(project.id, "Start", agent_id=agent.id)
     options = runtime._build_options(run)
 
-    result = await options.can_use_tool(
-        "Write", {"file_path": "report.md"}, FakeToolContext()
+    task = asyncio.create_task(
+        options.can_use_tool("Write", {"file_path": "report.md"}, FakeToolContext())
     )
+    for _ in range(200):
+        if permissions._pending:
+            break
+        await asyncio.sleep(0.01)
+    request_id = next(iter(permissions._pending))
+    await permissions.resolve(
+        run.id,
+        request_id,
+        PermissionResolution(decision=PermissionDecision.ALLOW_ONCE),
+    )
+    result = await task
 
     assert isinstance(result, PermissionResultAllow)
     assert permissions._pending == {}

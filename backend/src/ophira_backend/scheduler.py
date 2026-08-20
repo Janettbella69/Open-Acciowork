@@ -120,6 +120,8 @@ class ScheduleService:
             schedule.prompt,
             agent_id=schedule.agent_id,
             schedule_id=schedule.id,
+            mode=schedule.mode,
+            provider_profile_id=schedule.provider_profile_id,
         )
         await self.events.publish(
             run.id,
@@ -154,4 +156,6 @@ class ScheduleService:
             schedule.prompt,
             agent_id=schedule.agent_id,
             schedule_id=schedule.id,
+            mode=schedule.mode,
+            provider_profile_id=schedule.provider_profile_id,
         )

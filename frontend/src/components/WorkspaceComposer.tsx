@@ -5,6 +5,7 @@ import {
   type OpportunityProject,
   type OphiraEvent,
   type PendingPermission,
+  type RunMode,
   type RunRecord,
 } from '../api/types'
 import { builtInSkills } from '../data/skillCatalog'
@@ -13,6 +14,8 @@ import './workspace-composer.css'
 
 type WorkspaceComposerProps = {
   value: string
+  attachedFiles: File[]
+  mode: RunMode
   busy: boolean
   notice: string
   error: string
@@ -27,6 +30,8 @@ type WorkspaceComposerProps = {
   historyLoading: boolean
   isActive: boolean
   onChange: (value: string) => void
+  onAttachedFilesChange: (files: File[]) => void
+  onModeChange: (mode: RunMode) => void
   onSubmit: (event: FormEvent<HTMLFormElement>) => void
   onNewResearch: () => void
   onSelectProject: (projectId: string) => void
@@ -36,24 +41,24 @@ type WorkspaceComposerProps = {
 
 const quickStarts = [
   {
-    dimension: 'Demand',
-    title: 'Find a real unmet need',
-    prompt: 'Find a specific unmet customer need in a market where a small cross-border team can compete.',
+    dimension: 'Need',
+    title: 'Start from a market need',
+    prompt: 'Find a specific unmet customer need where a small cross-border team could create a credible offer.',
   },
   {
-    dimension: 'Supply',
-    title: 'Test whether our capability can travel',
+    dimension: 'Product',
+    title: 'Start from what we can supply',
     prompt: 'Assess which global market best fits our current product and supply capability.',
   },
   {
-    dimension: 'Capital',
-    title: 'Bound the downside before we move',
-    prompt: 'Map the first-order cash exposure and the assumptions we must validate before entering a new market.',
+    dimension: 'Customer',
+    title: 'Find a path to customers',
+    prompt: 'Identify the best-fit customer profiles, channels, and smallest credible contact test for this offer.',
   },
   {
-    dimension: 'Sales',
-    title: 'Design the smallest buyer test',
-    prompt: 'Design a small, falsifiable sales test for a new cross-border product opportunity.',
+    dimension: 'Decision',
+    title: 'Turn materials into a decision',
+    prompt: 'Review my materials and produce a sourced Go, Test, or No-go decision with assumptions and next actions.',
   },
 ]
 
@@ -190,6 +195,8 @@ function WorkspaceAccountMenu({ backendState }: { backendState: string }) {
 
 export default function WorkspaceComposer({
   value,
+  attachedFiles,
+  mode,
   busy,
   notice,
   error,
@@ -204,6 +211,8 @@ export default function WorkspaceComposer({
   historyLoading,
   isActive,
   onChange,
+  onAttachedFilesChange,
+  onModeChange,
   onSubmit,
   onNewResearch,
   onSelectProject,
@@ -211,7 +220,6 @@ export default function WorkspaceComposer({
   onDecision,
 }: WorkspaceComposerProps) {
   const [skillsOpen, setSkillsOpen] = useState(false)
-  const [attachedFiles, setAttachedFiles] = useState<File[]>([])
   const [clock, setClock] = useState(() => Date.now())
   const composerToolsRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -219,6 +227,8 @@ export default function WorkspaceComposer({
   const hasProjectTruth = Boolean(project && (
     project.evidence.length
     || project.hypotheses.length
+    || project.decisions.length
+    || project.artifacts.length
     || Object.values(project.assessments).some((assessment) => (
       assessment.status !== 'unverified'
       || assessment.score > 0
@@ -259,7 +269,7 @@ export default function WorkspaceComposer({
 
   const stageFiles = (event: ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(event.target.files ?? [])
-    if (files.length) setAttachedFiles((current) => [...current, ...files])
+    if (files.length) onAttachedFilesChange([...attachedFiles, ...files])
     event.target.value = ''
   }
 
@@ -297,12 +307,12 @@ export default function WorkspaceComposer({
                   <button
                     type="button"
                     aria-label={`Remove ${file.name}`}
-                    onClick={() => setAttachedFiles((current) => current.filter((_, currentIndex) => currentIndex !== index))}
+                    onClick={() => onAttachedFilesChange(attachedFiles.filter((_, currentIndex) => currentIndex !== index))}
                   >×</button>
                 </span>
               ))}
             </div>
-            <small>Selected locally for this draft</small>
+            <small>Uploaded into the isolated project workspace when you send</small>
           </div>
         )}
         <div className="conversation-composer-footer">
@@ -343,10 +353,17 @@ export default function WorkspaceComposer({
                     </button>
                   ))}
                 </div>
-                <footer>Selecting a skill inserts its instructions into this brief for review.</footer>
+                <footer>Installed Plugin Skills are discovered by the Agent at runtime; this menu only helps frame intent.</footer>
               </section>
             )}
           </div>
+          <label className="conversation-mode-select">
+            <span className="conversation-visually-hidden">Run mode</span>
+            <select value={mode} onChange={(event) => onModeChange(event.target.value as RunMode)}>
+              <option value="standard">Standard · one Agent</option>
+              <option value="deep_research">Deep Research · explicit beta</option>
+            </select>
+          </label>
           <span className="conversation-composer-coordinator">⌘ Enter to send</span>
           <button className="conversation-submit" type="submit" aria-label={busy ? 'Working' : 'Send'} disabled={busy || !value.trim()}>
             <span className="conversation-submit-label">{busy ? 'Working…' : 'Send'}</span>
@@ -481,7 +498,12 @@ export default function WorkspaceComposer({
                             })}
                           </ol>
                         )}
-                        {run && <p className="conversation-trace-note">Trace {run.trace_id}</p>}
+                        {run && (
+                          <p className="conversation-trace-note">
+                            {run.mode === 'deep_research' ? 'Deep Research · ' : 'Single Agent · '}
+                            Trace {run.trace_id}
+                          </p>
+                        )}
                       </div>
                     </details>
                     {isActive && <button type="button" onClick={onCancel}>Cancel</button>}
@@ -532,27 +554,54 @@ export default function WorkspaceComposer({
                       <i aria-hidden="true">›</i>
                     </summary>
                     <div className="conversation-project-truth-body">
-                      <div className="conversation-assessment-grid">
-                        {dimensions.map((dimension) => {
-                          const assessment = project.assessments[dimension]
-                          return (
-                            <article key={dimension}>
-                              <span>{label(dimension)}</span>
-                              <strong>{assessment.score}</strong>
-                              <small data-status={assessment.status}>{label(assessment.status)}</small>
-                              <p>{assessment.summary || assessment.gaps[0] || 'No recorded assessment.'}</p>
-                            </article>
-                          )
-                        })}
-                      </div>
+                      {dimensions.some((dimension) => project.assessments[dimension]) && (
+                        <div className="conversation-assessment-grid">
+                          {dimensions.map((dimension) => {
+                            const assessment = project.assessments[dimension]
+                            if (!assessment) return null
+                            return (
+                              <article key={dimension}>
+                                <span>{label(dimension)}</span>
+                                <strong>{assessment.score}</strong>
+                                <small data-status={assessment.status}>{label(assessment.status)}</small>
+                                <p>{assessment.summary || assessment.gaps[0] || 'No recorded assessment.'}</p>
+                              </article>
+                            )
+                          })}
+                        </div>
+                      )}
                       {project.evidence.length > 0 && (
                         <div className="conversation-evidence-ledger">
                           <div><strong>Evidence ledger</strong><span>{project.evidence.length} records</span></div>
                           {project.evidence.slice(-4).reverse().map((item) => (
                             <article key={item.id}>
-                              <small>{label(item.kind)} · {label(item.dimension)}</small>
+                              <small>{label(item.kind)} · {label(item.dimension ?? item.source_type)}</small>
                               <p>{item.claim}</p>
-                              <span>{item.source_title}</span>
+                              <span>{item.source_title} · {new Date(item.retrieved_at).toLocaleDateString()}</span>
+                            </article>
+                          ))}
+                        </div>
+                      )}
+                      {project.decisions.length > 0 && (
+                        <div className="conversation-evidence-ledger">
+                          <div><strong>Decisions</strong><span>{project.decisions.length} recorded</span></div>
+                          {project.decisions.slice(-3).reverse().map((decision) => (
+                            <article key={decision.id}>
+                              <small>{label(decision.decision_type)} · {label(decision.status)}</small>
+                              <p>{decision.outcome}</p>
+                              <span>{decision.evidence_ids.length} linked evidence records</span>
+                            </article>
+                          ))}
+                        </div>
+                      )}
+                      {project.artifacts.length > 0 && (
+                        <div className="conversation-evidence-ledger">
+                          <div><strong>Artifacts</strong><span>{project.artifacts.length} files</span></div>
+                          {project.artifacts.slice(-4).reverse().map((artifact) => (
+                            <article key={artifact.id}>
+                              <small>{artifact.mime} · v{artifact.version}</small>
+                              <p>{artifact.name}</p>
+                              <a href={artifact.download_url}>Download</a>
                             </article>
                           ))}
                         </div>

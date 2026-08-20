@@ -4,9 +4,9 @@ These rules apply to every contributor and AI agent in this repository.
 
 ## Product boundary
 
-- OPHIRA is an AI product team for validating and executing product opportunities.
-- `Opportunity Lead` owns the shared project, hypotheses, weakest-link analysis, stage gates, and targeted delegation.
-- `Demand`, `Supply`, `Capital`, and `Sales` are specialist agents. They do not maintain separate versions of the project truth.
+- OPHIRA is a global-business system for small cross-border teams. A single Claude Agent SDK main Agent turns goals and source material into traceable decisions, editable artifacts, and next actions.
+- Normal runs must remain one main Agent. Demand, Supply, Capital, and Sales are optional Skill perspectives and evidence tags, not mandatory agents or workflow stages.
+- Only an explicitly selected Deep Research run may expose short-lived, read-only research subagents. The main Agent remains responsible for synthesis and is the only writer of project truth.
 - Frontend and backend work must remain in their existing directories. Coordinate through documented API and event contracts rather than cross-editing ownership areas.
 
 ## Before changing code
@@ -24,6 +24,8 @@ These rules apply to every contributor and AI agent in this repository.
 - Each agent owns a core directory under `data/agents/{agent_id}/` (`IDENTITY.md`, `AGENTS.md`, `SOUL.md`, `USER.md`, `MEMORY.md`, `TOOLS.md`, `diary/`, `workspace/`). Prompt assembly always pins the security preamble first; agent-writable files must not be able to override it.
 - Agent memory writes are proposals only. Memory persists through the `MemoryProvider` port (file-backed today, Managed Agents adaptable later); only user-approved memories are injected into prompts or searchable by agents. Approved agent-scope memories are mirrored into the agent's `MEMORY.md` via marker lines without clobbering user edits, and finished runs append dated entries to `diary/`.
 - Keep business capabilities behind ports/adapters. Claude Agent SDK integration belongs in an adapter and must not modify SDK internals.
+- Claude Agent SDK is the only model runtime. Preserve the Claude Code tools and system-prompt presets, load application Skills through a managed local Plugin, and pass MCP servers explicitly with strict MCP configuration.
+- Do not introduce LangGraph, LangChain, Dify, a direct model-client fallback, or a hand-written tool loop.
 - Prefer official framework extension points. Do not rebuild session, subagent, permission, hook, or tool mechanisms already supplied by Claude Agent SDK.
 - Add a new abstraction only when wrong coupling has a concrete cost: unsafe consequences, different change cadence, different consumers, or different deployment.
 - Audit for duplicate implementations and duplicate concepts before adding infrastructure.

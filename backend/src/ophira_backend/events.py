@@ -9,7 +9,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
-from .constants import LEAD_AGENT, TERMINAL_RUN_STATUSES, EventType
+from .constants import TERMINAL_RUN_STATUSES, EventType
 from .models import EventActor, EventEnvelope
 from .storage import FileLedger
 
@@ -110,7 +110,9 @@ class EventPublisher:
                 run_id=run.id,
                 project_id=run.project_id,
                 trace_id=run.trace_id,
-                actor=actor or EventActor(type="agent", name=LEAD_AGENT),
+                sdk_session_id=run.sdk_session_id,
+                provider_profile_id=run.provider_profile_id,
+                actor=actor or EventActor(type="agent", name="ophira-main"),
                 parent_id=parent_id,
                 tool_use_id=tool_use_id,
                 data=redact(data or {}),

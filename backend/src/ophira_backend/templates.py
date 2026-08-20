@@ -13,7 +13,6 @@ class AgentTemplateSpec:
     identity_md: str
     agents_md: str
     tools_note: str
-    is_team: bool = False
 
 
 _SINGLE_AGENT_RULES = """# 工作原则
@@ -28,10 +27,10 @@ _SINGLE_AGENT_RULES = """# 工作原则
 _GENERAL_TOOLS = """# 可用工具
 
 - 只读：Read、Glob、Grep、WebSearch、WebFetch。
-- 写入：Write、Edit（工作区内可自主使用；越界访问会被拒绝）。
+- 写入：Write、Edit（能力始终保留；工作区边界校验后按权限策略确认）。
 - 命令：Bash（每次执行都需用户批准）。
 - 记忆：propose_memory 提议新记忆，search_memory 检索已批准记忆。
-- 项目账本：get_project_context 等 ophira 工具读写共享项目状态。
+- 项目账本：read_project_context、record_evidence、record_decision 等工具读写共享项目状态。
 """
 
 TEMPLATE_SPECS: dict[AgentTemplate, AgentTemplateSpec] = {
@@ -90,16 +89,13 @@ TEMPLATE_SPECS: dict[AgentTemplate, AgentTemplateSpec] = {
     ),
     AgentTemplate.OPPORTUNITY: AgentTemplateSpec(
         template=AgentTemplate.OPPORTUNITY,
-        default_name="机会验证团队",
-        role_summary=(
-            "按需调用 Demand、Supply、Capital、Sales 等视角探索商业机会；角色不是能力边界。"
-        ),
+        default_name="全球机会 Agent",
+        role_summary="从需求、供给或商业目标任意起点推进可追溯的机会判断和行动。",
         identity_md=(
             "# 身份\n\n你是 OPHIRA 的机会探索 Agent。"
-            "Demand、Supply、Capital、Sales 是可选视角，不是固定流程或能力边界。\n"
+            "需求、供给、资金与销售是可按需调用的 Skill 视角，不是固定流程或子 Agent。\n"
         ),
         agents_md=_SINGLE_AGENT_RULES,
         tools_note=_GENERAL_TOOLS,
-        is_team=True,
     ),
 }
