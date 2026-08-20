@@ -13,6 +13,7 @@ from sse_starlette.sse import EventSourceResponse
 
 from .agent_core import create_agent_core
 from .config import Settings, get_settings
+from .connectors import ConnectorNotFoundError, ConnectorRegistry
 from .constants import (
     AgentTemplate,
     Dimension,
@@ -36,6 +37,7 @@ from .models import (
     AgentProfile,
     AgentUpdate,
     Artifact,
+    Connector,
     Evidence,
     EvidenceStatusChange,
     EvidenceStatusUpdate,
@@ -53,6 +55,8 @@ from .models import (
     RunRecord,
     Schedule,
     ScheduleCreate,
+    ScheduleUpdate,
+    SkillTestResult,
     SkillVersion,
     utc_now,
 )
@@ -102,6 +106,7 @@ def create_app(
         skills=skills,
     )
     scheduler = ScheduleService(ledger, runs, events)
+    connectors = ConnectorRegistry(settings.data_dir / "connectors")
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
@@ -121,6 +126,7 @@ def create_app(
     application.state.runtime = runtime
     application.state.runs = runs
     application.state.scheduler = scheduler
+    application.state.connectors = connectors
     application.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,
@@ -323,6 +329,24 @@ def create_app(
         except SkillNotFoundError as exc:
             raise HTTPException(status_code=404, detail="Skill not found") from exc
 
+    @application.post("/api/skills/{skill_id:path}/test", response_model=SkillTestResult)
+    async def test_skill(skill_id: str) -> SkillTestResult:
+        try:
+            return skills.test(skill_id)
+        except SkillNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="Skill not found") from exc
+
+    @application.get("/api/connectors", response_model=list[Connector])
+    async def list_connectors() -> list[Connector]:
+        return connectors.list()
+
+    @application.post("/api/connectors/{connector_id}/health-check", response_model=Connector)
+    async def connector_health_check(connector_id: str) -> Connector:
+        try:
+            return connectors.health_check(connector_id)
+        except (ConnectorNotFoundError, ValueError) as exc:
+            raise HTTPException(status_code=404, detail="Connector not found") from exc
+
     @application.get("/api/runs/{run_id}", response_model=RunRecord)
     async def get_run(run_id: str) -> RunRecord:
         try:
@@ -490,6 +514,32 @@ def create_app(
             return ledger.update_schedule(schedule_id, enabled=True, next_fire_at=next_at)
         except (LedgerNotFoundError, ValueError) as exc:
             raise HTTPException(status_code=404, detail="Schedule not found") from exc
+
+    @application.patch("/api/schedules/{schedule_id}", response_model=Schedule)
+    async def patch_schedule(schedule_id: str, payload: ScheduleUpdate) -> Schedule:
+        changes = payload.model_dump(exclude_unset=True)
+        try:
+            schedule = ledger.get_schedule(schedule_id)
+        except (LedgerNotFoundError, ValueError) as exc:
+            raise HTTPException(status_code=404, detail="Schedule not found") from exc
+        merged = schedule.model_copy(update=changes)
+        if (merged.cron is None) == (merged.run_once_at is None):
+            raise HTTPException(
+                status_code=400, detail="exactly one of cron or run_once_at is required"
+            )
+        if {"cron", "run_once_at", "timezone"} & changes.keys():
+            try:
+                next_at = compute_next_fire(
+                    merged.cron, merged.run_once_at, merged.timezone, utc_now()
+                )
+            except ScheduleValidationError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+            if next_at is None:
+                raise HTTPException(
+                    status_code=400, detail="schedule has no future fire time"
+                )
+            changes["next_fire_at"] = next_at
+        return ledger.update_schedule(schedule_id, **changes)
 
     @application.post(
         "/api/schedules/{schedule_id}/run",

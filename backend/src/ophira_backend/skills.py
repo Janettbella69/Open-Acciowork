@@ -8,11 +8,26 @@ import threading
 from pathlib import Path
 from typing import Literal
 
-from .models import SkillVersion
+from .models import SkillCheck, SkillTestResult, SkillVersion
 
 
 class SkillNotFoundError(KeyError):
     pass
+
+
+SECRET_PATTERNS = (
+    re.compile(r"sk-ant-[A-Za-z0-9_-]{8,}"),
+    re.compile(r"(?i)\bapi[_-]?key\s*[:=]\s*\S{6,}"),
+    re.compile(r"\bAKIA[0-9A-Z]{16}\b"),
+    re.compile(r"\bghp_[A-Za-z0-9]{20,}\b"),
+)
+DANGEROUS_PATTERNS = (
+    re.compile(r"rm\s+-rf\s+[/~]"),
+    re.compile(r"(?i)(curl|wget)[^\n]*\|\s*(ba|z)?sh"),
+    re.compile(r"chmod\s+777"),
+)
+REFERENCE_PATTERN = re.compile(r"references/[A-Za-z0-9._/-]+")
+MAX_SKILL_FILE_BYTES = 200_000
 
 
 class SkillRegistry:
@@ -113,6 +128,97 @@ class SkillRegistry:
             )
             os.replace(temporary, self.state_path)
         return self.get(skill_id)
+
+    def test(self, skill_id: str) -> SkillTestResult:
+        """Deterministic package test (§3.6 'test' entry / §4.7 Review-step scan):
+        frontmatter shape, referenced files, secret and dangerous-command scan,
+        ineffective permission frontmatter, oversized files. No model calls."""
+        skill = self.get(skill_id)
+        skill_dir = Path(skill.path).parent
+        skill_md = Path(skill.path).read_text(encoding="utf-8")
+        header = skill_md.split("---\n", 2)[1] if skill_md.startswith("---\n") else ""
+        checks: list[SkillCheck] = []
+
+        checks.append(
+            SkillCheck(
+                name="frontmatter",
+                status="passed" if skill.version != "0.0.0" else "warning",
+                detail=(
+                    f"name/description present; version {skill.version}"
+                    + ("" if skill.version != "0.0.0" else " (version 缺省)")
+                ),
+            )
+        )
+
+        referenced = sorted(set(REFERENCE_PATTERN.findall(skill_md)))
+        missing_refs = [ref for ref in referenced if not (skill_dir / ref).exists()]
+        checks.append(
+            SkillCheck(
+                name="references",
+                status="failed" if missing_refs else "passed",
+                detail=(
+                    f"missing: {missing_refs}"
+                    if missing_refs
+                    else f"{len(referenced)} referenced file(s) all present"
+                ),
+            )
+        )
+
+        secret_hits: list[str] = []
+        danger_hits: list[str] = []
+        oversized: list[str] = []
+        for file_path in sorted(item for item in skill_dir.rglob("*") if item.is_file()):
+            relative = file_path.relative_to(skill_dir).as_posix()
+            if file_path.stat().st_size > MAX_SKILL_FILE_BYTES:
+                oversized.append(relative)
+            try:
+                content = file_path.read_text(encoding="utf-8")
+            except UnicodeDecodeError:
+                continue
+            if any(pattern.search(content) for pattern in SECRET_PATTERNS):
+                secret_hits.append(relative)
+            if any(pattern.search(content) for pattern in DANGEROUS_PATTERNS):
+                danger_hits.append(relative)
+        checks.append(
+            SkillCheck(
+                name="secret_scan",
+                status="failed" if secret_hits else "passed",
+                detail=f"credential-like content in: {secret_hits}" if secret_hits else "clean",
+            )
+        )
+        checks.append(
+            SkillCheck(
+                name="dangerous_commands",
+                status="failed" if danger_hits else "passed",
+                detail=f"dangerous patterns in: {danger_hits}" if danger_hits else "clean",
+            )
+        )
+        if oversized:
+            checks.append(
+                SkillCheck(
+                    name="file_size",
+                    status="warning",
+                    detail=f"files over {MAX_SKILL_FILE_BYTES} bytes: {oversized}",
+                )
+            )
+
+        if re.search(r"(?im)^allowed-tools\s*:", header):
+            checks.append(
+                SkillCheck(
+                    name="permission_frontmatter",
+                    status="warning",
+                    detail=(
+                        "allowed-tools frontmatter 在 SDK 场景不强制执行；"
+                        "权限一律以运行时 options/回调为准（PRD §4.7）"
+                    ),
+                )
+            )
+
+        return SkillTestResult(
+            skill_id=skill.id,
+            ok=all(check.status != "failed" for check in checks),
+            checks=checks,
+        )
 
     def runtime_selection(self) -> Literal["all"] | list[str]:
         skills = self.list()

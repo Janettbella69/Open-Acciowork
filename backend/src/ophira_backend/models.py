@@ -329,6 +329,33 @@ class ProviderPreflightResult(APIModel):
     checked_at: datetime = Field(default_factory=utc_now)
 
 
+class SkillCheck(APIModel):
+    name: str
+    status: Literal["passed", "warning", "failed"]
+    detail: str = ""
+
+
+class SkillTestResult(APIModel):
+    skill_id: str
+    ok: bool
+    checks: list[SkillCheck] = Field(default_factory=list)
+    checked_at: datetime = Field(default_factory=utc_now)
+
+
+class Connector(APIModel):
+    id: str
+    type: str = Field(min_length=1, max_length=80)
+    display_name: str = Field(min_length=1, max_length=160)
+    scope: str = Field(default="", max_length=400)
+    # Reference to a credential location (env var name); never the credential itself.
+    secret_env: str | None = Field(default=None, max_length=120)
+    endpoint: str | None = Field(default=None, max_length=2_000)
+    enabled: bool = True
+    health: Literal["unknown", "ok", "no_credential", "unreachable"] = "unknown"
+    last_checked_at: datetime | None = None
+    created_at: datetime = Field(default_factory=utc_now)
+
+
 class SkillVersion(APIModel):
     id: str
     namespace: str
@@ -390,6 +417,20 @@ class Schedule(APIModel):
     last_fire_at: datetime | None = None
     last_run_id: str | None = None
     created_at: datetime = Field(default_factory=utc_now)
+
+
+class ScheduleUpdate(APIModel):
+    """PATCH body: only explicitly sent fields change; cron/run_once_at may be
+    cleared with null as long as exactly one trigger remains."""
+
+    prompt: str | None = Field(default=None, min_length=1, max_length=40_000)
+    cron: str | None = Field(default=None, max_length=120)
+    run_once_at: datetime | None = None
+    timezone: str | None = Field(default=None, min_length=1, max_length=64)
+    missed_run_policy: MissedRunPolicy | None = None
+    provider_profile_id: str | None = None
+    mode: RunMode | None = None
+    enabled: bool | None = None
 
 
 class ScheduleCreate(APIModel):
