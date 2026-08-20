@@ -34,6 +34,8 @@ const project: OpportunityProject = {
     sales: emptyAssessment('sales'),
   },
   stage_decisions: [],
+  decisions: [],
+  artifacts: [],
   revision: 1,
   created_at: timestamp,
   updated_at: timestamp,
@@ -44,9 +46,14 @@ const run: RunRecord = {
   trace_id: 'trace_test',
   project_id: project.id,
   prompt: project.objective,
+  mode: 'standard',
+  provider_profile_id: null,
+  provider_snapshot: null,
+  skill_snapshot: [],
   status: 'queued',
   sdk_session_id: null,
   error: null,
+  error_code: null,
   created_at: timestamp,
   started_at: null,
   finished_at: null,
@@ -238,6 +245,7 @@ describe('OPHIRA frontend', () => {
       expect(runPosts).toHaveLength(2)
       expect(JSON.parse(String(runPosts[1][1]?.body))).toEqual({
         prompt: 'Now challenge the strongest assumption.',
+        mode: 'standard',
         resume_session_id: 'session_test',
       })
     })

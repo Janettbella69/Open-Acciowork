@@ -1,33 +1,80 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { SkillVersion } from '../api/types'
 import SkillsPage from './SkillsPage'
 
-describe('SkillsPage', () => {
-  it('searches built-in skills and saves a custom skill draft', () => {
-    const stored = new Map<string, string>()
-    Object.defineProperty(window, 'localStorage', {
-      configurable: true,
-      value: {
-        getItem: (key: string) => stored.get(key) ?? null,
-        setItem: (key: string, value: string) => stored.set(key, value),
-      },
-    })
+function skill(name: string, description: string, enabled = true): SkillVersion {
+  return {
+    id: `ophira-core:${name}`,
+    namespace: 'ophira-core',
+    name,
+    description,
+    version: '1.0.0',
+    content_hash: 'a'.repeat(64),
+    source: 'application',
+    enabled,
+    path: `/plugin/skills/${name}/SKILL.md`,
+  }
+}
 
+const skills = [
+  skill('global-opportunity-execution', 'Run a sourced global opportunity study.'),
+  skill('supplier-due-diligence', 'Assess supplier capability and risk.'),
+  skill('landed-cost-analysis', 'Deterministic landed cost method.'),
+  skill('customer-path', 'Find customer segments and contact paths.'),
+]
+
+function jsonResponse(body: unknown, status = 200): Response {
+  return { ok: status < 300, status, json: async () => body } as Response
+}
+
+describe('SkillsPage', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input)
+      if (url.endsWith('/api/skills') && !init?.method) return jsonResponse(skills)
+      if (url.includes('/enable?enabled=false') && init?.method === 'POST') {
+        return jsonResponse({ ...skills[1], enabled: false })
+      }
+      throw new Error(`Unexpected request: ${init?.method ?? 'GET'} ${url}`)
+    }))
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  it('renders the versioned plugin skills discovered by the backend', async () => {
     render(<SkillsPage />)
+
+    expect(
+      await screen.findByRole('heading', { level: 2, name: /global opportunity execution/i }),
+    ).toBeInTheDocument()
+    expect(screen.getByText(/ophira-core:global-opportunity-execution/i)).toBeInTheDocument()
+    expect(screen.getAllByRole('article')).toHaveLength(4)
 
     const search = screen.getByRole('searchbox', { name: /search skills/i })
     fireEvent.change(search, { target: { value: 'supplier' } })
-    expect(screen.getByRole('heading', { name: /supplier capability map/i })).toBeInTheDocument()
-    expect(screen.queryByRole('heading', { name: /market signal radar/i })).not.toBeInTheDocument()
+    expect(screen.getAllByRole('article')).toHaveLength(1)
+    expect(screen.getByRole('heading', { name: /supplier due diligence/i })).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: /new skill/i }))
-    expect(screen.getByRole('dialog', { name: /create a skill/i })).toBeInTheDocument()
+    fireEvent.change(search, { target: { value: 'nothing-matches-this' } })
+    expect(screen.getByText(/no skills match this search/i)).toBeInTheDocument()
+  })
 
-    fireEvent.change(screen.getByRole('textbox', { name: /skill name/i }), { target: { value: 'Channel Review' } })
-    fireEvent.change(screen.getByRole('textbox', { name: /instructions/i }), { target: { value: 'Review channel readiness, evidence gaps, and the next approved test.' } })
-    fireEvent.click(screen.getByRole('button', { name: /save skill/i }))
+  it('toggles a skill through the backend enable endpoint', async () => {
+    render(<SkillsPage />)
+    await screen.findByRole('heading', { name: /supplier due diligence/i })
 
-    expect(screen.getByRole('heading', { name: /channel review/i })).toBeInTheDocument()
-    expect(stored.get('ophira-custom-skill-drafts')).toContain('Channel Review')
-    expect(screen.getByRole('button', { name: /yours/i })).toHaveAttribute('data-active', 'true')
+    const card = screen.getByRole('heading', { name: /supplier due diligence/i }).closest('article')!
+    fireEvent.click(within(card).getByRole('button', { name: /disable/i }))
+
+    await waitFor(() => {
+      expect(within(card).getByRole('button', { name: /enable/i })).toBeInTheDocument()
+    })
+    const calls = vi.mocked(fetch).mock.calls.map(([request]) => String(request))
+    expect(calls.some((url) => url.includes(
+      `/api/skills/${encodeURIComponent('ophira-core:supplier-due-diligence')}/enable?enabled=false`,
+    ))).toBe(true)
   })
 })
