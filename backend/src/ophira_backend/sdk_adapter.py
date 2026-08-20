@@ -31,7 +31,9 @@ from .agent_core import MAX_MEMORY_ITEMS, assemble_default_prompt, assemble_syst
 from .agents import build_deep_research_agents
 from .config import Settings
 from .constants import (
+    AUTOMATION_MCP_SERVER_NAME,
     DELEGATION_TOOL,
+    ENVELOPE_APPROVED_MCP_TOOL_NAMES,
     READ_ONLY_BUILTIN_TOOLS,
     READ_ONLY_MCP_TOOL_NAMES,
     USER_SCOPE_ID,
@@ -93,6 +95,8 @@ class ClaudeAgentRuntime:
         memory: MemoryProvider | None = None,
         providers: ProviderRegistry | None = None,
         skills: SkillRegistry | None = None,
+        intents=None,
+        notifications=None,
     ) -> None:
         self.settings = settings
         self.ledger = ledger
@@ -104,6 +108,8 @@ class ClaudeAgentRuntime:
             settings.capability_plugin_dir,
             settings.data_dir / "skills",
         )
+        self.intents = intents
+        self.notifications = notifications
         self._clients: dict[str, ClaudeSDKClient] = {}
         self._clients_lock = asyncio.Lock()
 
@@ -355,9 +361,33 @@ class ClaudeAgentRuntime:
             budget_scale = profile.budget_scale
         elif agent and agent.model:
             model = agent.model
+        mcp_servers = build_mcp_servers(
+            self.ledger,
+            run.project_id,
+            memory=self.memory,
+            agent_id=run.agent_id,
+            settings=self.settings,
+        )
+        if self.intents is not None and self.notifications is not None:
+            from .automation_tools import build_automation_mcp_server
+
+            mcp_servers[AUTOMATION_MCP_SERVER_NAME] = build_automation_mcp_server(
+                self.ledger,
+                self.intents,
+                self.notifications,
+                run.project_id,
+                run_id=run.id,
+                schedule_id=run.schedule_id,
+            )
         return ClaudeAgentOptions(
             tools={"type": "preset", "preset": "claude_code"},
-            allowed_tools=[*READ_ONLY_BUILTIN_TOOLS, *READ_ONLY_MCP_TOOL_NAMES],
+            allowed_tools=[
+                *READ_ONLY_BUILTIN_TOOLS,
+                *READ_ONLY_MCP_TOOL_NAMES,
+                # Envelope-approved automation tools (§4.10): inbox delivery and
+                # throttled intent firing work unattended inside scheduled runs.
+                *ENVELOPE_APPROVED_MCP_TOOL_NAMES,
+            ],
             disallowed_tools=[] if deep_research else [DELEGATION_TOOL],
             system_prompt={
                 "type": "preset",
@@ -366,13 +396,7 @@ class ClaudeAgentRuntime:
             },
             plugins=[{"type": "local", "path": str(self.settings.capability_plugin_dir)}],
             skills=self.skills.runtime_selection(),
-            mcp_servers=build_mcp_servers(
-                self.ledger,
-                run.project_id,
-                memory=self.memory,
-                agent_id=run.agent_id,
-                settings=self.settings,
-            ),
+            mcp_servers=mcp_servers,
             strict_mcp_config=True,
             permission_mode="default",
             can_use_tool=can_use_tool,

@@ -21,12 +21,21 @@ from ophira_backend.storage import FileLedger
 
 
 def build_runtime(tmp_path: Path):
+    from ophira_backend.automation import IntentStore, NotificationStore
+
     ledger = FileLedger(tmp_path)
     project = ledger.create_project(ProjectCreate(name="Kettle", objective="Validate"))
     run = ledger.create_run(project.id, "Start")
     events = EventPublisher(ledger)
     permissions = PermissionBroker(ledger, events, timeout_seconds=30)
-    runtime = ClaudeAgentRuntime(Settings(data_dir=tmp_path), ledger, events, permissions)
+    runtime = ClaudeAgentRuntime(
+        Settings(data_dir=tmp_path),
+        ledger,
+        events,
+        permissions,
+        intents=IntentStore(tmp_path / "intents"),
+        notifications=NotificationStore(tmp_path / "notifications"),
+    )
     return ledger, run, runtime
 
 
@@ -58,7 +67,12 @@ def test_default_sdk_options_keep_the_agent_general_and_observable(tmp_path: Pat
         "ophira_customer",
         "ophira_commerce_math",
         "ophira_web",
+        "ophira_automation",
     }
+    # Envelope-approved automation tools run unattended; commitments still ask.
+    assert "mcp__ophira_automation__send_notification" in options.allowed_tools
+    assert "mcp__ophira_automation__trigger_standing_intent" in options.allowed_tools
+    assert "mcp__ophira_automation__create_schedule" not in options.allowed_tools
     assert set(options.hooks or {}) >= {
         "PreToolUse",
         "PostToolUse",

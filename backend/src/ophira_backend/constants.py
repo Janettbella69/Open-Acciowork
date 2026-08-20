@@ -188,6 +188,7 @@ SUPPLIER_MCP_SERVER_NAME = "ophira_supplier"
 CUSTOMER_MCP_SERVER_NAME = "ophira_customer"
 COMMERCE_MATH_MCP_SERVER_NAME = "ophira_commerce_math"
 WEB_MCP_SERVER_NAME = "ophira_web"
+AUTOMATION_MCP_SERVER_NAME = "ophira_automation"
 
 TOOL_GET_PROJECT_CONTEXT = "mcp__ophira_ledger__read_project_context"
 TOOL_SEARCH_EVIDENCE = "mcp__ophira_ledger__search_evidence"
@@ -242,11 +243,38 @@ WEB_TOOL_NAMES = [
     TOOL_FETCH_PAGE_SNAPSHOT,
 ]
 
+TOOL_CREATE_SCHEDULE = "mcp__ophira_automation__create_schedule"
+TOOL_PAUSE_SCHEDULE = "mcp__ophira_automation__pause_schedule"
+TOOL_CREATE_STANDING_INTENT = "mcp__ophira_automation__create_standing_intent"
+TOOL_LIST_STANDING_INTENTS = "mcp__ophira_automation__list_standing_intents"
+TOOL_TRIGGER_STANDING_INTENT = "mcp__ophira_automation__trigger_standing_intent"
+TOOL_SEND_NOTIFICATION = "mcp__ophira_automation__send_notification"
+
+AUTOMATION_TOOL_NAMES = [
+    TOOL_CREATE_SCHEDULE,
+    TOOL_PAUSE_SCHEDULE,
+    TOOL_CREATE_STANDING_INTENT,
+    TOOL_LIST_STANDING_INTENTS,
+    TOOL_TRIGGER_STANDING_INTENT,
+    TOOL_SEND_NOTIFICATION,
+]
+
+# §4.10 envelope principle: inbox delivery and budget-throttled intent firing are
+# inside an already user-approved run envelope, so unattended scheduled runs can
+# deliver results. Cross-envelope commitments (create/pause schedule, create
+# intent) still go through the ask flow.
+ENVELOPE_APPROVED_MCP_TOOL_NAMES = [
+    TOOL_LIST_STANDING_INTENTS,
+    TOOL_TRIGGER_STANDING_INTENT,
+    TOOL_SEND_NOTIFICATION,
+]
+
 OPHIRA_TOOL_NAMES = [
     *LEDGER_TOOL_NAMES,
     *MEMORY_TOOL_NAMES,
     *DOMAIN_TOOL_NAMES,
     *WEB_TOOL_NAMES,
+    *AUTOMATION_TOOL_NAMES,
 ]
 
 READ_ONLY_MCP_TOOL_NAMES = [

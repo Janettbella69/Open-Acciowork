@@ -28,6 +28,7 @@ class RunManager:
         runtime: AgentRuntime,
         providers: ProviderRegistry | None = None,
         skills: SkillRegistry | None = None,
+        notifications=None,
     ) -> None:
         self.ledger = ledger
         self.events = events
@@ -35,6 +36,7 @@ class RunManager:
         self.runtime = runtime
         self.providers = providers
         self.skills = skills
+        self.notifications = notifications
         self._tasks: dict[str, asyncio.Task[None]] = {}
 
     async def create_and_start(
@@ -125,6 +127,7 @@ class RunManager:
             )
             await self._capture_artifacts(run_id)
             self._write_diary(run_id, RunStatus.FAILED, safe_error)
+            self._notify_schedule_failure(run_id, safe_error, error_code)
             return
         self.ledger.update_run(
             run_id,
@@ -178,6 +181,27 @@ class RunManager:
         except Exception:
             # Diary is an audit aid; it must never break the run lifecycle.
             pass
+
+    def _notify_schedule_failure(self, run_id: str, error: str, error_code) -> None:
+        """FR-15: failures and expired credentials of unattended runs must be visible."""
+        if self.notifications is None:
+            return
+        try:
+            run = self.ledger.get_run(run_id)
+            if not run.schedule_id:
+                return
+            code = getattr(error_code, "value", str(error_code) if error_code else "")
+            self.notifications.add(
+                title=f"定时任务运行失败{f'：{code}' if code else ''}",
+                body=error[:1_000],
+                severity="error",
+                project_id=run.project_id,
+                run_id=run.id,
+                schedule_id=run.schedule_id,
+            )
+        except Exception:
+            # Inbox delivery must never break the run lifecycle.
+            return
 
     async def cancel(self, run_id: str) -> RunRecord:
         run = self.ledger.get_run(run_id)

@@ -12,6 +12,12 @@ from fastapi.responses import FileResponse
 from sse_starlette.sse import EventSourceResponse
 
 from .agent_core import create_agent_core
+from .automation import (
+    IntentNotFoundError,
+    IntentStore,
+    NotificationNotFoundError,
+    NotificationStore,
+)
 from .config import Settings, get_settings
 from .connectors import ConnectorNotFoundError, ConnectorRegistry
 from .constants import (
@@ -45,6 +51,7 @@ from .models import (
     MemoryDecision,
     MemoryItem,
     MemoryRollback,
+    Notification,
     OpportunityProject,
     PermissionResolution,
     ProjectCreate,
@@ -58,6 +65,8 @@ from .models import (
     ScheduleUpdate,
     SkillTestResult,
     SkillVersion,
+    StandingIntent,
+    StandingIntentCreate,
     utc_now,
 )
 from .permissions import PermissionBroker, PermissionNotFoundError
@@ -88,6 +97,8 @@ def create_app(
     )
     providers = ProviderRegistry(settings)
     skills = SkillRegistry(settings.capability_plugin_dir, settings.data_dir / "skills")
+    notifications = NotificationStore(settings.data_dir / "notifications")
+    intents = IntentStore(settings.data_dir / "intents")
     runtime = runtime or ClaudeAgentRuntime(
         settings,
         ledger,
@@ -96,6 +107,8 @@ def create_app(
         memory,
         providers=providers,
         skills=skills,
+        intents=intents,
+        notifications=notifications,
     )
     runs = RunManager(
         ledger,
@@ -104,6 +117,7 @@ def create_app(
         runtime,
         providers=providers,
         skills=skills,
+        notifications=notifications,
     )
     scheduler = ScheduleService(ledger, runs, events)
     connectors = ConnectorRegistry(settings.data_dir / "connectors")
@@ -127,6 +141,8 @@ def create_app(
     application.state.runs = runs
     application.state.scheduler = scheduler
     application.state.connectors = connectors
+    application.state.notifications = notifications
+    application.state.intents = intents
     application.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,
@@ -514,6 +530,54 @@ def create_app(
             return ledger.update_schedule(schedule_id, enabled=True, next_fire_at=next_at)
         except (LedgerNotFoundError, ValueError) as exc:
             raise HTTPException(status_code=404, detail="Schedule not found") from exc
+
+    @application.get("/api/notifications", response_model=list[Notification])
+    async def list_notifications(
+        unread: bool = False,
+        limit: Annotated[int, Query(ge=1, le=500)] = 100,
+    ) -> list[Notification]:
+        return notifications.list(unread_only=unread, limit=limit)
+
+    @application.post("/api/notifications/{notification_id}/read", response_model=Notification)
+    async def read_notification(notification_id: str) -> Notification:
+        try:
+            return notifications.mark_read(notification_id)
+        except (NotificationNotFoundError, ValueError) as exc:
+            raise HTTPException(status_code=404, detail="Notification not found") from exc
+
+    @application.post("/api/notifications/read-all")
+    async def read_all_notifications() -> dict[str, int]:
+        return {"marked": notifications.mark_all_read()}
+
+    @application.get("/api/intents", response_model=list[StandingIntent])
+    async def list_intents(project_id: str | None = None) -> list[StandingIntent]:
+        return intents.list(project_id=project_id)
+
+    @application.post(
+        "/api/intents",
+        response_model=StandingIntent,
+        status_code=status.HTTP_201_CREATED,
+    )
+    async def create_intent(payload: StandingIntentCreate) -> StandingIntent:
+        try:
+            ledger.get_project(payload.project_id)
+        except (LedgerNotFoundError, ValueError) as exc:
+            raise HTTPException(status_code=404, detail="Project not found") from exc
+        return intents.create(payload)
+
+    @application.post("/api/intents/{intent_id}/pause", response_model=StandingIntent)
+    async def pause_intent(intent_id: str) -> StandingIntent:
+        try:
+            return intents.set_enabled(intent_id, False)
+        except (IntentNotFoundError, ValueError) as exc:
+            raise HTTPException(status_code=404, detail="Intent not found") from exc
+
+    @application.post("/api/intents/{intent_id}/resume", response_model=StandingIntent)
+    async def resume_intent(intent_id: str) -> StandingIntent:
+        try:
+            return intents.set_enabled(intent_id, True)
+        except (IntentNotFoundError, ValueError) as exc:
+            raise HTTPException(status_code=404, detail="Intent not found") from exc
 
     @application.patch("/api/schedules/{schedule_id}", response_model=Schedule)
     async def patch_schedule(schedule_id: str, payload: ScheduleUpdate) -> Schedule:
