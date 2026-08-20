@@ -76,6 +76,10 @@ class Settings(BaseSettings):
         validation_alias="CLAUDE_CODE_MAX_CONTEXT_TOKENS",
     )
     permission_timeout_seconds: int = Field(default=300, ge=10, le=3_600)
+    # A bad credential can make the SDK hang instead of failing fast (observed with
+    # DeepSeek + an invalid token in the 2026-08-20 contract run); preflight must
+    # always come back with an actionable diagnosis (FR-06).
+    preflight_timeout_seconds: int = Field(default=120, ge=10, le=1_800)
     max_turns: int = Field(default=40, ge=1, le=500)
     max_budget_usd: float = Field(default=10, gt=0, le=1_000)
 

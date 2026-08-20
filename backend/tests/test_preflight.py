@@ -198,3 +198,34 @@ async def test_preflight_classifies_connection_failures(tmp_path: Path) -> None:
     assert result.ok is False
     assert result.error_code == ProviderErrorCode.BASE_URL_UNREACHABLE
     assert providers.get("deepseek").last_error_code == ProviderErrorCode.BASE_URL_UNREACHABLE
+
+
+@pytest.mark.asyncio
+async def test_preflight_times_out_with_actionable_diagnosis_when_sdk_hangs(
+    tmp_path: Path,
+) -> None:
+    """Observed live (DeepSeek + invalid token): the SDK hangs instead of failing fast.
+    FR-06 requires preflight to come back bounded with an actionable message."""
+    runtime, providers = build_runtime(tmp_path)
+    runtime.settings = runtime.settings.model_copy(update={"preflight_timeout_seconds": 1})
+
+    class HangingClient(FakeSDKClient):
+        async def receive_response(self):
+            import asyncio
+
+            await asyncio.sleep(3600)
+            yield None  # pragma: no cover
+
+    import ophira_backend.sdk_adapter as adapter
+
+    original = adapter.ClaudeSDKClient
+    adapter.ClaudeSDKClient = HangingClient
+    try:
+        result = await runtime.preflight("deepseek")
+    finally:
+        adapter.ClaudeSDKClient = original
+
+    assert result.ok is False
+    assert result.error_code == ProviderErrorCode.SDK_RUNTIME_FAILED
+    assert "未完成" in result.message
+    assert providers.get("deepseek").last_error_code == ProviderErrorCode.SDK_RUNTIME_FAILED

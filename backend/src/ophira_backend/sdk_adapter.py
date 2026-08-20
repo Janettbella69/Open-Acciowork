@@ -181,7 +181,9 @@ class ClaudeAgentRuntime:
         sdk_session_id: str | None = None
         health_called = False
         result_error: str | None = None
-        try:
+
+        async def exercise_sdk() -> None:
+            nonlocal sdk_session_id, discovered_skills, health_called, result_error
             async with ClaudeSDKClient(options=options) as client:
                 await client.query(
                     "调用 ophira_preflight health 工具，然后只回复 OPHIRA_PREFLIGHT_OK。"
@@ -200,6 +202,20 @@ class ClaudeAgentRuntime:
                         if message.is_error:
                             details = message.errors or [message.result or message.subtype]
                             result_error = "; ".join(details)
+
+        try:
+            try:
+                # A bad credential can hang the SDK instead of failing fast (observed
+                # live against DeepSeek); FR-06 requires a bounded, actionable answer.
+                await asyncio.wait_for(
+                    exercise_sdk(), timeout=self.settings.preflight_timeout_seconds
+                )
+            except TimeoutError as exc:
+                raise ProviderConfigurationError(
+                    f"预检在 {self.settings.preflight_timeout_seconds} 秒内未完成，已中止。"
+                    "常见原因：凭据无效导致端点反复重试、网络不通或端点异常。",
+                    ProviderErrorCode.SDK_RUNTIME_FAILED,
+                ) from exc
             expected_skill = "ophira-core:global-opportunity-execution"
             if result_error:
                 raise AgentRunError(result_error)
