@@ -428,12 +428,25 @@ class ClaudeAgentRuntime:
                                 ),
                             }
                         }
-                if tool_name == "Bash" and tool_input.get("dangerouslyDisableSandbox"):
+                if tool_name == "Bash":
+                    if tool_input.get("dangerouslyDisableSandbox"):
+                        return {
+                            "hookSpecificOutput": {
+                                "hookEventName": "PreToolUse",
+                                "permissionDecision": "deny",
+                                "permissionDecisionReason": "Unsandboxed commands are disabled.",
+                            }
+                        }
+                    # Sandboxed Bash is otherwise auto-approved ahead of can_use_tool.
+                    # PRD §4.10 requires Bash to ask by default, so force the ask here;
+                    # the request then flows through can_use_tool -> PermissionBroker.
                     return {
                         "hookSpecificOutput": {
                             "hookEventName": "PreToolUse",
-                            "permissionDecision": "deny",
-                            "permissionDecisionReason": "Unsandboxed commands are disabled.",
+                            "permissionDecision": "ask",
+                            "permissionDecisionReason": (
+                                "OPHIRA policy: Bash always asks (never cached per run)."
+                            ),
                         }
                     }
             elif event_name == "PostToolUse":

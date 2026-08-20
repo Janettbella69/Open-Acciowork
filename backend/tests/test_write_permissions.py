@@ -124,3 +124,49 @@ async def test_bash_is_never_reused_for_run_scope(tmp_path: Path) -> None:
 
     await request_and_resolve("Bash")
     assert "Bash" not in permissions._run_allowed_tools[run.id]
+
+
+@pytest.mark.asyncio
+async def test_pre_tool_hook_forces_bash_to_ask_instead_of_sandbox_auto_allow(
+    tmp_path: Path,
+) -> None:
+    """Sandboxed Bash is auto-approved by the SDK ahead of can_use_tool; the PreToolUse
+    hook must force an ask so the PermissionBroker stays in the loop (PRD §4.10)."""
+    ledger, _permissions, runtime = build_runtime(tmp_path)
+    project = ledger.create_project(ProjectCreate(name="Kettle", objective="Validate"))
+    run = ledger.create_run(project.id, "Start")
+    workspace = ledger.workspace_for_project(project.id)
+    hook = runtime._hook(run.id, workspace)
+
+    plain = await hook(
+        {
+            "hook_event_name": "PreToolUse",
+            "tool_name": "Bash",
+            "tool_input": {"command": "wc -l uploads/quotes.csv"},
+        },
+        None,
+        None,
+    )
+    assert plain["hookSpecificOutput"]["permissionDecision"] == "ask"
+
+    unsandboxed = await hook(
+        {
+            "hook_event_name": "PreToolUse",
+            "tool_name": "Bash",
+            "tool_input": {"command": "rm -rf /", "dangerouslyDisableSandbox": True},
+        },
+        None,
+        None,
+    )
+    assert unsandboxed["hookSpecificOutput"]["permissionDecision"] == "deny"
+
+    read = await hook(
+        {
+            "hook_event_name": "PreToolUse",
+            "tool_name": "Read",
+            "tool_input": {"file_path": "uploads/quotes.csv"},
+        },
+        None,
+        None,
+    )
+    assert read == {}
