@@ -231,6 +231,12 @@ class ProviderRegistry:
         }
         for name, value in mappings.items():
             env[name] = value or profile.model
+        if profile.capabilities.context_window_tokens:
+            # The SDK guesses 200K for unknown third-party models; pin the real window
+            # so auto-compaction does not fire at a fraction of actual capacity.
+            env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] = str(
+                profile.capabilities.context_window_tokens
+            )
         return env
 
 

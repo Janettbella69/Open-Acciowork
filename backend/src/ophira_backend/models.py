@@ -259,6 +259,7 @@ class ProviderCapabilities(APIModel):
     prompt_caching: bool = False
     extended_thinking: bool = False
     tool_search: bool = False
+    context_window_tokens: int | None = Field(default=None, ge=1)
 
 
 class ProviderProfile(APIModel):
@@ -275,6 +276,9 @@ class ProviderProfile(APIModel):
     production_eligible: bool = False
     terms_checked_at: datetime | None = None
     capabilities: ProviderCapabilities = Field(default_factory=ProviderCapabilities)
+    # The SDK prices every run at Anthropic list prices; for third-party endpoints the
+    # operator sets this multiplier so max_budget_usd is enforced against real spend.
+    budget_scale: float = Field(default=1.0, gt=0, le=10_000)
     compatibility_suite_version: str = "1.0"
     enabled: bool = True
     secret_configured: bool = False
@@ -297,6 +301,7 @@ class ProviderProfileUpsert(APIModel):
     production_eligible: bool = False
     terms_checked_at: datetime | None = None
     capabilities: ProviderCapabilities = Field(default_factory=ProviderCapabilities)
+    budget_scale: float = Field(default=1.0, gt=0, le=10_000)
 
 
 class ProviderPreflightResult(APIModel):

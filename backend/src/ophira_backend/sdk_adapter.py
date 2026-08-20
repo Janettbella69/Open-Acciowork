@@ -332,8 +332,11 @@ class ClaudeAgentRuntime:
             "SubagentStop": [HookMatcher(hooks=[self._hook(run.id, workspace)])],
         }
         model = self.settings.claude_model
+        budget_scale = 1.0
         if run.provider_profile_id:
-            model = self.providers.get(run.provider_profile_id).model
+            profile = self.providers.get(run.provider_profile_id)
+            model = profile.model
+            budget_scale = profile.budget_scale
         elif agent and agent.model:
             model = agent.model
         return ClaudeAgentOptions(
@@ -362,7 +365,7 @@ class ClaudeAgentRuntime:
             agents=build_deep_research_agents() if deep_research else None,
             model=model,
             max_turns=self.settings.max_turns,
-            max_budget_usd=self.settings.max_budget_usd,
+            max_budget_usd=self.settings.max_budget_usd * budget_scale,
             cwd=workspace,
             env=self._provider_env(run),
             setting_sources=[],
@@ -563,6 +566,7 @@ class ClaudeAgentRuntime:
                     "duration_api_ms": message.duration_api_ms,
                     "num_turns": message.num_turns,
                     "total_cost_usd": message.total_cost_usd,
+                    "cost_basis": "sdk_anthropic_list_price",
                     "usage": message.usage,
                     "model_usage": message.model_usage,
                     "permission_denials": message.permission_denials,

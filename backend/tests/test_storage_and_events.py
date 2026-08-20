@@ -66,6 +66,17 @@ def test_redact_bounds_unknown_values_and_secrets() -> None:
     assert "sk-ant-sensitive" not in redact("key=sk-ant-sensitive")
 
 
+def test_redact_keeps_numeric_usage_counters() -> None:
+    usage = {
+        "input_tokens": 1_200,
+        "output_tokens": 340,
+        "cache_read_input_tokens": 0,
+        "cache_creation_input_tokens": 57,
+    }
+    assert redact({"usage": usage})["usage"] == usage
+    assert redact({"auth_token": "secret-value"})["auth_token"] == "[REDACTED]"
+
+
 @pytest.mark.asyncio
 async def test_terminal_stream_replays_then_closes(tmp_path: Path) -> None:
     ledger = FileLedger(tmp_path)

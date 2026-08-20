@@ -1,13 +1,21 @@
 from pathlib import Path
 
 import pytest
-from claude_agent_sdk import AssistantMessage, StreamEvent, TextBlock, ThinkingBlock, ToolUseBlock
+from claude_agent_sdk import (
+    AssistantMessage,
+    ResultMessage,
+    StreamEvent,
+    TextBlock,
+    ThinkingBlock,
+    ToolUseBlock,
+)
 
 from ophira_backend.config import Settings
 from ophira_backend.constants import EventType
 from ophira_backend.events import EventPublisher
-from ophira_backend.models import ProjectCreate
+from ophira_backend.models import ProjectCreate, ProviderProfileUpsert
 from ophira_backend.permissions import PermissionBroker
+from ophira_backend.providers import ProviderRegistry
 from ophira_backend.sdk_adapter import ClaudeAgentRuntime
 from ophira_backend.storage import FileLedger
 
@@ -114,6 +122,63 @@ def test_sdk_uses_anthropic_compatible_gateway_configuration(tmp_path: Path) -> 
         "CLAUDE_CODE_SUBAGENT_MODEL": "glm-5.2[1m]",
     }
     assert ledger.list_events(run.id) == []
+
+
+def test_profile_budget_scale_compensates_sdk_list_price_accounting(tmp_path: Path) -> None:
+    ledger = FileLedger(tmp_path)
+    project = ledger.create_project(ProjectCreate(name="Kettle", objective="Validate"))
+    events = EventPublisher(ledger)
+    permissions = PermissionBroker(ledger, events, timeout_seconds=30)
+    settings = Settings(data_dir=tmp_path)
+    providers = ProviderRegistry(settings)
+    providers.upsert(
+        "deepseek",
+        ProviderProfileUpsert(
+            display_name="DeepSeek",
+            base_url="https://api.deepseek.com/anthropic",
+            auth_env_name="ANTHROPIC_AUTH_TOKEN",
+            model="deepseek-v4-pro",
+            secret="test-credential",
+            budget_scale=8.0,
+        ),
+    )
+    runtime = ClaudeAgentRuntime(
+        settings, ledger, events, permissions, providers=providers
+    )
+
+    scaled = ledger.create_run(project.id, "Start", provider_profile_id="deepseek")
+    assert runtime._build_options(scaled).max_budget_usd == pytest.approx(
+        settings.max_budget_usd * 8.0
+    )
+
+    unscaled = ledger.create_run(project.id, "Start")
+    assert runtime._build_options(unscaled).max_budget_usd == pytest.approx(
+        settings.max_budget_usd
+    )
+
+
+@pytest.mark.asyncio
+async def test_run_result_cost_is_labeled_with_its_pricing_basis(tmp_path: Path) -> None:
+    ledger, run, runtime = build_runtime(tmp_path)
+    await runtime._map_message(
+        run.id,
+        ResultMessage(
+            subtype="success",
+            duration_ms=1_000,
+            duration_api_ms=900,
+            is_error=False,
+            num_turns=3,
+            session_id="s1",
+            total_cost_usd=0.171,
+            usage={"input_tokens": 1_200, "output_tokens": 340},
+        ),
+    )
+
+    result_event = ledger.list_events(run.id)[-1]
+    assert result_event.type == EventType.RUN_RESULT.value
+    assert result_event.data["total_cost_usd"] == 0.171
+    assert result_event.data["cost_basis"] == "sdk_anthropic_list_price"
+    assert result_event.data["usage"]["input_tokens"] == 1_200
 
 
 @pytest.mark.asyncio

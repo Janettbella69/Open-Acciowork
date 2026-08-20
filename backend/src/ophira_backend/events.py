@@ -47,13 +47,14 @@ def _redact_text(value: str) -> str:
 
 def redact(value: Any, *, key: str = "", depth: int = 0) -> Any:
     """Convert arbitrary SDK values to bounded JSON-safe data and redact secrets."""
+    # Numbers are never credentials; keys like "input_tokens" must keep their counters.
+    if value is None or isinstance(value, bool | int | float):
+        return value
     normalized_key = key.lower().replace("-", "_")
     if any(fragment in normalized_key for fragment in SECRET_KEY_FRAGMENTS):
         return "[REDACTED]"
     if depth >= MAX_EVENT_DEPTH:
         return "[TRUNCATED: maximum event depth]"
-    if value is None or isinstance(value, bool | int | float):
-        return value
     if isinstance(value, str):
         value = _redact_text(value)
         if len(value) <= MAX_EVENT_STRING_LENGTH:
