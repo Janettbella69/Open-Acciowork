@@ -1,0 +1,43 @@
+{
+  "provider": "deepseek",
+  "generated_at": "2026-08-21T02:50:23.611488+00:00",
+  "all_passed": true,
+  "results": [
+    {
+      "task": "a1-demand-entry",
+      "passed": true,
+      "verdict_missing": [],
+      "task_missing": [],
+      "cost_usd_list_price": 0.41939599999999994,
+      "num_turns": 8,
+      "run_id": "run_ead0306b633c4430a3c515f4db2dfbb5"
+    },
+    {
+      "task": "a2-supply-entry",
+      "passed": true,
+      "verdict_missing": [],
+      "task_missing": [],
+      "cost_usd_list_price": 0.727152,
+      "num_turns": 12,
+      "run_id": "run_229c862eaa0f4237bba856135f848ee0"
+    },
+    {
+      "task": "b-product-validation",
+      "passed": true,
+      "verdict_missing": [],
+      "task_missing": [],
+      "cost_usd_list_price": 0.994941,
+      "num_turns": 17,
+      "run_id": "run_acc5834ec2dc41cfbffd7914d80a1287"
+    },
+    {
+      "task": "c-supplier-inquiry",
+      "passed": true,
+      "verdict_missing": [],
+      "task_missing": [],
+      "cost_usd_list_price": 0.489337,
+      "num_turns": 9,
+      "run_id": "run_fb27579fdbcf485ba755e2f5017dd684"
+    }
+  ]
+}

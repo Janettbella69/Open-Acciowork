@@ -1,0 +1,67 @@
+{
+  "generated_at": "2026-08-21T02:38:19.408174+00:00",
+  "run": {
+    "id": "run_ead0306b633c4430a3c515f4db2dfbb5",
+    "trace_id": "trace_b60aaa469be9407e8f68a34cc7912855",
+    "project_id": "project_c26ffee967a84097aff947ebffebcc27",
+    "status": "completed",
+    "mode": "standard",
+    "provider_profile_id": "deepseek",
+    "sdk_session_id": "b0ee7d35-781b-4658-810c-ce884e3edabb",
+    "error": null,
+    "error_code": null,
+    "created_at": "2026-08-21T02:36:27.798411Z",
+    "finished_at": "2026-08-21T02:38:18.826387Z"
+  },
+  "verdict": {
+    "tool_coverage": {
+      "read": true,
+      "web": false,
+      "skill": false,
+      "mcp": true,
+      "bash": false,
+      "write": true,
+      "edit": false
+    },
+    "web_degraded": false,
+    "subagent_events": 0,
+    "permission_requests": 4,
+    "permission_flow_ok": true,
+    "deny_then_continue_ok": false,
+    "sequence_contiguous": true,
+    "run_completed": true,
+    "result_is_error": false,
+    "served_models": [
+      "deepseek-v4-pro"
+    ],
+    "total_cost_usd": 0.41939599999999994,
+    "num_turns": 8,
+    "missing": []
+  },
+  "project_missing": [],
+  "event_count": 6805,
+  "event_type_counts": {
+    "run.created": 1,
+    "run.started": 1,
+    "sdk.system": 8,
+    "assistant.message.started": 7,
+    "assistant.reasoning_summary.delta": 3550,
+    "assistant.reasoning_summary.completed": 7,
+    "assistant.text.delta": 528,
+    "assistant.message.completed": 7,
+    "tool.input.delta": 2656,
+    "tool.planned": 7,
+    "tool.started": 7,
+    "tool.completed": 7,
+    "run.status": 8,
+    "permission.requested": 4,
+    "permission.resolved": 4,
+    "run.result": 1,
+    "run.completed": 1,
+    "artifact.registered": 1
+  },
+  "notes": {
+    "scenario": "A",
+    "minimum_pass": "- 至少一条假设入账（record_hypothesis），验证标准可执行。\n- 信号证据标为 community_signal/user_statement 而非 observed_fact；时效局限写明。\n- 简报包含明确未知项与下一步验证动作，不出现无来源的具体销量/排名数字。\n"
+  }
+}

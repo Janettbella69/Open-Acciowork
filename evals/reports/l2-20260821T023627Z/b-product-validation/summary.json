@@ -1,0 +1,68 @@
+{
+  "generated_at": "2026-08-21T02:47:49.506564+00:00",
+  "run": {
+    "id": "run_acc5834ec2dc41cfbffd7914d80a1287",
+    "trace_id": "trace_a5070a4067e24a689a1923fbd76ab623",
+    "project_id": "project_d5ddf931c59847418516bf05829fc1a6",
+    "status": "completed",
+    "mode": "standard",
+    "provider_profile_id": "deepseek",
+    "sdk_session_id": "bdc45772-7469-417c-b09f-0159b830f34c",
+    "error": null,
+    "error_code": null,
+    "created_at": "2026-08-21T02:42:22.856686Z",
+    "finished_at": "2026-08-21T02:47:48.920923Z"
+  },
+  "verdict": {
+    "tool_coverage": {
+      "read": true,
+      "web": false,
+      "skill": false,
+      "mcp": true,
+      "bash": true,
+      "write": true,
+      "edit": false
+    },
+    "web_degraded": false,
+    "subagent_events": 0,
+    "permission_requests": 6,
+    "permission_flow_ok": true,
+    "deny_then_continue_ok": false,
+    "sequence_contiguous": true,
+    "run_completed": true,
+    "result_is_error": false,
+    "served_models": [
+      "deepseek-v4-pro"
+    ],
+    "total_cost_usd": 0.994941,
+    "num_turns": 17,
+    "missing": []
+  },
+  "project_missing": [],
+  "event_count": 23434,
+  "event_type_counts": {
+    "run.created": 1,
+    "run.started": 1,
+    "sdk.system": 11,
+    "assistant.message.started": 10,
+    "assistant.reasoning_summary.delta": 13489,
+    "assistant.reasoning_summary.completed": 10,
+    "assistant.text.delta": 809,
+    "assistant.message.completed": 8,
+    "tool.input.delta": 9020,
+    "tool.planned": 16,
+    "tool.started": 16,
+    "run.status": 12,
+    "permission.requested": 6,
+    "permission.resolved": 6,
+    "tool.completed": 15,
+    "tool.failed": 1,
+    "run.result": 1,
+    "run.completed": 1,
+    "artifact.registered": 1
+  },
+  "notes": {
+    "scenario": "B",
+    "minimum_pass": "- 结论是 Go/Test/No-go 之一，且 evidence_ids 非空、假设与下一步行动明确。\n- 到岸成本/单位经济性来自确定性计算工具而非模型口算。\n- 事实（报价、约束原文）与推断（销量代理信号的解读）在证据账本中分型正确。\n- 报告落盘为工作区 Markdown 文件，可继续编辑。\n"
+  }
+}
