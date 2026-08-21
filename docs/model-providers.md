@@ -36,11 +36,29 @@ the planted digits correctly both times and spending 224 input tokens on the sam
 payload DeepSeek charged 101 for. That token gap is the tell: it separates a processed
 image from a discarded one when both endpoints answer 200. GLM image input is
 **unknown** — its account was out of balance, and the earlier "unsupported" line has
-been retracted as an invalid measurement.
+been retracted as an invalid measurement. **`deepseek-v4-flash-vision-exp` image input
+✅** (released 2026-08-21, measured same day via the dedicated `deepseek-vision-exp`
+profile): served on the same `api.deepseek.com/anthropic` endpoint, and the agent's Read
+path recovered the planted digits — full contract run is 8 PASS + 1 DEGRADED, exactly
+Kimi K3's shape, including native WebSearch, with the one degraded case being the same
+invalid-token hang (bounded by the FR-06 preflight timeout). Caveats recorded on the
+profile: the model is explicitly **experimental** (no pricing or deprecation guarantee
+published), its text tier is V4-Flash rather than V4-Pro, and its context window is
+unmeasured (`context_window_tokens: null` — the family's 1M claim is not inherited).
+See `evals/reports/provider-contract-deepseek-vision-exp-20260821.*`.
 
-Kimi is therefore the vision-capable profile FR-20's GUI ladder depends on; DeepSeek
+Kimi remains the incumbent vision profile for FR-20's GUI ladder; DeepSeek
 stays the main agent on the strength of its proven Green Path, contract, and L2
-baselines. Kimi's full contract run is 8 PASS + 1 DEGRADED — **native WebSearch passes
+baselines. `deepseek-vision-exp` is a measured vision-capable fallback for that
+seat — and stays the fallback, not the incumbent (decided 2026-08-21). Contract parity
+alone doesn't justify the swap: an experimental model can be revised behind its model
+string without an API error, and screenshot-judgment drift is exactly the failure FR-20
+cannot observe yet (no vision-quality baseline). The seat is revisited on any of three
+triggers: **graduation** (the `-Exp` suffix drops and the model reaches the official
+price page → switch, collect the single-vendor win), **cost** (Kimi spend becomes
+material at FR-20 volume → run a head-to-head screenshot-judging eval first, decide on
+data), or **failure** (Kimi platform trouble or a contract regression → the fallback
+takes the seat immediately). Kimi's full contract run is 8 PASS + 1 DEGRADED — **native WebSearch passes
 there too**, so the "Kimi does not support it" note applies to WebFetch alone; the one
 degraded case is the invalid-token hang both providers share, bounded by the FR-06
 preflight timeout.
