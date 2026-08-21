@@ -1,5 +1,9 @@
 # Requirement inventory
 
+> ⚠️ **Superseded (2026-08-21)**: frozen at 2026-08-05, before Phase 0 closeout. The living
+> requirement inventory is the FR table (with status column) in
+> `OPHIRA-PRD-and-Technical-Architecture-v2.md`. Kept as a historical snapshot only.
+
 Updated: 2026-08-05
 
 | Requirement | Owner | Status | Evidence / note |

@@ -26,6 +26,21 @@ jobs:
         env:
           PYTHONPATH: backend/src
 
+  # 旧痕迹门禁：仓库 2026-08-20 由 Ophira-ai 更名而来。危险的"旧指针形式"
+  # （旧 GitHub URL、旧本地路径）一旦回流会把新 AI 会话带向不存在的位置——
+  # 靠 grep 物理拦截，不靠自觉（教材 6.4：把纪律变成结构）。
+  hygiene:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Stale-pointer guard
+        run: |
+          if git grep -nE "Janettbella69/Ophira-ai|/Users/[a-z]+/Ophira-ai" -- .; then
+            echo "::error::Stale Ophira-ai pointer found — repo renamed to Open-Acciowork on 2026-08-20."
+            exit 1
+          fi
+          echo "No stale pointers."
+
   # 评测工具独立于主系统：不安装 backend 包即可测（解耦边界的 CI 证明）。
   evals-tools:
     runs-on: ubuntu-latest

@@ -1,6 +1,9 @@
 # OPHIRA AI PRD 与技术架构
 
-> 文档状态：Draft v1.1，可进入产品评审与技术方案评审
+> ⚠️ **本文档已废弃（2026-08-21 标注）**：被 `OPHIRA-PRD-and-Technical-Architecture-v2.md`（v2.1）
+> 完全取代，仅作历史演进记录保留。**任何 AI 会话不得依据本文档开发**；权威规格见 v2 与根 CLAUDE.md。
+>
+> ~~文档状态：Draft v1.1，可进入产品评审与技术方案评审~~
 > 研究基线：2026-08-05
 > 产品方向：面向出海小B的 AI 全球商业执行系统
 > 架构基线：Claude Agent SDK 单主 Agent，保留 Claude Code 原生能力
