@@ -1,0 +1,12 @@
+{
+  "provider": "glm",
+  "generated_at": "2026-08-21T05:15:50.600714+00:00",
+  "sdk_version": "0.2.82",
+  "results": [
+    {
+      "case": "vision",
+      "status": "DEGRADED",
+      "detail": "endpoint cannot consume images; GUI ladder (FR-20) needs a vision-capable profile"
+    }
+  ]
+}

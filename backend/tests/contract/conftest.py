@@ -21,6 +21,16 @@ from ophira_backend.providers import ProviderRegistry
 REPO_ROOT = Path(__file__).resolve().parents[3]
 PROVIDER_ID = os.environ.get("OPHIRA_CONTRACT_PROVIDER", "").strip()
 
+
+def _sdk_version() -> str:
+    """Read the installed SDK version; a hardcoded string silently outlives upgrades."""
+    from importlib.metadata import PackageNotFoundError, version
+
+    try:
+        return version("claude-agent-sdk")
+    except PackageNotFoundError:  # pragma: no cover - dev env always has it installed
+        return "unknown"
+
 RESULTS: list[dict] = []
 
 
@@ -74,7 +84,7 @@ def write_report():
     payload = {
         "provider": PROVIDER_ID,
         "generated_at": datetime.now(UTC).isoformat(),
-        "sdk_version": "0.2.82",
+        "sdk_version": _sdk_version(),
         "results": RESULTS,
     }
     json_path = report_dir / f"provider-contract-{PROVIDER_ID}-{stamp}.json"
@@ -82,7 +92,7 @@ def write_report():
     lines = [
         f"# Provider 合约测试报告 · {PROVIDER_ID} · {stamp}",
         "",
-        "SDK: claude-agent-sdk 0.2.82 · 依据 PRD v2.1 §4.9 合约矩阵",
+        f"SDK: claude-agent-sdk {_sdk_version()} · 依据 PRD v2.1 §4.9 合约矩阵",
         "",
         "| 用例 | 结果 | 说明 |",
         "|---|---|---|",

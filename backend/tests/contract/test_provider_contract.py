@@ -11,6 +11,8 @@ swapping the runtime to a vendor OpenAI API (red line, PRD §1.1).
 from __future__ import annotations
 
 import asyncio
+import struct
+import zlib
 from pathlib import Path
 
 import pytest
@@ -36,6 +38,55 @@ pytestmark = pytest.mark.asyncio
 
 PLUGIN_DIR = REPO_ROOT / "backend" / "ophira-capabilities"
 EXPECTED_SKILL = "ophira-core:global-opportunity-execution"
+
+
+_DIGIT_GLYPHS = {
+    "0": ("111", "101", "101", "101", "111"),
+    "1": ("010", "110", "010", "010", "111"),
+    "2": ("111", "001", "111", "100", "111"),
+    "3": ("111", "001", "111", "001", "111"),
+    "4": ("101", "101", "111", "001", "001"),
+    "5": ("111", "100", "111", "001", "111"),
+    "6": ("111", "100", "111", "101", "111"),
+    "7": ("111", "001", "001", "001", "001"),
+    "8": ("111", "101", "111", "101", "111"),
+    "9": ("111", "101", "111", "001", "111"),
+}
+
+
+def render_digits_png(text: str, scale: int = 28, margin: int = 24) -> bytes:
+    """Black-on-white PNG of `text` drawn with block glyphs. Stdlib only, no Pillow."""
+    glyph_w, glyph_h, gap = 3, 5, 1
+    cols = len(text) * (glyph_w + gap) - gap
+    width = cols * scale + margin * 2
+    height = glyph_h * scale + margin * 2
+
+    rows = [bytearray(b"\xff" * (width * 3)) for _ in range(height)]
+    for index, char in enumerate(text):
+        glyph = _DIGIT_GLYPHS[char]
+        x_origin = margin + index * (glyph_w + gap) * scale
+        for gy, line in enumerate(glyph):
+            for gx, bit in enumerate(line):
+                if bit != "1":
+                    continue
+                for py in range(gy * scale, (gy + 1) * scale):
+                    row = rows[margin + py]
+                    start = (x_origin + gx * scale) * 3
+                    row[start : start + scale * 3] = b"\x00" * (scale * 3)
+
+    raw = b"".join(b"\x00" + bytes(row) for row in rows)
+
+    def chunk(tag: bytes, payload: bytes) -> bytes:
+        body = tag + payload
+        return struct.pack(">I", len(payload)) + body + struct.pack(">I", zlib.crc32(body))
+
+    header = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
+    return (
+        b"\x89PNG\r\n\x1a\n"
+        + chunk(b"IHDR", header)
+        + chunk(b"IDAT", zlib.compress(raw, 9))
+        + chunk(b"IEND", b"")
+    )
 
 
 def base_options(env: dict[str, str], model: str, cwd: Path, **overrides) -> ClaudeAgentOptions:
@@ -265,14 +316,44 @@ async def test_native_web_tools_probe(profile, registry, tmp_path) -> None:
         )
 
 
-async def test_image_blocks_documented_capability(profile) -> None:
-    """Kept as documentation: multimodal input is asserted via the capability matrix."""
-    declared = profile.capabilities.images
-    record(
-        "image_blocks",
-        "NOT_TESTED",
-        f"profile declares images={declared}; live multimodal case deferred to FR-27 work",
+async def test_vision_probe(profile, registry, tmp_path) -> None:
+    """Capability probe (FR-20 gate): can this endpoint read an image the agent opens?
+
+    The GUI ladder needs the model to judge screenshots, so this walks the real
+    production path — a PNG lands in the workspace and the agent Reads it — rather
+    than asserting a vendor-documented flag. Unsupported is DEGRADED, not a failure.
+    """
+    secret = "".join(str((i * 7 + 3) % 10) for i in range(4))  # deterministic, unguessable
+    image_path = tmp_path / "vision-probe.png"
+    image_path.write_bytes(render_digits_png(secret))
+
+    env = registry.build_worker_env(profile.id)
+    options = base_options(
+        env, profile.model, tmp_path, allowed_tools=["Read"],
+        max_turns=4, max_budget_usd=0.3,
     )
+    prompt = (
+        f"用 Read 工具打开 {image_path.name}。图中有一个四位数字。"
+        "如果你能看到图像内容，只回复 VISION_OK=<那四位数字>；"
+        "如果你无法查看图像，只回复 VISION_UNAVAILABLE。"
+    )
+    try:
+        messages = await collect(options, prompt)
+    except Exception as exc:  # noqa: BLE001
+        record("vision", "DEGRADED", f"probe errored: {str(exc)[:200]}")
+        return
+
+    text = assistant_text(messages)
+    if f"VISION_OK={secret}" in text.replace(" ", ""):
+        record("vision", "PASS", f"model read the image and reported {secret}")
+    elif "VISION_OK" in text:
+        record("vision", "DEGRADED", "claimed to see the image but misread the digits")
+    else:
+        record(
+            "vision",
+            "DEGRADED",
+            "endpoint cannot consume images; GUI ladder (FR-20) needs a vision-capable profile",
+        )
 
 
 async def test_bad_credential_fails_fast_or_is_bounded_by_timeout(

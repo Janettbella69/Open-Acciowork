@@ -9,7 +9,7 @@ description = "OPHIRA opportunity-team backend built on Claude Agent SDK"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-  "claude-agent-sdk==0.2.82",
+  "claude-agent-sdk==0.2.143",
   "croniter>=2,<7",
   "fastapi>=0.115,<1",
   # Claude Agent SDK 0.2.82 uses the MCP 1.x low-level Server decorator API.
