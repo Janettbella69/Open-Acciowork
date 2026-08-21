@@ -95,7 +95,7 @@ v2.0 的核心新判断：**架构目标已基本代码就绪，当前最大风�
 
 （除标注外均来自 Accio 官方文档 `accio.com/work/documents/en/*.html` 全文与官方 changelog；详见 §9。）
 
-**主体与规模**：Accio 由阿里国际（AIDC）出品。基础 Accio 是 2024-11 发布的 AI B2B sourcing 引擎；**Accio Work 于 2026-03-23/24 发布**，**桌面独占**（Electron，macOS 11+/Windows 10+；2026-08-21 一手核实：官方页面明写 "all tool execution — file operations, terminal commands, browser actions — runs on your own device"，无 Web 版入口。注意区分同名的基础版 Accio——2024-11 的 B2B sourcing 引擎，那个才有 Web/iOS/Android），官方主标语 "Your AI Business Team That Turns Ideas Into Profits"。截至 2026-03 全球 **>1000 万 MAU**（约每 5 个 Alibaba.com 用户中 1 个）；截至 2026-04 **23 万+ 企业**部署了 Agent 团队。商业化未定论——阿里高管公开承认"还没有清晰的变现答案"（MIT Technology Review, 2026-04）。
+**主体与规模**：Accio 由阿里国际（AIDC）出品。基础 Accio 是 2024-11 发布的 AI B2B sourcing 引擎；**Accio Work 于 2026-03-23/24 发布**，桌面优先 + Web 双入口（2026-08-21 一手核实官网 accio.com/work 首屏：并列 "Download for macOS"（macOS 11+，Apple Silicon）与 **"Try in browser"** 两个按钮）。桌面端是 Electron；官方另强调 "all tool execution — file operations, terminal commands, browser actions — runs on your own device"，即**本机执行类能力绑定桌面端，Web 入口为功能缩减版**。注意与同名基础版 Accio 区分（2024-11 的 B2B sourcing 引擎，另有 iOS/Android），官方主标语 "Your AI Business Team That Turns Ideas Into Profits"。截至 2026-03 全球 **>1000 万 MAU**（约每 5 个 Alibaba.com 用户中 1 个）；截至 2026-04 **23 万+ 企业**部署了 Agent 团队。商业化未定论——阿里高管公开承认"还没有清晰的变现答案"（MIT Technology Review, 2026-04）。
 
 **能力面（官方文档口径）**：
 
