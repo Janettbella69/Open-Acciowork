@@ -18,6 +18,29 @@ OPHIRA：面向出海小 B 的 AI 全球商业系统，对标 Accio Work。一�
 - 国产模型只走各厂商官方 Anthropic 兼容端点（Provider Profile），不做 OpenAI 协议转换；Coding Plan 套餐 Key 禁止进入后端（条款红线，见 PRD §4.9）。
 - `claude-agent-sdk` 钉 `0.2.82`；升级必须先跑 Provider 合约测试。
 
+## AI 知识盲区提醒（先读文档，再写代码）
+
+本项目的核心依赖 **Claude Agent SDK 是非常新的技术栈，AI 训练集里没有或已过时**。
+**任何 AI 在准备开发与 Agent 有关的修复或新能力时，必须先检查
+`docs/claude-agent-sdk/`（官方文档本地快照），找到相关官方文档、读完再开发——
+不要凭记忆写。** 快照按场景的索引在该目录 README；文档与实际行为冲突时，以钉版
+安装源码 `.venv/lib/python3.11/site-packages/claude_agent_sdk/` 为准。
+
+## 参考优先级
+
+遇到设计上拿不准的问题时，按以下顺序参考，不要自由发挥：
+
+1. **官方**：`docs/claude-agent-sdk/`（官方文档快照，按 README 索引找）＋
+   `.venv/lib/python3.11/site-packages/claude_agent_sdk/`（钉 0.2.82 的安装源码，
+   行为的最终裁决）；快照不够新时上 https://code.claude.com/docs/en/agent-sdk/ 。
+   这是官方的，逻辑完善，优先看这里。
+2. **官方示例工程**：https://github.com/anthropics/claude-agent-sdk-python （examples/）与
+   https://github.com/anthropics/claude-agent-sdk-demos ——工程质量比我们现在的代码成熟
+   （在线参考，未本地化）。
+3. **我们自己的现有代码**：`backend/src/ophira_backend/`（sdk_adapter.py 是 SDK 集成的
+   唯一入口）——可能有历史包袱，参考但要判断。
+4. 以上都没有答案时，**告诉用户你打算怎么做，等确认后再动手**。
+
 ## 常用命令
 
 ### 后端（FastAPI + Claude Agent SDK，Python 3.11）

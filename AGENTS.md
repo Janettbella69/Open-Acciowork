@@ -13,7 +13,7 @@ These rules apply to every contributor and AI agent in this repository.
 
 1. Read this file, the local README, relevant source, tests, and recent Git history.
 2. Distinguish observed facts, user statements, community signals, and inference.
-3. For an unfamiliar or changing SDK, use current official documentation and the installed package API before implementation.
+3. For an unfamiliar or changing SDK, use current official documentation and the installed package API before implementation. For the Claude Agent SDK this is mandatory, not advisory: read the relevant page in `docs/claude-agent-sdk/` (local snapshot of the official docs, indexed in its README) before developing any Agent-related fix or capability — the SDK is too new to be in AI training data.
 4. Clarify product, interaction, technical, and boundary ambiguity before an irreversible or high-risk change.
 5. Keep an explicit requirement inventory and mark every item delivered, deferred, or omitted with a reason.
 
