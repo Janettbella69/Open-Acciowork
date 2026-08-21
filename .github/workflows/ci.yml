@@ -35,7 +35,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Stale-pointer guard
         run: |
-          if git grep -nE "Janettbella69/Ophira-ai|/Users/[a-z]+/Ophira-ai" -- .; then
+          if git grep -nE "Janettbella69/Ophira-ai|/Users/[a-z]+/Ophira-ai" -- . ':!.github/workflows/ci.yml'; then
             echo "::error::Stale Ophira-ai pointer found — repo renamed to Open-Acciowork on 2026-08-20."
             exit 1
           fi
