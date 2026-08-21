@@ -39,8 +39,11 @@ image from a discarded one when both endpoints answer 200. GLM image input is
 been retracted as an invalid measurement.
 
 Kimi is therefore the vision-capable profile FR-20's GUI ladder depends on; DeepSeek
-stays the main agent (proven Green Path, contract, and L2 baselines, plus native
-WebSearch, which Kimi lacks).
+stays the main agent on the strength of its proven Green Path, contract, and L2
+baselines. Kimi's full contract run is 8 PASS + 1 DEGRADED — **native WebSearch passes
+there too**, so the "Kimi does not support it" note applies to WebFetch alone; the one
+degraded case is the invalid-token hang both providers share, bounded by the FR-06
+preflight timeout.
 
 The main model can be configured with either `OPHIRA_CLAUDE_MODEL` or the official
 `ANTHROPIC_MODEL` name. OPHIRA exports it as `ANTHROPIC_MODEL` and, unless explicitly

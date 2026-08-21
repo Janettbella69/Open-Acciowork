@@ -1,12 +1,56 @@
 {
   "provider": "kimi",
-  "generated_at": "2026-08-21T05:48:12.630393+00:00",
+  "generated_at": "2026-08-21T05:54:18.755620+00:00",
   "sdk_version": "0.2.143",
   "results": [
+    {
+      "case": "basic_text_streaming",
+      "status": "PASS",
+      "detail": "served=['kimi-k3']; streaming=yes",
+      "cost_usd": 0.09387
+    },
+    {
+      "case": "model_identity",
+      "status": "PASS",
+      "detail": "served model prefix matches kimi-k3"
+    },
+    {
+      "case": "file_tool_chain",
+      "status": "PASS",
+      "detail": "note.txt=present",
+      "cost_usd": 0.13658
+    },
+    {
+      "case": "bash_execution",
+      "status": "PASS",
+      "detail": "",
+      "cost_usd": 0.10680600000000001
+    },
+    {
+      "case": "mcp_tool_call",
+      "status": "PASS",
+      "detail": "tool_called=True",
+      "cost_usd": 0.106401
+    },
+    {
+      "case": "plugin_skill_discovery",
+      "status": "PASS",
+      "detail": "discovered=18 skills"
+    },
+    {
+      "case": "native_web_tools",
+      "status": "PASS",
+      "detail": "native WebSearch served results"
+    },
     {
       "case": "vision",
       "status": "PASS",
       "detail": "model read the image and reported 3074"
+    },
+    {
+      "case": "error_mapping_bad_token",
+      "status": "DEGRADED",
+      "detail": "invalid key hangs the SDK instead of failing fast; bounded by OPHIRA preflight timeout (FR-06 guard)"
     }
   ]
 }
