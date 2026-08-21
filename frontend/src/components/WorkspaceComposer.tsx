@@ -172,7 +172,7 @@ function WorkspaceAccountMenu({ backendState }: { backendState: string }) {
           <nav aria-label="Account destinations">
             <a href="/app/settings"><span><strong>Settings</strong><small>Permissions, runtime, and language</small></span><i aria-hidden="true">→</i></a>
             <a href="/"><span><strong>Homepage</strong><small>Return to the OPHIRA website</small></span><i aria-hidden="true">↗</i></a>
-            <a href="https://github.com/Janettbella69/Ophira-ai" target="_blank" rel="noreferrer"><span><strong>GitHub</strong><small>Open the source repository</small></span><i aria-hidden="true">↗</i></a>
+            <a href="https://github.com/Janettbella69/Open-Acciowork" target="_blank" rel="noreferrer"><span><strong>GitHub</strong><small>Open the source repository</small></span><i aria-hidden="true">↗</i></a>
           </nav>
 
           <footer>Account authentication and billing are not enabled in this local build.</footer>

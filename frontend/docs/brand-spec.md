@@ -1,6 +1,6 @@
 # OPHIRA AI · Brand Spec
 > Captured: 2026-08-05
-> Sources: repository `README.md` · https://github.com/Janettbella69/Ophira-ai · https://youmind.com/
+> Sources: repository `README.md` · https://github.com/Janettbella69/Open-Acciowork · https://youmind.com/
 > Completeness: initial system inferred from the approved brand foundation
 
 ## Core assets

@@ -24,7 +24,7 @@
 
 | # | 修订 | 依据 |
 |---|---|---|
-| 1 | **差距分析全面重写**：v1.1 §4.14 所列问题大部分已在仓库工作树中修复（presets、Provider Registry、单 Agent 化、插件 Skills、5 个 MCP server），但**关键改动全部未提交**，且**从未在真实模型端点上跑通**（历史 12 次运行全部 401） | 本地仓库 `Ophira-ai`（github.com/Janettbella69/Ophira-ai）2026-08-20 工作树实测 |
+| 1 | **差距分析全面重写**：v1.1 §4.14 所列问题大部分已在仓库工作树中修复（presets、Provider Registry、单 Agent 化、插件 Skills、5 个 MCP server），但**关键改动全部未提交**，且**从未在真实模型端点上跑通**（历史 12 次运行全部 401） | 本地仓库工作树 2026-08-20 实测（时为 `Ophira-ai`，当日更名为 `Open-Acciowork`） |
 | 2 | **Provider 生态扩容与代际更新**：官方 Anthropic 兼容端点从 4 家扩展到 8+ 家（新增 MiniMax、百度千帆、腾讯混元、火山方舟）；模型全面换代（DeepSeek v4、Kimi k3、GLM 5.x、Qwen 3.5–3.8、MiniMax M3）；阿里/智谱 Coding Plan 禁止应用后端的条款已拿到原文 | 各厂商官方文档逐一 fetch 核实（§4.9、§9） |
 | 3 | **SDK 能力刷新**：Python SDK 0.2.82 → 0.2.142；吸收 `sandbox`、`max_budget_usd`、`session_store`、`output_format`、`thinking/effort`、官方多租户隔离指引、OTel 可观测性；明确 `setting_sources=[]` 与 skills 发现的边界 | code.claude.com 官方文档 + PyPI/npm（§2.3、§4.4） |
 | 4 | **竞品档案完整化**：Accio Work 2026-03-23 正式发布，>10M MAU、230K+ 企业部署；完整工具/权限/记忆/定价/更新日志档案；已知投诉（积分消耗、疑似跨账户数据泄漏）转化为 OPHIRA 差异化机会 | Accio 官方文档全文 + PRNewswire/Caixin/MIT TR 等（§2.2、§3.4） |
@@ -65,7 +65,7 @@ v2.0 的核心新判断：**架构目标已基本代码就绪，当前最大风�
 
 ### 2.1 本地仓库现状（2026-08-20 实测）
 
-权威仓库：`github.com/Janettbella69/Ophira-ai`，本地克隆 `/Users/isabella/Ophira-ai`，`main` 分支与 `origin/main` 同步。技术栈：FastAPI 0.141 + React 19/Vite 7；`claude-agent-sdk==0.2.82`（硬钉，venv 实装一致）；Python 3.11。
+权威仓库：`github.com/Janettbella69/Open-Acciowork`（2026-08-20 由 Ophira-ai 更名），本地克隆 `/Users/isabella/Open-Acciowork`（项目唯一目录，所有工作在此进行），`main` 分支与 `origin/main` 同步。技术栈：FastAPI 0.141 + React 19/Vite 7；`claude-agent-sdk==0.2.82`（硬钉，venv 实装一致）；Python 3.11。
 
 **已实现（大部分在未提交的工作树中）：**
 
@@ -961,7 +961,7 @@ PATCH  /api/schedules/{id}
 
 ### 本项目
 
-- 仓库：[github.com/Janettbella69/Ophira-ai](https://github.com/Janettbella69/Ophira-ai)（本地 `/Users/isabella/Ophira-ai`，工作树含未提交的 Phase 0 实现）
+- 仓库：[github.com/Janettbella69/Open-Acciowork](https://github.com/Janettbella69/Open-Acciowork)（本地 `/Users/isabella/Open-Acciowork`；2026-08-20 由 Ophira-ai 更名）
 - 前版文档：`OPHIRA-PRD-and-Technical-Architecture.md`（v1.1，2026-08-05）· `OPHIRA-Phase-0-Implementation-Backlog.md`
 
 ---

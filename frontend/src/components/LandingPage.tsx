@@ -156,7 +156,7 @@ export default function LandingPage() {
       <footer className="site-footer">
         <div><Brand /><p>AI global commerce intelligence for small cross-border teams.</p></div>
         <div><strong>Product</strong><a href="#product">Overview</a><a href="#workflow">Workflow</a><a href="/app">Open app</a></div>
-        <div><strong>Company</strong><a href="#manifesto">Manifesto</a><a href="https://github.com/Janettbella69/Ophira-ai" target="_blank" rel="noreferrer">GitHub ↗</a></div>
+        <div><strong>Company</strong><a href="#manifesto">Manifesto</a><a href="https://github.com/Janettbella69/Open-Acciowork" target="_blank" rel="noreferrer">GitHub ↗</a></div>
         <small>© 2026 OPHIRA AI</small>
       </footer>
     </div>

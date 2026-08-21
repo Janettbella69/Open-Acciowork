@@ -1,6 +1,6 @@
 # OPHIRA AI product facts
 > Verified: 2026-08-05
-> Sources: https://github.com/Janettbella69/Ophira-ai · repository `README.md` · https://youmind.com/
+> Sources: https://github.com/Janettbella69/Open-Acciowork · repository `README.md` · https://youmind.com/
 
 ## Existence and status
 - OPHIRA AI is an in-development private GitHub project owned by `Janettbella69`.
