@@ -26,6 +26,21 @@ jobs:
         env:
           PYTHONPATH: backend/src
 
+  # 评测工具独立于主系统：不安装 backend 包即可测（解耦边界的 CI 证明）。
+  evals-tools:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install test deps only
+        run: pip install pytest ruff
+      - name: Lint (ruff)
+        run: ruff check evals/tools
+      - name: Tests (stdlib-only)
+        run: pytest evals/tools/tests
+
   frontend:
     runs-on: ubuntu-latest
     defaults:

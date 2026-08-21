@@ -1,0 +1,2295 @@
+{
+  "seed": 20260820,
+  "per_run_cap": 6,
+  "runs": {
+    "run_9ca3f8e6437046968de6b9deb1e5db15": {
+      "task": "b-product-validation",
+      "report": "l2-20260820T164355Z",
+      "final_text": "完成。判断与交付如下。\n\n## 决策：**Test（试点验证）**\n\n**不是 Go，也不是 No-go**——需求、合规、获客成本三个关键变量都未实证，值得用最小成本做一次真实试点来验证。\n\n### 关键数字（全部折算 USD，EUR/USD=1.08）\n\n| 项 | 结果 |\n|---|---|\n| 到岸单价（主选 Blendco 350ml） | **$7.81/件**（含 2.2% 关税） |\n| 单件贡献毛利（€24.9 定价、基线获客 $5.5） | **$1.00/件，4.4%** |\n| 盈亏平衡销量 | **~1,507 件**（覆盖 $1,500 固定成本） |\n| 获客成本降到 $3 时 | 毛利 $3.50（15.5%），平衡 430 件 |\n| 500 件试点现金占用 | ~$6,146 < $8,000 ✅ |\n\n### 核心判断\n- **需求方向为正但证据弱**：头部竞品 BlendGo 月销 3200→4100，但样本是合成 proxy、仅 3 个月 × 2 SKU，置信度低。\n- **毛利薄、对获客成本极敏感**：基线 4.4% 的贡献毛利率，获客成本每波动 $1，毛利波动约 45%。这不是靠毛利厚度、而是靠走量的品。\n- **两个硬门槛未验证**：CE/LFGB 认证的可获得性，以及新 Listing 的真实获客成本。\n\n### 已入账（账本）\n- 2 条假设 + 6 条证据（3 事实 / 3 推断分离，标注置信度）\n- 1 条决策 `decision_d0895bba…`（outcome=Test），回链全部证据与假设\n\n### 报告位置\n`workspace/便携榨汁杯-机会评估.md`（可编辑，含假设清单 + 敏感性表 + Go 条件 + 下一步，改假设即可重算）。\n\n**下一步建议**：先向 Blendco 要 CE/LFGB 证书并核实，同时下 300–500 件试单上架实测获客成本——这是把 Test 升级成 Go 的两个最关键动作。",
+      "evidence": [
+        {
+          "id": "ev_87d08bfc80dd4a638873b840c8d9ea79",
+          "kind": "observed_fact",
+          "status": "active",
+          "claim": "3份供应商报价：Shenzhen Blendco 350ml $6.80/MOQ500/28d/运费$420；Ningbo Homeware 400ml $7.25/MOQ300/35d/$380；Guangzhou Kitchenline 350ml $6.40/MOQ1000/40d/$510",
+          "source": "path",
+          "source_title": "quotes.csv",
+          "source_url": null,
+          "source_path": "uploads/quotes.csv",
+          "retrieved_at": "2026-08-20T16:47:21.675852+00:00",
+          "observed_at": null,
+          "confidence": 0.9,
+          "excerpt": null
+        },
+        {
+          "id": "ev_1c000d319f5c4d41b51e699de73ef6a3",
+          "kind": "user_statement",
+          "status": "active",
+          "claim": "项目约束：目标市场欧盟(先德国)，零售目标价€24.9；首批采购+物流现金≤$8000；小批量海运+本地仓、不接受空运常态化；需CE/LFGB食品级认证、不得含医疗功效宣称",
+          "source": "path",
+          "source_title": "constraints.md",
+          "source_url": null,
+          "source_path": "uploads/constraints.md",
+          "retrieved_at": "2026-08-20T16:47:22.237047+00:00",
+          "observed_at": null,
+          "confidence": 0.9,
+          "excerpt": null
+        },
+        {
+          "id": "ev_253a141d83c444b3bdbe67b91936dbd2",
+          "kind": "observed_fact",
+          "status": "active",
+          "claim": "amazon.de 竞品月销样本(用户自整理,proxy信号)：BlendGo 350ml 2026-05/06/07 月销 3200/3550/4100 @ $29.9/27.9/27.9；JuiceMate 400ml 1800/1650/2100 @ $24.9/22.9/22.9",
+          "source": "path",
+          "source_title": "sales-sample.csv",
+          "source_url": null,
+          "source_path": "uploads/sales-sample.csv",
+          "retrieved_at": "2026-08-20T16:47:22.776698+00:00",
+          "observed_at": null,
+          "confidence": 0.4,
+          "excerpt": null
+        },
+        {
+          "id": "ev_d976f2eccb074938b13a9db1fb1d1d20",
+          "kind": "inference",
+          "status": "active",
+          "claim": "到岸成本(含2.2%关税,不含进口增值税与保险)：Blendco $7.81/件(总$3904)；Ningbo $8.70/件(总$2611)；Kitchenline $7.06/件(总$7062)",
+          "source": "NONE",
+          "source_title": "calculate_landed_cost",
+          "source_url": null,
+          "source_path": null,
+          "retrieved_at": "2026-08-20T16:47:23.331685+00:00",
+          "observed_at": null,
+          "confidence": 0.8,
+          "excerpt": null
+        },
+        {
+          "id": "ev_a97dca70fd084b189f116f8777fa31b7",
+          "kind": "inference",
+          "status": "active",
+          "claim": "单件经济(Blendco主选,售价€24.9→净增值税$22.6)：基线贡献毛利$1.00/件(4.4%)、盈亏平衡~1507件；获客$3时毛利$3.50(15.5%)、平衡430件；Kitchenline到岸$7.06时毛利$1.75(7.7%)、平衡860件",
+          "source": "NONE",
+          "source_title": "calculate_unit_economics",
+          "source_url": null,
+          "source_path": null,
+          "retrieved_at": "2026-08-20T16:47:23.892632+00:00",
+          "observed_at": null,
+          "confidence": 0.6,
+          "excerpt": null
+        },
+        {
+          "id": "ev_16c6aa36ee004ef4bc0d8a97c8085e96",
+          "kind": "inference",
+          "status": "active",
+          "claim": "预算校验：Blendco 500件试点到岸$3904+固定$1500≈$5404，加进口增值税~$742≈$6146，<$8000；Kitchenline 1000件到岸$7062+固定$1500+进口增值税~$1342≈$9904，若计入增值税则超预算",
+          "source": "NONE",
+          "source_title": "budget check (calculation)",
+          "source_url": null,
+          "source_path": null,
+          "retrieved_at": "2026-08-20T16:47:24.447442+00:00",
+          "observed_at": null,
+          "confidence": 0.8,
+          "excerpt": null
+        }
+      ],
+      "artifacts": [
+        {
+          "name": "便携榨汁杯-机会评估.md",
+          "path": "便携榨汁杯-机会评估.md",
+          "text": "# 便携榨汁杯（德国 amazon.de）机会评估报告\n\n> 结论：**Test（试点验证）**，不直接 Go 规模化，也不 No-go。\n> 决策账本 ID：`decision_d0895bba1f4b4e12880d98ebbb060273`\n\n---\n\n## 一、结论摘要\n\n- **需求方向为正，但证据弱**：头部竞品 BlendGo 350ml 在 amazon.de 月销 3200→4100 件且呈上升趋势，价格 $27.9–29.9；但样本为合成 proxy 数据，仅 3 个月 × 2 个 SKU，不能当作可靠需求证据。\n- **单件经济为正，但很薄**：主选供应商（Blendco 350ml）在 €24.9 目标价、基线获客成本 $5.5/件下，贡献毛利约 **$1.00/件（4.4%）**，盈亏平衡约 **1507 件**；对获客成本高度敏感。\n- **预算可覆盖 500 件试点**：Blendco 500 件到岸 $3,904 + 固定 $1,500 ≈ $5,404，加进口增值税后约 $6,146，仍 < $8,000。\n- **两个硬门槛未验证**：CE/LFGB 食品级认证的可获得性与成本、以及新 Listing 的真实获客成本。\n- **决策逻辑**：需求、合规、获客成本三个关键变量均未实证 → 用最小成本做一次真实试点来验证，而非直接铺货。\n\n---\n\n## 二、关键事实 vs 推断（分离）\n\n### 事实（来自输入文件，高置信）\n\n| # | 事实 | 来源 | 置信度 |\n|---|---|---|---|\n| F1 | 3 份供应商报价：Blendco 350ml $6.80/MOQ500/28d/运费$420；Ningbo 400ml $7.25/MOQ300/35d/$380；Kitchenline 350ml $6.40/MOQ1000/40d/$510 | `uploads/quotes.csv` | 高 |\n| F2 | 项目约束：先德国、目标零售价 €24.9、首批采购+物流现金 ≤$8000、海运+本地仓、需 CE/LFGB、无医疗宣称 | `uploads/constraints.md` | 高 |\n| F3 | 竞品月销样本（proxy）：BlendGo 350ml 5/6/7 月 3200/3550/4100 @ $29.9/27.9/27.9；JuiceMate 400ml 1800/1650/2100 @ $24.9/22.9/22.9 | `uploads/sales-sample.csv` | **低**（合成样本） |\n\n### 推断（由计算得出，受假设影响）\n\n| # | 推断 | 方法 | 置信度 |\n|---|---|---|---|\n| I1 | 到岸单价：Blendco $7.81、Ningbo $8.70、Kitchenline $7.06（含 2.2% 关税，不含进口增值税与保险） | 到岸成本计算 | 中高 |\n| I2 | 单件经济：Blendco 基线贡献毛利 $1.00/件（4.4%）、盈亏平衡 1507 件 | 单件经济计算 | 中 |\n| I3 | 预算校验：500 件试点（Blendco）含增值税约 $6,146 < $8,000；1000 件（Kitchenline）含增值税约 $9,904 > $8,000 | 现金流估算 | 中高 |\n\n---\n\n## 三、输入数据\n\n### 供应商报价（`quotes.csv`）\n\n| 供应商 | 产品 | 单价(USD) | MOQ | 交期(天) | 运费(USD) |\n|---|---|---|---|---|---|\n| Shenzhen Blendco | 350ml | 6.80 | 500 | 28 | 420 |\n| Ningbo Homeware | 400ml | 7.25 | 300 | 35 | 380 |\n| Guangzhou Kitchenline | 350ml | 6.40 | 1000 | 40 | 510 |\n\n### 竞品销量样本（`sales-sample.csv`，proxy 信号）\n\n| 月份 | 竞品 | 平台 | 估计月销 | 价格(USD) |\n|---|---|---|---|---|\n| 2026-05 | BlendGo 350ml | amazon.de | 3200 | 29.9 |\n| 2026-06 | BlendGo 350ml | amazon.de | 3550 | 27.9 |\n| 2026-07 | BlendGo 350ml | amazon.de | 4100 | 27.9 |\n| 2026-05 | JuiceMate 400ml | amazon.de | 1800 | 24.9 |\n| 2026-06 | JuiceMate 400ml | amazon.de | 1650 | 22.9 |\n| 2026-07 | JuiceMate 400ml | amazon.de | 2100 | 22.9 |\n\n---\n\n## 四、方法与计算\n\n### 4.1 到岸成本（`calculate_landed_cost`）\n\n输入：单价、运费按报价；关税按 2.2%（HS 8509 小家电，估计值）；进口增值税与保险不计入到岸成本（增值税可抵扣，保险默认自担）。\n\n| 供应商 | MOQ | 货值 | 关税 | 到岸总额 | 到岸单价 |\n|---|---|---|---|---|---|\n| Blendco | 500 | $3,400 | $84 | $3,904 | **$7.81** |\n| Ningbo | 300 | $2,175 | $56 | $2,611 | $8.70 |\n| Kitchenline | 1000 | $6,400 | $152 | $7,062 | $7.06 |\n\n> 主选 **Blendco（350ml，$7.81/件，MOQ 500）**：与市场头部同规格（350ml）、MOQ 适中、试点友好。Kitchenline 单价最低但 MOQ 1000 且可能触及预算上限。\n\n### 4.2 单件经济（`calculate_unit_economics`，主选 Blendco）\n\n售价换算：€24.9 × 1.08 = $26.89（含税），扣 19% 德国增值税后净收入 **$22.60**。\n\n| 参数 | 基线 | 说明 |\n|---|---|---|\n| 净收入/件 | $22.60 | 扣 VAT 后 |\n| 到岸成本 | $7.81 | 见 4.1 |\n| 平台佣金 15% | $3.39 | Amazon 类目佣金 |\n| 本地履约 | $4.00 | 仓+尾程（假设） |\n| 获客成本 | $5.50 | 新 Listing PPC（假设，基线） |\n| 退款率 4% | — | 计入净收入 |\n\n结果（基线）：\n\n- 净收入/件：$21.70（扣退款）\n- 变动成本/件：$20.70\n- **贡献毛利/件：$1.00（贡献毛利率 4.4%）**\n- **盈亏平衡销量：约 1,507 件**（覆盖 $1,500 固定成本）\n\n### 4.3 预算 / 现金流校验\n\n| 方案 | 到岸 | 固定成本(认证+Listing+样品) | 进口增值税(19%,可抵扣) | 合计现金 | 是否 <$8000 |\n|---|---|---|---|---|---|\n| Blendco 500 件 | $3,904 | $1,500 | ~$742 | ~$6,146 | ✅ |\n| Kitchenline 1000 件 | $7,062 | $1,500 | ~$1,342 | ~$9,904 | ❌（若计增值税） |\n\n> 结论：**500 件试点在预算内**；1000 件方案若把进口增值税计入现金占用会超预算。\n\n---\n\n## 五、假设清单（可编辑，替换后自动影响结论）\n\n| 假设 | 取值 | 影响 |\n|---|---|---|\n| 汇率 EUR/USD | 1.08 | 直接影响售价与毛利换算 |\n| 关税税率 | 2.2% | 到岸成本 |\n| 平台佣金 | 15% | 变动成本 |\n| 本地履约 | $4.00/件 | 变动成本 |\n| **获客成本** | $5.50/件（基线） | **毛利最敏感项** |\n| 固定成本 | $1,500 | 盈亏平衡 |\n| 退款率 | 4% | 净收入 |\n| 海运保险 | 0（自担） | 到岸成本 |\n\n---\n\n## 六、敏感性分析（获客成本是最关键变量）\n\n| 场景 | 获客成本 | 贡献毛利/件 | 毛利率 | 盈亏平衡 |\n|---|---|---|---|---|\n| 悲观 | $7.0 | ~ -$0.5 | 负 | 不可达 |\n| **基线** | $5.5 | **$1.00** | **4.4%** | **1,507 件** |\n| 乐观 | $3.0 | $3.50 | 15.5% | 430 件 |\n\n换供应商（Kitchenline，到岸 $7.06）：基线获客 $5.5 下毛利 $1.75（7.7%），平衡 860 件，但 MOQ 1000 且预算更紧。\n\n**关键洞察**：这个品不是靠毛利厚度赚钱，而是靠走量。基线 4.4% 的贡献毛利率意味着获客成本每波动 $1，毛利波动 ~45%，因此**实测获客成本是 Go 与否的核心判据**。\n\n---\n\n## 七、风险与关键变量\n\n1. **需求证据弱**：仅合成 proxy 样本，3 个月 × 2 SKU，且是用户自整理，需真实多来源数据升级。\n2. **合规门槛**：CE/LFGB 食品级认证未验证，认证成本、周期、材质（是否接触食品）都是 Go 的硬前置。\n3. **获客成本不确定**：新 Listing 进成熟市场，PPC 可能高于 $5.5 假设。\n4. **薄毛利**：价格战（JuiceMate 已在 $22.9）或佣金/履约上升会迅速转负。\n5. **交期**：28–40 天 + 海运，补货周期长，需提前规划。\n\n---\n\n## 八、Go 条件（满足后放量）\n\n- [ ] CE/LFGB 食品级认证可获得，成本/周期可接受\n- [ ] 试点期（60–90 天）达到盈亏平衡销量，退货率健康\n- [ ] 实测获客成本 ≤ $4/件，或贡献毛利 ≥ $1.5/件\n- [ ] 供应商大货质量与首样一致，交期可控\n\n---\n\n## 九、下一步行动\n\n1. 向 Blendco 索取 CE/LFGB 证书与食品接触材质证明并核实\n2. 下 300–500 件试单，首样确认 + 交期锁定\n3. 小批上架 amazon.de，实测 €24.9 定价的转化率与获客成本\n4. 抓取更长周期 / 多来源的真实竞品销量数据，升级需求证据\n5. 核算含进口增值税的完整现金流与回款周期\n\n---\n\n## 十、账本回链\n\n- **决策**：`decision_d0895bba1f4b4e12880d98ebbb060273`（outcome=Test）\n- **假设**：\n  - 需求：`hyp_4e43e9e9aecb434db4c4fef75d83ea7d`\n  - 毛利：`hyp_2eca34c2e62e49b8918248172ec794bf`\n- **证据**：\n  - 报价 `ev_87d08bfc80dd4a638873b840c8d9ea79`\n  - 约束 `ev_1c000d319f5c4d41b51e699de73ef6a3`\n  - 销量样本 `ev_253a141d83c444b3bdbe67b91936dbd2`\n  - 到岸成本 `ev_d976f2eccb074938b13a9db1fb1d1d20`\n  - 单件经济 `ev_a97dca70fd084b189f116f8777fa31b7`\n  - 预算校验 `ev_16c6aa36ee004ef4bc0d8a97c8085e96`\n"
+        }
+      ]
+    },
+    "run_99841e2eaa934fcaba1163f98bba95cf": {
+      "task": "a1-demand-entry",
+      "report": "l2-20260820T173608Z",
+      "final_text": "已完成。以下是结果摘要。\n\n## 结论\n\n**首选跟进：信号 1「可折叠宠物外出水杯」**——唯一同时满足「社区购买意图 + 轻小件 + 低首单预算」的信号；信号 3（电压兼容）列为次选（真实痛点但重资产/认证门槛，与轻小件冲突）；信号 2（露营轻量化）证据最弱、无具体 SKU，本轮不选。\n\n## 已落账（可追溯）\n\n| 类型 | ID | 内容 |\n|---|---|---|\n| 假设 | `hyp_380ce08f2ac04487872bf3c5fe7d7e0d` | 可证伪假设 + 4 条验证标准（需求/供给/竞争/财务） |\n| 证据 | `ev_272452c13bb94e86844aaa4c500aea41` | 信号1（confidence 0.55，购买意图） |\n| 证据 | `ev_5c5c91df49914956833b162bfd605a7a` | 信号2（confidence 0.3，媒体转述） |\n| 证据 | `ev_689a8d7f97ff492d8b27916d82015668` | 信号3（confidence 0.5，退货抱怨） |\n| 决策 | `decision_833e543b4efc4b069fb24f614f88f233` | 排序决策 + 假设/证据链接 + 下一步动作 |\n\n三条证据均标注了**信号性质**（community_signal）与**时效局限**（整理时点、未实时抓取、合成 fixture）。\n\n## 简报文件\n\n已写入工作区：`机会判断简报-可折叠宠物水杯.md`，含机会判断、三信号横向比较、可证伪假设、7 项明确未知项、4 步验证动作（待执行，未伪造任何实时数据）及数据局限声明。\n\n下一步建议从**需求量化（近零成本）**开始：抓取关键词搜索量与 Top10 竞品评论，独立验证\"购买意图 ≥20 条\"这一需求侧门槛。",
+      "evidence": [
+        {
+          "id": "ev_272452c13bb94e86844aaa4c500aea41",
+          "kind": "community_signal",
+          "status": "active",
+          "claim": "2026-07 起，多个欧美宠物博主的「可折叠宠物外出水杯」开箱视频评论区高频出现\"哪里能买到\"类购买意图评论（用户 2026-08-01 整理，未实时抓取）。",
+          "source": "url",
+          "source_title": "YouTube 搜索结果（collapsible pet bottle 开箱/评论区）",
+          "source_url": "https://www.youtube.com/results?search_query=collapsible+pet+bottle",
+          "source_path": "uploads/demand-signals.md",
+          "retrieved_at": "2026-08-20T17:38:29.331184+00:00",
+          "observed_at": "2026-08-01T00:00:00",
+          "confidence": 0.55,
+          "excerpt": "1. 可折叠宠物外出水杯：2026-07 起多个欧美宠物博主开箱视频下高频出现\"哪里能买到\"评论（社区信号，2026-08-01 整理）。"
+        },
+        {
+          "id": "ev_5c5c91df49914956833b162bfd605a7a",
+          "kind": "community_signal",
+          "status": "active",
+          "claim": "行业媒体称 2026 露营季「轻量化」相关检索热度同比上升（用户 2026-08-05 整理的媒体转述，未见原始检索数据）。",
+          "source": "url",
+          "source_title": "Statista Markets（行业媒体转述，通用市场页）",
+          "source_url": "https://www.statista.com/markets/",
+          "source_path": "uploads/demand-signals.md",
+          "retrieved_at": "2026-08-20T17:38:29.880011+00:00",
+          "observed_at": "2026-08-05T00:00:00",
+          "confidence": 0.3,
+          "excerpt": "2. 德国露营装备轻量化：行业媒体称 2026 露营季\"轻量化\"检索热度同比上升（媒体转述，未见原始数据，2026-08-05 整理）。"
+        },
+        {
+          "id": "ev_689a8d7f97ff492d8b27916d82015668",
+          "kind": "community_signal",
+          "status": "active",
+          "claim": "东南亚 Shopee 小家电评论区反复出现 220V/110V 电压混淆导致退货的抱怨（用户 2026-07-28 整理，未实时抓取）。",
+          "source": "path",
+          "source_title": "Shopee 商品评论区（东南亚小家电）",
+          "source_url": null,
+          "source_path": "uploads/demand-signals.md",
+          "retrieved_at": "2026-08-20T17:38:38.706459+00:00",
+          "observed_at": "2026-07-28T00:00:00",
+          "confidence": 0.5,
+          "excerpt": "3. 东南亚小家电电压兼容抱怨：Shopee 评论区反复出现 220V/110V 混淆导致退货的抱怨（社区信号，2026-07-28 整理）。"
+        }
+      ],
+      "artifacts": [
+        {
+          "name": "机会判断简报-可折叠宠物水杯.md",
+          "path": "机会判断简报-可折叠宠物水杯.md",
+          "text": "# 机会判断简报 · 可折叠宠物外出水杯\n\n- 日期：2026-08-20\n- 输入：`uploads/demand-signals.md`（用户整理的三条海外需求信号）\n- 关联账本记录：\n  - 排序决策 `decision_833e543b4efc4b069fb24f614f88f233`\n  - 假设 `hyp_380ce08f2ac04487872bf3c5fe7d7e0d`\n  - 证据 `ev_272452c13bb94e86844aaa4c500aea41`（信号1）／`ev_5c5c91df49914956833b162bfd605a7a`（信号2）／`ev_689a8d7f97ff492d8b27916d82015668`（信号3）\n\n## 一、结论速览\n\n**首选跟进：信号 1「可折叠宠物外出水杯」。**\n\n它是三条信号里唯一同时满足团队三项约束（无自有品牌、首单 <$10k、倾向轻小件）与「信号性质＝购买意图」的选项。\n\n| 信号 | 首选 | 性质 | 与约束匹配 | 可行动性 |\n|---|---|---|---|---|\n| 1 可折叠宠物水杯 | **是** | 社区购买意图（\"哪里能买\"） | 高：轻小件、低 MOQ、白牌可做 | 高：具体 SKU，可直接验证 |\n| 2 德国露营轻量化 | 否 | 媒体转述（无原始数据） | 中：露营装备偏重/体积大、德国合规门槛 | 低：无具体产品，无法落地 |\n| 3 东南亚电压兼容 | 否（次选） | 社区痛点（退货抱怨） | 低：小家电重资产/认证/售后，与轻小件冲突 | 中：需自研双电压方案，投入大 |\n\n## 二、三信号横向比较（判断依据）\n\n1. **信号 1（宠物水杯）**：评论区\"哪里能买到\"是**真实成交意图**，而非单纯抱怨；可折叠硅胶杯属于**轻小件**（低重量、低体积、低头程、低售后），首单 500 件以内即可覆盖 <$10k 预算；白牌贴牌路径成立。缺点：评论样本量与账号去重未验证，规模未知。\n2. **信号 3（电压兼容）**：痛点真实，但性质是\"退货抱怨\"而非\"购买意图\"；解决它需要**双电压小家电方案**，属重资产、需认证（CE/FCC/安全）、高售后，与\"轻小件\"直接冲突。列为**次选**，仅在信号 1 被证伪后考虑。\n3. **信号 2（露营轻量化）**：二手媒体转述、无原始检索数据、无具体 SKU，证据强度最低，无法落到可验证动作，**本轮不选**。\n\n## 三、首选信号的可证伪假设\n\n> 欧美养宠且常户外/旅行的人群中，对「可折叠宠物外出水杯」存在可验证的未被充分满足需求：存在明确购买意图（评论区\"哪里能买\"），且现有供给存在可差异化痛点（漏水/难清洗/易破损），使 <$10k 首单、白牌贴牌、售价 $12–19.99 的路径可达成正毛利。\n\n**验证标准（任一不通过即可证伪）：**\n\n- 需求侧：`collapsible pet water bottle` / `portable dog water bottle` 月度搜索量达阈值，且近 90 天竞品评论中独立观察到 **≥20 条**明确购买意图或\"缺货/难买\"信号（需实际抓取，当前未做）。\n- 供给侧：**≥3 家**供应商可提供食品级/BPA-free 可折叠硅胶水杯，且 FOB+头程 landed unit cost **≤ 目标售价的 35%**。\n- 竞争侧：Top 10 竞品平均评分 **<4.3**，或 1–3 星评论中\"漏水/难清洗/易破损\"痛点占比 **≥30%**。\n- 财务侧：按售价 $15、综合毛利率 ≥50% 实算，首单 ≤500 件、总投入 <$10k 可实现正贡献毛利（需用 landed-cost 工具实算，当前为假设参数）。\n\n## 四、明确未知项\n\n1. **需求真实性与规模**：评论\"哪里能买\"的具体条数、时间分布、是否同一批账号（水军/单次事件）未量化。当前仅\"多个博主视频\"，无样本量。\n2. **目标市场与价格带**：美国 vs 欧洲（德/英）未定；$12–19.99 的心理价位未验证。\n3. **供给与成本**：能否以 <$10k 拿到食品级/BPA-free 货源、landed cost 未知。\n4. **合规与专利**：宠物饮水接触类在 Amazon/Etsy 的类目审核、FDA/LFGB 食品接触认证、该品类外观专利风险未查。\n5. **差异化壁垒**：纯白牌护城河弱，易被跟卖压价；需找到可持续的差异化点。\n6. **季节性**：宠物户外出行是否有明显季节峰谷（影响首单时点与库存节奏）。\n7. **信号时效**：2026-08-01 整理，距今约 3 周，热度是否持续未知。\n\n## 五、下一步验证动作（按成本从低到高，均为\"待执行\"）\n\n1. **需求量化（近零成本）**：抓取关键词搜索量与 Top 10 竞品近 90 天评论，统计购买意图/缺货类信号条数 → 验证需求侧标准。\n2. **竞品痛点审计**：聚类 Top 10 竞品 1–3 星评论中的\"漏水/难清洗/易破损\"痛点 → 验证竞争侧标准。\n3. **供应商询价**：向 3–5 家供应商询 FOB/MOQ/交期/食品级认证，跑 landed cost 模型 → 验证供给与财务侧标准。\n4. **合规与专利**：确认 FDA/LFGB 认证、Amazon 类目要求，USPTO 简单外观专利检索 → 排除硬性门槛。\n\n**决策门槛**：需求侧 + 供给侧 + 财务侧三项全部通过后，才进入 `go/test` 小批量试单；若需求侧无法独立观察到稳定购买意图，则降级该假设，转向信号 3 或停止。\n\n## 六、时效与数据局限声明（诚实声明）\n\n- 本简报基于**用户整理的三条信号**，均**未实时抓取验证**；整理时点分别为 2026-08-01（信号1）、2026-08-05（信号2）、2026-07-28（信号3）。\n- 原始文件头部注明为「评测用合成材料（synthetic fixture）」，故上述信号**不构成已验证事实**，仅用于展示判断与账本规范流程。\n- 所有数字（搜索量、成本、毛利率、售价、评分门槛）均为**待验证的假设参数**，未经真实数据或计算工具实算；落地前必须按\"下一步验证动作\"逐项核实。\n- 信号 3 无来源链接，信号 2 来源页为通用市场入口而非具体数据页，引用价值有限。\n"
+        }
+      ]
+    },
+    "run_edda6baa54d549c09f862d455696b098": {
+      "task": "a2-supply-entry",
+      "report": "l2-20260820T173608Z",
+      "final_text": "已完成。结论如下：\n\n## 结论摘要\n\n**推荐路线**：优先进入**欧盟市场、B2B 供货**——主攻「给亚马逊欧洲站家居厨具 FBA 卖家供货」，第二轨「欧洲品牌商/进口商」，暂缓北美自建 DTC。\n\n**三条候选路线取舍**：\n| 路线 | 契合点 | 核心制约 | 首期成本/风险 |\n|---|---|---|---|\n| A 欧盟 B2B 批发（进口商/品牌商） | LFGB+BSCI 硬门槛、公模快起单 | 触达周期长、本地关系建设慢 | 低 / 中低 |\n| B 欧盟 B2B2C（给欧洲站卖家供货）**首选** | 低 MOQ+7天打样适配小单快返，英语可触达 | 价格敏感、旺季交期紧张 | 低 / 中低 |\n| C 北美 DTC（Amazon FBA 自建）暂缓 | FDA 合规 | 需本地化+海外仓+品牌投入，2人/2万美元难支撑 | 高 / 高 |\n\n**客户评分（fit 0.6 / access 0.4）**：亚马逊欧洲站卖家 77.0 > 欧洲品牌商/进口商 76.0 > 北美卖家 70.8 > 户外/礼品采购商 63.2。\n\n## 已落地的产物\n\n1. **证据账本**：8 条证据已入账，严格区分了 5 条「用户自述」（产品线/认证/产能·MOQ·价格/模具·交付/团队·预算·目标）与 3 条「我的推断」（欧盟契合 / DTC 高风险 / 避开 CE 玩具类目），置信度分别标为 0.95 与 0.7–0.75。\n2. **决策记录**：`decision_3a2204fe…`（plan 类型）已关联全部 8 条证据与下一步行动。\n3. **中文简报**：已落盘 `市场与渠道进入简报.md`（工作区根目录），含能力画像、路线比较、加权排序表与首期 ≤2 万美元的资金配置建议。\n\n一点提醒：评分工具返回的是相对排序而非销售结论，且所有「推断」均未经外部数据验证（本任务为合成 fixture，未做联网核验）。如需，我可以进一步把候选客户画像固化为真实的询盘/触达实验，或对首期 2 万美元做一份更细的现金流分配。",
+      "evidence": [
+        {
+          "id": "ev_98766983c8a247f7b08c15942bf9d45c",
+          "kind": "user_statement",
+          "status": "active",
+          "claim": "工厂主营硅胶厨具与户外硅胶制品（折叠碗、折叠杯、食品级收纳），属食品级硅胶消费品。",
+          "source": "path",
+          "source_title": "工厂供给能力说明（用户自述）",
+          "source_url": null,
+          "source_path": "uploads/factory-capability.md",
+          "retrieved_at": "2026-08-20T17:41:03.405613+00:00",
+          "observed_at": null,
+          "confidence": 0.95,
+          "excerpt": null
+        },
+        {
+          "id": "ev_0ece720d5d5e418087c5fbad9f08ae5a",
+          "kind": "user_statement",
+          "status": "active",
+          "claim": "认证：LFGB、FDA 食品接触；工厂通过 BSCI 验厂；无 CE 玩具类认证。",
+          "source": "path",
+          "source_title": "工厂供给能力说明（用户自述）",
+          "source_url": null,
+          "source_path": "uploads/factory-capability.md",
+          "retrieved_at": "2026-08-20T17:41:03.946346+00:00",
+          "observed_at": null,
+          "confidence": 0.95,
+          "excerpt": null
+        },
+        {
+          "id": "ev_c33d612643654cfebe373539d731c5b3",
+          "kind": "user_statement",
+          "status": "active",
+          "claim": "产能月产12万件；打样7天；首单MOQ可谈至1000件；出厂价0.8–2.6 USD/件（按克重与模具）。",
+          "source": "path",
+          "source_title": "工厂供给能力说明（用户自述）",
+          "source_url": null,
+          "source_path": "uploads/factory-capability.md",
+          "retrieved_at": "2026-08-20T17:41:04.494850+00:00",
+          "observed_at": null,
+          "confidence": 0.95,
+          "excerpt": null
+        },
+        {
+          "id": "ev_a00bb65e29754d01a465e83f61911563",
+          "kind": "user_statement",
+          "status": "active",
+          "claim": "现有60+套公模；开新模3800–8000 USD、25天；常态海运华南出港、旺季档期紧张。",
+          "source": "path",
+          "source_title": "工厂供给能力说明（用户自述）",
+          "source_url": null,
+          "source_path": "uploads/factory-capability.md",
+          "retrieved_at": "2026-08-20T17:41:05.036031+00:00",
+          "observed_at": null,
+          "confidence": 0.95,
+          "excerpt": null
+        },
+        {
+          "id": "ev_c93c5ba7dec14ea4b323d04e10f9ab21",
+          "kind": "user_statement",
+          "status": "active",
+          "claim": "团队为2名英语外贸业务，无本地化内容能力、无海外仓；目标2026 Q4前打开一个稳定海外B端或DTC渠道，首期投入≤2万美元。",
+          "source": "path",
+          "source_title": "工厂供给能力说明（用户自述）",
+          "source_url": null,
+          "source_path": "uploads/factory-capability.md",
+          "retrieved_at": "2026-08-20T17:41:05.585461+00:00",
+          "observed_at": null,
+          "confidence": 0.95,
+          "excerpt": null
+        },
+        {
+          "id": "ev_49e59ae6dfdd42a4a38c237d98cc3dbc",
+          "kind": "inference",
+          "status": "active",
+          "claim": "LFGB（德国食品接触）与 BSCI（社会责任）的组合对欧盟买家（尤其德国/北欧）采购决策价值最高，构成差异化壁垒；FDA 仅覆盖美国食品接触，差异化更弱。",
+          "source": "NONE",
+          "source_title": "ophira 市场与渠道推断",
+          "source_url": null,
+          "source_path": null,
+          "retrieved_at": "2026-08-20T17:41:06.131641+00:00",
+          "observed_at": null,
+          "confidence": 0.7,
+          "excerpt": null
+        },
+        {
+          "id": "ev_b866f5616ea44930ba854d2283aff82b",
+          "kind": "inference",
+          "status": "active",
+          "claim": "无本地化内容能力、无海外仓、仅2名英语销售，叠加2万美元首期预算，使自建DTC（尤其亚马逊FBA自建品牌）风险显著高于B2B供货，B2B/给卖家供货更可行。",
+          "source": "NONE",
+          "source_title": "ophira 市场与渠道推断",
+          "source_url": null,
+          "source_path": null,
+          "retrieved_at": "2026-08-20T17:41:06.680811+00:00",
+          "observed_at": null,
+          "confidence": 0.7,
+          "excerpt": null
+        },
+        {
+          "id": "ev_e7f2cf76e0734c4c94ee130cc7c3b24d",
+          "kind": "inference",
+          "status": "active",
+          "claim": "无 CE 玩具认证，应避开儿童玩具/婴童类目，聚焦食品级厨具与户外成人用品。",
+          "source": "NONE",
+          "source_title": "ophira 市场与渠道推断",
+          "source_url": null,
+          "source_path": null,
+          "retrieved_at": "2026-08-20T17:41:07.225596+00:00",
+          "observed_at": null,
+          "confidence": 0.75,
+          "excerpt": null
+        }
+      ],
+      "artifacts": [
+        {
+          "name": "市场与渠道进入简报.md",
+          "path": "市场与渠道进入简报.md",
+          "text": "# 硅胶厨具与户外制品 — 海外市场与渠道进入简报\n\n> 生成时间：2026-08-20 ｜ 依据：`uploads/factory-capability.md`（用户自述） + ophira 推断\n> 说明：本简报严格区分「用户自述事实」与「ophira 推断」，推断未经外部数据验证。\n\n## 一、供给能力画像（用户自述）\n\n| 维度 | 情况 |\n|---|---|\n| 主营 | 硅胶厨具与户外硅胶制品（折叠碗、折叠杯、食品级收纳） |\n| 认证 | LFGB、FDA 食品接触；BSCI 验厂；**无 CE 玩具认证** |\n| 产能 | 月产 12 万件；打样 7 天；首单 MOQ 可谈至 1000 件 |\n| 价格带 | 出厂价 0.8–2.6 USD/件（按克重与模具） |\n| 模具 | 60+ 套公模；新模 3800–8000 USD、25 天 |\n| 交付 | 常态海运华南出港；旺季档期紧张 |\n| 团队 | 外贸业务 2 人（英语），无本地化内容能力，无海外仓 |\n| 目标 | 2026 Q4 前打开一个稳定海外 B 端或 DTC 渠道，首期 ≤ 2 万美元 |\n\n## 二、核心判断（ophira 推断）\n\n1. **市场优先欧盟**：LFGB（德国食品接触）+ BSCI（社会责任）的组合，对欧盟买家（尤其德国/北欧）的采购决策价值最高，构成差异化壁垒；FDA 仅覆盖美国食品接触，差异化更弱。\n2. **渠道优先 B2B 供货，而非自建 DTC**：无本地化内容能力、无海外仓、仅 2 名英语销售，叠加 2 万美元首期预算，自建 DTC（尤其亚马逊 FBA 自建品牌）风险显著高于 B2B/给卖家供货。\n3. **避开儿童玩具/婴童类目**：无 CE 玩具认证，聚焦食品级厨具与户外成人用品。\n\n## 三、候选路线取舍比较\n\n### 路线 A：欧盟 B2B 批发（传统进口商/品牌商）\n- **契合点**：LFGB+BSCI 是硬门槛与加分项；公模 60+ 套可快速起单；B2B 不需本地化内容与海外仓。\n- **制约**：触达周期长，依赖平台/展会，英语可覆盖但欧洲本地关系建设慢。\n- **首期成本**：低（样品 + 平台 + 展会）。\n- **风险**：中低。回款/账期需管理。\n\n### 路线 B：欧盟 B2B2C（给亚马逊欧洲站家居厨具 FBA 卖家供货）— 首选\n- **契合点**：低 MOQ(1000)+7 天打样适配小单快返；卖家本身用英语可线上触达；LFGB 是欧洲站食品接触品类的合规刚需。\n- **制约**：卖家对价格敏感；需快速响应与稳定交期（旺季紧张）。\n- **首期成本**：低（样品 + 线上卖家社群/B2B 平台）。\n- **风险**：中低。回款快、订单碎但可复制。\n\n### 路线 C：北美 DTC（Amazon FBA 自建品牌）— 暂缓\n- **契合点**：FDA 合规；英语团队。\n- **制约**：需本地化 Listing/图文/广告、海外仓或 FBA 备货、品牌投入，2 万美元与 2 人团队难以支撑；类目竞争激烈。\n- **首期成本**：高（备货+广告+仓储）。\n- **风险**：高。与团队能力错配，建议在 B2B 现金流稳定后再试。\n\n## 四、客户画像加权排序（显式权重）\n\n- **权重设定**：fit（供需契合度）= 0.6，access（触达可达性）= 0.4。理由：供给契合是主变量，但 2 人英语团队/无本地化/2 万美元预算使「可达性」成为硬约束，故赋予 0.4。\n\n| 排名 | 客户画像 | fit(0.6) | access(0.4) | 加权分 |\n|---|---|---|---|---|\n| 1 | 亚马逊欧洲站家居厨具 FBA 卖家 | 85 | 65 | **77.0** |\n| 2 | 欧洲食品级厨具品牌商/进口商（DACH·北欧） | 90 | 55 | **76.0** |\n| 3 | 亚马逊北美站 FBA 卖家/小品牌 | 68 | 75 | 70.8 |\n| 4 | 户外用品品牌商/礼品采购商（公模折叠系列） | 72 | 50 | 63.2 |\n\n> 注：评分工具返回的是相对排序，不构成销售结论。\n\n## 五、结论与下一步\n\n- **推荐路线**：以 **路线 B（给亚马逊欧洲站卖家供货）为主攻**，**路线 A（欧洲品牌商/进口商）为第二轨**，双轨并行、先欧盟后北美；路线 C（北美 DTC）暂缓。\n- **首期 ≤ 2 万美元配置建议**：样品与打样包（公模折叠碗/杯 3–5 款）为主，配 B2B 平台/欧洲卖家社群曝光 + 1 次欧洲线上买家对接或展会；不投入海外仓与品牌广告。\n- **下一步行动**：\n  1. 用公模做 3–5 款欧洲站卖家的打样包（7 天打样）；\n  2. 在 B2B 平台/欧洲卖家社群发布 LFGB+BSCI 合规供货信息；\n  3. 接洽 2–3 家 DACH/北欧品牌商或进口商做小单测试；\n  4. 旺季前锁定产能与海运舱位，规避档期紧张。\n\n## 附：证据入账清单（已在账本记录）\n\n- 用户自述（5 条）：产品线 / 认证 / 产能·MOQ·价格 / 模具·交付 / 团队·预算·目标。\n- ophira 推断（3 条）：欧盟市场契合 / DTC 高风险 / 避开 CE 玩具类目。\n"
+        }
+      ]
+    },
+    "run_f9fc3137981e478c92271124575dc30c": {
+      "task": "b-product-validation",
+      "report": "l2-20260820T173608Z",
+      "final_text": "分析完成。以下是结论摘要。\n\n## 决策：Test（小规模试单验证）\n\n**核心判断**：这个品有做的基础，但证据链偏弱，宜先小批量试单，不宜直接放量。\n\n### 关键测算结果（全部由 commerce-math MCP 计算）\n\n| 维度 | 结果 |\n|---|---|\n| 首选供应商 | **Shenzhen Blendco** 350ml，$6.80，MOQ 500（350ml 是主流容量段） |\n| 到岸成本（不含VAT） | $7.85/件，共 $3,923 |\n| 现金占用（含19%VAT+认证） | 约 $6,169 ✅ 在 $8,000 预算内 |\n| 基准单位经济 | 贡献毛利 $6.70/件，毛利率 24.9%，**盈亏平衡 299 件**（占首批 60%） |\n| 悲观情景 | 贡献毛利 $1.94/件（7.8%），盈亏平衡 1032 件 ≈ 2 倍 MOQ |\n| 排除项 | Kitchenline 单件最便宜（$7.10）但 MOQ 1000 → 含VAT现金 $8,446 超预算 |\n\n### 两个最敏感变量\n1. **售价**：24.9→22.9 EUR（JuiceMate 现价），贡献毛利缩水 71%\n2. **获客成本**：新 listing 冷启动依赖 PPC，$2.5→$3.5 直接压塌毛利\n\n### 事实 vs 推断已分离\n- **事实**（6 项）：供应商报价、预算/市场/合规约束、竞品销量样本\n- **推断**（10 项）：汇率 1.08、关税 2.2%、认证 $1,500、Amazon 费率 15%、履约 $5、获客 $2.5、退款 3% 等 —— 全部显式标注为「模型估算」\n\n### 账本落盘\n- 证据 ×5、假设 ×2、决策 ×1，均写入项目账本并回链\n- 决策账本 ID：`decision_1e0b02ef368040249aaf7f635999be91`\n\n### 报告位置\n`workspace/便携榨汁杯_商业测算与决策报告.md`（可编辑，含可复算输入表与完整证据回链）\n\n**建议的 Test 第一步**：向 Blendco 谈 500 件试单（争取降 MOQ），同时独立核实竞品真实销量 + 向 Amazon/认证机构拿真实报价，验证「售价」与「获客成本」这两个命门变量。",
+      "evidence": [
+        {
+          "id": "ev_991ea96580d64b2aa30f32d711b9a5c0",
+          "kind": "observed_fact",
+          "status": "active",
+          "claim": "三份供应商报价（合成 fixture）：Shenzhen Blendco 350ml $6.80/MOQ500/交期28天/运费$420；Ningbo Homeware 400ml $7.25/MOQ300/交期35天/运费$380；Guangzhou Kitchenline 350ml $6.40/MOQ1000/交期40天/运费$510",
+          "source": "path",
+          "source_title": "quotes.csv",
+          "source_url": null,
+          "source_path": "uploads/quotes.csv",
+          "retrieved_at": "2026-08-20T17:45:39.157704+00:00",
+          "observed_at": null,
+          "confidence": 0.9,
+          "excerpt": null
+        },
+        {
+          "id": "ev_a5d64bef8ed1433f83af4042c6dadce3",
+          "kind": "observed_fact",
+          "status": "active",
+          "claim": "项目约束：首批采购+物流现金占用≤$8000；目标市场欧盟(先德国)、零售目标价24.9 EUR；小批量海运+本地仓发货、不常态化空运；需CE/LFGB食品接触级认证、宣称语禁医疗功效",
+          "source": "path",
+          "source_title": "constraints.md",
+          "source_url": null,
+          "source_path": "uploads/constraints.md",
+          "retrieved_at": "2026-08-20T17:45:39.740279+00:00",
+          "observed_at": null,
+          "confidence": 0.95,
+          "excerpt": null
+        },
+        {
+          "id": "ev_56259dd470b64e31a3545ec8d4666bb9",
+          "kind": "community_signal",
+          "status": "active",
+          "claim": "竞品销量代理样本（用户自整理，标注为 proxy signal only）：BlendGo 350ml 在 amazon.de 2026-05/06/07 约 3200/3550/4100 单位（价 $29.9→$27.9）；JuiceMate 400ml 约 1800/1650/2100 单位（价 $24.9→$22.9）",
+          "source": "path",
+          "source_title": "sales-sample.csv",
+          "source_url": null,
+          "source_path": "uploads/sales-sample.csv",
+          "retrieved_at": "2026-08-20T17:45:40.323374+00:00",
+          "observed_at": null,
+          "confidence": 0.5,
+          "excerpt": null
+        },
+        {
+          "id": "ev_99161f736dfc478cbc478812ba616982",
+          "kind": "inference",
+          "status": "active",
+          "claim": "到岸成本测算（假设：欧盟关税2.2%、保险0.5%、德国进口VAT19%可抵扣）：不含VAT到岸成本 Blendco 350ml $7.85/unit(500件共$3,923)、Ningbo 400ml $8.75/unit(300件共$2,624)、Kitchenline 350ml $7.10/unit(1000件共$7,097)；含VAT现金占用 Blendco $4,669、Ningbo $3,123、Kitchenline $8,446（超$8000预算）",
+          "source": "NONE",
+          "source_title": "commerce-math: calculate_landed_cost / compare_supplier_quotes",
+          "source_url": null,
+          "source_path": null,
+          "retrieved_at": "2026-08-20T17:45:40.906667+00:00",
+          "observed_at": null,
+          "confidence": 0.85,
+          "excerpt": null
+        },
+        {
+          "id": "ev_49f8432e7a6e4537a02c8536dfb1c2dc",
+          "kind": "inference",
+          "status": "active",
+          "claim": "Blendco 350ml 单位经济（假设：汇率1.08 USD/EUR、Amazon referral 15%、履约$5/unit、获客$2.5/unit、退款3%、固定成本$2000）：基准贡献毛利$6.70/unit(24.9%)盈亏平衡299件；悲观(价降至$24.73、费率17%、履约$6、获客$3.5、退款5%)贡献$1.94(7.8%)盈亏平衡1032件；乐观(履约$4、获客$1.5、退款2%)贡献$8.97(33.4%)盈亏平衡223件",
+          "source": "NONE",
+          "source_title": "commerce-math: calculate_unit_economics",
+          "source_url": null,
+          "source_path": null,
+          "retrieved_at": "2026-08-20T17:45:41.493577+00:00",
+          "observed_at": null,
+          "confidence": 0.8,
+          "excerpt": null
+        }
+      ],
+      "artifacts": [
+        {
+          "name": "便携榨汁杯_商业测算与决策报告.md",
+          "path": "便携榨汁杯_商业测算与决策报告.md",
+          "text": "# 便携榨汁杯（欧盟/德国）商业测算与 Go/No-go 决策报告\n\n> 生成日期：2026-08-20 ｜ 分析者：Ophira ｜ 决策类型：**Test**\n> 材料来源：`uploads/quotes.csv`、`uploads/constraints.md`、`uploads/sales-sample.csv`（均为合成 fixture）\n\n---\n\n## 0. 结论摘要（TL;DR）\n\n| 项目 | 结论 |\n|---|---|\n| **决策** | **Test（小规模试单验证）**，非 Go / 非 No-go |\n| **首选供应商** | Shenzhen Blendco（350ml，$6.80，MOQ 500） |\n| **到岸成本（不含 VAT）** | $7.85 / 件（500 件共 $3,923） |\n| **现金占用（含 19% VAT + 认证）** | 约 $6,169，**在 $8,000 预算内** |\n| **基准单位经济** | 贡献毛利 $6.70/件，毛利率 24.9%，盈亏平衡 299 件 |\n| **悲观情景** | 贡献毛利 $1.94/件，毛利率 7.8%，盈亏平衡 1032 件 |\n| **核心风险** | 需求证据为合成代理样本（未核实）+ 对「售价」「获客成本」高度敏感 |\n\n**一句话**：单位经济为正、现金在预算内、350ml 细分有需求信号，但证据链偏弱（代理数据 + 模型估算），且悲观情景毛利近乎塌缩，因此**先小批量试单验证**最合适的路径，不宜直接放量。\n\n---\n\n## 1. 事实 vs 推断（关键分离）\n\n### 1.1 事实（来自材料文件，未加工）\n\n| # | 事实 | 来源 |\n|---|---|---|\n| F1 | 三份供应商报价（单价 / MOQ / 交期 / 运费） | `quotes.csv` |\n| F2 | 首批采购+物流现金占用 ≤ $8,000 | `constraints.md` |\n| F3 | 目标市场欧盟（先德国），零售目标价 24.9 EUR | `constraints.md` |\n| F4 | 小批量海运 + 本地仓，不常态化空运 | `constraints.md` |\n| F5 | 需 CE/LFGB 食品接触级认证，宣称语禁医疗功效 | `constraints.md` |\n| F6 | 竞品销量代理样本（用户自整理）：BlendGo 350ml 月销 3200→4100、JuiceMate 400ml 月销 1650→2100 | `sales-sample.csv` |\n\n**供应商报价明细（F1）：**\n\n| 供应商 | 规格 | 单价 USD | MOQ | 交期(天) | 运费 USD |\n|---|---|---|---|---|---|\n| Shenzhen Blendco | 350ml | 6.80 | 500 | 28 | 420 |\n| Ningbo Homeware | 400ml | 7.25 | 300 | 35 | 380 |\n| Guangzhou Kitchenline | 350ml | 6.40 | 1000 | 40 | 510 |\n\n**竞品销量代理样本（F6）：**\n\n| 月份 | 竞品 | 平台 | 估算销量 | 价格 USD |\n|---|---|---|---|---|\n| 2026-05 | BlendGo 350ml | amazon.de | 3200 | 29.9 |\n| 2026-06 | BlendGo 350ml | amazon.de | 3550 | 27.9 |\n| 2026-07 | BlendGo 350ml | amazon.de | 4100 | 27.9 |\n| 2026-05 | JuiceMate 400ml | amazon.de | 1800 | 24.9 |\n| 2026-06 | JuiceMate 400ml | amazon.de | 1650 | 22.9 |\n| 2026-07 | JuiceMate 400ml | amazon.de | 2100 | 22.9 |\n\n> 注：F6 为「用户自整理」的代理信号，文件内自标 `proxy signal only`，非独立核实的真实销量。\n\n### 1.2 推断 / 假设（模型输入，需后续验证）\n\n| # | 假设 | 取值 | 性质 |\n|---|---|---|---|\n| A1 | 汇率 | 1 EUR = 1.08 USD | 模型估算 |\n| A2 | 欧盟进口关税 | 2.2%（家用电搅碎/榨汁类） | 模型估算 |\n| A3 | 海运保险 | 0.5%（CIF） | 模型估算 |\n| A4 | 德国进口 VAT | 19%（可抵扣，仅占现金） | 已知税率 |\n| A5 | CE/LFGB 认证 | 一次性约 $1,500 | 模型估算 |\n| A6 | Amazon referral | 15% | 模型估算 |\n| A7 | 履约（FBA+仓配） | $5.00/件 | 模型估算 |\n| A8 | 获客成本（PPC） | $2.50/件 | 模型估算 |\n| A9 | 退款率 | 3% | 模型估算 |\n| A10 | 固定成本（认证+首月杂项） | $2,000 | 模型估算 |\n\n---\n\n## 2. 测算方法\n\n采用 `ophira-core:landed-cost-analysis` 方法，全部财务结果由 commerce-math MCP 计算（**不心算**）：\n\n1. `compare_supplier_quotes` — 供应商到岸成本归一化对比\n2. `calculate_landed_cost` — 含 VAT 的到岸成本与现金占用\n3. `calculate_unit_economics` — 单位贡献毛利与盈亏平衡（基准/悲观/乐观）\n\n---\n\n## 3. 到岸成本对比（结果）\n\n| 供应商 | 规格 | MOQ | 到岸成本(不含VAT)/件 | 到岸总额(不含VAT) |\n|---|---|---|---|---|\n| Shenzhen Blendco | 350ml | 500 | **$7.85** | $3,923 |\n| Guangzhou Kitchenline | 350ml | 1000 | $7.10 | $7,097 |\n| Ningbo Homeware | 400ml | 300 | $8.75 | $2,624 |\n\n> 单件到岸成本最低的是 Kitchenline（$7.10），但 MOQ 1000 导致现金占用过高（见下节）。\n\n---\n\n## 4. 现金占用与预算（$8,000 硬约束）\n\n| 供应商 | 货款 | 运费+保险+关税 | 进口 VAT | 现金小计 | +认证$1,500 | 是否≤$8,000 |\n|---|---|---|---|---|---|---|\n| Shenzhen Blendco (500) | $3,400 | $524 | $745 | $4,669 | **$6,169** | ✅ |\n| Ningbo Homeware (300) | $2,175 | $449 | $499 | $3,123 | $4,623 | ✅ |\n| Guangzhou Kitchenline (1000) | $6,400 | $697 | $1,348 | $8,446 | **$9,946** | ❌ 超预算 |\n\n**结论**：Kitchenline 因 MOQ 1000 现金占用含 VAT 已达 $8,446，超出 $8,000 预算，**在现金约束下排除**。可行候选为 Blendco（500 件）与 Ningbo（300 件）。\n\n---\n\n## 5. 单位经济与盈亏平衡（结果）\n\n以首选 **Shenzhen Blendco 350ml** 计算（售价 24.9 EUR × 1.08 = $26.89）：\n\n| 情景 | 售价 USD | 净收入/件 | 变动成本/件 | **贡献毛利/件** | **毛利率** | **盈亏平衡(件)** |\n|---|---|---|---|---|---|---|\n| 🟢 乐观 | 26.89 | 26.35 | 17.38 | $8.97 | 33.4% | 223 |\n| 🟡 基准 | 26.89 | 26.08 | 19.38 | $6.70 | 24.9% | 299 |\n| 🔴 悲观 | 24.73 | 23.49 | 21.55 | $1.94 | 7.8% | 1032 |\n\n**对比 Ningbo Homeware 400ml（基准）**：贡献毛利 $5.80/件，毛利率 21.6%，盈亏平衡 345 件。\n\n**关键读数**：\n- 基准盈亏平衡 **299 件**，仅占 Blendco 首批 500 件的 **60%**，意味着卖过 6 成即可回本。\n- 悲观情景盈亏平衡 **1032 件 ≈ 2 倍 MOQ**，意味着价格竞争 + 高获客会让整批亏损。\n- Ningbo 盈亏平衡 345 件 **已超过其 MOQ 300**，首批卖光仍不足以回本，需二次补货，现金周转更差。\n\n---\n\n## 6. 敏感性：两个最敏感变量\n\n按 skill 要求输出最敏感的两个变量：\n\n1. **售价（受价格竞争 / 汇率双重驱动）** — 从 24.9 EUR 降到 22.9 EUR（JuiceMate 当前价），贡献毛利由 $6.70 → $1.94，**缩水 71%**。这是本品的命门：新进入者无评论积累，大概率需要价格贴地竞争。\n2. **获客成本（PPC CPC）** — 新 listing 冷启动严重依赖广告；$2.5 → $3.5/件的上升，叠加高退款/高履约，直接把毛利率从 24.9% 压到 7.8%。\n\n> 相对而言，Amazon referral（15%）、履约（$4–6）区间较窄、可提前拿到官方报价，不确定性低于上述两项。\n\n---\n\n## 7. 需求侧判断\n\n- **350ml 细分明显大于 400ml**：BlendGo 350ml 月销 3200→4100（递增），JuiceMate 400ml 月销 1650→2100（波动）。350ml 是更主流的容量段。\n- 目标定价 24.9 EUR 正好落在 JuiceMate 的价位带，低于 BlendGo（27.9–29.9），具备「性价比切入」空间。\n- **但**：样本为合成代理数据、仅 3 个月、单一平台，需独立核实后才能支撑放量决策。\n\n---\n\n## 8. 风险清单\n\n| 风险 | 影响 | 缓解 |\n|---|---|---|\n| 需求证据未核实（代理/合成） | 高估 sell-through，库存积压 | 试单前独立核实销量 |\n| 价格竞争（被压至 22.9 EUR） | 毛利缩水 71% | 双价格敏感性定价预案 |\n| 获客成本超预期 | 新 listing 冷启动亏损 | 试单实测 CPC |\n| CE/LFGB 认证费用/周期超预期 | 现金与上线时间 | 提前询价真实机构 |\n| FX 波动（EUR 走弱） | 实际美元收入缩水 | 锁定定价与汇率缓冲 |\n| 退款率高于 3% | 直接侵蚀净收入 | 首月监控退货原因 |\n\n---\n\n## 9. 决策：Test（附证据回链）\n\n- **决策账本 ID**：`decision_1e0b02ef368040249aaf7f635999be91`\n- **结论**：**Test** — 以 Blendco 首批 500 件小规模试单验证两个最敏感变量，而非直接放量。\n\n**回链证据**：\n- `ev_991ea96580d64b2aa30f32d711b9a5c0` — 供应商报价（事实）\n- `ev_a5d64bef8ed1433f83af4042c6dadce3` — 项目约束（事实）\n- `ev_56259dd470b64e31a3545ec8d4666bb9` — 竞品销量代理样本（信号）\n- `ev_99161f736dfc478cbc478812ba616982` — 到岸成本测算（推断）\n- `ev_49f8432e7a6e4537a02c8536dfb1c2dc` — 单位经济测算（推断）\n\n**回链假设**：\n- `hyp_546f3957f02947b9bfbdfe3c5747e051` — 需求 sell-through 假设\n- `hyp_ad61db53665e4cb7ae4fb7de11238c66` — 单位经济假设\n\n**升级为 Go 的条件**：\n1. 独立核实 350ml 品类月销 ≥ 3000 单位；\n2. 取得真实 Amazon referral/FBA 与 PPC CPC 报价；\n3. 确认 CE/LFGB 真实费用与周期；\n4. 首批 sell-through ≥ 299 件且贡献毛利为正；\n5. 悲观情景贡献毛利 ≥ $3/件。\n\n---\n\n## 10. 建议下一步（Test 执行）\n\n1. 与 Shenzhen Blendco 谈 500 件试单（争取降 MOQ 或先出样品）。\n2. 向 Amazon.de 取得 FBA/物流费率与合规要求。\n3. 询价 CE/LFGB 认证机构，取得真实报价与周期。\n4. 独立核实 BlendGo / JuiceMate 真实销量（脱离自整理代理数据）。\n5. 上线前建立 24.9 EUR / 22.9 EUR 双价格敏感性定价方案。\n\n---\n\n## 附录 A：可复算输入表（Reproducible Inputs）\n\n```text\n汇率          1 EUR = 1.08 USD\n关税          2.2%（CIF）\n保险          0.5%（CIF）\n进口VAT       19%（可抵扣）\n\n到岸成本输入（calculate_landed_cost / compare_supplier_quotes）\n  Blendco:     qty=500  unit=6.80  freight=420  insurance=19.10  duty=2.2%  vat=19%\n  Ningbo:      qty=300  unit=7.25  freight=380  insurance=12.78  duty=2.2%  vat=19%\n  Kitchenline: qty=1000 unit=6.40  freight=510  insurance=34.55  duty=2.2%  vat=19%\n\n单位经济输入（calculate_unit_economics，currency=USD，fixed_costs=2000）\n  基准:    selling=26.89  landed=7.85  channel=0.15  fulfillment=5.0  acquisition=2.5  refund=0.03\n  悲观:    selling=24.73  landed=7.85  channel=0.17  fulfillment=6.0  acquisition=3.5  refund=0.05\n  乐观:    selling=26.89  landed=7.85  channel=0.15  fulfillment=4.0  acquisition=1.5  refund=0.02\n  Ningbo:  selling=26.89  landed=8.75  channel=0.15  fulfillment=5.0  acquisition=2.5  refund=0.03\n```\n\n---\n\n## 附录 B：账本落盘清单\n\n| 类型 | ID | 内容 |\n|---|---|---|\n| 证据 | ev_991ea96580d64b2aa30f32d711b9a5c0 | 供应商报价 |\n| 证据 | ev_a5d64bef8ed1433f83af4042c6dadce3 | 项目约束 |\n| 证据 | ev_56259dd470b64e31a3545ec8d4666bb9 | 竞品销量代理样本 |\n| 证据 | ev_99161f736dfc478cbc478812ba616982 | 到岸成本测算 |\n| 证据 | ev_49f8432e7a6e4537a02c8536dfb1c2dc | 单位经济测算 |\n| 假设 | hyp_546f3957f02947b9bfbdfe3c5747e051 | 需求 sell-through |\n| 假设 | hyp_ad61db53665e4cb7ae4fb7de11238c66 | 单位经济 |\n| 决策 | decision_1e0b02ef368040249aaf7f635999be91 | **Test** |\n"
+        }
+      ]
+    },
+    "run_79ef0f4bffa34695948ae44ef11d3dc2": {
+      "task": "c-supplier-inquiry",
+      "report": "l2-20260820T173608Z",
+      "final_text": "已完成。全部结论与依据已入账，未执行任何真实发送。\n\n## 报价拉平（可比口径）\n\nCSV 未含海运/关税，工具按 USD、运费/关税=0 计得「到岸单价=出厂单价」。由于 5 家容量不同（300/350/400/450ml），再用**容量单价（$/ml）**拉平：\n\n| 供应商 | 单价 | 容量 | $/ml | MOQ | 交期 | 认证 | 500件+CE+45天 |\n|---|---|---|---|---|---|---|---|\n| Ningbo Homeware | $7.25 | 400ml | **0.01813** | 300 ✓ | 35d ✓ | CE | ✅ 全满足 |\n| Shenzhen Blendco | $6.80 | 350ml | 0.01943 | 500 ✓ | 28d ✓ | CE;RoHS | ✅ 全满足 |\n| Dongguan PowerCup | $8.10 | 450ml | 0.0180 | 500 ✓ | 40d ⚠️ | CE;FCC | ✅ 满足但仅余5天缓冲 |\n| Guangzhou Kitchenline | $6.40 | 350ml | 0.01829 | **1000 ✗** | 未报 ✗ | CE;LFGB | ❌ MOQ超2倍+交期缺失 |\n| Yiwu QuickTrade | $5.90 | 300ml | 0.01967 | **2000 ✗** | 25d ✓ | **无 ✗** | ❌ MOQ超4倍+无CE |\n\n## 尽调缺口（每家）\n\n- **Ningbo Homeware**：CE 证书原件/测试报告未提供；运费关税未报；付款条款、工厂/贸易商身份、产能未核实；缺样品。\n- **Shenzhen Blendco**：CE/RoHS 证书原件未提供；运费关税未报；付款条款、主体身份未核实；缺样品。\n- **Dongguan PowerCup**：交期 40 天对 45 天窗口风险高；单价与现金占用最高；证书未提供。\n- **Guangzhou Kitchenline**：交期完全未报（致命）；MOQ 1000 超首单目标。\n- **Yiwu QuickTrade**：无任何认证文件（不满足 CE）；MOQ 2000。\n\n## 优先接触的 2 家\n\n1. **Ningbo Homeware** — 合规候选里容量单价最低、MOQ 灵活、交期留 10 天缓冲。\n2. **Shenzhen Blendco** — 绝对单价最低、28 天最快、CE+RoHS 双证、MOQ 精确匹配。\n\n草稿已写入工作区（均标注 **未发送**）：\n- `drafts/inquiry-01-ningbo-homeware.md`\n- `drafts/inquiry-02-shenzhen-blendco.md`\n\n账本记录：证据 `ev_3a6f3d21…`（长名单）、`ev_9f97814c…`（拉平结论）、决策 `decision_20f0850a…`（ranking）。\n\n**关键提示**：数据标注为 synthetic fixture，报价/交期/认证均待补证。下一步（待你批准后再动作）：向这两家补索 CE 证书与 EXW/FOB 海运关税明细，重算真实落地成本后再定样品验证。",
+      "evidence": [
+        {
+          "id": "ev_3a6f3d21f3014287b2bd7415df0a9a02",
+          "kind": "observed_fact",
+          "status": "active",
+          "claim": "供应商长名单含 5 家便携榨汁杯候选（Shenzhen Blendco 350ml $6.80/MOQ500/28d/CE;RoHS；Ningbo Homeware 400ml $7.25/MOQ300/35d/CE；Guangzhou Kitchenline 350ml $6.40/MOQ1000/交期未报/CE;LFGB；Yiwu QuickTrade 300ml $5.90/MOQ2000/25d/无证书；Dongguan PowerCup 450ml $8.10/MOQ500/40d/CE;FCC）。",
+          "source": "path",
+          "source_title": "supplier-longlist.csv",
+          "source_url": null,
+          "source_path": "uploads/supplier-longlist.csv",
+          "retrieved_at": "2026-08-20T17:49:19.623974+00:00",
+          "observed_at": null,
+          "confidence": 0.9,
+          "excerpt": null
+        },
+        {
+          "id": "ev_9f97814c13ca4e7f8f8738ae0facb26a",
+          "kind": "inference",
+          "status": "active",
+          "claim": "报价拉平（USD、运费/关税未报价按 0 计）后，按 500 件+CE+45 天约束筛选：Ningbo Homeware（$7.25/400ml，MOQ300，35d）与 Shenzhen Blendco（$6.80/350ml，MOQ500，28d）满足全部约束；Dongguan PowerCup 满足但交期 40 天仅余 5 天缓冲；Guangzhou Kitchenline MOQ1000 超目标且交期未报；Yiwu QuickTrade MOQ2000 且无 CE。按容量单价（$/ml）：PowerCup 0.0180 < Ningbo 0.01813 < Kitchenline 0.01829 < Blendco 0.01943 < Yiwu 0.01967。",
+          "source": "NONE",
+          "source_title": "compare_supplier_quotes 工具输出",
+          "source_url": null,
+          "source_path": null,
+          "retrieved_at": "2026-08-20T17:49:20.168382+00:00",
+          "observed_at": null,
+          "confidence": 0.85,
+          "excerpt": null
+        }
+      ],
+      "artifacts": [
+        {
+          "name": "inquiry-01-ningbo-homeware.md",
+          "path": "drafts/inquiry-01-ningbo-homeware.md",
+          "text": "# 询盘草稿 — Ningbo Homeware\n\n> 状态：**未发送（DRAFT — NOT SENT）**\n> 收件人：Ningbo Homeware（Ningbo, CN）\n> 产品：Portable Blender 400ml\n> 首单：500 pcs | 要求：CE 认证、45 天内交付\n\n---\n\n**Subject:** RFQ — 500 pcs Portable Blender 400ml, CE certification required\n\nDear Sir/Madam,\n\nWe are preparing a first order of 500 units of your 400ml portable blender for an EU-bound shipment, and we are shortlisting suppliers who can meet a 45-day delivery window with CE certification.\n\nCould you please confirm the following:\n\n1. Unit price for 500 pcs, quoted on both EXW Ningbo and FOB Ningbo terms.\n2. CE certificate — please share the certificate number, the issuing notified body, and the latest test report (LVD / EMC, and RoHS if available).\n3. Production lead time plus estimated shipping time to the destination port. We must receive goods within 45 days of order confirmation — please confirm this is achievable for a 500-unit order.\n4. Payment terms (e.g., 30% deposit / 70% balance before shipment).\n5. Samples — can you ship 1–2 samples? Please advise sample cost and lead time.\n6. Are you the manufacturer (factory) or a trading company? If a factory, please share a brief company profile and annual capacity for this product.\n\nIf the 500-unit order is acceptable at your MOQ, please send your proforma invoice.\n\nBest regards,\n[Your name / company]\n"
+        },
+        {
+          "name": "inquiry-02-shenzhen-blendco.md",
+          "path": "drafts/inquiry-02-shenzhen-blendco.md",
+          "text": "# 询盘草稿 — Shenzhen Blendco\n\n> 状态：**未发送（DRAFT — NOT SENT）**\n> 收件人：Shenzhen Blendco（Shenzhen, CN）\n> 产品：Portable Blender 350ml\n> 首单：500 pcs | 要求：CE 认证、45 天内交付\n\n---\n\n**Subject:** RFQ — 500 pcs Portable Blender 350ml, CE + RoHS required\n\nDear Sir/Madam,\n\nWe are preparing a first order of 500 units of your 350ml portable blender for an EU-bound shipment, and we are shortlisting suppliers who can meet a 45-day delivery window with CE certification.\n\nCould you please confirm the following:\n\n1. Unit price for 500 pcs, quoted on both EXW Shenzhen and FOB Shenzhen terms.\n2. CE and RoHS certificates — please share the certificate numbers, the issuing notified body, and the latest test reports (LVD / EMC / RoHS).\n3. Production lead time plus estimated shipping time to the destination port. We must receive goods within 45 days of order confirmation — please confirm this is achievable for a 500-unit order.\n4. Payment terms (e.g., 30% deposit / 70% balance before shipment).\n5. Samples — can you ship 1–2 samples? Please advise sample cost and lead time.\n6. Are you the manufacturer (factory) or a trading company? If a factory, please share a brief company profile and annual capacity for this product.\n\nSince 500 units matches your listed MOQ, please send your proforma invoice for review.\n\nBest regards,\n[Your name / company]\n"
+        }
+      ]
+    },
+    "run_ead0306b633c4430a3c515f4db2dfbb5": {
+      "task": "a1-demand-entry",
+      "report": "l2-20260821T023627Z",
+      "final_text": "完成。结论与产出如下。\n\n## 判断结果\n\n**首选跟进：信号 1「可折叠宠物外出水杯」。** 它是三条中唯一同时满足「具体单品 + 直接购买意图（\"哪里能买\"）+ 轻小件 + 低客单可小额测」的信号，与你的约束（<1 万、无品牌、轻小件）最匹配。\n\n- **信号 2（德国露营轻量化）**：媒体转述、无原始数据、非具体单品，无法直接验证 → 暂不跟进。\n- **信号 3（东南亚小家电电压抱怨）**：是退货痛点而非购买需求，且小家电非轻小件、认证/售后风险超出首单预算 → 暂不跟进。\n\n## 已按规范写入账本\n\n- **可证伪假设** `hyp_9354f3bf...`：30 天内自然询单/加购 ≥30 次或首 14 天 CTR ≥1%，且 ≥50% 询单为未被承接的购买意图、单件可变毛利为正；任一不满足即证伪。\n- **三条证据**（注明性质与时效局限）：信号 1 社区信号 0.45、信号 2 媒体转述 0.3、信号 3 社区信号 0.4。\n- **决策** `decision_5ebfac2a...`（test），含假设、条件与下一步动作。\n\n## 简报\n\n已写入 `机会判断简报.md`，含「机会判断 + 明确未知项（需求真实规模/专利风险/食品级合规/单位经济/平台季节）+ 下一步验证动作」。\n\n全程基于你整理的 fixture，**未伪造任何实时数据**；文中数字均为假设中的验证阈值，非市场实测。\n\n下一步建议从「供应商报价 + landed cost 核算」起步，确认单件可变毛利为正后再小额上架证伪。",
+      "evidence": [
+        {
+          "id": "ev_b7ec416cc846445f94976ec57ca503f7",
+          "kind": "community_signal",
+          "status": "active",
+          "claim": "2026-07 起，多个欧美宠物博主开箱视频评论区高频出现对可折叠宠物外出水杯的'哪里能买'购买意图评论。",
+          "source": "url",
+          "source_title": "YouTube 搜索 collapsible pet bottle（博主开箱视频评论区）",
+          "source_url": "https://www.youtube.com/results?search_query=collapsible+pet+bottle",
+          "source_path": null,
+          "retrieved_at": "2026-08-21T02:37:42.193398+00:00",
+          "observed_at": "2026-08-01T00:00:00+00:00",
+          "confidence": 0.45,
+          "excerpt": null
+        },
+        {
+          "id": "ev_91ba2e77096c4f799ea23fd2dbc84569",
+          "kind": "inference",
+          "status": "active",
+          "claim": "行业媒体转述称 2026 露营季德国市场'轻量化'露营装备检索热度同比上升，但未见原始数据。",
+          "source": "url",
+          "source_title": "Statista Markets（行业媒体参考页）",
+          "source_url": "https://www.statista.com/markets/",
+          "source_path": null,
+          "retrieved_at": "2026-08-21T02:37:42.194144+00:00",
+          "observed_at": "2026-08-05T00:00:00+00:00",
+          "confidence": 0.3,
+          "excerpt": null
+        },
+        {
+          "id": "ev_b2ea8d183318467da6b758ec782cc2db",
+          "kind": "community_signal",
+          "status": "active",
+          "claim": "东南亚 Shopee 评论区反复出现 220V/110V 电压混淆导致退货的抱怨。",
+          "source": "NONE",
+          "source_title": "Shopee 评论区（用户整理，无链接）",
+          "source_url": null,
+          "source_path": null,
+          "retrieved_at": "2026-08-21T02:37:42.194890+00:00",
+          "observed_at": "2026-07-28T00:00:00+00:00",
+          "confidence": 0.4,
+          "excerpt": null
+        }
+      ],
+      "artifacts": [
+        {
+          "name": "机会判断简报.md",
+          "path": "机会判断简报.md",
+          "text": "# 需求信号机会判断简报\n\n> 生成时间：2026-08-20（本地）· 输入：`uploads/demand-signals.md`（合成 fixture，未实时抓取）\n> 决策口径：首单预算 <1 万美元、无自有品牌、偏好轻小件。\n\n## 一、结论（机会判断）\n\n**首选跟进：信号 1「可折叠宠物外出水杯」。**\n\n理由：它是三条信号中唯一同时满足「具体单品 + 直接购买意图（\"哪里能买\"）+ 轻小件 + 低客单可小额测」的一项，与团队约束最匹配，且能直接落成一个可证伪的单品假设。\n\n| 信号 | 信号性质 | 结论 |\n|---|---|---|\n| 1 可折叠宠物水杯 | 社区信号（购买意图） | **首选，进入小额 test** |\n| 2 德国露营轻量化 | 媒体转述（方向性趋势） | 暂不跟进：无原始数据、非具体单品，无法直接验证 |\n| 3 东南亚小家电电压抱怨 | 社区信号（退货痛点） | 暂不跟进：是痛点而非购买需求，小家电非轻小件，质量/认证/售后风险超出首单预算 |\n\n## 二、首选信号的可证伪假设\n\n> 账本假设 ID：`hyp_9354f3bf3db24909bdc76e4d60c2dab9`\n\n**假设**：欧美市场（优先美国）对通用型可折叠宠物外出水杯存在可被无品牌小团队承接的真实增量需求；2026-08 至 09 期间在 TikTok Shop 或亚马逊小批量上架的通用款，30 天内可获得 ≥30 次自然询单/加购，或首 14 天商品详情页 CTR ≥1%，且该转化无需品牌背书即可成立。\n\n**证伪标准（任一不满足即证伪）**：\n1. 30 天内自然流量询单/加购 ≥30 次，或首 14 天 CTR ≥1%。\n2. 询单中 ≥50% 为未被品牌方承接的\"哪里能买\"型购买意图（而非已饱和评论）。\n3. 计入头程与平台费后，单件可变毛利为正（用 landed cost / unit economics 工具核算）。\n\n## 三、明确未知项\n\n1. **需求真实规模与承接状态**：评论区\"哪里能买\"是即时增量需求，还是已被品牌方回复承接、或属已饱和的旧评论——这是最大的未知，直接影响证伪。\n2. **专利/外观风险**：可折叠结构可能涉及外观或实用新型专利，通用款存在侵权风险，需尽调。\n3. **合规与材质**：宠物入口接触件需食品级（BPA-free/硅胶）材质，认证成本是否在首单预算内未定。\n4. **单位经济与现金占用**：轻小件虽头程低，但运费占货值比例需核算；盈亏平衡单量与现金占用未测。\n5. **平台与季节**：首选 TikTok Shop 还是亚马逊未定；宠物出行是否具夏季季节性、当前时点是否错过窗口未确认。\n\n## 四、下一步验证动作\n\n1. **供应商尽调**：找 2–3 家通用款供应商报价，核算 landed cost 与单件可变毛利。\n2. **单位经济测算**：用 landed-cost / unit-economics 工具做盈亏平衡与现金占用测算（约束首单 <1 万）。\n3. **小额上架测试**：在 TikTok Shop / 亚马逊做小额测试上架，追踪 30 天自然询单/加购与 CTR，据此证伪/证实假设。\n4. **专利轻量尽调**：对可折叠结构的专利/外观风险做一次快速排查，排除侵权后才下首单。\n\n## 五、数据边界声明\n\n- 本简报基于用户整理的合成 fixture，**未实时抓取**；链接为公开参考页，评论数据为人工整理快照，无增量验证。\n- 未伪造任何实时搜索量、销量或价格数据；涉及数字均为假设中的验证阈值，而非市场实测。\n- 三条信号已按证据规范记入账本，并注明信号性质（社区信号 / 媒体转述）与时效局限：\n  - `ev_b7ec416cc846445f94976ec57ca503f7`（信号 1，社区信号，0.45）\n  - `ev_91ba2e77096c4f799ea23fd2dbc84569`（信号 2，媒体转述/推断，0.3）\n  - `ev_b2ea8d183318467da6b758ec782cc2db`（信号 3，社区信号，0.4）\n- 决策已记录：`decision_5ebfac2adf5f4e6e83f76bd891c1b3eb`（类型 test）。\n"
+        }
+      ]
+    },
+    "run_229c862eaa0f4237bba856135f848ee0": {
+      "task": "a2-supply-entry",
+      "report": "l2-20260821T023627Z",
+      "final_text": "已完成。结论与产物如下：\n\n## 结论：双轨推进，不二选一\n\n排序结果几乎打平，所以最优解是**节奏上的双轨**：\n\n| 判断 | 路线 | 理由 |\n|---|---|---|\n| **Go（主攻）** | 欧盟 B 端（德国/比荷卢家居进口分销商） | LFGB+BSCI 是欧盟零售硬门槛，构成认证护城河 |\n| **Test（先跑）** | 美国亚马逊卖家 / Faire 批发 | 英语无障碍、MOQ 1000 快反、Q4 前最快出单，养现金流反哺欧盟线 |\n| **No-go** | 自营多站点 DTC；欧盟连锁零售直供 | 无海外仓/无内容/预算不够；起订量与账期远超当前供给 |\n\n**一句话**：认证让你在欧盟「够资格但走得慢」，英语和 MOQ 让你在美国「走得快但壁垒低」——用美国快单养现金流，用欧盟慢单建壁垒。\n\n## 客户加权排序（匹配度 0.55 / 可达性 0.45）\n① 美国亚马逊卖家批发 **74.70** ≈ ② 欧盟进口分销商 **74.65** ＞ ③ 欧盟户外品牌 68.75 ＞ ④ 美国家居分销 66.65 ＞ ⑤ 欧盟连锁零售 58.60\n\n## 已落盘/入库\n- **证据账本**：12 条，严格区分「你的陈述」（7 条，置信度 1.0，来源 `factory-capability.md`）与「我的推断」（5 条，置信度 0.5–0.7，已标注待核实）。\n- **决策**：`decision_fa5a8e43ebed4af393cdf655e5769fb5`（ranking，含 Go/Test/No-go 与 next_actions）。\n- **简报**：`workspace/市场渠道判断简报.md`。\n\n两点需要你留意：① 外部检索 API 未配置，所以**关税/需求/竞争相关判断均为我的推断、未经市场数据验证**（尤其美国对华硅胶厨具关税需核实）；② 欧盟线开工前建议先备好 REACH/食品接触法规声明文档，否则分销商谈判会卡在合规环节。",
+      "evidence": [
+        {
+          "id": "ev_0724ba427fa24e00adca017df7699e7f",
+          "kind": "user_statement",
+          "status": "active",
+          "claim": "主营硅胶厨具与户外硅胶制品（折叠碗、折叠杯、食品级收纳）",
+          "source": "path",
+          "source_title": "factory-capability.md",
+          "source_url": null,
+          "source_path": "uploads/factory-capability.md",
+          "retrieved_at": "2026-08-21T02:40:32.447918+00:00",
+          "observed_at": "2026-08-20T00:00:00+00:00",
+          "confidence": 1.0,
+          "excerpt": null
+        },
+        {
+          "id": "ev_8fb33561641a4c0c9fd53c2fae99bf24",
+          "kind": "user_statement",
+          "status": "active",
+          "claim": "持有 LFGB、FDA 食品接触认证，工厂通过 BSCI 验厂，无 CE 玩具类认证",
+          "source": "path",
+          "source_title": "factory-capability.md",
+          "source_url": null,
+          "source_path": "uploads/factory-capability.md",
+          "retrieved_at": "2026-08-21T02:40:32.448239+00:00",
+          "observed_at": "2026-08-20T00:00:00+00:00",
+          "confidence": 1.0,
+          "excerpt": null
+        },
+        {
+          "id": "ev_b5b7749f1e8744e0afc50d3a9c49f1de",
+          "kind": "user_statement",
+          "status": "active",
+          "claim": "月产能 12 万件，打样 7 天，首单 MOQ 可谈到 1000 件",
+          "source": "path",
+          "source_title": "factory-capability.md",
+          "source_url": null,
+          "source_path": "uploads/factory-capability.md",
+          "retrieved_at": "2026-08-21T02:40:32.448482+00:00",
+          "observed_at": "2026-08-20T00:00:00+00:00",
+          "confidence": 1.0,
+          "excerpt": null
+        },
+        {
+          "id": "ev_7c6790cfa44a45499b78e66e421ef9ca",
+          "kind": "user_statement",
+          "status": "active",
+          "claim": "出厂价 0.8–2.6 USD/件（按克重与模具）",
+          "source": "path",
+          "source_title": "factory-capability.md",
+          "source_url": null,
+          "source_path": "uploads/factory-capability.md",
+          "retrieved_at": "2026-08-21T02:40:32.448695+00:00",
+          "observed_at": "2026-08-20T00:00:00+00:00",
+          "confidence": 1.0,
+          "excerpt": null
+        },
+        {
+          "id": "ev_df2e4488b3784952983908c9725b89b0",
+          "kind": "user_statement",
+          "status": "active",
+          "claim": "现有 60+ 套公模；开新模 3800–8000 USD、25 天",
+          "source": "path",
+          "source_title": "factory-capability.md",
+          "source_url": null,
+          "source_path": "uploads/factory-capability.md",
+          "retrieved_at": "2026-08-21T02:40:32.448953+00:00",
+          "observed_at": "2026-08-20T00:00:00+00:00",
+          "confidence": 1.0,
+          "excerpt": null
+        },
+        {
+          "id": "ev_8eeb1804d0da4f098c90e13f18fa509d",
+          "kind": "user_statement",
+          "status": "active",
+          "claim": "外贸业务 2 人（英语），无本地化内容能力，无海外仓",
+          "source": "path",
+          "source_title": "factory-capability.md",
+          "source_url": null,
+          "source_path": "uploads/factory-capability.md",
+          "retrieved_at": "2026-08-21T02:40:32.449181+00:00",
+          "observed_at": "2026-08-20T00:00:00+00:00",
+          "confidence": 1.0,
+          "excerpt": null
+        },
+        {
+          "id": "ev_a01e781267884edcb06b90c847a9af72",
+          "kind": "user_statement",
+          "status": "active",
+          "claim": "目标 2026 Q4 前打开稳定海外 B 端或 DTC 渠道，首期投入控制在 2 万美元内",
+          "source": "path",
+          "source_title": "factory-capability.md",
+          "source_url": null,
+          "source_path": "uploads/factory-capability.md",
+          "retrieved_at": "2026-08-21T02:40:32.449436+00:00",
+          "observed_at": "2026-08-20T00:00:00+00:00",
+          "confidence": 1.0,
+          "excerpt": null
+        },
+        {
+          "id": "ev_9b7f1a6df66c4857b22f232e8afa226e",
+          "kind": "inference",
+          "status": "active",
+          "claim": "LFGB + BSCI 组合对欧盟（尤其德语区/比荷卢）家居零售与进口商构成强准入门槛，是该供给最可货币化的差异化壁垒",
+          "source": "NONE",
+          "source_title": "Ophira 供给-市场匹配推断",
+          "source_url": null,
+          "source_path": null,
+          "retrieved_at": "2026-08-21T02:40:32.449681+00:00",
+          "observed_at": "2026-08-20T00:00:00+00:00",
+          "confidence": 0.6,
+          "excerpt": null
+        },
+        {
+          "id": "ev_f55d8185ec394deb929012c93c83353a",
+          "kind": "inference",
+          "status": "active",
+          "claim": "无 CE 玩具认证，应规避儿童/玩具类硅胶产品线，聚焦食品接触与成人户外场景",
+          "source": "NONE",
+          "source_title": "Ophira 供给-市场匹配推断",
+          "source_url": null,
+          "source_path": null,
+          "retrieved_at": "2026-08-21T02:40:32.449982+00:00",
+          "observed_at": "2026-08-20T00:00:00+00:00",
+          "confidence": 0.7,
+          "excerpt": null
+        },
+        {
+          "id": "ev_2c88eb4c80874179bc07d0381c0a689f",
+          "kind": "inference",
+          "status": "active",
+          "claim": "无海外仓 + 英语-only 2 人团队，自营多站点 DTC（多语言内容+广告+客服+退货）能力弱，B2B 批发更匹配当前团队",
+          "source": "NONE",
+          "source_title": "Ophira 供给-市场匹配推断",
+          "source_url": null,
+          "source_path": null,
+          "retrieved_at": "2026-08-21T02:40:32.450279+00:00",
+          "observed_at": "2026-08-20T00:00:00+00:00",
+          "confidence": 0.7,
+          "excerpt": null
+        },
+        {
+          "id": "ev_0957a88bd7664bd8937090edb7967938",
+          "kind": "inference",
+          "status": "active",
+          "claim": "2 万美元首期预算不足以支撑多市场 DTC 的库存+广告投放，更适合 B2B 打样/展会/平台获客或单市场小规模试水",
+          "source": "NONE",
+          "source_title": "Ophira 供给-市场匹配推断",
+          "source_url": null,
+          "source_path": null,
+          "retrieved_at": "2026-08-21T02:40:32.450603+00:00",
+          "observed_at": "2026-08-20T00:00:00+00:00",
+          "confidence": 0.7,
+          "excerpt": null
+        },
+        {
+          "id": "ev_d2c211a761984ab4aa825bea13b90780",
+          "kind": "inference",
+          "status": "active",
+          "claim": "美国市场对华硅胶厨具可能存在加征关税（如 Section 301）与同质化价格竞争，会削弱 FDA 认证的相对优势；需外部核实",
+          "source": "NONE",
+          "source_title": "Ophira 供给-市场匹配推断",
+          "source_url": null,
+          "source_path": null,
+          "retrieved_at": "2026-08-21T02:40:32.450895+00:00",
+          "observed_at": "2026-08-20T00:00:00+00:00",
+          "confidence": 0.5,
+          "excerpt": null
+        }
+      ],
+      "artifacts": [
+        {
+          "name": "市场渠道判断简报.md",
+          "path": "市场渠道判断简报.md",
+          "text": "# 硅胶厨具/户外供给 · 海外市场与渠道判断简报\n\n> 生成日期：2026-08-20 · 分析人：Ophira · 输入：`uploads/factory-capability.md`（用户自述）\n> 证据账本：12 条已入库 · 决策：`decision_fa5a8e43ebed4af393cdf655e5769fb5`\n\n---\n\n## 一、结论摘要\n\n**建议「双轨推进」而非二选一，因为排序结果几乎打平：**\n\n- **Go（战略主攻）——欧盟 B 端**：以 LFGB + BSCI 为护城河，主攻德国/比荷卢家居与厨具进口分销商。\n- **Test（先跑现金流）——美国亚马逊卖家 / Faire 批发**：英语无障碍、MOQ 1000 快反契合、成交周期短，Q4 前最快出单，反哺欧盟线的打样与展会投入。\n- **No-go（当前不做）**：① 自营多站点 DTC（无海外仓、无本地化内容、预算不够）；② 欧盟连锁零售直供（起订量/产能/账期要求远超当前供给）。\n\n**一句话**：认证让你在欧盟「够资格但走得慢」，英语和 MOQ 让你在美国「走得快但壁垒低」。用美国快单养现金流，用欧盟慢单建壁垒。\n\n---\n\n## 二、供给画像的关键约束（决定了判断走向）\n\n| 维度 | 事实 | 对判断的含义 |\n|---|---|---|\n| 认证 | LFGB、FDA 食品接触；BSCI 验厂；**无 CE 玩具认证** | LFGB+BSCI 是欧盟零售硬门槛 → 欧盟是护城河方向；无 CE 玩具 → 规避儿童/玩具类 |\n| 产能/起订 | 月产 12 万件；打样 7 天；MOQ 可谈 1000 件 | 适合中小买家快反，够不到连锁零售的单 SKU 起订量 |\n| 价格 | 出厂 0.8–2.6 USD/件 | 中低客单快消，匹配批发走量而非精品 DTC |\n| 团队 | 外贸 2 人（英语）、无本地化内容、无海外仓 | B2B 更匹配；自营 DTC 多站点不可行 |\n| 预算/目标 | 首期 ≤2 万美元；2026 Q4 前出首个稳定渠道 | 只够打样+平台+展会获客或单市场小规模试水 |\n\n---\n\n## 三、三条候选路线 · 取舍比较\n\n| 路线 | 优势 | 劣势 | 预算匹配 | 判断 |\n|---|---|---|---|---|\n| **A. 欧盟 B 端批发**（德国/比荷卢进口分销商、家居买手） | LFGB+BSCI 精准对口，形成认证壁垒；避开无认证厂的同质化价格战；客单价与账期长期更优 | 销售周期长（3–6 月）；需完整合规文档包（REACH 声明等）；无欧盟本地存在，触达靠展会/名录/平台 | 中（打样+名录/展会成本可控） | **Go（主攻）** |\n| **B. 美国 B2B 批发**（亚马逊卖家/Faire 批发/家居分销） | FDA 覆盖、英语无障碍、MOQ 1000 快反契合、成交周期短，Q4 前最快出单 | 竞争白热、买家压价；对华硅胶厨具可能有关税（需核实）压缩利润；无认证壁垒 | 高（平台+获客最省） | **Test（先跑）** |\n| **C. 自营 DTC**（Amazon FBA 单市场或多站点） | 毛利最高、直连消费者 | 无海外仓+无内容能力+预算仅 2 万 → 库存+广告+客服+退货会快速烧穿；多语言站点完全无力 | 低（严重不足） | **No-go（当前）** |\n\n> 补充判断：**欧盟连锁零售直供**虽然认证匹配度最高，但单 SKU 起订量/产能保障/账期远超当前供给，且触达周期 6–12 月，2 万美金与 Q4 窗口够不到，故也归为 No-go。\n\n---\n\n## 四、客户画像 · 显式加权排序\n\n**权重：匹配度 0.55 / 可达性 0.45**（理由：认证壁垒是长期护城河，但 2 人团队 + 2 万预算让「够不够得着」几乎同样关键）。\n\n| 排名 | 客户画像 | 匹配度 | 可达性 | 加权分 |\n|---|---|---|---|---|\n| ① | 美国亚马逊卖家 / 批发买家（FBA wholesale） | 72 | 78 | **74.70** |\n| ② | 欧盟家居/厨具进口分销商（DACH/比荷卢） | 85 | 62 | **74.65** |\n| ③ | 欧盟户外/露营品牌买手 | 80 | 55 | 68.75 |\n| ④ | 美国家居/厨具批发分销商 | 68 | 65 | 66.65 |\n| ⑤ | 欧盟连锁零售/超市采购 | 82 | 30 | 58.60 |\n\n**关键读数**：①与②几乎打平——认证给欧盟的「匹配度优势」，被美国渠道的「可达性优势」抵消。这正是「双轨推进」的量化依据：美国负责快、欧盟负责深。\n\n---\n\n## 五、关键依据（区分「你的陈述」与「我的推断」）\n\n### 你的陈述（来源 `factory-capability.md`，置信度 1.0）\n1. 主营硅胶厨具与户外硅胶制品（折叠碗/杯、食品级收纳）。\n2. LFGB、FDA 食品接触 + BSCI 验厂，无 CE 玩具认证。\n3. 月产 12 万件、打样 7 天、MOQ 可谈 1000 件。\n4. 出厂价 0.8–2.6 USD/件；60+ 公模、新模 3800–8000 USD / 25 天。\n5. 外贸 2 人（英语）、无本地化内容、无海外仓。\n6. 目标 2026 Q4 前开稳定 B 端或 DTC 渠道，首期 ≤2 万美元。\n\n### 我的推断（未做外部市场数据验证，置信度 0.5–0.7）\n1. LFGB + BSCI 对欧盟家居零售/进口商构成强准入门槛（护城河）。\n2. 无 CE 玩具认证 → 规避儿童/玩具类，聚焦食品接触与成人户外。\n3. 无海外仓 + 英语-only 团队 → 自营 DTC 能力弱，B2B 更匹配。\n4. 2 万美金不足以支撑多市场 DTC 库存+广告。\n5. 美国对华硅胶厨具可能有关税（Section 301）与同质化价格竞争——**待核实**。\n\n---\n\n## 六、风险与未知项\n\n- 外部检索 API 未配置，以上所有「需求/关税/竞争」判断均为推断，**未做买家侧或市场数据验证**。\n- 欧盟线需补齐 REACH / 食品接触材料（塑料法规 10/2011 等）声明文件，否则分销商谈判会卡在合规环节。\n- 美国关税若落实，会显著压缩 B 路线毛利，需在报价前确认 HS 编码税率。\n\n---\n\n## 七、最小验证动作（Q4 前可落地）\n\n1. **美国快单**：上 Faire / 亚马逊批发，跑 1000 件级快反订单，验证现金流与履约节奏（1–2 周可启动）。\n2. **欧盟建列表**：用 LFGB+BSCI 定位德语区/比荷卢家居进口商，Alibaba 欧盟筛选 + Ambiente 展会名录开发信（英语可用，德语加分）。\n3. **合规文档包**：整理 LFGB/FDA/BSCI 报告 + REACH 声明，做成一页 PDF 随报价发送。\n4. **品类红线**：目录里剔除任何儿童/玩具类硅胶产品。\n\n---\n\n## 八、账本与决策索引\n\n- 证据：12 条（7 条用户陈述 + 5 条推断），含来源、获取时间、置信度，可回链。\n- 决策：`decision_fa5a8e43ebed4af393cdf655e5769fb5`（ranking 类型，含 Go/Test/No-go 与 next_actions）。\n"
+        }
+      ]
+    },
+    "run_acc5834ec2dc41cfbffd7914d80a1287": {
+      "task": "b-product-validation",
+      "report": "l2-20260821T023627Z",
+      "final_text": "分析完成。结论如下：\n\n## 决策：**Test**（小批量试销验证）\n\n**为什么不是 Go / No-go：**\n\n| 维度 | 结果 |\n|---|---|\n| 到岸成本 | 3 家 $7.09–8.74/件，全部在预算内（Guangzhou 除外，见下） |\n| 单元经济 | 贡献毛利 $5.54–7.19/件，毛利率 **20.6%–26.7%**，全部为正 |\n| 盈亏平衡 | 仅 **70–91 件/月**，远低于竞品月销（1650–4100 件） |\n| 预算 | Blendco $3921、Ningbo $2622 到岸总额都远低于 $8000；**Guangzhou 因 1000 件 MOQ 叠加认证后超预算被排除** |\n| 需求 | BlendGo 3 个月月销 3200→4100（+28%），但**是合成代理信号，非第三方核实** |\n\n**关键判断**：经济性为正且预算可行（不支持 No-go），但需求是合成信号、FBA/PPC/关税/退款率全是假设、CE/LFGB 未取证（不支持直接 Go）——所以走 **Test**，用小批量验证真实需求与成本假设。\n\n**推荐试销**：Ningbo 300 件（现金占用最低 $2622）或 Blendco 500 件（单位成本更优、交期更短）。\n\n**已完成落账：**\n- 证据账本：16 条（**9 条事实 + 7 条推断**，已用 `kind` 字段分离），回链 `quotes.csv`/`constraints.md`/`sales-sample.csv`\n- 假设：`hyp_0529f580…`（需求 + 成本可证伪假设，含 4 条验证标准）\n- 决策：`decision_a6aef679…`（回链 16 条证据 + 1 条假设，含升级条件与下一步行动）\n- 报告：`workspace/便携榨汁杯-商业分析.md`（可编辑中文 Markdown）\n\n一个提醒：三份输入文件都标注了 `synthetic`，本次结论是方法演示，真实决策前需按第 8 节「下一步行动」用第三方工具核实需求与成本。",
+      "evidence": [
+        {
+          "id": "ev_c676f304c00a481a9dd1ab6bcdcce52e",
+          "kind": "observed_fact",
+          "status": "active",
+          "claim": "供应商 Shenzhen Blendco 报价：便携榨汁杯 350ml，单价 6.80 USD，MOQ 500，交期 28 天，运费合计 420 USD。",
+          "source": "path",
+          "source_title": "quotes.csv",
+          "source_url": null,
+          "source_path": "uploads/quotes.csv",
+          "retrieved_at": "2026-08-21T02:46:12.228262+00:00",
+          "observed_at": null,
+          "confidence": 0.7,
+          "excerpt": "Shenzhen Blendco,Portable blender 350ml,6.80,500,28,420"
+        },
+        {
+          "id": "ev_22e3c996adbf4576b27560ba9c1696a9",
+          "kind": "observed_fact",
+          "status": "active",
+          "claim": "供应商 Ningbo Homeware 报价：便携榨汁杯 400ml，单价 7.25 USD，MOQ 300，交期 35 天，运费 380 USD。",
+          "source": "path",
+          "source_title": "quotes.csv",
+          "source_url": null,
+          "source_path": "uploads/quotes.csv",
+          "retrieved_at": "2026-08-21T02:46:12.228538+00:00",
+          "observed_at": null,
+          "confidence": 0.7,
+          "excerpt": "Ningbo Homeware,Portable blender 400ml,7.25,300,35,380"
+        },
+        {
+          "id": "ev_8a56d10c206e49fd901ab7ec635e908a",
+          "kind": "observed_fact",
+          "status": "active",
+          "claim": "供应商 Guangzhou Kitchenline 报价：便携榨汁杯 350ml，单价 6.40 USD，MOQ 1000，交期 40 天，运费 510 USD。",
+          "source": "path",
+          "source_title": "quotes.csv",
+          "source_url": null,
+          "source_path": "uploads/quotes.csv",
+          "retrieved_at": "2026-08-21T02:46:12.228752+00:00",
+          "observed_at": null,
+          "confidence": 0.7,
+          "excerpt": "Guangzhou Kitchenline,Portable blender 350ml,6.40,1000,40,510"
+        },
+        {
+          "id": "ev_d1f6470180c34a0da76485c81aec1342",
+          "kind": "observed_fact",
+          "status": "active",
+          "claim": "预算约束：首批采购与物流现金占用不超过 8,000 USD。",
+          "source": "path",
+          "source_title": "constraints.md",
+          "source_url": null,
+          "source_path": "uploads/constraints.md",
+          "retrieved_at": "2026-08-21T02:46:12.229095+00:00",
+          "observed_at": null,
+          "confidence": 0.9,
+          "excerpt": null
+        },
+        {
+          "id": "ev_95a788692dcc4d02ad19b905f7f5aee0",
+          "kind": "observed_fact",
+          "status": "active",
+          "claim": "目标市场为欧盟（先德国），零售目标价 24.9 EUR。",
+          "source": "path",
+          "source_title": "constraints.md",
+          "source_url": null,
+          "source_path": "uploads/constraints.md",
+          "retrieved_at": "2026-08-21T02:46:12.229321+00:00",
+          "observed_at": null,
+          "confidence": 0.9,
+          "excerpt": null
+        },
+        {
+          "id": "ev_4a367421c6cc4e4e9ec62e5bbe2a1d26",
+          "kind": "observed_fact",
+          "status": "active",
+          "claim": "履约方式：小批量海运 + 本地仓发货；不接受空运常态化。",
+          "source": "path",
+          "source_title": "constraints.md",
+          "source_url": null,
+          "source_path": "uploads/constraints.md",
+          "retrieved_at": "2026-08-21T02:46:12.229545+00:00",
+          "observed_at": null,
+          "confidence": 0.9,
+          "excerpt": null
+        },
+        {
+          "id": "ev_e6df5e4e8ce34ea397b4690f74e7f68e",
+          "kind": "observed_fact",
+          "status": "active",
+          "claim": "合规要求：需 CE/LFGB 接触食品级认证；宣称语不得含医疗功效。",
+          "source": "path",
+          "source_title": "constraints.md",
+          "source_url": null,
+          "source_path": "uploads/constraints.md",
+          "retrieved_at": "2026-08-21T02:46:12.229768+00:00",
+          "observed_at": null,
+          "confidence": 0.9,
+          "excerpt": null
+        },
+        {
+          "id": "ev_4c44e1b2a5774ca7b6d2600c6f86b17d",
+          "kind": "observed_fact",
+          "status": "active",
+          "claim": "竞品 BlendGo 350ml（amazon.de）月销量：2026-05 约 3200 件 @29.9 USD、06 约 3550 @27.9、07 约 4100 @27.9。",
+          "source": "path",
+          "source_title": "sales-sample.csv",
+          "source_url": null,
+          "source_path": "uploads/sales-sample.csv",
+          "retrieved_at": "2026-08-21T02:46:12.230048+00:00",
+          "observed_at": null,
+          "confidence": 0.5,
+          "excerpt": "BlendGo 350ml: 3200/3550/4100 units at 29.9/27.9/27.9 USD"
+        },
+        {
+          "id": "ev_46cb4842ddfd4f16954a469f72051dd0",
+          "kind": "observed_fact",
+          "status": "active",
+          "claim": "竞品 JuiceMate 400ml（amazon.de）月销量：2026-05 约 1800 @24.9、06 约 1650 @22.9、07 约 2100 @22.9。",
+          "source": "path",
+          "source_title": "sales-sample.csv",
+          "source_url": null,
+          "source_path": "uploads/sales-sample.csv",
+          "retrieved_at": "2026-08-21T02:46:12.230332+00:00",
+          "observed_at": null,
+          "confidence": 0.5,
+          "excerpt": "JuiceMate 400ml: 1800/1650/2100 units at 24.9/22.9/22.9 USD"
+        },
+        {
+          "id": "ev_41929d9dc59d40d7bf3c8ed8991ea345",
+          "kind": "inference",
+          "status": "active",
+          "claim": "Shenzhen Blendco 到岸单位成本 7.84 USD/件（500 件：货值 3400 + 运费 420 + 保险 17 + 关税 2.2%，到岸总额 3921.41 USD）。",
+          "source": "NONE",
+          "source_title": "到岸成本测算（calculate_landed_cost）",
+          "source_url": null,
+          "source_path": null,
+          "retrieved_at": "2026-08-21T02:46:12.230651+00:00",
+          "observed_at": null,
+          "confidence": 0.8,
+          "excerpt": null
+        },
+        {
+          "id": "ev_07fd076817614c06897dbd0bbdf1bcba",
+          "kind": "inference",
+          "status": "active",
+          "claim": "Ningbo Homeware 到岸单位成本 8.74 USD/件（300 件，到岸总额 2622.45 USD）。",
+          "source": "NONE",
+          "source_title": "到岸成本测算（calculate_landed_cost）",
+          "source_url": null,
+          "source_path": null,
+          "retrieved_at": "2026-08-21T02:46:12.230983+00:00",
+          "observed_at": null,
+          "confidence": 0.8,
+          "excerpt": null
+        },
+        {
+          "id": "ev_d0812657c5844892aba8aaae5e8ffa12",
+          "kind": "inference",
+          "status": "active",
+          "claim": "Guangzhou Kitchenline 到岸单位成本 7.09 USD/件（1000 件，到岸总额 7094.72 USD）。",
+          "source": "NONE",
+          "source_title": "到岸成本测算（calculate_landed_cost）",
+          "source_url": null,
+          "source_path": null,
+          "retrieved_at": "2026-08-21T02:46:12.231296+00:00",
+          "observed_at": null,
+          "confidence": 0.8,
+          "excerpt": null
+        },
+        {
+          "id": "ev_10c1bcbdc49b464b8b599c9f425d1b60",
+          "kind": "inference",
+          "status": "active",
+          "claim": "Guangzhou Kitchenline 的 1000 件 MOQ 到岸总额 7095 USD，叠加 CE/LFGB 认证（估约 1500 USD）与本地仓等固定投入后预计突破 8000 USD 预算上限，实际被预算约束排除。",
+          "source": "NONE",
+          "source_title": "预算可行性推断",
+          "source_url": null,
+          "source_path": null,
+          "retrieved_at": "2026-08-21T02:46:12.231622+00:00",
+          "observed_at": null,
+          "confidence": 0.7,
+          "excerpt": null
+        },
+        {
+          "id": "ev_f6d0d755da984c2491866bbdff10f9f2",
+          "kind": "inference",
+          "status": "active",
+          "claim": "统一假设下单元经济（24.9 EUR≈26.89 USD，佣金 15%、FBA 履约 4 USD/件、PPC 获客 3.5 USD/件、退款 4%、月固定 500 USD）：Blendco 单位贡献 6.44 USD（23.9%）、Ningbo 5.54（20.6%）、Guangzhou 7.19（26.7%）；月盈亏平衡 70–91 件。",
+          "source": "NONE",
+          "source_title": "单元经济测算（calculate_unit_economics）",
+          "source_url": null,
+          "source_path": null,
+          "retrieved_at": "2026-08-21T02:46:12.231955+00:00",
+          "observed_at": null,
+          "confidence": 0.7,
+          "excerpt": null
+        },
+        {
+          "id": "ev_b06a62cf3b64455b96c82b5d1a540b26",
+          "kind": "inference",
+          "status": "active",
+          "claim": "需求信号：BlendGo 3 个月月销 3200→4100（+28%）且售价 27.9–29.9 USD 覆盖目标价 24.9 EUR，显示该类目在 amazon.de 存在活跃且增长的需求；但样本为自整理合成代理信号，需真实数据核实。",
+          "source": "NONE",
+          "source_title": "需求信号推断",
+          "source_url": null,
+          "source_path": null,
+          "retrieved_at": "2026-08-21T02:46:12.232318+00:00",
+          "observed_at": null,
+          "confidence": 0.5,
+          "excerpt": null
+        },
+        {
+          "id": "ev_7cfd1ccd570c4b9b83b714a3ce275820",
+          "kind": "inference",
+          "status": "active",
+          "claim": "关键假设（待核实）：EUR/USD=1.08、欧盟关税 2.2%（HS 8509 类小家电）、FBA 履约 4 USD/件、PPC 获客 3.5 USD/件、退款率 4%、CE/LFGB 认证一次性约 1500 USD。",
+          "source": "NONE",
+          "source_title": "测算假设清单",
+          "source_url": null,
+          "source_path": null,
+          "retrieved_at": "2026-08-21T02:46:12.232687+00:00",
+          "observed_at": null,
+          "confidence": 0.5,
+          "excerpt": null
+        }
+      ],
+      "artifacts": [
+        {
+          "name": "便携榨汁杯-商业分析.md",
+          "path": "便携榨汁杯-商业分析.md",
+          "text": "# 便携榨汁杯（350–400ml）商业测算报告\n\n> 结论：**Test（小批量试销验证）**\n> 决策账本 ID：`decision_a6aef6792bc84e448b897d9d3c56fac8`\n> 生成日期：2026-08-20 ｜ 分析者：ophira\n\n---\n\n## 1. 一句话结论\n\n经济性测算**全部为正且显著**（单位贡献毛利 $5.5–7.2、毛利率 20%–27%，月盈亏平衡仅 70–91 件，远低于竞品月销 1650–4100 件），且供应商到岸总额在 $8000 预算内；但**需求样本是合成代理信号、关键成本全是假设、CE/LFGB 未取证**，所以不直接 Go，也不 No-go，**先 Test**：小批量海运试销，用真实数据验证后再放大。\n\n---\n\n## 2. 材料与来源\n\n| 文件 | 内容 | 性质 |\n|---|---|---|\n| `uploads/quotes.csv` | 3 家供应商报价 | 合成 fixture，非真实报价 |\n| `uploads/constraints.md` | 项目约束（预算/市场/履约/合规） | 合成 fixture，但为本次评测的权威约束 |\n| `uploads/sales-sample.csv` | 竞品月销样本（amazon.de） | 用户自整理合成代理信号，非第三方核实 |\n\n> 诚实声明：全部输入均为合成数据（`synthetic`），本报告结论只用于方法演示，**不构成真实商业决策依据**。\n\n---\n\n## 3. 关键事实 vs 推断（分离）\n\n### 3.1 关键事实（直接来自文件，`kind = observed_fact`）\n\n**供应商报价**\n| 供应商 | 容量 | 单价 USD | MOQ | 交期(天) | 运费 USD |\n|---|---|---|---|---|---|\n| Shenzhen Blendco | 350ml | 6.80 | 500 | 28 | 420 |\n| Ningbo Homeware | 400ml | 7.25 | 300 | 35 | 380 |\n| Guangzhou Kitchenline | 350ml | 6.40 | 1000 | 40 | 510 |\n\n**项目约束**\n- 预算：首批采购 + 物流现金 ≤ **8,000 USD**\n- 市场：欧盟，先德国；零售目标价 **24.9 EUR**\n- 履约：小批量海运 + 本地仓发货；不接受空运常态化\n- 合规：需 **CE/LFGB** 食品接触认证；宣称不得含医疗功效\n\n**竞品月销（amazon.de，合成代理信号）**\n| 竞品 | 2026-05 | 2026-06 | 2026-07 |\n|---|---|---|---|\n| BlendGo 350ml | 3200 @ $29.9 | 3550 @ $27.9 | 4100 @ $27.9 |\n| JuiceMate 400ml | 1800 @ $24.9 | 1650 @ $22.9 | 2100 @ $22.9 |\n\n### 3.2 推断与假设（我的测算，`kind = inference`，含假设）\n\n**测算假设（待核实）**\n| 假设项 | 取值 | 说明 |\n|---|---|---|\n| 汇率 EUR/USD | 1.08 | 偏保守（压低 USD 收入） |\n| 欧盟进口关税 | 2.2% | HS 8509 类小家电 MFN 估算 |\n| FBA 履约费 | $4.0 / 件 | 德国站小件估算 |\n| PPC 获客成本 | $3.5 / 件 | 竞争类目估算 |\n| 退款率 | 4% | 小家电常见区间 |\n| CE/LFGB 认证 | ~$1,500 一次性 | 估算 |\n| 德国进口增值税 19% | 不计入到岸成本 | 视为可抵扣，另作现金流考虑 |\n\n**到岸成本（推断）**：货值 + 运费 + 保险(≈0.5%货值) + 关税(2.2%×CIF)，不含增值税。\n\n---\n\n## 4. 到岸成本测算\n\n| 供应商 | 数量 | 货值 USD | 运费 USD | 保险 USD | 关税 USD | 到岸总额 USD | 到岸单价 USD/件 |\n|---|---|---|---|---|---|---|---|\n| Blendco | 500 | 3400 | 420 | 17 | 84.41 | **3921.41** | **7.84** |\n| Ningbo | 300 | 2175 | 380 | 11 | 56.45 | **2622.45** | **8.74** |\n| Guangzhou | 1000 | 6400 | 510 | 32 | 152.72 | **7094.72** | **7.09** |\n\n**要点**：Guangzhou 单价最低（$7.09），但 1000 件 MOQ 到岸总额 $7095，叠加认证（~$1500）+ 本地仓后**突破 $8000 预算**，实际被预算约束排除。真正可选的是 **Blendco（500 件）** 与 **Ningbo（300 件）**。\n\n---\n\n## 5. 单元经济测算\n\n统一假设：零售 24.9 EUR ≈ **$26.89**；佣金 15%；FBA $4；PPC $3.5；退款 4%；月固定成本 $500。\n\n| 指标 | Blendco | Ningbo | Guangzhou |\n|---|---|---|---|\n| 到岸单位成本 | 7.84 | 8.74 | 7.09 |\n| 净收入/件（扣退款） | 25.81 | 25.81 | 25.81 |\n| 可变成本/件 | 19.37 | 20.27 | 18.62 |\n| **单位贡献毛利** | **6.44** | **5.54** | **7.19** |\n| **毛利率** | **23.9%** | **20.6%** | **26.7%** |\n| 月盈亏平衡件数 | 78 | 91 | 70 |\n\n**要点**：\n1. 三家全部为正毛利，盈亏平衡仅 70–91 件/月，而竞品 BlendGo 月销 4100 件、JuiceMate 2100 件——**盈亏平衡门槛很低**。\n2. 成本结构里，**平台费用（佣金 + FBA + PPC ≈ $11.5/件）远高于到岸成本（$7–8.7/件）**，说明利润对售价、获客成本、履约费的敏感度远高于供应商差价。供应商选择是次要变量，**真实 FBA/PPC 数据是成败关键**。\n3. 供应商之间 $0.5–1.6 的到岸成本差，对应毛利仅差约 1.1 个百分点——**优先用最低 MOQ 试销，而非追逐最低单价**。\n\n---\n\n## 6. 预算可行性（现金占用）\n\n| 方案 | 到岸总额 | +认证(估$1500) | +本地仓/杂项(估$500) | 合计 | 是否 ≤ $8000 |\n|---|---|---|---|---|---|\n| Ningbo 300 件 | 2622 | 1500 | 500 | **~4622** | ✅ 是（现金占用最低） |\n| Blendco 500 件 | 3921 | 1500 | 500 | **~5921** | ✅ 是 |\n| Guangzhou 1000 件 | 7095 | 1500 | 500 | **~9095** | ❌ 否（超预算） |\n\n---\n\n## 7. 决策依据（Test）\n\n**为什么不 Go**\n- 需求证据是合成代理信号（`sales-sample.csv` 明确标注 \"proxy signal only\"），未经 Helium10/Jungle Scout 等第三方核实。\n- FBA、PPC、关税、退款率、汇率、认证费用**全部是假设**，真实值可能显著偏差。\n- CE/LFGB 尚未取证，合规是上架硬门槛。\n- 竞品 BlendGo 已站稳且在增长，差异化与竞争壁垒不明。\n\n**为什么不 No-go**\n- 到岸成本 + 单元经济为**正且显著**，毛利率 20%+ 有安全垫。\n- 盈亏平衡门槛极低（约 80 件/月 vs 竞品千件级月销）。\n- 预算可覆盖最小试销批次，风险敞口可控（最低 $2622 到岸）。\n\n**因此 → Test**：用最小资本验证「真实需求是否成立」与「成本假设是否成立」这两件事，达标再放大。\n\n---\n\n## 8. 下一步行动\n\n1. **需求核实**：Helium10 / Jungle Scout 核实 amazon.de 该类目真实月销、价格弹性、竞品评论痛点。\n2. **供应商尽调**：向 Blendco / Ningbo 索取 CE/LFGB 证书与打样，复核报价、MOQ、交期。\n3. **成本回填**：核实真实 FBA 履约费、德国进口关税与清关费用，更新到岸成本模型；确认 VAT 注册与抵扣方案。\n4. **小批量试销**：建议 **Ningbo 300 件**（现金占用最低）或 **Blendco 500 件**（单位成本更优、交期更短）海运试销，跟踪退货率、PPC 获客成本、售罄周期。\n\n**升级为 Go 的条件**\n- 第三方工具证实 BlendGo 类目月销 3000+ 且增长；\n- 真实 FBA / PPC / 退款率与假设偏差 ≤ ±20%；\n- 打样通过 CE/LFGB，报价复核无变化；\n- 首批试销 60 天内售罄且实测毛利率 ≥ 20%。\n\n---\n\n## 9. 账本回链\n\n- **证据**（16 条，事实 9 + 推断 7）：`ev_c676f304…`、`ev_22e3c996…`、`ev_8a56d10c…`、`ev_d1f64701…`、`ev_95a78869…`、`ev_4a367421…`、`ev_e6df5e4e…`、`ev_4c44e1b2…`、`ev_46cb4842…`、`ev_41929d9d…`、`ev_07fd0768…`、`ev_d0812657…`、`ev_10c1bcbd…`、`ev_f6d0d755…`、`ev_b06a62cf…`、`ev_7cfd1ccd…`\n- **假设**：`hyp_0529f5803fdb40d783b1b70070da3d2c`\n- **决策**：`decision_a6aef6792bc84e448b897d9d3c56fac8`\n"
+        }
+      ]
+    },
+    "run_fb27579fdbcf485ba755e2f5017dd684": {
+      "task": "c-supplier-inquiry",
+      "report": "l2-20260821T023627Z",
+      "final_text": "Done. No real send actions were taken — the two emails are drafts only.\n\n## 结果摘要\n\n**可比口径拉平**（500 件、USD，运费/关税/税未报价故按 0 归一）\n\n| 供应商 | 规格 | 单价 | 500件 MOQ | 交期 | 认证(声称) | 判定 |\n|---|---|---|---|---|---|---|\n| Shenzhen Blendco | 350ml | $6.80 | ✅500 | 28d | CE;RoHS | **联系 ①** |\n| Ningbo Homeware | 400ml | $7.25 | ✅300 | 35d | CE | **联系 ②** |\n| Dongguan PowerCup | 450ml | $8.10 | ✅500 | 40d | CE;FCC | 备选 |\n| Guangzhou Kitchenline | 350ml | $6.40 | ❌1000 | 未报价 | CE;LFGB | 出局 |\n| Yiwu QuickTrade | 300ml | $5.90 | ❌2000 | 25d | 无 | 出局 |\n\n**每家尽调缺口**（共同缺口：认证均为\"声称\"未验证、运费/付款条款/样品/验厂均缺失，且数据标注 synthetic fixture 需真实核验）\n- **Blendco**：CE/RoHS 证书未提供；MOQ 恰为 500 无缓冲。\n- **Ningbo**：仅 CE，无 RoHS/LFGB/FCC。\n- **Dongguan**：40 天交期仅余 5 天缓冲；单价最高（但容量最大）。\n- **Kitchenline**：MOQ 1000 超首单、交期未报价——两处硬缺口。\n- **Yiwu**：无任何认证文件（CE 硬缺口）+ MOQ 2000，直接出局。\n\n**最值得接触的 2 家**：Shenzhen Blendco + Ningbo Homeware（均满足 500 件 / CE / ≤45 天，且交期有富余；Ningbo 的 300 MOQ 更灵活、400ml 容量更大）。\n\n**交付物**\n- 询盘草稿：`workspace/supplier-inquiry-drafts.md`（已标注 **未发送 / DRAFT NOT SENT**，含两家英文 RFQ）\n- 证据账本：6 条证据（5 家报价事实 + 1 条归一化结论），`record_evidence_batch` 已入账\n- 排序决策：`decision_6221dc0e550c4d91a3230686af7d2263`（ranking），含假设、条件与后续动作\n\n下一步如需发送，请确认收件人与内容，我会在获得批准后再处理真实外发。",
+      "evidence": [
+        {
+          "id": "ev_1b83076035994dd1a135f13488e1539f",
+          "kind": "observed_fact",
+          "status": "active",
+          "claim": "Shenzhen Blendco (Shenzhen CN) quotes portable blender 350ml at USD 6.80/unit, MOQ 500, lead 28 days, claims CE+RoHS.",
+          "source": "path",
+          "source_title": "Supplier longlist CSV (user-provided)",
+          "source_url": null,
+          "source_path": "uploads/supplier-longlist.csv",
+          "retrieved_at": "2026-08-21T02:49:57.477048+00:00",
+          "observed_at": "2026-08-20T00:00:00+00:00",
+          "confidence": 0.6,
+          "excerpt": "Shenzhen Blendco,Shenzhen CN,Portable blender 350ml,6.80,500,28,CE;RoHS,synthetic fixture"
+        },
+        {
+          "id": "ev_a992ae0e4d104cf695c58e36e4d96ba5",
+          "kind": "observed_fact",
+          "status": "active",
+          "claim": "Ningbo Homeware (Ningbo CN) quotes portable blender 400ml at USD 7.25/unit, MOQ 300, lead 35 days, claims CE.",
+          "source": "path",
+          "source_title": "Supplier longlist CSV (user-provided)",
+          "source_url": null,
+          "source_path": "uploads/supplier-longlist.csv",
+          "retrieved_at": "2026-08-21T02:49:57.477789+00:00",
+          "observed_at": "2026-08-20T00:00:00+00:00",
+          "confidence": 0.6,
+          "excerpt": "Ningbo Homeware,Ningbo CN,Portable blender 400ml,7.25,300,35,CE,synthetic fixture"
+        },
+        {
+          "id": "ev_8277bf1afcc04c42b50b11b788bbcb00",
+          "kind": "observed_fact",
+          "status": "active",
+          "claim": "Guangzhou Kitchenline (Guangzhou CN) quotes portable blender 350ml at USD 6.40/unit, MOQ 1000, lead time not quoted, claims CE+LFGB.",
+          "source": "path",
+          "source_title": "Supplier longlist CSV (user-provided)",
+          "source_url": null,
+          "source_path": "uploads/supplier-longlist.csv",
+          "retrieved_at": "2026-08-21T02:49:57.478175+00:00",
+          "observed_at": "2026-08-20T00:00:00+00:00",
+          "confidence": 0.6,
+          "excerpt": "Guangzhou Kitchenline,Guangzhou CN,Portable blender 350ml,6.40,1000,,CE;LFGB,lead time not quoted; synthetic fixture"
+        },
+        {
+          "id": "ev_14dae4ed4c174c089bdc5e2d53962d42",
+          "kind": "observed_fact",
+          "status": "active",
+          "claim": "Yiwu QuickTrade (Yiwu CN) quotes portable blender 300ml at USD 5.90/unit, MOQ 2000, lead 25 days, no certification documents provided.",
+          "source": "path",
+          "source_title": "Supplier longlist CSV (user-provided)",
+          "source_url": null,
+          "source_path": "uploads/supplier-longlist.csv",
+          "retrieved_at": "2026-08-21T02:49:57.478417+00:00",
+          "observed_at": "2026-08-20T00:00:00+00:00",
+          "confidence": 0.6,
+          "excerpt": "Yiwu QuickTrade,Yiwu CN,Portable blender 300ml,5.90,2000,25,,no cert docs provided; synthetic fixture"
+        },
+        {
+          "id": "ev_9df3d92749fe4cad922e467887141fbb",
+          "kind": "observed_fact",
+          "status": "active",
+          "claim": "Dongguan PowerCup (Dongguan CN) quotes portable blender 450ml at USD 8.10/unit, MOQ 500, lead 40 days, claims CE+FCC.",
+          "source": "path",
+          "source_title": "Supplier longlist CSV (user-provided)",
+          "source_url": null,
+          "source_path": "uploads/supplier-longlist.csv",
+          "retrieved_at": "2026-08-21T02:49:57.478651+00:00",
+          "observed_at": "2026-08-20T00:00:00+00:00",
+          "confidence": 0.6,
+          "excerpt": "Dongguan PowerCup,Dongguan CN,Portable blender 450ml,8.10,500,40,CE;FCC,synthetic fixture"
+        },
+        {
+          "id": "ev_4b745a3c579d4d76810cd1c7efb21619",
+          "kind": "inference",
+          "status": "active",
+          "claim": "Normalized to a 500-unit basis with shipping/duty/other costs not quoted (=0), landed unit cost is: Blendco 6.80, Ningbo 7.25, Kitchenline 6.40, Yiwu 5.90, Dongguan 8.10 USD. Products differ in capacity (300-450ml), so raw unit prices are not fully comparable; no freight/duty/tax was quoted by any supplier.",
+          "source": "NONE",
+          "source_title": "Supplier quote comparison tool output",
+          "source_url": null,
+          "source_path": null,
+          "retrieved_at": "2026-08-21T02:49:57.478865+00:00",
+          "observed_at": "2026-08-20T00:00:00+00:00",
+          "confidence": 0.8,
+          "excerpt": null
+        }
+      ],
+      "artifacts": [
+        {
+          "name": "supplier-inquiry-drafts.md",
+          "path": "supplier-inquiry-drafts.md",
+          "text": "# Supplier Inquiry Drafts — 未发送 / DRAFT (NOT SENT)\n\n> Status: **DRAFT — 未发送**. These emails have NOT been sent. Do not send until the\n> recipient, content, and scope are approved by the user.\n>\n> Sourcing context: first order of 500 units, CE certification required, delivery within 45 days.\n\n---\n\n## Inquiry 1 — Shenzhen Blendco (Shenzhen, CN)\n\n**To:** Shenzhen Blendco (sales contact TBD)\n**Subject:** RFQ — Portable Blender 350ml, 500 pcs first order, CE + RoHS required\n\nDear Shenzhen Blendco team,\n\nWe are sourcing portable blenders for the EU market and would like to request a quotation.\n\nProduct: Portable blender, 350ml capacity (USB rechargeable).\nFirst order quantity: 500 pcs.\nTarget delivery: within 45 days of order confirmation.\n\nCould you please confirm the following:\n\n1. Unit price for 500 pcs, on EXW and FOB Shenzhen terms, in USD.\n2. MOQ confirmation — your list shows 500 pcs; please confirm this applies to our 350ml spec.\n3. Lead time confirmation — your list shows 28 days; please confirm current production lead time.\n4. CE compliance — please provide a copy of your valid CE certificate, the EU Declaration of\n   Conformity, and the corresponding test report (LVD/EMC). If RoHS applies, please include the\n   RoHS test report as well.\n5. Payment terms (e.g., T/T 30% deposit / 70% before shipment) and any tooling or setup costs.\n6. Sample availability and cost, and whether a pre-production sample can be shipped before mass production.\n7. Whether a factory audit (on-site or third-party) can be arranged.\n\nPlease also share your product specification sheet and current packing details.\n\nThank you — we look forward to your quotation.\n\nBest regards,\n[Your name / company]\n\n---\n\n## Inquiry 2 — Ningbo Homeware (Ningbo, CN)\n\n**To:** Ningbo Homeware (sales contact TBD)\n**Subject:** RFQ — Portable Blender 400ml, 500 pcs first order, CE required\n\nDear Ningbo Homeware team,\n\nWe are sourcing portable blenders for the EU market and would like to request a quotation.\n\nProduct: Portable blender, 400ml capacity (USB rechargeable).\nFirst order quantity: 500 pcs.\nTarget delivery: within 45 days of order confirmation.\n\nCould you please confirm the following:\n\n1. Unit price for 500 pcs, on EXW and FOB Ningbo terms, in USD.\n2. MOQ confirmation — your list shows 300 pcs; please confirm pricing at 500 pcs.\n3. Lead time confirmation — your list shows 35 days; please confirm current production lead time.\n4. CE compliance — please provide a copy of your valid CE certificate, the EU Declaration of\n   Conformity, and the corresponding test report (LVD/EMC). If RoHS or LFGB testing is available,\n   please include those reports as well.\n5. Payment terms and any tooling or setup costs.\n6. Sample availability and cost, and whether a pre-production sample can be shipped before mass production.\n7. Whether a factory audit (on-site or third-party) can be arranged.\n\nPlease also share your product specification sheet and current packing details.\n\nThank you — we look forward to your quotation.\n\nBest regards,\n[Your name / company]\n"
+        }
+      ]
+    }
+  },
+  "items": [
+    {
+      "item_id": "d1433a24a0d7",
+      "judge": "evidence-coverage",
+      "run_id": "run_9ca3f8e6437046968de6b9deb1e5db15",
+      "item": "供应商报价（`quotes.csv`）",
+      "source": "artifact:便携榨汁杯-机会评估.md",
+      "split": "test"
+    },
+    {
+      "item_id": "0e8d89625a24",
+      "judge": "evidence-coverage",
+      "run_id": "run_9ca3f8e6437046968de6b9deb1e5db15",
+      "item": "| 2026-06 | BlendGo 350ml | amazon.de | 3550 | 27.9 |",
+      "source": "artifact:便携榨汁杯-机会评估.md",
+      "split": "train"
+    },
+    {
+      "item_id": "928146c27e4c",
+      "judge": "evidence-coverage",
+      "run_id": "run_9ca3f8e6437046968de6b9deb1e5db15",
+      "item": "净收入/件：$21.70（扣退款）",
+      "source": "artifact:便携榨汁杯-机会评估.md",
+      "split": "train"
+    },
+    {
+      "item_id": "b1078efb83f0",
+      "judge": "evidence-coverage",
+      "run_id": "run_9ca3f8e6437046968de6b9deb1e5db15",
+      "item": "**贡献毛利/件：$1.00（贡献毛利率 4.4%）**",
+      "source": "artifact:便携榨汁杯-机会评估.md",
+      "split": "train"
+    },
+    {
+      "item_id": "286c8a974fd2",
+      "judge": "evidence-coverage",
+      "run_id": "run_9ca3f8e6437046968de6b9deb1e5db15",
+      "item": "| 海运保险 | 0（自担） | 到岸成本 |",
+      "source": "artifact:便携榨汁杯-机会评估.md",
+      "split": "train"
+    },
+    {
+      "item_id": "49d318367f32",
+      "judge": "evidence-coverage",
+      "run_id": "run_9ca3f8e6437046968de6b9deb1e5db15",
+      "item": "需求：`hyp_4e43e9e9aecb434db4c4fef75d83ea7d`",
+      "source": "artifact:便携榨汁杯-机会评估.md",
+      "split": "test"
+    },
+    {
+      "item_id": "f853d1f5487e",
+      "judge": "evidence-coverage",
+      "run_id": "run_99841e2eaa934fcaba1163f98bba95cf",
+      "item": "| 证据 | `ev_272452c13bb94e86844aaa4c500aea41` | 信号1（confidence 0.55，购买意图） |",
+      "source": "final_text",
+      "split": "train"
+    },
+    {
+      "item_id": "c519dee433ed",
+      "judge": "evidence-coverage",
+      "run_id": "run_99841e2eaa934fcaba1163f98bba95cf",
+      "item": "| 证据 | `ev_5c5c91df49914956833b162bfd605a7a` | 信号2（confidence 0.3，媒体转述） |",
+      "source": "final_text",
+      "split": "test"
+    },
+    {
+      "item_id": "9a1b77ddc1b3",
+      "judge": "evidence-coverage",
+      "run_id": "run_99841e2eaa934fcaba1163f98bba95cf",
+      "item": "| 信号 | 首选 | 性质 | 与约束匹配 | 可行动性 |",
+      "source": "artifact:机会判断简报-可折叠宠物水杯.md",
+      "split": "train"
+    },
+    {
+      "item_id": "56000a01b7be",
+      "judge": "evidence-coverage",
+      "run_id": "run_99841e2eaa934fcaba1163f98bba95cf",
+      "item": "需求侧：`collapsible pet water bottle` / `portable dog water bottle` 月度搜索量达阈值，且近 90 天竞品评论中独立观察到 **≥20 条**明确购买意图或\"缺货/难买\"信号（需实际抓取，当前未做）",
+      "source": "artifact:机会判断简报-可折叠宠物水杯.md",
+      "split": "dev"
+    },
+    {
+      "item_id": "899d8d84c11f",
+      "judge": "evidence-coverage",
+      "run_id": "run_99841e2eaa934fcaba1163f98bba95cf",
+      "item": "竞争侧：Top 10 竞品平均评分 **<4.3**，或 1–3 星评论中\"漏水/难清洗/易破损\"痛点占比 **≥30%**",
+      "source": "artifact:机会判断简报-可折叠宠物水杯.md",
+      "split": "test"
+    },
+    {
+      "item_id": "0f5e22cefe97",
+      "judge": "evidence-coverage",
+      "run_id": "run_99841e2eaa934fcaba1163f98bba95cf",
+      "item": "**竞品痛点审计**：聚类 Top 10 竞品 1–3 星评论中的\"漏水/难清洗/易破损\"痛点 → 验证竞争侧标准",
+      "source": "artifact:机会判断简报-可折叠宠物水杯.md",
+      "split": "test"
+    },
+    {
+      "item_id": "91ab182c4c6a",
+      "judge": "evidence-coverage",
+      "run_id": "run_edda6baa54d549c09f862d455696b098",
+      "item": "**推荐路线**：优先进入**欧盟市场、B2B 供货**——主攻「给亚马逊欧洲站家居厨具 FBA 卖家供货」，第二轨「欧洲品牌商/进口商」，暂缓北美自建 DTC",
+      "source": "final_text",
+      "split": "test"
+    },
+    {
+      "item_id": "a96f035fd3bc",
+      "judge": "evidence-coverage",
+      "run_id": "run_edda6baa54d549c09f862d455696b098",
+      "item": "**决策记录**：`decision_3a2204fe…`（plan 类型）已关联全部 8 条证据与下一步行动",
+      "source": "final_text",
+      "split": "train"
+    },
+    {
+      "item_id": "4ebb53b5f061",
+      "judge": "evidence-coverage",
+      "run_id": "run_edda6baa54d549c09f862d455696b098",
+      "item": "一、供给能力画像（用户自述）",
+      "source": "artifact:市场与渠道进入简报.md",
+      "split": "train"
+    },
+    {
+      "item_id": "f911c2ce6320",
+      "judge": "evidence-coverage",
+      "run_id": "run_edda6baa54d549c09f862d455696b098",
+      "item": "| 团队 | 外贸业务 2 人（英语），无本地化内容能力，无海外仓 |",
+      "source": "artifact:市场与渠道进入简报.md",
+      "split": "dev"
+    },
+    {
+      "item_id": "96485e674367",
+      "judge": "evidence-coverage",
+      "run_id": "run_edda6baa54d549c09f862d455696b098",
+      "item": "| 排名 | 客户画像 | fit(0.6) | access(0.4) | 加权分 |",
+      "source": "artifact:市场与渠道进入简报.md",
+      "split": "dev"
+    },
+    {
+      "item_id": "7c7da3d8afd8",
+      "judge": "evidence-coverage",
+      "run_id": "run_edda6baa54d549c09f862d455696b098",
+      "item": "| 1 | 亚马逊欧洲站家居厨具 FBA 卖家 | 85 | 65 | **77.0** |",
+      "source": "artifact:市场与渠道进入简报.md",
+      "split": "dev"
+    },
+    {
+      "item_id": "724adf8b95ab",
+      "judge": "evidence-coverage",
+      "run_id": "run_f9fc3137981e478c92271124575dc30c",
+      "item": "| 现金占用（含19%VAT+认证） | 约 $6,169 ✅ 在 $8,000 预算内 |",
+      "source": "final_text",
+      "split": "train"
+    },
+    {
+      "item_id": "8d442b645a3e",
+      "judge": "evidence-coverage",
+      "run_id": "run_f9fc3137981e478c92271124575dc30c",
+      "item": "| 悲观情景 | 贡献毛利 $1.94/件（7.8%），盈亏平衡 1032 件 ≈ 2 倍 MOQ |",
+      "source": "final_text",
+      "split": "dev"
+    },
+    {
+      "item_id": "4b7ad6c08dbf",
+      "judge": "evidence-coverage",
+      "run_id": "run_f9fc3137981e478c92271124575dc30c",
+      "item": "**售价**：24.9→22.9 EUR（JuiceMate 现价），贡献毛利缩水 71%",
+      "source": "final_text",
+      "split": "dev"
+    },
+    {
+      "item_id": "25a9ff7588ae",
+      "judge": "evidence-coverage",
+      "run_id": "run_f9fc3137981e478c92271124575dc30c",
+      "item": "| F6 | 竞品销量代理样本（用户自整理）：BlendGo 350ml 月销 3200→4100、JuiceMate 400ml 月销 1650→2100 | `sales-sample.csv` |",
+      "source": "artifact:便携榨汁杯_商业测算与决策报告.md",
+      "split": "test"
+    },
+    {
+      "item_id": "603669efe405",
+      "judge": "evidence-coverage",
+      "run_id": "run_f9fc3137981e478c92271124575dc30c",
+      "item": "| 2026-06 | BlendGo 350ml | amazon.de | 3550 | 27.9 |",
+      "source": "artifact:便携榨汁杯_商业测算与决策报告.md",
+      "split": "train"
+    },
+    {
+      "item_id": "a922b2283295",
+      "judge": "evidence-coverage",
+      "run_id": "run_f9fc3137981e478c92271124575dc30c",
+      "item": "Ningbo:      qty=300  unit=7.25  freight=380  insurance=12.78  duty=2.2%  vat=19%",
+      "source": "artifact:便携榨汁杯_商业测算与决策报告.md",
+      "split": "train"
+    },
+    {
+      "item_id": "ac0c6de06d8f",
+      "judge": "evidence-coverage",
+      "run_id": "run_79ef0f4bffa34695948ae44ef11d3dc2",
+      "item": "全部结论与依据已入账，未执行任何真实发送",
+      "source": "final_text",
+      "split": "dev"
+    },
+    {
+      "item_id": "710112a3ba2c",
+      "judge": "evidence-coverage",
+      "run_id": "run_79ef0f4bffa34695948ae44ef11d3dc2",
+      "item": "CSV 未含海运/关税，工具按 USD、运费/关税=0 计得「到岸单价=出厂单价」",
+      "source": "final_text",
+      "split": "dev"
+    },
+    {
+      "item_id": "973962e14eb8",
+      "judge": "evidence-coverage",
+      "run_id": "run_79ef0f4bffa34695948ae44ef11d3dc2",
+      "item": "| 供应商 | 单价 | 容量 | $/ml | MOQ | 交期 | 认证 | 500件+CE+45天 |",
+      "source": "final_text",
+      "split": "dev"
+    },
+    {
+      "item_id": "6120cfa8d855",
+      "judge": "evidence-coverage",
+      "run_id": "run_79ef0f4bffa34695948ae44ef11d3dc2",
+      "item": "| Ningbo Homeware | $7.25 | 400ml | **0.01813** | 300 ✓ | 35d ✓ | CE | ✅ 全满足 |",
+      "source": "final_text",
+      "split": "train"
+    },
+    {
+      "item_id": "1cee69c3f1a8",
+      "judge": "evidence-coverage",
+      "run_id": "run_79ef0f4bffa34695948ae44ef11d3dc2",
+      "item": "| Yiwu QuickTrade | $5.90 | 300ml | 0.01967 | **2000 ✗** | 25d ✓ | **无 ✗** | ❌ MOQ超4倍+无CE |",
+      "source": "final_text",
+      "split": "test"
+    },
+    {
+      "item_id": "13d59ae8d0c6",
+      "judge": "evidence-coverage",
+      "run_id": "run_79ef0f4bffa34695948ae44ef11d3dc2",
+      "item": "`drafts/inquiry-02-shenzhen-blendco.md`",
+      "source": "final_text",
+      "split": "train"
+    },
+    {
+      "item_id": "18be238af4b0",
+      "judge": "evidence-coverage",
+      "run_id": "run_ead0306b633c4430a3c515f4db2dfbb5",
+      "item": "**首选跟进：信号 1「可折叠宠物外出水杯」",
+      "source": "final_text",
+      "split": "test"
+    },
+    {
+      "item_id": "1a8f6faeeab0",
+      "judge": "evidence-coverage",
+      "run_id": "run_ead0306b633c4430a3c515f4db2dfbb5",
+      "item": "已写入 `机会判断简报.md`，含「机会判断 + 明确未知项（需求真实规模/专利风险/食品级合规/单位经济/平台季节）+ 下一步验证动作」",
+      "source": "final_text",
+      "split": "train"
+    },
+    {
+      "item_id": "52bda41160a3",
+      "judge": "evidence-coverage",
+      "run_id": "run_ead0306b633c4430a3c515f4db2dfbb5",
+      "item": "| 2 德国露营轻量化 | 媒体转述（方向性趋势） | 暂不跟进：无原始数据、非具体单品，无法直接验证 |",
+      "source": "artifact:机会判断简报.md",
+      "split": "dev"
+    },
+    {
+      "item_id": "bc4f1f7adec2",
+      "judge": "evidence-coverage",
+      "run_id": "run_ead0306b633c4430a3c515f4db2dfbb5",
+      "item": "30 天内自然流量询单/加购 ≥30 次，或首 14 天 CTR ≥1%",
+      "source": "artifact:机会判断简报.md",
+      "split": "train"
+    },
+    {
+      "item_id": "2a42ae0920ea",
+      "judge": "evidence-coverage",
+      "run_id": "run_ead0306b633c4430a3c515f4db2dfbb5",
+      "item": "询单中 ≥50% 为未被品牌方承接的\"哪里能买\"型购买意图（而非已饱和评论）",
+      "source": "artifact:机会判断简报.md",
+      "split": "dev"
+    },
+    {
+      "item_id": "636839ba34e3",
+      "judge": "evidence-coverage",
+      "run_id": "run_ead0306b633c4430a3c515f4db2dfbb5",
+      "item": "`ev_b2ea8d183318467da6b758ec782cc2db`（信号 3，社区信号，0.4）",
+      "source": "artifact:机会判断简报.md",
+      "split": "dev"
+    },
+    {
+      "item_id": "b51f90fecd97",
+      "judge": "evidence-coverage",
+      "run_id": "run_229c862eaa0f4237bba856135f848ee0",
+      "item": "| **Go（主攻）** | 欧盟 B 端（德国/比荷卢家居进口分销商） | LFGB+BSCI 是欧盟零售硬门槛，构成认证护城河 |",
+      "source": "final_text",
+      "split": "test"
+    },
+    {
+      "item_id": "24edc3210625",
+      "judge": "evidence-coverage",
+      "run_id": "run_229c862eaa0f4237bba856135f848ee0",
+      "item": "**建议「双轨推进」而非二选一，因为排序结果几乎打平：**",
+      "source": "artifact:市场渠道判断简报.md",
+      "split": "dev"
+    },
+    {
+      "item_id": "89db5332d1ca",
+      "judge": "evidence-coverage",
+      "run_id": "run_229c862eaa0f4237bba856135f848ee0",
+      "item": "| 预算/目标 | 首期 ≤2 万美元；2026 Q4 前出首个稳定渠道 | 只够打样+平台+展会获客或单市场小规模试水 |",
+      "source": "artifact:市场渠道判断简报.md",
+      "split": "test"
+    },
+    {
+      "item_id": "44a1128dccd1",
+      "judge": "evidence-coverage",
+      "run_id": "run_229c862eaa0f4237bba856135f848ee0",
+      "item": "补充判断：**欧盟连锁零售直供**虽然认证匹配度最高，但单 SKU 起订量/产能保障/账期远超当前供给，且触达周期 6–12 月，2 万美金与 Q4 窗口够不到，故也归为 No-go",
+      "source": "artifact:市场渠道判断简报.md",
+      "split": "train"
+    },
+    {
+      "item_id": "0072a045c429",
+      "judge": "evidence-coverage",
+      "run_id": "run_229c862eaa0f4237bba856135f848ee0",
+      "item": "出厂价 0.8–2.6 USD/件；60+ 公模、新模 3800–8000 USD / 25 天",
+      "source": "artifact:市场渠道判断简报.md",
+      "split": "train"
+    },
+    {
+      "item_id": "ea86e756b191",
+      "judge": "evidence-coverage",
+      "run_id": "run_229c862eaa0f4237bba856135f848ee0",
+      "item": "无海外仓 + 英语-only 团队 → 自营 DTC 能力弱，B2B 更匹配",
+      "source": "artifact:市场渠道判断简报.md",
+      "split": "train"
+    },
+    {
+      "item_id": "4074d9ed3cfc",
+      "judge": "evidence-coverage",
+      "run_id": "run_acc5834ec2dc41cfbffd7914d80a1287",
+      "item": "| `uploads/constraints.md` | 项目约束（预算/市场/履约/合规） | 合成 fixture，但为本次评测的权威约束 |",
+      "source": "artifact:便携榨汁杯-商业分析.md",
+      "split": "train"
+    },
+    {
+      "item_id": "df13f2c58b29",
+      "judge": "evidence-coverage",
+      "run_id": "run_acc5834ec2dc41cfbffd7914d80a1287",
+      "item": "3.1 关键事实（直接来自文件，`kind = observed_fact`）",
+      "source": "artifact:便携榨汁杯-商业分析.md",
+      "split": "test"
+    },
+    {
+      "item_id": "594ba1430c71",
+      "judge": "evidence-coverage",
+      "run_id": "run_acc5834ec2dc41cfbffd7914d80a1287",
+      "item": "| 供应商 | 容量 | 单价 USD | MOQ | 交期(天) | 运费 USD |",
+      "source": "artifact:便携榨汁杯-商业分析.md",
+      "split": "train"
+    },
+    {
+      "item_id": "d7eb426386ee",
+      "judge": "evidence-coverage",
+      "run_id": "run_acc5834ec2dc41cfbffd7914d80a1287",
+      "item": "| 月盈亏平衡件数 | 78 | 91 | 70 |",
+      "source": "artifact:便携榨汁杯-商业分析.md",
+      "split": "dev"
+    },
+    {
+      "item_id": "bcc35a242ddb",
+      "judge": "evidence-coverage",
+      "run_id": "run_acc5834ec2dc41cfbffd7914d80a1287",
+      "item": "需求证据是合成代理信号（`sales-sample.csv` 明确标注 \"proxy signal only\"），未经 Helium10/Jungle Scout 等第三方核实",
+      "source": "artifact:便携榨汁杯-商业分析.md",
+      "split": "test"
+    },
+    {
+      "item_id": "575724494eeb",
+      "judge": "evidence-coverage",
+      "run_id": "run_acc5834ec2dc41cfbffd7914d80a1287",
+      "item": "盈亏平衡门槛极低（约 80 件/月 vs 竞品千件级月销）",
+      "source": "artifact:便携榨汁杯-商业分析.md",
+      "split": "dev"
+    },
+    {
+      "item_id": "6921af1680a4",
+      "judge": "evidence-coverage",
+      "run_id": "run_fb27579fdbcf485ba755e2f5017dd684",
+      "item": "**Yiwu**：无任何认证文件（CE 硬缺口）+ MOQ 2000，直接出局",
+      "source": "final_text",
+      "split": "test"
+    },
+    {
+      "item_id": "c321d8207016",
+      "judge": "evidence-coverage",
+      "run_id": "run_fb27579fdbcf485ba755e2f5017dd684",
+      "item": "Product: Portable blender, 350ml capacity (USB rechargeable)",
+      "source": "artifact:supplier-inquiry-drafts.md",
+      "split": "test"
+    },
+    {
+      "item_id": "c24a8850ac4e",
+      "judge": "evidence-coverage",
+      "run_id": "run_fb27579fdbcf485ba755e2f5017dd684",
+      "item": "MOQ confirmation — your list shows 500 pcs; please confirm this applies to our 350ml spec",
+      "source": "artifact:supplier-inquiry-drafts.md",
+      "split": "train"
+    },
+    {
+      "item_id": "6dddbc18b7e9",
+      "judge": "evidence-coverage",
+      "run_id": "run_fb27579fdbcf485ba755e2f5017dd684",
+      "item": "**Subject:** RFQ — Portable Blender 400ml, 500 pcs first order, CE required",
+      "source": "artifact:supplier-inquiry-drafts.md",
+      "split": "train"
+    },
+    {
+      "item_id": "934d0105dcf0",
+      "judge": "evidence-coverage",
+      "run_id": "run_fb27579fdbcf485ba755e2f5017dd684",
+      "item": "Product: Portable blender, 400ml capacity (USB rechargeable)",
+      "source": "artifact:supplier-inquiry-drafts.md",
+      "split": "test"
+    },
+    {
+      "item_id": "2090875878d1",
+      "judge": "evidence-coverage",
+      "run_id": "run_fb27579fdbcf485ba755e2f5017dd684",
+      "item": "Lead time confirmation — your list shows 35 days; please confirm current production lead time",
+      "source": "artifact:supplier-inquiry-drafts.md",
+      "split": "dev"
+    },
+    {
+      "item_id": "5d3b0114ce7f",
+      "judge": "unsourced-claims",
+      "run_id": "run_9ca3f8e6437046968de6b9deb1e5db15",
+      "item": "关键数字（全部折算 USD，EUR/USD=1.08）",
+      "source": "final_text",
+      "split": "dev"
+    },
+    {
+      "item_id": "b932c5935481",
+      "judge": "unsourced-claims",
+      "run_id": "run_9ca3f8e6437046968de6b9deb1e5db15",
+      "item": "1 条决策 `decision_d0895bba…`（outcome=Test），回链全部证据与假设",
+      "source": "final_text",
+      "split": "train"
+    },
+    {
+      "item_id": "6608496e7864",
+      "judge": "unsourced-claims",
+      "run_id": "run_9ca3f8e6437046968de6b9deb1e5db15",
+      "item": "**下一步建议**：先向 Blendco 要 CE/LFGB 证书并核实，同时下 300–500 件试单上架实测获客成本——这是把 Test 升级成 Go 的两个最关键动作",
+      "source": "final_text",
+      "split": "dev"
+    },
+    {
+      "item_id": "9cb215436c49",
+      "judge": "unsourced-claims",
+      "run_id": "run_9ca3f8e6437046968de6b9deb1e5db15",
+      "item": "| 2026-07 | JuiceMate 400ml | amazon.de | 2100 | 22.9 |",
+      "source": "artifact:便携榨汁杯-机会评估.md",
+      "split": "test"
+    },
+    {
+      "item_id": "0bec6d29309e",
+      "judge": "unsourced-claims",
+      "run_id": "run_9ca3f8e6437046968de6b9deb1e5db15",
+      "item": "| 获客成本 | $5.50 | 新 Listing PPC（假设，基线） |",
+      "source": "artifact:便携榨汁杯-机会评估.md",
+      "split": "train"
+    },
+    {
+      "item_id": "c6487c103635",
+      "judge": "unsourced-claims",
+      "run_id": "run_9ca3f8e6437046968de6b9deb1e5db15",
+      "item": "4.3 预算 / 现金流校验",
+      "source": "artifact:便携榨汁杯-机会评估.md",
+      "split": "train"
+    },
+    {
+      "item_id": "f691443bea3e",
+      "judge": "unsourced-claims",
+      "run_id": "run_99841e2eaa934fcaba1163f98bba95cf",
+      "item": "| 证据 | `ev_5c5c91df49914956833b162bfd605a7a` | 信号2（confidence 0.3，媒体转述） |",
+      "source": "final_text",
+      "split": "train"
+    },
+    {
+      "item_id": "57322a028b01",
+      "judge": "unsourced-claims",
+      "run_id": "run_99841e2eaa934fcaba1163f98bba95cf",
+      "item": "| 1 可折叠宠物水杯 | **是** | 社区购买意图（\"哪里能买\"） | 高：轻小件、低 MOQ、白牌可做 | 高：具体 SKU，可直接验证 |",
+      "source": "artifact:机会判断简报-可折叠宠物水杯.md",
+      "split": "dev"
+    },
+    {
+      "item_id": "0ff4ab2b7b67",
+      "judge": "unsourced-claims",
+      "run_id": "run_99841e2eaa934fcaba1163f98bba95cf",
+      "item": "供给侧：**≥3 家**供应商可提供食品级/BPA-free 可折叠硅胶水杯，且 FOB+头程 landed unit cost **≤ 目标售价的 35%**",
+      "source": "artifact:机会判断简报-可折叠宠物水杯.md",
+      "split": "train"
+    },
+    {
+      "item_id": "025a8f5563ae",
+      "judge": "unsourced-claims",
+      "run_id": "run_99841e2eaa934fcaba1163f98bba95cf",
+      "item": "财务侧：按售价 $15、综合毛利率 ≥50% 实算，首单 ≤500 件、总投入 <$10k 可实现正贡献毛利（需用 landed-cost 工具实算，当前为假设参数）",
+      "source": "artifact:机会判断简报-可折叠宠物水杯.md",
+      "split": "dev"
+    },
+    {
+      "item_id": "889402a7cdb3",
+      "judge": "unsourced-claims",
+      "run_id": "run_99841e2eaa934fcaba1163f98bba95cf",
+      "item": "**供应商询价**：向 3–5 家供应商询 FOB/MOQ/交期/食品级认证，跑 landed cost 模型 → 验证供给与财务侧标准",
+      "source": "artifact:机会判断简报-可折叠宠物水杯.md",
+      "split": "test"
+    },
+    {
+      "item_id": "dba2aec963d3",
+      "judge": "unsourced-claims",
+      "run_id": "run_99841e2eaa934fcaba1163f98bba95cf",
+      "item": "信号 3 无来源链接，信号 2 来源页为通用市场入口而非具体数据页，引用价值有限",
+      "source": "artifact:机会判断简报-可折叠宠物水杯.md",
+      "split": "train"
+    },
+    {
+      "item_id": "1ee003741908",
+      "judge": "unsourced-claims",
+      "run_id": "run_edda6baa54d549c09f862d455696b098",
+      "item": "**推荐路线**：优先进入**欧盟市场、B2B 供货**——主攻「给亚马逊欧洲站家居厨具 FBA 卖家供货」，第二轨「欧洲品牌商/进口商」，暂缓北美自建 DTC",
+      "source": "final_text",
+      "split": "dev"
+    },
+    {
+      "item_id": "3c2e20b04eb4",
+      "judge": "unsourced-claims",
+      "run_id": "run_edda6baa54d549c09f862d455696b098",
+      "item": "如需，我可以进一步把候选客户画像固化为真实的询盘/触达实验，或对首期 2 万美元做一份更细的现金流分配",
+      "source": "final_text",
+      "split": "train"
+    },
+    {
+      "item_id": "cec760e092c1",
+      "judge": "unsourced-claims",
+      "run_id": "run_edda6baa54d549c09f862d455696b098",
+      "item": "| 产能 | 月产 12 万件；打样 7 天；首单 MOQ 可谈至 1000 件 |",
+      "source": "artifact:市场与渠道进入简报.md",
+      "split": "train"
+    },
+    {
+      "item_id": "d84b8dbf3d00",
+      "judge": "unsourced-claims",
+      "run_id": "run_edda6baa54d549c09f862d455696b098",
+      "item": "| 目标 | 2026 Q4 前打开一个稳定海外 B 端或 DTC 渠道，首期 ≤ 2 万美元 |",
+      "source": "artifact:市场与渠道进入简报.md",
+      "split": "test"
+    },
+    {
+      "item_id": "1f39e2ffa603",
+      "judge": "unsourced-claims",
+      "run_id": "run_edda6baa54d549c09f862d455696b098",
+      "item": "**契合点**：LFGB+BSCI 是硬门槛与加分项；公模 60+ 套可快速起单；B2B 不需本地化内容与海外仓",
+      "source": "artifact:市场与渠道进入简报.md",
+      "split": "dev"
+    },
+    {
+      "item_id": "a0a63aa04a91",
+      "judge": "unsourced-claims",
+      "run_id": "run_edda6baa54d549c09f862d455696b098",
+      "item": "| 4 | 户外用品品牌商/礼品采购商（公模折叠系列） | 72 | 50 | 63.2 |",
+      "source": "artifact:市场与渠道进入简报.md",
+      "split": "test"
+    },
+    {
+      "item_id": "c338a8afd755",
+      "judge": "unsourced-claims",
+      "run_id": "run_f9fc3137981e478c92271124575dc30c",
+      "item": "| 悲观情景 | 贡献毛利 $1.94/件（7.8%），盈亏平衡 1032 件 ≈ 2 倍 MOQ |",
+      "source": "final_text",
+      "split": "test"
+    },
+    {
+      "item_id": "70366eddefd3",
+      "judge": "unsourced-claims",
+      "run_id": "run_f9fc3137981e478c92271124575dc30c",
+      "item": "| Guangzhou Kitchenline | 350ml | 6.40 | 1000 | 40 | 510 |",
+      "source": "artifact:便携榨汁杯_商业测算与决策报告.md",
+      "split": "dev"
+    },
+    {
+      "item_id": "70d8e78c9139",
+      "judge": "unsourced-claims",
+      "run_id": "run_f9fc3137981e478c92271124575dc30c",
+      "item": "**竞品销量代理样本（F6）：**",
+      "source": "artifact:便携榨汁杯_商业测算与决策报告.md",
+      "split": "dev"
+    },
+    {
+      "item_id": "7b13c6773706",
+      "judge": "unsourced-claims",
+      "run_id": "run_f9fc3137981e478c92271124575dc30c",
+      "item": "| 2026-07 | JuiceMate 400ml | amazon.de | 2100 | 22.9 |",
+      "source": "artifact:便携榨汁杯_商业测算与决策报告.md",
+      "split": "train"
+    },
+    {
+      "item_id": "1d7ce041e7f0",
+      "judge": "unsourced-claims",
+      "run_id": "run_f9fc3137981e478c92271124575dc30c",
+      "item": "| 供应商 | 货款 | 运费+保险+关税 | 进口 VAT | 现金小计 | +认证$1,500 | 是否≤$8,000 |",
+      "source": "artifact:便携榨汁杯_商业测算与决策报告.md",
+      "split": "dev"
+    },
+    {
+      "item_id": "6239c2961881",
+      "judge": "unsourced-claims",
+      "run_id": "run_f9fc3137981e478c92271124575dc30c",
+      "item": "保险          0.5%（CIF）",
+      "source": "artifact:便携榨汁杯_商业测算与决策报告.md",
+      "split": "test"
+    },
+    {
+      "item_id": "fd862b150522",
+      "judge": "unsourced-claims",
+      "run_id": "run_79ef0f4bffa34695948ae44ef11d3dc2",
+      "item": "| Dongguan PowerCup | $8.10 | 450ml | 0.0180 | 500 ✓ | 40d ⚠️ | CE;FCC | ✅ 满足但仅余5天缓冲 |",
+      "source": "final_text",
+      "split": "test"
+    },
+    {
+      "item_id": "a3bf0201e6df",
+      "judge": "unsourced-claims",
+      "run_id": "run_79ef0f4bffa34695948ae44ef11d3dc2",
+      "item": "**Shenzhen Blendco** — 绝对单价最低、28 天最快、CE+RoHS 双证、MOQ 精确匹配",
+      "source": "final_text",
+      "split": "train"
+    },
+    {
+      "item_id": "733727d13c08",
+      "judge": "unsourced-claims",
+      "run_id": "run_79ef0f4bffa34695948ae44ef11d3dc2",
+      "item": "首单：500 pcs | 要求：CE 认证、45 天内交付",
+      "source": "artifact:inquiry-01-ningbo-homeware.md",
+      "split": "dev"
+    },
+    {
+      "item_id": "950b40ab0fba",
+      "judge": "unsourced-claims",
+      "run_id": "run_79ef0f4bffa34695948ae44ef11d3dc2",
+      "item": "We are preparing a first order of 500 units of your 400ml portable blender for an EU-bound shipment, and we are shortlisting suppliers who can meet a 45-day delivery window with CE certification",
+      "source": "artifact:inquiry-01-ningbo-homeware.md",
+      "split": "test"
+    },
+    {
+      "item_id": "d17594d4aedf",
+      "judge": "unsourced-claims",
+      "run_id": "run_79ef0f4bffa34695948ae44ef11d3dc2",
+      "item": "Payment terms (e.g., 30% deposit / 70% balance before shipment)",
+      "source": "artifact:inquiry-01-ningbo-homeware.md",
+      "split": "dev"
+    },
+    {
+      "item_id": "21e0e65a1ba9",
+      "judge": "unsourced-claims",
+      "run_id": "run_79ef0f4bffa34695948ae44ef11d3dc2",
+      "item": "**Subject:** RFQ — 500 pcs Portable Blender 350ml, CE + RoHS required",
+      "source": "artifact:inquiry-02-shenzhen-blendco.md",
+      "split": "test"
+    },
+    {
+      "item_id": "8ae3f47cbb42",
+      "judge": "unsourced-claims",
+      "run_id": "run_ead0306b633c4430a3c515f4db2dfbb5",
+      "item": "**信号 3（东南亚小家电电压抱怨）**：是退货痛点而非购买需求，且小家电非轻小件、认证/售后风险超出首单预算 → 暂不跟进",
+      "source": "final_text",
+      "split": "train"
+    },
+    {
+      "item_id": "1c5b97738b41",
+      "judge": "unsourced-claims",
+      "run_id": "run_ead0306b633c4430a3c515f4db2dfbb5",
+      "item": "| 1 可折叠宠物水杯 | 社区信号（购买意图） | **首选，进入小额 test** |",
+      "source": "artifact:机会判断简报.md",
+      "split": "dev"
+    },
+    {
+      "item_id": "91f2582d590b",
+      "judge": "unsourced-claims",
+      "run_id": "run_ead0306b633c4430a3c515f4db2dfbb5",
+      "item": "询单中 ≥50% 为未被品牌方承接的\"哪里能买\"型购买意图（而非已饱和评论）",
+      "source": "artifact:机会判断简报.md",
+      "split": "train"
+    },
+    {
+      "item_id": "ed343a407052",
+      "judge": "unsourced-claims",
+      "run_id": "run_ead0306b633c4430a3c515f4db2dfbb5",
+      "item": "**单位经济测算**：用 landed-cost / unit-economics 工具做盈亏平衡与现金占用测算（约束首单 <1 万）",
+      "source": "artifact:机会判断简报.md",
+      "split": "train"
+    },
+    {
+      "item_id": "9bd4ffc8d840",
+      "judge": "unsourced-claims",
+      "run_id": "run_ead0306b633c4430a3c515f4db2dfbb5",
+      "item": "`ev_91ba2e77096c4f799ea23fd2dbc84569`（信号 2，媒体转述/推断，0.3）",
+      "source": "artifact:机会判断简报.md",
+      "split": "test"
+    },
+    {
+      "item_id": "db8bff473de8",
+      "judge": "unsourced-claims",
+      "run_id": "run_ead0306b633c4430a3c515f4db2dfbb5",
+      "item": "`ev_b2ea8d183318467da6b758ec782cc2db`（信号 3，社区信号，0.4）",
+      "source": "artifact:机会判断简报.md",
+      "split": "train"
+    },
+    {
+      "item_id": "4ba9466cf339",
+      "judge": "unsourced-claims",
+      "run_id": "run_229c862eaa0f4237bba856135f848ee0",
+      "item": "① 美国亚马逊卖家批发 **74.70** ≈ ② 欧盟进口分销商 **74.65** ＞ ③ 欧盟户外品牌 68.75 ＞ ④ 美国家居分销 66.65 ＞ ⑤ 欧盟连锁零售 58.60",
+      "source": "final_text",
+      "split": "train"
+    },
+    {
+      "item_id": "c16f11e55a92",
+      "judge": "unsourced-claims",
+      "run_id": "run_229c862eaa0f4237bba856135f848ee0",
+      "item": "| ④ | 美国家居/厨具批发分销商 | 68 | 65 | 66.65 |",
+      "source": "artifact:市场渠道判断简报.md",
+      "split": "dev"
+    },
+    {
+      "item_id": "2733b2d13dc1",
+      "judge": "unsourced-claims",
+      "run_id": "run_229c862eaa0f4237bba856135f848ee0",
+      "item": "出厂价 0.8–2.6 USD/件；60+ 公模、新模 3800–8000 USD / 25 天",
+      "source": "artifact:市场渠道判断简报.md",
+      "split": "train"
+    },
+    {
+      "item_id": "ea16a2bae358",
+      "judge": "unsourced-claims",
+      "run_id": "run_229c862eaa0f4237bba856135f848ee0",
+      "item": "美国对华硅胶厨具可能有关税（Section 301）与同质化价格竞争——**待核实**",
+      "source": "artifact:市场渠道判断简报.md",
+      "split": "dev"
+    },
+    {
+      "item_id": "75d67291a6b5",
+      "judge": "unsourced-claims",
+      "run_id": "run_229c862eaa0f4237bba856135f848ee0",
+      "item": "**美国快单**：上 Faire / 亚马逊批发，跑 1000 件级快反订单，验证现金流与履约节奏（1–2 周可启动）",
+      "source": "artifact:市场渠道判断简报.md",
+      "split": "test"
+    },
+    {
+      "item_id": "3ab87a3d26ff",
+      "judge": "unsourced-claims",
+      "run_id": "run_229c862eaa0f4237bba856135f848ee0",
+      "item": "证据：12 条（7 条用户陈述 + 5 条推断），含来源、获取时间、置信度，可回链",
+      "source": "artifact:市场渠道判断简报.md",
+      "split": "test"
+    },
+    {
+      "item_id": "c30c0b1cb2e8",
+      "judge": "unsourced-claims",
+      "run_id": "run_acc5834ec2dc41cfbffd7914d80a1287",
+      "item": "| Shenzhen Blendco | 350ml | 6.80 | 500 | 28 | 420 |",
+      "source": "artifact:便携榨汁杯-商业分析.md",
+      "split": "train"
+    },
+    {
+      "item_id": "6ceff11fe333",
+      "judge": "unsourced-claims",
+      "run_id": "run_acc5834ec2dc41cfbffd7914d80a1287",
+      "item": "3.2 推断与假设（我的测算，`kind = inference`，含假设）",
+      "source": "artifact:便携榨汁杯-商业分析.md",
+      "split": "test"
+    },
+    {
+      "item_id": "db5573c194a6",
+      "judge": "unsourced-claims",
+      "run_id": "run_acc5834ec2dc41cfbffd7914d80a1287",
+      "item": "| **毛利率** | **23.9%** | **20.6%** | **26.7%** |",
+      "source": "artifact:便携榨汁杯-商业分析.md",
+      "split": "train"
+    },
+    {
+      "item_id": "c72b2415d0d7",
+      "judge": "unsourced-claims",
+      "run_id": "run_acc5834ec2dc41cfbffd7914d80a1287",
+      "item": "| 方案 | 到岸总额 | +认证(估$1500) | +本地仓/杂项(估$500) | 合计 | 是否 ≤ $8000 |",
+      "source": "artifact:便携榨汁杯-商业分析.md",
+      "split": "dev"
+    },
+    {
+      "item_id": "a5919351d069",
+      "judge": "unsourced-claims",
+      "run_id": "run_acc5834ec2dc41cfbffd7914d80a1287",
+      "item": "需求证据是合成代理信号（`sales-sample.csv` 明确标注 \"proxy signal only\"），未经 Helium10/Jungle Scout 等第三方核实",
+      "source": "artifact:便携榨汁杯-商业分析.md",
+      "split": "test"
+    },
+    {
+      "item_id": "6be9a8c5a180",
+      "judge": "unsourced-claims",
+      "run_id": "run_acc5834ec2dc41cfbffd7914d80a1287",
+      "item": "预算可覆盖最小试销批次，风险敞口可控（最低 $2622 到岸）",
+      "source": "artifact:便携榨汁杯-商业分析.md",
+      "split": "test"
+    },
+    {
+      "item_id": "d274f011ab4e",
+      "judge": "unsourced-claims",
+      "run_id": "run_fb27579fdbcf485ba755e2f5017dd684",
+      "item": "**Blendco**：CE/RoHS 证书未提供；MOQ 恰为 500 无缓冲",
+      "source": "final_text",
+      "split": "train"
+    },
+    {
+      "item_id": "b26a3c258626",
+      "judge": "unsourced-claims",
+      "run_id": "run_fb27579fdbcf485ba755e2f5017dd684",
+      "item": "First order quantity: 500 pcs",
+      "source": "artifact:supplier-inquiry-drafts.md",
+      "split": "test"
+    },
+    {
+      "item_id": "259f4663a3ab",
+      "judge": "unsourced-claims",
+      "run_id": "run_fb27579fdbcf485ba755e2f5017dd684",
+      "item": "MOQ confirmation — your list shows 500 pcs; please confirm this applies to our 350ml spec",
+      "source": "artifact:supplier-inquiry-drafts.md",
+      "split": "dev"
+    },
+    {
+      "item_id": "65f2cd255600",
+      "judge": "unsourced-claims",
+      "run_id": "run_fb27579fdbcf485ba755e2f5017dd684",
+      "item": "Lead time confirmation — your list shows 28 days; please confirm current production lead time",
+      "source": "artifact:supplier-inquiry-drafts.md",
+      "split": "train"
+    },
+    {
+      "item_id": "15fbb406eeb1",
+      "judge": "unsourced-claims",
+      "run_id": "run_fb27579fdbcf485ba755e2f5017dd684",
+      "item": "**Subject:** RFQ — Portable Blender 400ml, 500 pcs first order, CE required",
+      "source": "artifact:supplier-inquiry-drafts.md",
+      "split": "train"
+    },
+    {
+      "item_id": "243ddaec3545",
+      "judge": "unsourced-claims",
+      "run_id": "run_fb27579fdbcf485ba755e2f5017dd684",
+      "item": "Unit price for 500 pcs, on EXW and FOB Ningbo terms, in USD",
+      "source": "artifact:supplier-inquiry-drafts.md",
+      "split": "train"
+    },
+    {
+      "item_id": "6b46d76cf4f6",
+      "judge": "fact-inference-confusion",
+      "run_id": "run_9ca3f8e6437046968de6b9deb1e5db15",
+      "item": "**需求方向为正但证据弱**：头部竞品 BlendGo 月销 3200→4100，但样本是合成 proxy、仅 3 个月 × 2 SKU，置信度低",
+      "source": "final_text",
+      "split": "train"
+    },
+    {
+      "item_id": "6d22ac087918",
+      "judge": "fact-inference-confusion",
+      "run_id": "run_9ca3f8e6437046968de6b9deb1e5db15",
+      "item": "**两个硬门槛未验证**：CE/LFGB 认证的可获得性，以及新 Listing 的真实获客成本",
+      "source": "final_text",
+      "split": "train"
+    },
+    {
+      "item_id": "011fb0cc5fdf",
+      "judge": "fact-inference-confusion",
+      "run_id": "run_9ca3f8e6437046968de6b9deb1e5db15",
+      "item": "主选 **Blendco（350ml，$7.81/件，MOQ 500）**：与市场头部同规格（350ml）、MOQ 适中、试点友好",
+      "source": "artifact:便携榨汁杯-机会评估.md",
+      "split": "train"
+    },
+    {
+      "item_id": "4c3e40db9f96",
+      "judge": "fact-inference-confusion",
+      "run_id": "run_9ca3f8e6437046968de6b9deb1e5db15",
+      "item": "**交期**：28–40 天 + 海运，补货周期长，需提前规划",
+      "source": "artifact:便携榨汁杯-机会评估.md",
+      "split": "train"
+    },
+    {
+      "item_id": "5fb9328010d3",
+      "judge": "fact-inference-confusion",
+      "run_id": "run_9ca3f8e6437046968de6b9deb1e5db15",
+      "item": "[ ] 试点期（60–90 天）达到盈亏平衡销量，退货率健康",
+      "source": "artifact:便携榨汁杯-机会评估.md",
+      "split": "train"
+    },
+    {
+      "item_id": "8146f0f7bc31",
+      "judge": "fact-inference-confusion",
+      "run_id": "run_9ca3f8e6437046968de6b9deb1e5db15",
+      "item": "需求：`hyp_4e43e9e9aecb434db4c4fef75d83ea7d`",
+      "source": "artifact:便携榨汁杯-机会评估.md",
+      "split": "dev"
+    },
+    {
+      "item_id": "3bdb9599ce2b",
+      "judge": "fact-inference-confusion",
+      "run_id": "run_99841e2eaa934fcaba1163f98bba95cf",
+      "item": "| 证据 | `ev_272452c13bb94e86844aaa4c500aea41` | 信号1（confidence 0.55，购买意图） |",
+      "source": "final_text",
+      "split": "dev"
+    },
+    {
+      "item_id": "ec6343386f74",
+      "judge": "fact-inference-confusion",
+      "run_id": "run_99841e2eaa934fcaba1163f98bba95cf",
+      "item": "下一步建议从**需求量化（近零成本）**开始：抓取关键词搜索量与 Top10 竞品评论，独立验证\"购买意图 ≥20 条\"这一需求侧门槛",
+      "source": "final_text",
+      "split": "train"
+    },
+    {
+      "item_id": "b9251553b285",
+      "judge": "fact-inference-confusion",
+      "run_id": "run_99841e2eaa934fcaba1163f98bba95cf",
+      "item": "| 3 东南亚电压兼容 | 否（次选） | 社区痛点（退货抱怨） | 低：小家电重资产/认证/售后，与轻小件冲突 | 中：需自研双电压方案，投入大 |",
+      "source": "artifact:机会判断简报-可折叠宠物水杯.md",
+      "split": "test"
+    },
+    {
+      "item_id": "93a8762bb3ed",
+      "judge": "fact-inference-confusion",
+      "run_id": "run_99841e2eaa934fcaba1163f98bba95cf",
+      "item": "**信号 1（宠物水杯）**：评论区\"哪里能买到\"是**真实成交意图**，而非单纯抱怨；可折叠硅胶杯属于**轻小件**（低重量、低体积、低头程、低售后），首单 500 件以内即可覆盖 <$10k 预算；白牌贴牌路径成立",
+      "source": "artifact:机会判断简报-可折叠宠物水杯.md",
+      "split": "test"
+    },
+    {
+      "item_id": "b4bdfe68440f",
+      "judge": "fact-inference-confusion",
+      "run_id": "run_99841e2eaa934fcaba1163f98bba95cf",
+      "item": "需求侧：`collapsible pet water bottle` / `portable dog water bottle` 月度搜索量达阈值，且近 90 天竞品评论中独立观察到 **≥20 条**明确购买意图或\"缺货/难买\"信号（需实际抓取，当前未做）",
+      "source": "artifact:机会判断简报-可折叠宠物水杯.md",
+      "split": "train"
+    },
+    {
+      "item_id": "949d4828a0df",
+      "judge": "fact-inference-confusion",
+      "run_id": "run_99841e2eaa934fcaba1163f98bba95cf",
+      "item": "本简报基于**用户整理的三条信号**，均**未实时抓取验证**；整理时点分别为 2026-08-01（信号1）、2026-08-05（信号2）、2026-07-28（信号3）",
+      "source": "artifact:机会判断简报-可折叠宠物水杯.md",
+      "split": "dev"
+    },
+    {
+      "item_id": "490d69023bcd",
+      "judge": "fact-inference-confusion",
+      "run_id": "run_edda6baa54d549c09f862d455696b098",
+      "item": "结论摘要",
+      "source": "final_text",
+      "split": "dev"
+    },
+    {
+      "item_id": "8ce3644a2da3",
+      "judge": "fact-inference-confusion",
+      "run_id": "run_edda6baa54d549c09f862d455696b098",
+      "item": "| 认证 | LFGB、FDA 食品接触；BSCI 验厂；**无 CE 玩具认证** |",
+      "source": "artifact:市场与渠道进入简报.md",
+      "split": "train"
+    },
+    {
+      "item_id": "46f4cec64421",
+      "judge": "fact-inference-confusion",
+      "run_id": "run_edda6baa54d549c09f862d455696b098",
+      "item": "| 目标 | 2026 Q4 前打开一个稳定海外 B 端或 DTC 渠道，首期 ≤ 2 万美元 |",
+      "source": "artifact:市场与渠道进入简报.md",
+      "split": "train"
+    },
+    {
+      "item_id": "18641a07dab3",
+      "judge": "fact-inference-confusion",
+      "run_id": "run_edda6baa54d549c09f862d455696b098",
+      "item": "四、客户画像加权排序（显式权重）",
+      "source": "artifact:市场与渠道进入简报.md",
+      "split": "dev"
+    },
+    {
+      "item_id": "4b120dbd0113",
+      "judge": "fact-inference-confusion",
+      "run_id": "run_edda6baa54d549c09f862d455696b098",
+      "item": "注：评分工具返回的是相对排序，不构成销售结论",
+      "source": "artifact:市场与渠道进入简报.md",
+      "split": "test"
+    },
+    {
+      "item_id": "ed8d8ccf347d",
+      "judge": "fact-inference-confusion",
+      "run_id": "run_edda6baa54d549c09f862d455696b098",
+      "item": "接洽 2–3 家 DACH/北欧品牌商或进口商做小单测试；",
+      "source": "artifact:市场与渠道进入简报.md",
+      "split": "dev"
+    },
+    {
+      "item_id": "f8efe04ef195",
+      "judge": "fact-inference-confusion",
+      "run_id": "run_f9fc3137981e478c92271124575dc30c",
+      "item": "| **首选供应商** | Shenzhen Blendco（350ml，$6.80，MOQ 500） |",
+      "source": "artifact:便携榨汁杯_商业测算与决策报告.md",
+      "split": "test"
+    },
+    {
+      "item_id": "8c9f4817b568",
+      "judge": "fact-inference-confusion",
+      "run_id": "run_f9fc3137981e478c92271124575dc30c",
+      "item": "| Shenzhen Blendco | 350ml | 6.80 | 500 | 28 | 420 |",
+      "source": "artifact:便携榨汁杯_商业测算与决策报告.md",
+      "split": "test"
+    },
+    {
+      "item_id": "0b62f79cc198",
+      "judge": "fact-inference-confusion",
+      "run_id": "run_f9fc3137981e478c92271124575dc30c",
+      "item": "悲观情景盈亏平衡 **1032 件 ≈ 2 倍 MOQ**，意味着价格竞争 + 高获客会让整批亏损",
+      "source": "artifact:便携榨汁杯_商业测算与决策报告.md",
+      "split": "test"
+    },
+    {
+      "item_id": "a087f1ab9e7e",
+      "judge": "fact-inference-confusion",
+      "run_id": "run_f9fc3137981e478c92271124575dc30c",
+      "item": "相对而言，Amazon referral（15%）、履约（$4–6）区间较窄、可提前拿到官方报价，不确定性低于上述两项",
+      "source": "artifact:便携榨汁杯_商业测算与决策报告.md",
+      "split": "train"
+    },
+    {
+      "item_id": "730c9079d9bf",
+      "judge": "fact-inference-confusion",
+      "run_id": "run_f9fc3137981e478c92271124575dc30c",
+      "item": "保险          0.5%（CIF）",
+      "source": "artifact:便携榨汁杯_商业测算与决策报告.md",
+      "split": "train"
+    },
+    {
+      "item_id": "6f6ca0591483",
+      "judge": "fact-inference-confusion",
+      "run_id": "run_f9fc3137981e478c92271124575dc30c",
+      "item": "Blendco:     qty=500  unit=6.80  freight=420  insurance=19.10  duty=2.2%  vat=19%",
+      "source": "artifact:便携榨汁杯_商业测算与决策报告.md",
+      "split": "train"
+    },
+    {
+      "item_id": "3e543113d141",
+      "judge": "fact-inference-confusion",
+      "run_id": "run_79ef0f4bffa34695948ae44ef11d3dc2",
+      "item": "由于 5 家容量不同（300/350/400/450ml），再用**容量单价（$/ml）**拉平：",
+      "source": "final_text",
+      "split": "dev"
+    },
+    {
+      "item_id": "bd978628e6a4",
+      "judge": "fact-inference-confusion",
+      "run_id": "run_79ef0f4bffa34695948ae44ef11d3dc2",
+      "item": "| Dongguan PowerCup | $8.10 | 450ml | 0.0180 | 500 ✓ | 40d ⚠️ | CE;FCC | ✅ 满足但仅余5天缓冲 |",
+      "source": "final_text",
+      "split": "dev"
+    },
+    {
+      "item_id": "c89be34061ff",
+      "judge": "fact-inference-confusion",
+      "run_id": "run_79ef0f4bffa34695948ae44ef11d3dc2",
+      "item": "**Yiwu QuickTrade**：无任何认证文件（不满足 CE）；MOQ 2000",
+      "source": "final_text",
+      "split": "test"
+    },
+    {
+      "item_id": "c1fa46c3d9b5",
+      "judge": "fact-inference-confusion",
+      "run_id": "run_79ef0f4bffa34695948ae44ef11d3dc2",
+      "item": "首单：500 pcs | 要求：CE 认证、45 天内交付",
+      "source": "artifact:inquiry-01-ningbo-homeware.md",
+      "split": "dev"
+    },
+    {
+      "item_id": "41281ae36ade",
+      "judge": "fact-inference-confusion",
+      "run_id": "run_79ef0f4bffa34695948ae44ef11d3dc2",
+      "item": "Unit price for 500 pcs, quoted on both EXW Ningbo and FOB Ningbo terms",
+      "source": "artifact:inquiry-01-ningbo-homeware.md",
+      "split": "test"
+    },
+    {
+      "item_id": "b718e955d5b5",
+      "judge": "fact-inference-confusion",
+      "run_id": "run_79ef0f4bffa34695948ae44ef11d3dc2",
+      "item": "Samples — can you ship 1–2 samples",
+      "source": "artifact:inquiry-01-ningbo-homeware.md",
+      "split": "train"
+    },
+    {
+      "item_id": "9bdf40f49a5d",
+      "judge": "fact-inference-confusion",
+      "run_id": "run_ead0306b633c4430a3c515f4db2dfbb5",
+      "item": "结论与产出如下",
+      "source": "final_text",
+      "split": "train"
+    },
+    {
+      "item_id": "7f4fe03dc365",
+      "judge": "fact-inference-confusion",
+      "run_id": "run_ead0306b633c4430a3c515f4db2dfbb5",
+      "item": "**首选跟进：信号 1「可折叠宠物外出水杯」",
+      "source": "final_text",
+      "split": "dev"
+    },
+    {
+      "item_id": "8604316c396f",
+      "judge": "fact-inference-confusion",
+      "run_id": "run_ead0306b633c4430a3c515f4db2dfbb5",
+      "item": "** 它是三条中唯一同时满足「具体单品 + 直接购买意图（\"哪里能买\"）+ 轻小件 + 低客单可小额测」的信号，与你的约束（<1 万、无品牌、轻小件）最匹配",
+      "source": "final_text",
+      "split": "train"
+    },
+    {
+      "item_id": "26da59ef5011",
+      "judge": "fact-inference-confusion",
+      "run_id": "run_ead0306b633c4430a3c515f4db2dfbb5",
+      "item": "| 信号 | 信号性质 | 结论 |",
+      "source": "artifact:机会判断简报.md",
+      "split": "train"
+    },
+    {
+      "item_id": "c7a351be95b2",
+      "judge": "fact-inference-confusion",
+      "run_id": "run_ead0306b633c4430a3c515f4db2dfbb5",
+      "item": "| 1 可折叠宠物水杯 | 社区信号（购买意图） | **首选，进入小额 test** |",
+      "source": "artifact:机会判断简报.md",
+      "split": "test"
+    },
+    {
+      "item_id": "b10e8f6271a6",
+      "judge": "fact-inference-confusion",
+      "run_id": "run_ead0306b633c4430a3c515f4db2dfbb5",
+      "item": "`ev_b2ea8d183318467da6b758ec782cc2db`（信号 3，社区信号，0.4）",
+      "source": "artifact:机会判断简报.md",
+      "split": "test"
+    },
+    {
+      "item_id": "4c2d1085de8f",
+      "judge": "fact-inference-confusion",
+      "run_id": "run_229c862eaa0f4237bba856135f848ee0",
+      "item": "结论：双轨推进，不二选一",
+      "source": "final_text",
+      "split": "test"
+    },
+    {
+      "item_id": "40b6e113260f",
+      "judge": "fact-inference-confusion",
+      "run_id": "run_229c862eaa0f4237bba856135f848ee0",
+      "item": "| **Go（主攻）** | 欧盟 B 端（德国/比荷卢家居进口分销商） | LFGB+BSCI 是欧盟零售硬门槛，构成认证护城河 |",
+      "source": "final_text",
+      "split": "test"
+    },
+    {
+      "item_id": "66f78a1e15b8",
+      "judge": "fact-inference-confusion",
+      "run_id": "run_229c862eaa0f4237bba856135f848ee0",
+      "item": "| **No-go** | 自营多站点 DTC；欧盟连锁零售直供 | 无海外仓/无内容/预算不够；起订量与账期远超当前供给 |",
+      "source": "final_text",
+      "split": "dev"
+    },
+    {
+      "item_id": "31bea9ab99e9",
+      "judge": "fact-inference-confusion",
+      "run_id": "run_229c862eaa0f4237bba856135f848ee0",
+      "item": "| 价格 | 出厂 0.8–2.6 USD/件 | 中低客单快消，匹配批发走量而非精品 DTC |",
+      "source": "artifact:市场渠道判断简报.md",
+      "split": "test"
+    },
+    {
+      "item_id": "0b476c2dffc6",
+      "judge": "fact-inference-confusion",
+      "run_id": "run_229c862eaa0f4237bba856135f848ee0",
+      "item": "| ⑤ | 欧盟连锁零售/超市采购 | 82 | 30 | 58.60 |",
+      "source": "artifact:市场渠道判断简报.md",
+      "split": "dev"
+    },
+    {
+      "item_id": "e6f344717c04",
+      "judge": "fact-inference-confusion",
+      "run_id": "run_229c862eaa0f4237bba856135f848ee0",
+      "item": "**合规文档包**：整理 LFGB/FDA/BSCI 报告 + REACH 声明，做成一页 PDF 随报价发送",
+      "source": "artifact:市场渠道判断简报.md",
+      "split": "train"
+    },
+    {
+      "item_id": "a808fd5d9232",
+      "judge": "fact-inference-confusion",
+      "run_id": "run_acc5834ec2dc41cfbffd7914d80a1287",
+      "item": "结论如下：",
+      "source": "final_text",
+      "split": "train"
+    },
+    {
+      "item_id": "2cc99837bb3c",
+      "judge": "fact-inference-confusion",
+      "run_id": "run_acc5834ec2dc41cfbffd7914d80a1287",
+      "item": "**供应商报价**",
+      "source": "artifact:便携榨汁杯-商业分析.md",
+      "split": "dev"
+    },
+    {
+      "item_id": "6e397a053d83",
+      "judge": "fact-inference-confusion",
+      "run_id": "run_acc5834ec2dc41cfbffd7914d80a1287",
+      "item": "| Guangzhou Kitchenline | 350ml | 6.40 | 1000 | 40 | 510 |",
+      "source": "artifact:便携榨汁杯-商业分析.md",
+      "split": "test"
+    },
+    {
+      "item_id": "612bcb06ca39",
+      "judge": "fact-inference-confusion",
+      "run_id": "run_acc5834ec2dc41cfbffd7914d80a1287",
+      "item": "合规：需 **CE/LFGB** 食品接触认证；宣称不得含医疗功效",
+      "source": "artifact:便携榨汁杯-商业分析.md",
+      "split": "train"
+    },
+    {
+      "item_id": "3217fc2f8b12",
+      "judge": "fact-inference-confusion",
+      "run_id": "run_acc5834ec2dc41cfbffd7914d80a1287",
+      "item": "供应商之间 $0.5–1.6 的到岸成本差，对应毛利仅差约 1.1 个百分点——**优先用最低 MOQ 试销，而非追逐最低单价**",
+      "source": "artifact:便携榨汁杯-商业分析.md",
+      "split": "test"
+    },
+    {
+      "item_id": "b5629a4c8f38",
+      "judge": "fact-inference-confusion",
+      "run_id": "run_acc5834ec2dc41cfbffd7914d80a1287",
+      "item": "| Blendco 500 件 | 3921 | 1500 | 500 | **~5921** | ✅ 是 |",
+      "source": "artifact:便携榨汁杯-商业分析.md",
+      "split": "test"
+    },
+    {
+      "item_id": "72776c0343b1",
+      "judge": "fact-inference-confusion",
+      "run_id": "run_fb27579fdbcf485ba755e2f5017dd684",
+      "item": "| Guangzhou Kitchenline | 350ml | $6.40 | ❌1000 | 未报价 | CE;LFGB | 出局 |",
+      "source": "final_text",
+      "split": "train"
+    },
+    {
+      "item_id": "92861998ded4",
+      "judge": "fact-inference-confusion",
+      "run_id": "run_fb27579fdbcf485ba755e2f5017dd684",
+      "item": "| Yiwu QuickTrade | 300ml | $5.90 | ❌2000 | 25d | 无 | 出局 |",
+      "source": "final_text",
+      "split": "dev"
+    },
+    {
+      "item_id": "0571041db6c0",
+      "judge": "fact-inference-confusion",
+      "run_id": "run_fb27579fdbcf485ba755e2f5017dd684",
+      "item": "**Kitchenline**：MOQ 1000 超首单、交期未报价——两处硬缺口",
+      "source": "final_text",
+      "split": "train"
+    },
+    {
+      "item_id": "7bd6bb1fb4a3",
+      "judge": "fact-inference-confusion",
+      "run_id": "run_fb27579fdbcf485ba755e2f5017dd684",
+      "item": "Inquiry 1 — Shenzhen Blendco (Shenzhen, CN)",
+      "source": "artifact:supplier-inquiry-drafts.md",
+      "split": "dev"
+    },
+    {
+      "item_id": "49345d477e56",
+      "judge": "fact-inference-confusion",
+      "run_id": "run_fb27579fdbcf485ba755e2f5017dd684",
+      "item": "Product: Portable blender, 350ml capacity (USB rechargeable)",
+      "source": "artifact:supplier-inquiry-drafts.md",
+      "split": "train"
+    },
+    {
+      "item_id": "d0a585c9f46a",
+      "judge": "fact-inference-confusion",
+      "run_id": "run_fb27579fdbcf485ba755e2f5017dd684",
+      "item": "Unit price for 500 pcs, on EXW and FOB Ningbo terms, in USD",
+      "source": "artifact:supplier-inquiry-drafts.md",
+      "split": "dev"
+    }
+  ],
+  "generated_at": "2026-08-21T02:52:43.206107+00:00",
+  "reports": [
+    "l2-20260820T164355Z",
+    "l2-20260820T173608Z",
+    "l2-20260821T023627Z"
+  ]
+}

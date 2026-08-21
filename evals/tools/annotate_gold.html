@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>OPHIRA · Gold 标注</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root {
+    --bg: #f6f7f9; --card: #ffffff; --ink: #1a202c; --muted: #64748b;
+    --line: #e2e8f0; --accent: #2563eb;
+    --yes: #16a34a; --no: #dc2626; --defer: #d97706;
+    --coverage: #0e7490; --unsourced: #7c3aed; --confusion: #b45309;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+         font: 15px/1.65 -apple-system, "PingFang SC", "Noto Sans SC", sans-serif; }
+  header { background: var(--card); border-bottom: 1px solid var(--line);
+           padding: 10px 20px; display: flex; align-items: center; gap: 14px;
+           flex-wrap: wrap; position: sticky; top: 0; z-index: 5; }
+  header h1 { font-size: 16px; margin: 0; }
+  header .batch { color: var(--muted); font-size: 12px; }
+  .tabs { display: flex; gap: 6px; }
+  .tab { border: 1px solid var(--line); background: var(--card); border-radius: 8px;
+         padding: 5px 12px; cursor: pointer; font-size: 13px; }
+  .tab.active { border-color: var(--accent); color: var(--accent); font-weight: 600; }
+  .tab .count { color: var(--muted); font-weight: 400; }
+  .controls { display: flex; gap: 10px; align-items: center; margin-left: auto;
+              font-size: 13px; color: var(--muted); }
+  .controls select, .controls input[type=number] {
+    border: 1px solid var(--line); border-radius: 6px; padding: 3px 6px; font-size: 13px; }
+  main { display: grid; grid-template-columns: minmax(420px, 5fr) minmax(380px, 6fr);
+         gap: 16px; padding: 16px 20px; max-width: 1500px; margin: 0 auto; }
+  @media (max-width: 980px) { main { grid-template-columns: 1fr; } }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+          padding: 16px 18px; }
+  .question { font-size: 13px; color: var(--muted); background: #eef2ff;
+              border-radius: 8px; padding: 8px 12px; margin-bottom: 12px; }
+  .badges { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; font-size: 12px; }
+  .badge { border-radius: 6px; padding: 1px 8px; background: #f1f5f9; color: var(--muted); }
+  .badge.judge-evidence-coverage { background: #e0f2f7; color: var(--coverage); }
+  .badge.judge-unsourced-claims { background: #f0e9fd; color: var(--unsourced); }
+  .badge.judge-fact-inference-confusion { background: #fdf0df; color: var(--confusion); }
+  .item-text { font-size: 17px; font-weight: 600; line-height: 1.6;
+               border-left: 4px solid var(--accent); padding: 6px 12px; margin: 8px 0 14px; }
+  .status-line { font-size: 13px; min-height: 20px; margin-bottom: 8px; }
+  .status-line .yes { color: var(--yes); } .status-line .no { color: var(--no); }
+  .status-line .defer { color: var(--defer); }
+  textarea { width: 100%; min-height: 64px; border: 1px solid var(--line);
+             border-radius: 8px; padding: 8px 10px; font: inherit; resize: vertical; }
+  .buttons { display: flex; gap: 10px; margin-top: 12px; flex-wrap: wrap; }
+  button.act { border: none; border-radius: 9px; padding: 9px 22px; font-size: 15px;
+               font-weight: 600; color: #fff; cursor: pointer; }
+  .btn-yes { background: var(--yes); } .btn-no { background: var(--no); }
+  .btn-defer { background: var(--defer); }
+  button.nav { border: 1px solid var(--line); background: var(--card); border-radius: 9px;
+               padding: 9px 14px; cursor: pointer; font-size: 14px; }
+  .hint { color: var(--muted); font-size: 12px; margin-top: 10px; }
+  .progress { height: 6px; background: #edf2f7; border-radius: 3px; overflow: hidden;
+              margin: 6px 0 14px; }
+  .progress i { display: block; height: 100%; background: var(--accent); }
+  .counter { font-size: 13px; color: var(--muted); }
+  details { border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px;
+            margin-bottom: 12px; background: var(--card); }
+  details summary { cursor: pointer; font-weight: 600; font-size: 14px; }
+  .doc { font-size: 14px; margin-top: 8px; overflow-x: auto; }
+  .doc h1,.doc h2,.doc h3 { font-size: 15px; margin: 10px 0 4px; }
+  .doc mark { background: #fef08a; padding: 0 2px; }
+  .doc .tbl { font-family: ui-monospace, SFMono-Regular, monospace; font-size: 12px;
+              white-space: pre; }
+  table.ev { border-collapse: collapse; width: 100%; font-size: 13px; margin-top: 8px; }
+  table.ev th, table.ev td { border-bottom: 1px solid var(--line); text-align: left;
+                             padding: 5px 8px; vertical-align: top; }
+  table.ev th { color: var(--muted); font-weight: 500; font-size: 12px; }
+  .kind { border-radius: 5px; padding: 0 6px; font-size: 12px; white-space: nowrap; }
+  .kind-observed_fact { background: #dcfce7; color: #166534; }
+  .kind-inference { background: #f0e9fd; color: var(--unsourced); }
+  .kind-community_signal { background: #ffedd5; color: #9a3412; }
+  .kind-user_statement { background: #dbeafe; color: #1e40af; }
+  .src-NONE { color: var(--no); font-weight: 600; }
+  tr.hl { background: #fefce8; }
+  .done { text-align: center; padding: 60px 20px; color: var(--muted); }
+</style>
+</head>
+<body>
+<header>
+  <h1>Gold 标注</h1>
+  <span class="batch" id="batch"></span>
+  <nav class="tabs" id="tabs"></nav>
+  <div class="controls">
+    <label>任务 <select id="taskFilter"><option value="">全部</option></select></label>
+    <label><input type="checkbox" id="unlabeledOnly"> 只看未标注</label>
+    <label>跳到 <input type="number" id="jump" min="1" style="width:64px"></label>
+  </div>
+</header>
+<main>
+  <section>
+    <div class="card">
+      <div class="question" id="question"></div>
+      <div class="badges" id="badges"></div>
+      <div class="item-text" id="itemText"></div>
+      <div class="status-line" id="statusLine"></div>
+      <textarea id="rationale" placeholder="一句话理由（gold README 要求；⌘+Enter 保存理由）"></textarea>
+      <div class="buttons">
+        <button class="act btn-yes" id="btnYes">是 <small>(1)</small></button>
+        <button class="act btn-no" id="btnNo">否 <small>(2)</small></button>
+        <button class="act btn-defer" id="btnDefer">跳过 <small>(D)</small></button>
+        <span style="flex:1"></span>
+        <button class="nav" id="btnPrev">← 上一条</button>
+        <button class="nav" id="btnNext">下一条 →</button>
+      </div>
+      <div class="progress"><i id="bar" style="width:0"></i></div>
+      <div class="counter" id="counter"></div>
+      <div class="hint">快捷键：1 是 · 2 否 · D 跳过 · ←/→ 前后 · U 回到上一条操作 ·
+        输入理由时快捷键停用。判定拿不准就跳过，别猜。</div>
+    </div>
+  </section>
+  <section id="context"></section>
+</main>
+<div class="done" id="empty" style="display:none">当前筛选下没有条目。</div>
+<script>
+"use strict";
+const S = { data: null, judge: null, idx: 0, history: [] };
+const $ = id => document.getElementById(id);
+const esc = t => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+                  .replace(/"/g, "&quot;");
+const JUDGE_NAMES = {
+  "evidence-coverage": "证据覆盖", "unsourced-claims": "无来源数据",
+  "fact-inference-confusion": "事实/推断混淆",
+};
+// label=true 时各 judge 的含义（与 judge 输出字段对齐）
+const YES_MEANING = {
+  "evidence-coverage": "已覆盖", "unsourced-claims": "有来源/合规",
+  "fact-inference-confusion": "确属混淆",
+};
+
+async function load() {
+  S.data = await (await fetch("/api/state")).json();
+  $("batch").textContent = S.data.batch;
+  const tasks = [...new Set(S.data.items.map(i => runOf(i).task))].sort();
+  for (const t of tasks) {
+    const o = document.createElement("option"); o.value = o.textContent = t;
+    $("taskFilter").appendChild(o);
+  }
+  const judges = [...new Set(S.data.items.map(i => i.judge))];
+  S.judge = judges.find(j => S.data.items.some(i => i.judge === j && !i.labeled)) || judges[0];
+  S.idx = firstUnlabeled();
+  render();
+}
+const runOf = item => S.data.runs[item.run_id] || {};
+const judgeItems = () => S.data.items.filter(i => i.judge === S.judge);
+function visible() {
+  const task = $("taskFilter").value, only = $("unlabeledOnly").checked;
+  return judgeItems().filter(i =>
+    (!task || runOf(i).task === task) && (!only || (!i.labeled && !i.deferred)));
+}
+function firstUnlabeled() {
+  const v = visible();
+  const k = v.findIndex(i => !i.labeled && !i.deferred);
+  return k >= 0 ? k : 0;
+}
+function renderTabs() {
+  const el = $("tabs"); el.innerHTML = "";
+  for (const j of [...new Set(S.data.items.map(i => i.judge))]) {
+    const all = S.data.items.filter(i => i.judge === j);
+    const done = all.filter(i => i.labeled).length;
+    const b = document.createElement("button");
+    b.className = "tab" + (j === S.judge ? " active" : "");
+    b.innerHTML = `${JUDGE_NAMES[j] || j} <span class="count">${done}/${all.length}</span>`;
+    b.onclick = () => { S.judge = j; S.idx = firstUnlabeled(); render(); };
+    el.appendChild(b);
+  }
+}
+function mdRender(text, highlight) {
+  let h = esc(text);
+  if (highlight) {
+    const target = esc(highlight);
+    const at = h.indexOf(target);
+    if (at >= 0) h = h.slice(0, at) + "<mark>" + target + "</mark>" + h.slice(at + target.length);
+  }
+  return h.split("\n").map(line => {
+    if (/^\s*\|/.test(line)) return `<div class="tbl">${line}</div>`;
+    const m = line.match(/^(#{1,4})\s+(.*)$/);
+    if (m) return `<h${m[1].length + 1}>${m[2]}</h${m[1].length + 1}>`;
+    return line.replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>") + "<br>";
+  }).join("");
+}
+function renderContext(item) {
+  const run = runOf(item), el = $("context"); el.innerHTML = "";
+  const ledgerHl = item.source.startsWith("ledger:") ? item.source.slice(7) : null;
+  const evRows = (run.evidence || []).map(e => `
+    <tr class="${e.id === ledgerHl ? "hl" : ""}">
+      <td><span class="kind kind-${e.kind}">${e.kind}</span></td>
+      <td>${esc(e.claim)}${e.excerpt ? `<div style="color:var(--muted);font-size:12px">${esc(e.excerpt)}</div>` : ""}</td>
+      <td class="src-${e.source}">${e.source === "url" ? `<a href="${esc(e.source_url || "")}" target="_blank" rel="noopener">url</a>` : e.source}</td>
+      <td>${esc(e.source_title || "")}</td>
+      <td style="white-space:nowrap">${(e.observed_at || e.retrieved_at || "").slice(0, 10)}</td>
+      <td>${e.confidence ?? ""}</td>
+    </tr>`).join("");
+  const evOpen = item.judge !== "unsourced-claims" || ledgerHl ? " open" : "";
+  const ftOpen = item.source === "final_text" ? " open" : "";
+  let html = `
+    <details${evOpen}><summary>证据账本（${(run.evidence || []).length} 条）</summary>
+      <table class="ev"><tr><th>kind</th><th>claim / 摘录</th><th>来源</th><th>来源标题</th><th>时间</th><th>置信</th></tr>${evRows}</table>
+    </details>
+    <details${ftOpen}><summary>最终回复全文 · ${esc(run.task || "")}</summary>
+      <div class="doc">${mdRender(run.final_text || "（空）", item.source === "final_text" ? item.item : null)}</div>
+    </details>`;
+  for (const a of run.artifacts || []) {
+    const isSrc = item.source === "artifact:" + a.name;
+    html += `<details${isSrc ? " open" : ""}><summary>报告文件 · ${esc(a.name)}</summary>
+      <div class="doc">${mdRender(a.text || "", isSrc ? item.item : null)}</div></details>`;
+  }
+  el.innerHTML = html;
+}
+function render() {
+  renderTabs();
+  const v = visible();
+  $("empty").style.display = v.length ? "none" : "block";
+  document.querySelector("main").style.display = v.length ? "grid" : "none";
+  if (!v.length) return;
+  S.idx = Math.max(0, Math.min(S.idx, v.length - 1));
+  const item = v[S.idx];
+  $("question").textContent = "判定问题：" + S.data.questions[item.judge];
+  $("badges").innerHTML = `
+    <span class="badge judge-${item.judge}">${JUDGE_NAMES[item.judge] || item.judge}</span>
+    <span class="badge">${esc(runOf(item).task || "")}</span>
+    <span class="badge">${esc(item.source)}</span>
+    <span class="badge">${item.run_id.slice(0, 12)}…</span>`;
+  $("itemText").textContent = item.item;
+  $("rationale").value = item.rationale || "";
+  const st = $("statusLine");
+  if (item.labeled) {
+    const meaning = YES_MEANING[item.judge];
+    st.innerHTML = item.label
+      ? `<span class="yes">已标：是（${meaning}）</span>`
+      : `<span class="no">已标：否（非"${meaning}"）</span>`;
+  } else if (item.deferred) {
+    st.innerHTML = `<span class="defer">已跳过——回来时再判</span>`;
+  } else st.textContent = "未标注";
+  const all = judgeItems(), done = all.filter(i => i.labeled).length;
+  $("bar").style.width = all.length ? (100 * done / all.length) + "%" : "0";
+  const deferred = all.filter(i => i.deferred).length;
+  $("counter").textContent = `当前筛选第 ${S.idx + 1} / ${v.length} 条 · ` +
+    `本 judge 已标 ${done} / ${all.length}（跳过 ${deferred}）`;
+  $("jump").max = v.length;
+  renderContext(item);
+}
+function advance() {
+  const v = visible();
+  const next = v.findIndex((i, k) => k > S.idx && !i.labeled && !i.deferred);
+  if (next >= 0) S.idx = next;
+  else if (S.idx < v.length - 1) S.idx += 1;
+  render();
+}
+async function label(value) {
+  const item = visible()[S.idx];
+  if (!item) return;
+  const rationale = $("rationale").value.trim();
+  const res = await fetch("/api/label", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ item_id: item.item_id, label: value, rationale }),
+  });
+  if (!res.ok) { alert("保存失败：" + (await res.text())); return; }
+  Object.assign(item, { labeled: true, label: value, rationale, deferred: false });
+  S.history.push(item.item_id);
+  advance();
+}
+async function defer() {
+  const item = visible()[S.idx];
+  if (!item) return;
+  const res = await fetch("/api/defer", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ item_id: item.item_id }),
+  });
+  if (!res.ok) return;
+  item.deferred = (await res.json()).deferred;
+  S.history.push(item.item_id);
+  advance();
+}
+function undo() {
+  const id = S.history.pop();
+  if (!id) return;
+  const v = judgeItems();
+  const target = S.data.items.find(i => i.item_id === id);
+  if (target && target.judge !== S.judge) { S.judge = target.judge; }
+  $("unlabeledOnly").checked = false;
+  const k = visible().findIndex(i => i.item_id === id);
+  if (k >= 0) { S.idx = k; render(); }
+}
+$("btnYes").onclick = () => label(true);
+$("btnNo").onclick = () => label(false);
+$("btnDefer").onclick = defer;
+$("btnPrev").onclick = () => { S.idx -= 1; render(); };
+$("btnNext").onclick = () => { S.idx += 1; render(); };
+$("taskFilter").onchange = () => { S.idx = 0; render(); };
+$("unlabeledOnly").onchange = () => { S.idx = 0; render(); };
+$("jump").onchange = () => { S.idx = Number($("jump").value) - 1; render(); };
+$("rationale").addEventListener("keydown", async e => {
+  if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+    e.preventDefault();
+    const item = visible()[S.idx];
+    if (item && item.labeled) {
+      await fetch("/api/label", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ item_id: item.item_id, label: item.label,
+                               rationale: $("rationale").value.trim() }),
+      });
+      item.rationale = $("rationale").value.trim();
+      render();
+    } else e.target.blur();
+  }
+});
+document.addEventListener("keydown", e => {
+  if (e.target.tagName === "TEXTAREA" || e.target.tagName === "INPUT") return;
+  if (e.key === "1") label(true);
+  else if (e.key === "2") label(false);
+  else if (e.key.toLowerCase() === "d") defer();
+  else if (e.key.toLowerCase() === "u") undo();
+  else if (e.key === "ArrowLeft") { S.idx -= 1; render(); }
+  else if (e.key === "ArrowRight") { S.idx += 1; render(); }
+});
+load();
+</script>
+</body>
+</html>

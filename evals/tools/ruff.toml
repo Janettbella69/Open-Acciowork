@@ -1,0 +1,15 @@
+# 评测工具自持的 lint 配置（不依赖 backend/pyproject.toml）。
+# annotate 工具面向"任意本机 python3"（含 macOS 系统 3.9），target 取 py39。
+line-length = 100
+target-version = "py39"
+
+[lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[lint.isort]
+known-first-party = ["gold_sampling", "gold_annotator"]
+
+[lint.per-file-ignores]
+# 驱动脚本必须先改 sys.path 再 import 同目录/后端模块。
+"annotate_gold.py" = ["E402"]
+"sample_gold.py" = ["E402"]
