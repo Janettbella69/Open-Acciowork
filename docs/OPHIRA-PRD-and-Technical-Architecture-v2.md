@@ -14,7 +14,7 @@
 | 2 | **单 Agent 红线细化**：普通模式"只读临时子代理"放宽方案已成稿但**待拍板（2026-08-20 用户改为再考虑，暂维持普通模式禁 Agent 的现状）**；固定角色的多 Agent 团队任何模式仍禁止（§1.1、FR-01、§4.8） | Cowork/Codex/Claude Code 均原生具备；上下文经济学需要 |
 | 3 | **主动服务与渠道提级（用户拍板 IM 形态）**：IM 渠道按 Claude Tag 形态、心跳巡检、前瞻意图、通知收件箱、移动远程审批（FR-15/24/25/26、§4.16） | 品类五件套 table stakes；Accio Mobile Beta 实证 |
 | 4 | **记忆蒸馏提案化**：后台蒸馏 + 人审闸门 + 结构化溯源分级 + 容量上限（FR-14、§4.16） | OpenClaw Dreaming / Codex Memories / Hermes 容量上限 / Cursor 记忆反转教训 |
-| 5 | **浏览器双路线与"截图即证据"**（FR-20 修订；内嵌先行为建议默认，待拍板） | Cursor/Codex 内嵌路线 GA 实证 vs Accio 接管真实 Chrome 路线 |
+| 5 | **GUI 三级能力阶梯与"截图即证据"**（FR-20；2026-08-21 拍板全具备、运行时按任务选） | 逆向实证：Claude Desktop 与 Codex 均三级全装（内嵌+接管+OS级），大厂无一"三选一" |
 | 6 | **权限增补**：删除文件任何模式必须确认、Auto 自审档、once/session/persistent 粒度（§4.10） | Cowork 误删 11GB 事故铁律等品类实证 |
 | 7 | **产物补洞**：图像/视频生成 MCP（FR-27） | Accio/Codex 均有；跨境 Listing 素材刚需 |
 | 8 | **全量核对补丁**：办公格式产物（FR-16）、首批连接器矩阵（FR-21）、结构化追问表单（FR-28）、内容营销 Skill 族（§4.7） | 对 Accio Work 功能清单逐项核对后的残余项 |
@@ -95,7 +95,7 @@ v2.0 的核心新判断：**架构目标已基本代码就绪，当前最大风�
 
 （除标注外均来自 Accio 官方文档 `accio.com/work/documents/en/*.html` 全文与官方 changelog；详见 §9。）
 
-**主体与规模**：Accio 由阿里国际（AIDC）出品。基础 Accio 是 2024-11 发布的 AI B2B sourcing 引擎；**Accio Work 于 2026-03-23/24 发布**，桌面优先（macOS 11+/Windows 10+，另有功能缩减的 Web 版），官方主标语 "Your AI Business Team That Turns Ideas Into Profits"。截至 2026-03 全球 **>1000 万 MAU**（约每 5 个 Alibaba.com 用户中 1 个）；截至 2026-04 **23 万+ 企业**部署了 Agent 团队。商业化未定论——阿里高管公开承认"还没有清晰的变现答案"（MIT Technology Review, 2026-04）。
+**主体与规模**：Accio 由阿里国际（AIDC）出品。基础 Accio 是 2024-11 发布的 AI B2B sourcing 引擎；**Accio Work 于 2026-03-23/24 发布**，**桌面独占**（Electron，macOS 11+/Windows 10+；2026-08-21 一手核实：官方页面明写 "all tool execution — file operations, terminal commands, browser actions — runs on your own device"，无 Web 版入口。注意区分同名的基础版 Accio——2024-11 的 B2B sourcing 引擎，那个才有 Web/iOS/Android），官方主标语 "Your AI Business Team That Turns Ideas Into Profits"。截至 2026-03 全球 **>1000 万 MAU**（约每 5 个 Alibaba.com 用户中 1 个）；截至 2026-04 **23 万+ 企业**部署了 Agent 团队。商业化未定论——阿里高管公开承认"还没有清晰的变现答案"（MIT Technology Review, 2026-04）。
 
 **能力面（官方文档口径）**：
 
@@ -222,7 +222,7 @@ Accio Work 官方对标口径为 "agentic platforms like Claude Cowork and OpenC
 | 模型 | 托管积分制、多厂商倍率计费，成本不透明（用户投诉积分消耗过快） | BYOK + Anthropic 协议 Provider Profile，成本=厂商牌价，`max_budget_usd` 逐运行熔断 |
 | 数据主权 | 数据过阿里基础设施；有疑似跨账户泄漏投诉 | 本地优先工作区 + 每租户/每 Profile 隔离（`CLAUDE_CONFIG_DIR`、凭据白名单、路径防逃逸）——把隔离做成可验证的卖点 |
 | 生态 | 深度绑定 Alibaba.com 供给侧 | 平台无关；渠道只是数据源与连接器参数 |
-| 分发 | 桌面 App + IM 渠道 + Agent Hub + Mobile 遥控 PC | 本地 Web 工作台先行；IM 渠道按 **Claude Tag 形态**进 P1（主 Agent 以成员身份进用户的飞书/微信群，v2.1 用户拍板）；移动端＝同一控制面的远程审批面（服务端架构天然占优，无需 Accio 式 keep-PC-awake） |
+| 分发 | 桌面 App + IM 渠道 + Agent Hub + Mobile 遥控 PC | 本地 Web 工作台先行，**桌面壳随 GUI L3 落地**（2026-08-21 拍板；壳为宿主、Python 后端作本地 sidecar，不重写内核）；IM 渠道按 **Claude Tag 形态**进 P1（主 Agent 以成员身份进用户的飞书/微信群，v2.1 用户拍板）；移动端＝同一控制面的远程审批面。**服务端优势的适用边界**：无 GUI 的定时/巡检任务仍服务端常驻、不依赖用户设备开机（FR-15）；GUI L2/L3 任务因需本机浏览器/桌面，天然要求设备在线——两类任务分别调度，不混为一谈 |
 
 Accio 同时也**抬高了 table stakes**：权限四态与审计日志、分层记忆、SKILL.md 能力包、定时任务、浏览器登录态操作，用户会默认期待。OPHIRA 的对应能力在 FR 表中均有落点，实现次序见 §5。
 
@@ -310,7 +310,7 @@ Accio 同时也**抬高了 table stakes**：权限四态与审计日志、分层
 
 - IM 渠道（Claude Tag 形态，先飞书后微信，FR-24）与移动远程审批（FR-25）。
 - 主动巡检、前瞻意图与通知收件箱（FR-26、§4.16）；`ophira_automation` MCP 暴露给 Agent。
-- 内嵌受控浏览器 + 操作截图入证据账本（FR-20 路线一）；平台/店铺授权连接器。
+- **GUI L1**：内嵌受控浏览器 + 操作截图入证据账本（FR-20 第一级，服务端可跑）；平台/店铺授权连接器。
 - 图像/视频生成 MCP（FR-27）；记忆蒸馏提案生成器（§4.16）。
 - 更多市场与平台 Skills、合规数据源、物流与汇率工具。
 - 供应商联系、Listing 发布等外部动作的预览—批准—执行闭环。
@@ -319,7 +319,8 @@ Accio 同时也**抬高了 table stakes**：权限四态与审计日志、分层
 
 #### P2：观察项
 
-- 接管用户真实 Chrome 的浏览器路线（复用登录态与设备指纹，Accio Relay 式，FR-20 路线二）。
+- **GUI L2**：接管用户真实 Chrome（复用登录态与设备指纹，Accio Relay 式，FR-20 第二级，覆盖需登录的 B2B 平台）。
+- **GUI L3 + 桌面版**：OS 级 computer use（Codex CUAService 式）与承载它的 Electron 桌面壳——桌面壳只做宿主，Python 后端作为本地 sidecar 复用，不重写内核（见 §4.x 桌面形态）。
 - "从重复任务中提议新 Skill"（Hermes/OpenClaw 形态；提案制、强制人审 + 安全扫描，见 §4.7）。
 - 团队协作、评论、项目模板、Skill 私有仓库和组织策略。
 - 知识库（项目级参考资料索引，服务检索而非替代证据账本）。
@@ -356,7 +357,7 @@ Accio 同时也**抬高了 table stakes**：权限四态与审计日志、分层
 | FR-17 | P0 | 运行可观测性 | 事件带 `trace_id/run_id/session_id`；记录工具、时长、结果状态、授权和资源用量，不存储私有思维链 | △ 27 事件 + 脱敏就绪 |
 | FR-18 | P0 | 错误恢复 | 工具失败不丢失已生成证据与文件；从失败点继续或新建分支；区分模型、Provider、MCP、权限和网络错误 | △ 已实现 |
 | FR-19 | P0/Beta | Deep Research | 仅显式模式启用子 Agent；子 Agent 默认只读、有最大数量/轮次/预算/时限；只有主 Agent 写最终台账 | △ 已实现（3 只读子代理） |
-| FR-20 | P1 | 受控浏览器（双路线） | 路线一（P1，建议默认，待拍板）：内嵌受控浏览器——独立 profile、域白名单、敏感动作强制确认；路线二（P2 评估）：接管用户真实 Chrome（复用登录态与设备指纹）；两条路线下**每次浏览器操作留存截图与动作记录并写入证据账本** | ✗ |
+| FR-20 | P1 | GUI 操作（三级能力阶梯） | **2026-08-21 用户拍板：对齐 Claude Desktop/Codex 的成熟做法——三级全部具备，运行时按任务由低到高选择，不是三选一。** L1 内嵌受控浏览器（独立 profile、域白名单、敏感动作强制确认；服务端可跑，最先做）；L2 接管用户真实 Chrome（经 CDP，复用登录态与设备指纹，覆盖需登录的 B2B 平台/店铺后台，Accio Relay 式）；L3 OS 级 computer use（截图+坐标操作**任意桌面应用**，非浏览器场景的最后手段，Codex CUAService 式）。**三级共同要求**：每次操作留存截图与动作记录并写入证据账本（这是 OPHIRA 独有——四家竞品的 GUI 操作均不入证据链）。选择原则：能用 L1 不用 L2、能用 L2 不用 L3（成本与脆性随级递增）。**前置门槛**：所选 Provider 模型须支持视觉输入（截图判读），由合约测试实测写入 profile（§4.9 纪律）；L3 强制桌面版 + macOS 屏幕录制/辅助功能 TCC 授权 + 签名。 | ✗ |
 | FR-21 | P1 | 连接器管理 | 每个 MCP/连接器显示能力、数据范围、凭据状态、最近健康检查和可撤销授权；首批连接器矩阵：邮箱（Gmail/Outlook）、店铺后台（Amazon Seller Central、Shopify、阿里国际站/速卖通）、社媒（Instagram/TikTok）、微信（WeChat）与飞书（Feishu/Lark）——客户/供应商沟通记录、文档/多维表格读写与消息触达，外发消息走高风险授权；作为 IM 渠道的群内协作另见 FR-24 | ✗ |
 | FR-22 | P1 | 团队治理 | 项目角色、Skill 发布、Provider 使用、外部动作由组织策略约束，运行仍由一个主 Agent 执行 | ✗ |
 | FR-23 | P0（新增） | Web 能力降级 | Provider 不支持原生 WebSearch/WebFetch 时，Agent 仍可通过已认证的检索 MCP 完成公开信息获取；UI 明示当前 Provider 的 Web 能力等级 | ✗ |
