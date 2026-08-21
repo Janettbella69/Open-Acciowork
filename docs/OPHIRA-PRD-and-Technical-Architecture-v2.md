@@ -116,7 +116,8 @@ v2.0 的核心新判断：**架构目标已基本代码就绪，当前最大风�
 
 ### 2.3 Claude Agent SDK 事实基线（2026-08-20）
 
-- 版本：Python `claude-agent-sdk` **0.2.142**（PyPI）；TypeScript `@anthropic-ai/claude-agent-sdk` 0.3.237（npm）。仓库钉 0.2.82，升级前必须跑 §4.9 合约测试。
+- 版本：**仓库钉 `claude-agent-sdk==0.2.143`**（2026-08-21 由 0.2.82 升级，L1 测试 139 过；区间内唯一破坏性变更 0.2.129 的 skill 名校验不触及本仓）。升级前必须跑 §4.9 合约测试。
+  **两条 SDK 版本线不可直接比较**：Python 线 0.2.x（PyPI，145 版）、TypeScript 线 0.3.x（npm，272 版），二者 2025-09 同周首发、同日发布最新版，**捆绑的是同一个 Claude Code 引擎（实测均为 2.1.238）**——agent loop 在引擎里，SDK 只是语言绑定。号差与版本数差是发布颗粒度，不是能力差；真实差距仅在"绑定层暴露了多少参数"（Python changelog 有 15 条 "parity with the TypeScript SDK" 追平记录，均已交付）。**换栈的唯一正当理由**：某个必须用的参数只有 TS 绑定暴露——届时也应只把那一小块写成 MCP server 挂载，而非整体重写。
 - `tools`/`system_prompt` 的 `{"type":"preset","preset":"claude_code"}` 写法不变；`system_prompt` 支持 `append` 与 `excludeDynamicSections`。
 - **权限语义确认**：`allowed_tools` = 自动批准（不约束 `bypassPermissions` 模式）；`disallowed_tools` 裸名从上下文移除工具、带参数模式（如 `Bash(rm *)`）仅拒匹配调用；判定顺序 hooks → deny → ask → permission mode → allow → `can_use_tool`（前序已放行则回调不触发）。`permission_mode` 现有六值：`default/dontAsk/acceptEdits/bypassPermissions/plan/auto`。
 - **Skills 发现边界（v1.1 未写清，易踩坑）**：文件系统 skills（`~/.claude/skills`、`./.claude/skills`）只在 `setting_sources` 含 `"user"`/`"project"` 时被发现；`setting_sources=[]` 时**只能**靠 `plugins`（`{"type":"local","path":...}`，Skill 命名空间 `plugin-name:skill-name`）装载——OPHIRA 恰好用的是后者，此路线正确且已被仓库 preflight 断言验证。SDK 场景下 SKILL.md 的 `allowed-tools` frontmatter **不强制执行**，权限必须在顶层 options/回调做（v1.1 已正确记载，维持）。
@@ -357,7 +358,7 @@ Accio 同时也**抬高了 table stakes**：权限四态与审计日志、分层
 | FR-17 | P0 | 运行可观测性 | 事件带 `trace_id/run_id/session_id`；记录工具、时长、结果状态、授权和资源用量，不存储私有思维链 | △ 27 事件 + 脱敏就绪 |
 | FR-18 | P0 | 错误恢复 | 工具失败不丢失已生成证据与文件；从失败点继续或新建分支；区分模型、Provider、MCP、权限和网络错误 | △ 已实现 |
 | FR-19 | P0/Beta | Deep Research | 仅显式模式启用子 Agent；子 Agent 默认只读、有最大数量/轮次/预算/时限；只有主 Agent 写最终台账 | △ 已实现（3 只读子代理） |
-| FR-20 | P1 | GUI 操作（三级能力阶梯） | **2026-08-21 用户拍板：对齐 Claude Desktop/Codex 的成熟做法——三级全部具备，运行时按任务由低到高选择，不是三选一。** L1 内嵌受控浏览器（独立 profile、域白名单、敏感动作强制确认；服务端可跑，最先做）；L2 接管用户真实 Chrome（经 CDP，复用登录态与设备指纹，覆盖需登录的 B2B 平台/店铺后台，Accio Relay 式）；L3 OS 级 computer use（截图+坐标操作**任意桌面应用**，非浏览器场景的最后手段，Codex CUAService 式）。**三级共同要求**：每次操作留存截图与动作记录并写入证据账本（这是 OPHIRA 独有——四家竞品的 GUI 操作均不入证据链）。选择原则：能用 L1 不用 L2、能用 L2 不用 L3（成本与脆性随级递增）。**前置门槛**：所选 Provider 模型须支持视觉输入（截图判读），由合约测试实测写入 profile（§4.9 纪律）；L3 强制桌面版 + macOS 屏幕录制/辅助功能 TCC 授权 + 签名。 | ✗ |
+| FR-20 | P1 | GUI 操作（三级能力阶梯） | **2026-08-21 用户拍板：对齐 Claude Desktop/Codex 的成熟做法——三级全部具备，运行时按任务由低到高选择，不是三选一。** L1 内嵌受控浏览器（独立 profile、域白名单、敏感动作强制确认；服务端可跑，最先做）；L2 接管用户真实 Chrome（经 CDP，复用登录态与设备指纹，覆盖需登录的 B2B 平台/店铺后台，Accio Relay 式）；L3 OS 级 computer use（截图+坐标操作**任意桌面应用**，非浏览器场景的最后手段，Codex CUAService 式）。**三级共同要求**：每次操作留存截图与动作记录并写入证据账本（这是 OPHIRA 独有——四家竞品的 GUI 操作均不入证据链）。选择原则：能用 L1 不用 L2、能用 L2 不用 L3（成本与脆性随级递增）。**前置门槛（2026-08-21 已通过）**：截图判读须由支持视觉的 Provider 承担，能力由合约测试实测写入 profile（§4.9 纪律，绝不采信厂商声明）。**用户拍板的双 Provider 分工**：主 Agent = **DeepSeek**（Green Path 3 连过 + 合约 7 过 + L2 两轮 4/4 + 原生 WebSearch 实测可用 + 成本最低）；视觉判读 = **Kimi K3**（`api.moonshot.cn/anthropic`，`kimi-k3[1m]`，1M 上下文；视觉经原始端点与 SDK 生产路径双重实测读对埋入数字）。DeepSeek 实测**不支持**图像，且其失败形态是 **HTTP 200 静默丢图**（同一图 input_tokens 101 vs Kimi 224）——**判定视觉能力只认"读对内容"，不认状态码，也不认模型自述**。L3 另需桌面版 + macOS 屏幕录制/辅助功能 TCC 授权 + 签名。 | ✗ |
 | FR-21 | P1 | 连接器管理 | 每个 MCP/连接器显示能力、数据范围、凭据状态、最近健康检查和可撤销授权；首批连接器矩阵：邮箱（Gmail/Outlook）、店铺后台（Amazon Seller Central、Shopify、阿里国际站/速卖通）、社媒（Instagram/TikTok）、微信（WeChat）与飞书（Feishu/Lark）——客户/供应商沟通记录、文档/多维表格读写与消息触达，外发消息走高风险授权；作为 IM 渠道的群内协作另见 FR-24 | ✗ |
 | FR-22 | P1 | 团队治理 | 项目角色、Skill 发布、Provider 使用、外部动作由组织策略约束，运行仍由一个主 Agent 执行 | ✗ |
 | FR-23 | P0（新增） | Web 能力降级 | Provider 不支持原生 WebSearch/WebFetch 时，Agent 仍可通过已认证的检索 MCP 完成公开信息获取；UI 明示当前 Provider 的 Web 能力等级 | ✗ |
