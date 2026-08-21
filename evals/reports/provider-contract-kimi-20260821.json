@@ -1,0 +1,12 @@
+{
+  "provider": "kimi",
+  "generated_at": "2026-08-21T05:48:12.630393+00:00",
+  "sdk_version": "0.2.143",
+  "results": [
+    {
+      "case": "vision",
+      "status": "PASS",
+      "detail": "model read the image and reported 3074"
+    }
+  ]
+}

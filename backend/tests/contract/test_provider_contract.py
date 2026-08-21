@@ -322,6 +322,12 @@ async def test_vision_probe(profile, registry, tmp_path) -> None:
     The GUI ladder needs the model to judge screenshots, so this walks the real
     production path — a PNG lands in the workspace and the agent Reads it — rather
     than asserting a vendor-documented flag. Unsupported is DEGRADED, not a failure.
+
+    Reading the digits back is the only trustworthy signal. Endpoints can accept an
+    image block and answer 200 while dropping the picture: DeepSeek does exactly that
+    (input_tokens stays at 101, and its own thinking says the image is unsupported),
+    whereas Kimi K3 spends 224 on the same payload and names the digits. So neither a
+    status code nor a claim of sight counts — only the right number does.
     """
     secret = "".join(str((i * 7 + 3) % 10) for i in range(4))  # deterministic, unguessable
     image_path = tmp_path / "vision-probe.png"

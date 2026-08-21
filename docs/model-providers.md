@@ -30,9 +30,17 @@ WebSearch ✅; DeepSeek image input ✗ — confirmed twice, once through the ag
 path and once by posting a raw `image` block to `api.deepseek.com/anthropic`, which
 answers **HTTP 200 while silently dropping the image** (`input_tokens: 101`, and the
 model's own thinking reads "图片是unsupported，我们看不到"). Note that shape: a status
-code alone would have read as success. GLM image input is **unknown** — its account was
-out of balance, and the earlier "unsupported" line has been retracted as an invalid
-measurement.
+code alone would have read as success. **Kimi K3 image input ✅** — verified twice on
+`api.moonshot.cn/anthropic`, once raw and once through the agent's Read tool, reading
+the planted digits correctly both times and spending 224 input tokens on the same
+payload DeepSeek charged 101 for. That token gap is the tell: it separates a processed
+image from a discarded one when both endpoints answer 200. GLM image input is
+**unknown** — its account was out of balance, and the earlier "unsupported" line has
+been retracted as an invalid measurement.
+
+Kimi is therefore the vision-capable profile FR-20's GUI ladder depends on; DeepSeek
+stays the main agent (proven Green Path, contract, and L2 baselines, plus native
+WebSearch, which Kimi lacks).
 
 The main model can be configured with either `OPHIRA_CLAUDE_MODEL` or the official
 `ANTHROPIC_MODEL` name. OPHIRA exports it as `ANTHROPIC_MODEL` and, unless explicitly
