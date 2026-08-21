@@ -1,0 +1,12 @@
+{
+  "provider": "deepseek",
+  "generated_at": "2026-08-21T05:26:54.108279+00:00",
+  "sdk_version": "0.2.143",
+  "results": [
+    {
+      "case": "vision",
+      "status": "DEGRADED",
+      "detail": "no image comprehension; GUI ladder (FR-20) needs a vision-capable profile; read_tool_called=True; reply='VISION_UNAVAILABLE'"
+    }
+  ]
+}

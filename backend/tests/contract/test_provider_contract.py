@@ -344,15 +344,23 @@ async def test_vision_probe(profile, registry, tmp_path) -> None:
         return
 
     text = assistant_text(messages)
+    read_called = any(
+        isinstance(m, AssistantMessage)
+        and any(isinstance(b, ToolUseBlock) and b.name == "Read" for b in m.content)
+        for m in messages
+    )
+    # Without a known-vision provider there is no positive control, so a negative has to
+    # carry enough diagnostics to tell "model is blind" from "the probe never delivered".
+    diag = f"read_tool_called={read_called}; reply={text.strip()[:160]!r}"
     if f"VISION_OK={secret}" in text.replace(" ", ""):
         record("vision", "PASS", f"model read the image and reported {secret}")
     elif "VISION_OK" in text:
-        record("vision", "DEGRADED", "claimed to see the image but misread the digits")
+        record("vision", "DEGRADED", f"claimed to see the image but misread the digits; {diag}")
     else:
         record(
             "vision",
             "DEGRADED",
-            "endpoint cannot consume images; GUI ladder (FR-20) needs a vision-capable profile",
+            f"no image comprehension; GUI ladder (FR-20) needs a vision-capable profile; {diag}",
         )
 
 
