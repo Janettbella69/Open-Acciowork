@@ -25,8 +25,14 @@ listed so the wrong endpoint is recognised, not used — always pick the pay-as-
 
 Capability columns are never copied from vendor docs. Anything a run depends on — native
 web tools, image input, context window — is measured by the contract suite and written
-back to the profile (PRD §4.9). Measured so far: DeepSeek native WebSearch ✅; image input
-✗ on both DeepSeek and GLM (2026-08-21, `evals/reports/provider-contract-*`).
+back to the profile (PRD §4.9). Measured so far (2026-08-21, `evals/reports/provider-contract-*`): DeepSeek native
+WebSearch ✅; DeepSeek image input ✗ — confirmed twice, once through the agent's Read
+path and once by posting a raw `image` block to `api.deepseek.com/anthropic`, which
+answers **HTTP 200 while silently dropping the image** (`input_tokens: 101`, and the
+model's own thinking reads "图片是unsupported，我们看不到"). Note that shape: a status
+code alone would have read as success. GLM image input is **unknown** — its account was
+out of balance, and the earlier "unsupported" line has been retracted as an invalid
+measurement.
 
 The main model can be configured with either `OPHIRA_CLAUDE_MODEL` or the official
 `ANTHROPIC_MODEL` name. OPHIRA exports it as `ANTHROPIC_MODEL` and, unless explicitly

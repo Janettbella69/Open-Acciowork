@@ -5,8 +5,8 @@
   "results": [
     {
       "case": "vision",
-      "status": "DEGRADED",
-      "detail": "endpoint cannot consume images; GUI ladder (FR-20) needs a vision-capable profile"
+      "status": "INVALID",
+      "detail": "RETRACTED 2026-08-21: account was out of balance (429 [1113] 余额不足, confirmed by a raw request to the endpoint the same day), so this run could not have exercised vision. The probe misfiled the failure as a capability answer; classification is now guarded. GLM vision: UNKNOWN."
     }
   ]
 }

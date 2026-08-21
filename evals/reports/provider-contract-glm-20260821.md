@@ -4,4 +4,4 @@ SDK: claude-agent-sdk 0.2.82 · 依据 PRD v2.1 §4.9 合约矩阵
 
 | 用例 | 结果 | 说明 |
 |---|---|---|
-| vision | ⚠️ DEGRADED | endpoint cannot consume images; GUI ladder (FR-20) needs a vision-capable profile |
+| vision | ⛔ INVALID（已撤回） | 该账号当日余额不足（429 [1113]，同日原始请求复现），此运行不可能真正验证视觉；探测器曾把计费失败误判为能力缺失，分类已加护栏。**GLM 视觉：未知** |

@@ -344,6 +344,19 @@ async def test_vision_probe(profile, registry, tmp_path) -> None:
         return
 
     text = assistant_text(messages)
+    # A quota or auth failure must never be filed as "this model has no vision" — that
+    # misreading is how a billing problem turns into a false capability fact.
+    result = result_of(messages)
+    if result is not None and getattr(result, "is_error", False):
+        detail = str(getattr(result, "result", "") or "")[:200]
+        record(
+            "vision",
+            "NOT_TESTED",
+            f"run failed before answering ({classify_provider_error(detail).value}); "
+            f"capability unknown: {detail}",
+        )
+        return
+
     read_called = any(
         isinstance(m, AssistantMessage)
         and any(isinstance(b, ToolUseBlock) and b.name == "Read" for b in m.content)
