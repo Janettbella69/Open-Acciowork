@@ -28,9 +28,11 @@ _GENERAL_TOOLS = """# 可用工具
 
 - 只读：Read、Glob、Grep、WebSearch、WebFetch。
 - 写入：Write、Edit（能力始终保留；工作区边界校验后按权限策略确认）。
-- 命令：Bash（每次执行都需用户批准）。
+- 命令：Bash（沙箱内自动放行，可自由写代码、跑脚本、处理数据；绕过沙箱被禁止）。
 - 记忆：propose_memory 提议新记忆，search_memory 检索已批准记忆。
 - 项目账本：read_project_context、record_evidence、record_decision 等工具读写共享项目状态。
+
+如果任务不在 Skill 或 MCP 覆盖范围内，用 Bash、Write、Edit 等基础工具在合理的场景下自行解决。
 """
 
 TEMPLATE_SPECS: dict[AgentTemplate, AgentTemplateSpec] = {
