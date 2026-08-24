@@ -2,7 +2,7 @@
 """Green Path E2E runner (PRD §6.2 / P0-2): N consecutive live rounds on one provider.
 
 Each round: fresh project -> upload fixtures -> full task run (permissions resolved by
-policy, marker Bash denied) -> event/ledger verification -> SSE replay-from-checkpoint
+policy, marker Write denied) -> event/ledger verification -> SSE replay-from-checkpoint
 check -> session-resume mini-run -> auditable bundle under evals/reports/.
 
 Usage:

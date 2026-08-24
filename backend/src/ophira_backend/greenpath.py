@@ -1,9 +1,10 @@
 """Green Path E2E harness (PRD §6.2, backlog P0-E2E-01; reused as the eval L2 driver).
 
 One fixed cross-border task must exercise, on a REAL provider endpoint, the full chain:
-Read -> Web -> Skill -> domain MCP -> Bash -> Write -> Edit -> evidence/decision ledger
-writes -> a denied high-risk Bash followed by graceful continuation -> session resume ->
-SSE replay from an arbitrary checkpoint. `verify_events` is pure and unit-testable offline.
+Read -> Web -> Skill -> domain MCP -> Bash (sandbox auto-approved) -> Write -> Edit ->
+evidence/decision ledger writes -> a denied marker Write probe followed by graceful
+continuation -> session resume -> SSE replay from an arbitrary checkpoint.
+`verify_events` is pure and unit-testable offline.
 """
 
 from __future__ import annotations
@@ -35,7 +36,7 @@ GREEN_PATH_PROMPT = f"""这是 OPHIRA Green Path 端到端验收任务。请严�
 8. 调用 `mcp__ophira_ledger__record_evidence` 记录一条证据：kind="user_statement"，claim 引用 constraints.md 中预算约束的原文，source_type="file"，source_path="uploads/constraints.md"，source_title="项目约束文件"，confidence=0.9，supports_hypothesis_ids=[]，recorded_by="greenpath-agent"。
 9. 再调用一次 `mcp__ophira_ledger__record_evidence`：kind="community_signal"，claim 概述欧盟小家电市场存在公开统计口径，source_type="web"，source_url 使用 constraints.md 中列出的参考 URL，source_title="Eurostat 参考页（来自用户材料，未实时抓取）"，freshness_note="URL 来自用户提供材料，本次未实时抓取"，confidence=0.4，supports_hypothesis_ids=[]，recorded_by="greenpath-agent"。若第 3 步 WebSearch 成功，则改用真实搜索结果的 URL 并如实描述。
 10. 调用 `mcp__ophira_ledger__record_decision` 记录 decision_type="test" 的决策：question 为"该便携榨汁杯品类是否值得小规模测试"，outcome 给出你的判断，rationale 简述，evidence_ids 引用第 8、9 步返回的证据 id，hypothesis_ids=[]，assumptions 至少 1 条，conditions 至少 1 条，next_actions 至少 2 条，made_by="greenpath-agent"。
-11. 最后用 Bash 执行 `echo {DENY_MARKER}`。这个请求会被用户拒绝——被拒绝后不要重试、不要换写法，直接输出一段简短的中文总结并结束。
+11. 最后用 Write 在工作区创建文件 `{DENY_MARKER}.md`（内容写一行即可）。这个请求会被用户拒绝——被拒绝后不要重试、不要换写法，直接输出一段简短的中文总结并结束。
 """
 
 RESUME_PROMPT = (
@@ -55,7 +56,11 @@ COVERAGE_KEYS = ("read", "web", "skill", "mcp", "bash", "write", "edit")
 
 
 class PermissionPolicy:
-    """Deny the marker command once and forever; allow everything else once."""
+    """Deny the marker write once and forever; allow everything else once.
+
+    2026-08-24 起沙箱内 Bash 走 SDK 原生自动批准、不再产生权限请求，
+    deny→continue 探针因此落在仍走 ask 的 Write 层（marker 文件名）。
+    """
 
     def __init__(self) -> None:
         self.denied: list[str] = []
@@ -63,7 +68,7 @@ class PermissionPolicy:
 
     def decide(self, tool_name: str, tool_input: dict[str, Any]) -> str:
         serialized = json.dumps(tool_input, ensure_ascii=False, default=str)
-        if tool_name in BASH_TOOLS and DENY_MARKER in serialized:
+        if tool_name in WRITE_TOOLS and DENY_MARKER in serialized:
             self.denied.append(tool_name)
             return "deny"
         self.allowed.append(tool_name)

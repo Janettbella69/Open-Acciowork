@@ -36,7 +36,7 @@ def build_deep_research_agents() -> dict[str, AgentDefinition]:
             disallowedTools=["Write", "Edit", "Bash", "Agent", "Task"],
             skills=[],
             mcpServers=["ophira_ledger"],
-            maxTurns=12,
+            # 不设轮数上限（2026-08-24 拍板，教材口径）；预算由主 run 的 max_budget_usd 统一约束。
             permissionMode="dontAsk",
         )
         for name, description in definitions.items()

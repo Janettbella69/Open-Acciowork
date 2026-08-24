@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 OPHIRA：面向出海小 B 的 AI 全球商业系统，对标 Accio Work。一个 Claude Agent SDK 单主 Agent 从模糊商业目标出发，用原生工具 + Plugin Skills + 进程内 MCP 产出可追溯的判断、证据和交付物。
 
-**权威规格**：`docs/OPHIRA-PRD-and-Technical-Architecture-v2.md`（PRD v2.1，产品需求+技术架构+验收门槛三合一）。
+**权威规格**：`docs/OPHIRA-PRD-and-Technical-Architecture-v2.md`（PRD v2.2，产品需求+技术架构+验收门槛三合一）。**《Agent Harness 教材》为架构判断的最终权威（2026-08-24 用户拍板）**——凡 PRD/代码与教材冲突，按教材修正；全量对照见 `docs/textbook-audit-2026-08-24.md`。
 **工程规则**：`AGENTS.md` 对所有贡献者和 AI Agent 有约束力——改代码前先读它。
 
 ## 不可妥协的红线（详见 PRD §1.1、AGENTS.md）
