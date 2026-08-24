@@ -24,12 +24,9 @@ from .constants import (
     MemoryScope,
     MemorySensitivity,
     MemorySource,
-    ProjectStage,
-    StageDecisionValue,
-    ValidationStatus,
 )
 from .memory import MemoryProvider, gather_approved
-from .models import Decision, DimensionAssessment, Evidence, Hypothesis, StageDecision
+from .models import Decision, Evidence, Hypothesis
 from .storage import FileLedger
 
 
@@ -362,105 +359,6 @@ def build_ledger_tools(
         ledger.update_project(project_id, mutate)
         return _tool_result(decision)
 
-    # Backward-compatible optional views. They are never required by the main prompt or run API.
-    @tool(
-        "update_assessment",
-        "Update an optional demand/supply/capital/sales assessment view.",
-        {
-            "type": "object",
-            "properties": {
-                "dimension": {"type": "string", "enum": [item.value for item in Dimension]},
-                "status": {"type": "string", "enum": [item.value for item in ValidationStatus]},
-                "score": {"type": "integer", "minimum": 0, "maximum": 100},
-                "summary": {"type": "string"},
-                "gaps": {"type": "array", "items": {"type": "string"}},
-                "evidence_ids": {"type": "array", "items": {"type": "string"}},
-                "updated_by": {"type": "string", "minLength": 1},
-            },
-            "required": [
-                "dimension",
-                "status",
-                "score",
-                "summary",
-                "gaps",
-                "evidence_ids",
-                "updated_by",
-            ],
-            "additionalProperties": False,
-        },
-    )
-    async def update_assessment(args: dict[str, Any]) -> dict[str, Any]:
-        dimension = Dimension(args["dimension"])
-        assessment = DimensionAssessment(
-            dimension=dimension,
-            status=ValidationStatus(args["status"]),
-            score=args["score"],
-            summary=args["summary"],
-            gaps=args["gaps"],
-            evidence_ids=args["evidence_ids"],
-            updated_by=args["updated_by"],
-        )
-
-        def mutate(project) -> None:
-            evidence_ids = {item.id for item in project.evidence}
-            unknown = set(assessment.evidence_ids) - evidence_ids
-            if unknown:
-                raise ValueError(f"unknown evidence ids: {sorted(unknown)}")
-            project.assessments[dimension] = assessment
-
-        ledger.update_project(project_id, mutate)
-        return _tool_result(assessment)
-
-    @tool(
-        "record_stage_decision",
-        "Record an optional legacy stage decision; prefer record_decision for new work.",
-        {
-            "type": "object",
-            "properties": {
-                "decision": {"type": "string", "enum": [item.value for item in StageDecisionValue]},
-                "target_stage": {"type": "string", "enum": [item.value for item in ProjectStage]},
-                "weakest_dimension": {"type": "string", "enum": [item.value for item in Dimension]},
-                "rationale": {"type": "string", "minLength": 1},
-                "next_actions": {"type": "array", "items": {"type": "string"}},
-                "next_agent": {"type": ["string", "null"]},
-                "made_by": {"type": "string", "minLength": 1},
-            },
-            "required": [
-                "decision",
-                "target_stage",
-                "weakest_dimension",
-                "rationale",
-                "next_actions",
-                "made_by",
-            ],
-            "additionalProperties": False,
-        },
-    )
-    async def record_stage_decision(args: dict[str, Any]) -> dict[str, Any]:
-        result: StageDecision | None = None
-
-        def mutate(project) -> None:
-            nonlocal result
-            decision = StageDecision(
-                decision=StageDecisionValue(args["decision"]),
-                current_stage=project.stage,
-                target_stage=ProjectStage(args["target_stage"]),
-                weakest_dimension=Dimension(args["weakest_dimension"]),
-                rationale=args["rationale"],
-                next_actions=args["next_actions"],
-                next_agent=args.get("next_agent"),
-                made_by=args["made_by"],
-            )
-            project.stage_decisions.append(decision)
-            if decision.decision == StageDecisionValue.ADVANCE:
-                project.stage = decision.target_stage
-            elif decision.decision == StageDecisionValue.STOP:
-                project.stage = ProjectStage.STOPPED
-            result = decision
-
-        ledger.update_project(project_id, mutate)
-        return _tool_result(result)
-
     tools = [
         read_project_context,
         search_evidence,
@@ -469,8 +367,6 @@ def build_ledger_tools(
         record_evidence_batch,
         record_decision,
         update_evidence_status,
-        update_assessment,
-        record_stage_decision,
     ]
 
     if memory is not None:

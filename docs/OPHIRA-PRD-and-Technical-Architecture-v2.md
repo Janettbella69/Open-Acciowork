@@ -85,7 +85,7 @@ v2.0 的核心新判断：**架构目标已基本代码就绪，当前最大风�
 - `ClaudeAgentOptions` 已使用 `claude_code` tools preset 和 system prompt preset+append（`sdk_adapter.py`），并启用 `sandbox`（v2.2 起 `autoAllowBashIfSandboxed=True`〔SDK 原生默认，2026-08-24 拍板恢复〕、`allowUnsandboxedCommands=False`、`failIfUnavailable=True`）、`enable_file_checkpointing`、`thinking={"type":"adaptive","display":"summarized"}`、`max_budget_usd`、`include_partial_messages/include_hook_events`。
 - 四专业 Agent（Opportunity Lead + 需求/供应/资金/销售）**已删除**；普通模式 `agents=None` 且 `disallowed_tools=["Agent"]`；Deep Research 模式仅注入 3 个只读研究子代理（`source-mapper`/`multilingual-researcher`/`conflict-verifier`，各自禁 Write/Edit/Bash/Agent/Task）。
 - 应用托管 Plugin `ophira-core` 已建成（4 个 Skill：`global-opportunity-execution`、`supplier-due-diligence`、`landed-cost-analysis`、`customer-path`，均有合法 frontmatter）。
-- 5 个进程内 MCP server 共 14 个工具（`ophira_ledger`/`market`/`supplier`/`customer`/`commerce_math`），`strict_mcp_config=True`，工具描述统一带"不代替商业判断"声明。
+- 7 个进程内 MCP server 共 23 个工具（`ophira_ledger`/`market`/`supplier`/`customer`/`commerce_math`/`web`/`automation`），`strict_mcp_config=True`，工具描述统一带"不代替商业判断"声明（v2.2：legacy 视图工具已删，见 §4.6）。
 - Provider Registry + 文件密钥库（0600/0700 + 原子写）+ SDK 预检（真实 `query()` 路径，断言 Skill 发现与 MCP health 调用）+ 8 类错误码分类已实现（`providers.py`）。
 - 凭据隔离：`ANTHROPIC_API_KEY`/`ANTHROPIC_AUTH_TOKEN`/`CLAUDE_CODE_OAUTH_TOKEN` 先置空再注入所选 Profile 唯一凭据；每 Profile 独立 `CLAUDE_CONFIG_DIR`（0700）；`CLAUDE_CODE_DISABLE_AUTO_MEMORY=1`、`CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`。
 - 权限双层防御：`can_use_tool`（写入 workspace 包含检查 + 禁 unsandboxed Bash）+ `PreToolUse` hook（敏感路径黑名单 `.env`/`credentials`/`secrets` 等；**读写围栏分开（v2.2）：Read/Glob/Grep 围栏=项目目录（含账本原始 JSON，兜住 MCP 接口外的意料之外分析），Write/Edit 围栏=工作区**）；沙箱内 Bash 自动批准（v2.2，SDK 原生默认）、逃逸沙箱永久拒绝；权限超时自动 deny。
@@ -311,7 +311,7 @@ Accio 同时也**抬高了 table stakes**：权限四态与审计日志、分层
 - △ Anthropic 协议 Provider 配置、凭据隔离、SDK 预检和明确错误诊断（后端就绪；**设置页 Provider UI 未开始**）。
 - △ 对话、项目、会话续接、SSE 流、取消、失败恢复和运行记录（就绪）。
 - △ 项目级文件工作区，支持上传/引用 URL、读取、写入、编辑、下载产物（就绪）。
-- △ 平台无关的商业机会研究、供需匹配、商业测算和客户路径 Skills（4 个已建），以及证据、市场情报、供应商和商业计算 MCP 第一版（14 工具已建）。
+- △ 平台无关的商业机会研究、供需匹配、商业测算和客户路径 Skills（4 个已建），以及证据、市场情报、供应商和商业计算 MCP 第一版（v2.2 现存 23 工具，含 web/automation）。
 - △ 来源、时间、置信度、事实/推断区分以及证据与结论关联（数据模型就绪；证据 UI 待做）。
 - △ 工作区写入、浏览器写操作、外发动作的分级权限（工作区写入就绪；沙箱内 Bash v2.2 起自动批准，不再走分级）。
 - △ Skill 的后端安装、发现、启停、版本快照和运行时调用（就绪，缺测试入口）。
@@ -362,7 +362,7 @@ Accio 同时也**抬高了 table stakes**：权限四态与审计日志、分层
 | FR-08 | P0 | 项目工作区 | 项目隔离目录；路径越界和符号链接逃逸被拒绝 | △ 已实现（双层防御） |
 | FR-09 | P0 | 证据账本 | 关键事实关联 URL/文件、获取时间、原始摘录、证据类型和置信度；推断不能伪装成观测事实 | △ 模型+MCP 就绪；证据 UI 待做 |
 | FR-10 | P0 | 结论可追溯 | Go/Test/No-go、候选排序等结论回链证据和假设；删除/过期证据后标记受影响结论 | △ `Decision.invalidated_by_evidence_ids` 就绪；失效联动逻辑待做 |
-| FR-11 | P0 | MCP 领域工具 | 市场、供应商、客户/成交、商业计算、台账至少各一个真实可用 MCP 工具；结构化结果、来源和明确错误 | △ 5 服务 14 工具已建 |
+| FR-11 | P0 | MCP 领域工具 | 市场、供应商、客户/成交、商业计算、台账至少各一个真实可用 MCP 工具；结构化结果、来源和明确错误 | △ 7 服务 23 工具已建 |
 | FR-12 | P0 | Skills | Skill 是运行时可发现的 `SKILL.md` 能力包；可被 Agent 按意图自主触发；一次运行锁定 Skill 版本 | △ 已实现（插件 + 内容哈希 + 快照） |
 | FR-13 | P0 | 权限 | 安全读取与沙箱内 Bash 自动批准（v2.2）；写文件和外部副作用按规则询问；**删除文件在任何模式下必须确认**；授权粒度支持本次/本会话/持久（带范围与有效期）；可选 Auto 自审档 | △ 部分实现；v2.1 增补三项、v2.2 修订 Bash 口径（§4.10） |
 | FR-14 | P0 | 记忆 | Agent 只能提交记忆提案；用户批准后进入稳定记忆；可搜索、纠正、撤回且后续运行可验证生效；后台蒸馏任务可从运行日记生成候选记忆但**只能进提案队列**（§4.16）；记忆带来源分级与容量上限 | △ 后端就绪；蒸馏管线与审批 UI 待做 |
@@ -610,7 +610,7 @@ v2.0 增补建议（不改变红线，按需采纳）：
 
 | MCP Server | 现有工具（已实现） | 目标增补（P1+） | 风险级别 |
 |---|---|---|---|
-| `ophira_ledger` | `read_project_context`、`search_evidence`、`record_hypothesis`、`record_evidence`、`record_decision`、`update_assessment`、`record_stage_decision`（legacy）、`propose_memory`*、`search_memory`* | `register_artifact` 显性化、证据失效联动 | 读取低；写内部账本按项目策略 |
+| `ophira_ledger` | `read_project_context`、`search_evidence`、`record_hypothesis`、`record_evidence`、`record_evidence_batch`、`record_decision`、`update_evidence_status`、`propose_memory`*、`search_memory`*（v2.2：`update_assessment`/`record_stage_decision` 两个 legacy 视图工具按教材"如无必要都不要"删除，数据模型保留） | `register_artifact` 显性化、证据失效联动 | 读取低；写内部账本按项目策略 |
 | `ophira_market` | `record_market_signal` | `search_market_signals`、`fetch_listing_snapshot`、`compare_price_band`、`get_keyword_trend` | 公开读取低；登录态读取需连接器授权 |
 | `ophira_supplier` | `compare_supplier_quotes` | `search_suppliers`、`get_supplier_profile`、`draft_inquiry` | 读取低；真实发送询盘高 |
 | `ophira_customer` | `rank_customer_candidates` | `search_accounts`、`enrich_account`、`find_contact_path`、`draft_outreach`、`record_interaction` | 公开研究低；写 CRM/真实触达高 |

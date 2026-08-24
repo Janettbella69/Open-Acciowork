@@ -89,3 +89,20 @@ CLI 特性开关变动（同日 25→28，新出现 Workflow/SendMessage/ReportF
 - **A2A：零实现（正确）**。互通全走文件与存储：账本 JSON、收件箱、diary；
   定时运行↔主系统经 storage 交接。原生 SendMessage 工具按"原生全保留"拍板可用但
   产品流程不依赖它。
+
+## 2026-08-24 教材 06 章全文对照：MCP 面收敛（25→23）
+
+- **删除 2 个 legacy 视图工具**（`update_assessment`/`record_stage_decision`）：教材"如无必要
+  都不要"的字面命中——代码自注 "Backward-compatible optional views, never required"，全仓
+  （evals/greenpath/前端/测试）零引用。数据模型保留，仅撤 Agent 面工具。
+- **账本 MCP 保留的教材依据**：第 06 章"参考代码"一节的豁免案例原话——"项目管理，接口就这么
+  几个：读项目、查看进度，增删改查都是些常见的接口，做成 MCP 是没问题的"。判据"规整稳定→MCP"
+  正中账本；"任务常超出预设"的残余由读围栏放宽（raw JSON+代码）兜住，两条通道并存=水务案例
+  （只有 MCP 没有 SQL 通道）的反面。
+- **web 2 工具=教材钦定形态**（"官方建议封装成两个，一个 search 一个 web fetch，你就封装两个"）。
+- **hello 时刻静态测量（开放缺口 #3 部分闭合）**：23 个自研工具说明+schema ≈ 4.6–6.2K token/轮
+  （evidence_schema 复用展开修正后），健康区间（教材警戒案例为 10 万 token）；prompt 前缀稳定后
+  全额 cache hit。最重单件 compare_supplier_quotes ≈ 1.7K 字符。
+- **待拍板（下一步收敛候选）**：market 域与账本证据域重复概念——`record_market_signal` 是
+  `record_evidence` 的固定参数便捷封装、`search_market_signals` 是 tag 过滤视图；按教材"相同域
+  合并"可并入 ledger（23→21）。涉及 L2 任务行为面与 allowed_tools 常量，留待 L2 复测后决定。

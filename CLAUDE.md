@@ -81,7 +81,7 @@ npm run lint && npm run build
 
 - **权限双层防御**：`can_use_tool` 回调（写入 workspace 包含检查 + 禁 unsandboxed Bash + `PermissionBroker` 实时授权）+ `PreToolUse` hook（敏感路径黑名单 + 拦逃逸沙箱；读写围栏分开：Read/Glob/Grep=项目目录〔含账本 project.json 直读〕，Write/Edit=工作区）。沙箱内 Bash 走 SDK 原生 `autoAllowBashIfSandboxed` 自动批准（v2.2 2026-08-24，教材口径；`failIfUnavailable=True` 沙箱起不来必须失败）；人把关只在账本写入/对外发送等业务动作的 MCP ask 层。前端权限卡片经 `POST /api/runs/{run_id}/permissions/{request_id}` 回传。
 - **Provider 体系**（providers.py）：`ProviderRegistry` 文件存 profile（`backend/data/providers/*.json`，不含密钥），密钥在 `FileSecretVault`（`backend/data/secrets/`，0600）；`build_worker_env` 负责凭据隔离与全档位模型映射；`preflight()`（sdk_adapter.py）走真实 SDK `query()` 断言 Skill 发现 + MCP health 调用，错误分 8 类码。
-- **MCP**（ledger_tools.py）：5 个进程内 server 共 14 工具（ledger/market/supplier/customer/commerce_math），工具描述一律声明"不代替商业判断"。
+- **MCP**（ledger_tools.py + web_tools.py + automation_tools.py）：7 个进程内 server 共 23 工具（ledger/market/supplier/customer/commerce_math/web/automation），工具描述一律声明"不代替商业判断"；v2.2 起 legacy 视图工具（update_assessment/record_stage_decision）已删。
 - **记忆**（memory.py）：Agent 只能提案，用户批准后生效；agent 作用域批准项经 marker 行镜像进该 Agent 的 `MEMORY.md`。
 - **前端四页**（App.tsx 路由）：`/app` Workspace（WorkspaceComposer 为主体）、`/app/schedules`、`/app/skills`、`/app/settings`；`/` 是营销页。
 

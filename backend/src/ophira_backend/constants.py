@@ -197,8 +197,6 @@ TOOL_RECORD_EVIDENCE = "mcp__ophira_ledger__record_evidence"
 TOOL_RECORD_EVIDENCE_BATCH = "mcp__ophira_ledger__record_evidence_batch"
 TOOL_RECORD_DECISION = "mcp__ophira_ledger__record_decision"
 TOOL_UPDATE_EVIDENCE_STATUS = "mcp__ophira_ledger__update_evidence_status"
-TOOL_UPDATE_ASSESSMENT = "mcp__ophira_ledger__update_assessment"
-TOOL_RECORD_STAGE_DECISION = "mcp__ophira_ledger__record_stage_decision"
 TOOL_PROPOSE_MEMORY = "mcp__ophira_ledger__propose_memory"
 TOOL_SEARCH_MEMORY = "mcp__ophira_ledger__search_memory"
 
@@ -220,8 +218,6 @@ LEDGER_TOOL_NAMES = [
     TOOL_RECORD_EVIDENCE_BATCH,
     TOOL_RECORD_DECISION,
     TOOL_UPDATE_EVIDENCE_STATUS,
-    TOOL_UPDATE_ASSESSMENT,
-    TOOL_RECORD_STAGE_DECISION,
 ]
 
 MEMORY_TOOL_NAMES = [
