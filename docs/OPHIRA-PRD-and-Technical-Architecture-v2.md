@@ -707,13 +707,13 @@ Claude Agent SDK worker 只接收 Anthropic 协议环境配置。OPHIRA 不安�
 
 ### 4.10 权限、安全和沙箱
 
-权限矩阵维持 v1.1（Read/Glob/Grep 项目内自动允许；Web 公开读取自动或域策略；只读 MCP 自动；Ledger 写入按项目策略；Write/Edit 限 Workspace；Bash 默认询问；浏览器读按域、写逐次；子 Agent 普通模式拒绝；危险命令/密钥读取/越界永久拒绝）。
+权限矩阵维持 v1.1，一处 v2.2 修订（Read/Glob/Grep 项目内自动允许；Web 公开读取自动或域策略；只读 MCP 自动；Ledger 写入按项目策略；Write/Edit 限 Workspace；**Bash 分二级：只读探查命令沙箱内自动允许，有副作用或识别不了的默认询问**〔v2.2，2026-08-23 用户拍板，白名单分类器 fail-closed，见 `bash_policy.py`〕；浏览器读按域、写逐次；子 Agent 普通模式拒绝；危险命令/密钥读取/越界永久拒绝）。
 
 已实现的防御结构（保留为验收基线）：
 
 - SDK 判定链 Hooks → deny → permission mode → allow → `can_use_tool`；OPHIRA 用 deny 做不可突破边界、allow 减少安全读取摩擦、`can_use_tool` 承担实时授权。
 - **双层路径防御**：`can_use_tool` 内 workspace 包含检查（resolve + relative_to，防符号链接）+ `PreToolUse` hook 独立复查并拦截敏感路径（`.env`、`.git-credentials`、`credentials`、`secrets`）。
-- **Bash 授权永不按 run 缓存**（有测试）；权限等待超时自动 deny 并发 `permission.timed_out`。
+- **有副作用的 Bash 授权永不按 run 缓存**（有测试）；只读探查 Bash 经 fail-closed 白名单分类器自动放行（v2.2，动作可逆、不碰生产数据，对齐"一台电脑"不变量并消除 FM-01/FM-02 打断来源）；权限等待超时自动 deny 并发 `permission.timed_out`。
 - SDK `sandbox` 启用且禁 `dangerouslyDisableSandbox`；文件 checkpoint 只回滚文件工具修改，Bash 造成的改动需容器卷快照/项目版本提交兜底（口径不变）。
 
 v2.1 增补（吸收品类实证教训）：
@@ -723,7 +723,7 @@ v2.1 增补（吸收品类实证教训）：
 - 可选 **Auto 自审档**：介于逐项批准与全自动之间，模型先评估动作安全性、拦下不安全项（Cowork 三档模型）；默认档仍为逐项询问。
 - 浏览器操作每一步留存截图与动作日志并写入证据账本（Codex "demos over diffs" 形态）；"读取页面"与"执行动作"分开授权维持不变。
 - 权限等待支持挂起（FR-25）：run 进入 waiting_permission 后可持久等待移动端远程决策，替代固定 300 秒超时 deny。
-- **包络治理原则（v2.1 补，第一性口径）**：治理作用于运行包络（`max_budget_usd` + `max_turns` + 逐动作授权与路径包含 + 可取消），不作用于能力裁剪——原生能力（含 loop 式会话内循环、bundled skills）一律保留，循环的每一圈仍逐动作穿过同一套权限与预算机制，且 worker 的 run 级生命周期使会话内循环天然自限。需要人批的不是"重复"，而是**跨包络承诺**（在无人看管的未来自动执行，即 Schedule/FR-15 的正当管辖）。
+- **包络治理原则（v2.1 补，第一性口径；v2.2 修订）**：治理作用于运行包络（`max_budget_usd` + 逐动作授权与路径包含 + 可取消；**2026-08-23 起默认不设 `max_turns`**——"一个循环"不变量：让模型自己决定何时结束，预算是唯一保险丝，显式配置仍可设值供小额探针用），不作用于能力裁剪——原生能力（含 loop 式会话内循环、bundled skills）一律保留，循环的每一圈仍逐动作穿过同一套权限与预算机制，且 worker 的 run 级生命周期使会话内循环天然自限。需要人批的不是"重复"，而是**跨包络承诺**（在无人看管的未来自动执行，即 Schedule/FR-15 的正当管辖）。
 
 Prompt Injection 防线维持 v1.1：外部内容一律标记为不可信数据；MCP 返回结构化事实而非可覆盖策略的"隐藏提示词"；Hooks 监测异常凭据访问、越界路径、外传与提权；浏览器"读取页面"与"执行动作"分开授权。
 

@@ -86,7 +86,9 @@ class Settings(BaseSettings):
     # DeepSeek + an invalid token in the 2026-08-20 contract run); preflight must
     # always come back with an actionable diagnosis (FR-06).
     preflight_timeout_seconds: int = Field(default=120, ge=10, le=1_800)
-    max_turns: int = Field(default=40, ge=1, le=500)
+    # 2026-08-23 拍板：不设轮数上限（教材口径：一个循环，让模型自己决定何时结束）；
+    # 成本保险丝只留 max_budget_usd。显式配置仍可设值（如 CI/合约测试的小额探针）。
+    max_turns: int | None = Field(default=None, ge=1)
     max_budget_usd: float = Field(default=10, gt=0, le=1_000)
 
     @field_validator(

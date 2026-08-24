@@ -107,13 +107,12 @@ def assemble_default_prompt(
     trace_id: str,
     memories: list[MemoryItem],
 ) -> str:
-    sections = [
-        SECURITY_PREAMBLE,
-        f"{DEFAULT_AGENT_PROMPT}\nproject_id: {project_id}\ntrace_id: {trace_id}",
-    ]
+    sections = [SECURITY_PREAMBLE, DEFAULT_AGENT_PROMPT]
     digest = _memory_digest(memories)
     if digest:
         sections.append(f"# 已批准记忆（可选上下文）\n\n{digest}")
+    # 每 run 变化的标识放末尾：system prompt 前缀保持稳定，prompt cache 才吃得上。
+    sections.append(f"# 运行标识\n\nproject_id: {project_id}\ntrace_id: {trace_id}")
     return "\n\n---\n\n".join(sections)
 
 

@@ -29,6 +29,7 @@ from claude_agent_sdk import (
 
 from .agent_core import MAX_MEMORY_ITEMS, assemble_default_prompt, assemble_system_prompt
 from .agents import build_deep_research_agents
+from .bash_policy import is_read_only_bash
 from .config import Settings
 from .constants import (
     AUTOMATION_MCP_SERVER_NAME,
@@ -478,15 +479,26 @@ class ClaudeAgentRuntime:
                                 "permissionDecisionReason": "Unsandboxed commands are disabled.",
                             }
                         }
-                    # Sandboxed Bash is otherwise auto-approved ahead of can_use_tool.
-                    # PRD §4.10 requires Bash to ask by default, so force the ask here;
-                    # the request then flows through can_use_tool -> PermissionBroker.
+                    # PRD §4.10（2026-08-23 v2.2 增补）：只读探查命令动作可逆、不碰
+                    # 生产数据，在沙箱内自动放行——消除 FM-01/FM-02 的主要打断来源。
+                    if is_read_only_bash(tool_input.get("command")):
+                        return {
+                            "hookSpecificOutput": {
+                                "hookEventName": "PreToolUse",
+                                "permissionDecision": "allow",
+                                "permissionDecisionReason": (
+                                    "OPHIRA policy: read-only sandboxed Bash is auto-approved."
+                                ),
+                            }
+                        }
+                    # 其余（有副作用或识别不了的）命令仍强制 ask，且永不按 run 缓存；
+                    # 请求随后流经 can_use_tool -> PermissionBroker。
                     return {
                         "hookSpecificOutput": {
                             "hookEventName": "PreToolUse",
                             "permissionDecision": "ask",
                             "permissionDecisionReason": (
-                                "OPHIRA policy: Bash always asks (never cached per run)."
+                                "OPHIRA policy: mutating Bash always asks (never cached per run)."
                             ),
                         }
                     }

@@ -43,3 +43,20 @@ OPHIRA_CONTRACT_PROVIDER=deepseek PYTHONPATH=backend/src .venv/bin/pytest backen
 - L2 基准集任务完成率 ≥ __%；单任务成本 P95 ≤ __ USD、时长 P95 ≤ __ min
 - 证据覆盖率 ≥ __%；无来源具体数据率 ≤ __%；事实/推断混淆率 ≤ __%
 - Judge 校准门槛：TPR ≥ __、TNR ≥ __；未达标的维度不得进入 §6.6 发布门禁
+
+## 评测代码归属口径（2026-08-24 澄清）
+
+**边界原则不变**：评测系统与主系统不耦合；唯一接触点是 `evals/tools/sample_gold.py`
+对 storage 层的只读 import（单向 evals→backend，backend 永不 import evals/）；
+CI 用不装 backend 的独立 job 证明这条边界。
+
+三类代码的归属：
+
+| 代码 | 位置 | 理由 |
+|---|---|---|
+| gold 抽样/标注工具链 | `evals/tools/` | 纯评测资产，`gold_sampling.py`/`gold_annotator.py` 只用 stdlib |
+| 基准任务/judge/口径/报告 | `evals/` | 纯评测资产 |
+| L2 runner（`run_l2.py`）与 trace 摘要（`digest_run.py`） | `backend/scripts/` | 是**驱动主系统跑起来**的脚本（重度 import ophira_backend，与 `run_green_path.py` 同类），不是评测判定逻辑；判定口径全部住 `evals/`。不随产品打包，不进 `ophira_backend` 包 |
+
+判据：**判定"好坏"的逻辑只能住 `evals/`；驱动"跑起来"的脚本住 `backend/scripts/`。**
+两边都不允许被产品运行时 import。
