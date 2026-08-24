@@ -29,7 +29,6 @@ from claude_agent_sdk import (
 
 from .agent_core import MAX_MEMORY_ITEMS, assemble_default_prompt, assemble_system_prompt
 from .agents import build_deep_research_agents
-from .bash_policy import is_read_only_bash
 from .config import Settings
 from .constants import (
     AUTOMATION_MCP_SERVER_NAME,
@@ -180,7 +179,9 @@ class ClaudeAgentRuntime:
             include_partial_messages=False,
             sandbox={
                 "enabled": True,
-                "autoAllowBashIfSandboxed": False,
+                # 与主运行一致（Bash 在预检本就被禁用，此处只为提早暴露沙箱不可用）。
+                "autoAllowBashIfSandboxed": True,
+                "failIfUnavailable": True,
                 "allowUnsandboxedCommands": False,
             },
         )
@@ -413,8 +414,11 @@ class ClaudeAgentRuntime:
             setting_sources=[],
             sandbox={
                 "enabled": True,
-                "autoAllowBashIfSandboxed": False,
+                # SDK 原生默认：沙箱内 Bash 自动批准（2026-08-24 拍板恢复，教材口径）。
+                "autoAllowBashIfSandboxed": True,
                 "allowUnsandboxedCommands": False,
+                # Python SDK 默认在沙箱起不来时静默裸跑（docs python.md）；这里必须失败。
+                "failIfUnavailable": True,
             },
             enable_file_checkpointing=True,
             thinking={"type": "adaptive", "display": "summarized"},
@@ -479,29 +483,10 @@ class ClaudeAgentRuntime:
                                 "permissionDecisionReason": "Unsandboxed commands are disabled.",
                             }
                         }
-                    # PRD §4.10（2026-08-23 v2.2 增补）：只读探查命令动作可逆、不碰
-                    # 生产数据，在沙箱内自动放行——消除 FM-01/FM-02 的主要打断来源。
-                    if is_read_only_bash(tool_input.get("command")):
-                        return {
-                            "hookSpecificOutput": {
-                                "hookEventName": "PreToolUse",
-                                "permissionDecision": "allow",
-                                "permissionDecisionReason": (
-                                    "OPHIRA policy: read-only sandboxed Bash is auto-approved."
-                                ),
-                            }
-                        }
-                    # 其余（有副作用或识别不了的）命令仍强制 ask，且永不按 run 缓存；
-                    # 请求随后流经 can_use_tool -> PermissionBroker。
-                    return {
-                        "hookSpecificOutput": {
-                            "hookEventName": "PreToolUse",
-                            "permissionDecision": "ask",
-                            "permissionDecisionReason": (
-                                "OPHIRA policy: mutating Bash always asks (never cached per run)."
-                            ),
-                        }
-                    }
+                    # PRD §4.10 v2.2（2026-08-24 拍板：教材为最终权威）：沙箱内 Bash 走
+                    # SDK 原生默认 autoAllowBashIfSandboxed 自动批准（副作用被沙箱围住，
+                    # workspace 之外写不了、网络出不去）；hook 只拦逃逸沙箱这一条。
+                    # 账本写入/对外发送等业务动作的人把关在 MCP ask 层，与 Bash 无关。
             elif event_name == "PostToolUse":
                 await self.events.publish(
                     run_id,

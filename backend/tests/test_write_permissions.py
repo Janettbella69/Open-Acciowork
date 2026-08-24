@@ -130,26 +130,16 @@ async def test_bash_is_never_reused_for_run_scope(tmp_path: Path) -> None:
 async def test_pre_tool_hook_forces_bash_to_ask_instead_of_sandbox_auto_allow(
     tmp_path: Path,
 ) -> None:
-    """PRD §4.10 v2.2: read-only sandboxed Bash is auto-approved; mutating or
-    unrecognised Bash must still force an ask so the PermissionBroker stays in the loop."""
+    """PRD §4.10 v2.2 (2026-08-24): sandboxed Bash rides the SDK-native
+    autoAllowBashIfSandboxed auto-approval — the hook must NOT force an ask;
+    it only denies sandbox escape (dangerouslyDisableSandbox)."""
     ledger, _permissions, runtime = build_runtime(tmp_path)
     project = ledger.create_project(ProjectCreate(name="Kettle", objective="Validate"))
     run = ledger.create_run(project.id, "Start")
     workspace = ledger.workspace_for_project(project.id)
     hook = runtime._hook(run.id, workspace)
 
-    read_only = await hook(
-        {
-            "hook_event_name": "PreToolUse",
-            "tool_name": "Bash",
-            "tool_input": {"command": "wc -l uploads/quotes.csv"},
-        },
-        None,
-        None,
-    )
-    assert read_only["hookSpecificOutput"]["permissionDecision"] == "allow"
-
-    mutating = await hook(
+    sandboxed = await hook(
         {
             "hook_event_name": "PreToolUse",
             "tool_name": "Bash",
@@ -158,18 +148,7 @@ async def test_pre_tool_hook_forces_bash_to_ask_instead_of_sandbox_auto_allow(
         None,
         None,
     )
-    assert mutating["hookSpecificOutput"]["permissionDecision"] == "ask"
-
-    redirecting = await hook(
-        {
-            "hook_event_name": "PreToolUse",
-            "tool_name": "Bash",
-            "tool_input": {"command": "cat a.csv > b.csv"},
-        },
-        None,
-        None,
-    )
-    assert redirecting["hookSpecificOutput"]["permissionDecision"] == "ask"
+    assert sandboxed == {}
 
     unsandboxed = await hook(
         {

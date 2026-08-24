@@ -61,8 +61,9 @@ def test_runtime_options_keep_the_governance_envelope(tmp_path: Path) -> None:
 
     assert options.sandbox == {
         "enabled": True,
-        "autoAllowBashIfSandboxed": False,
+        "autoAllowBashIfSandboxed": True,
         "allowUnsandboxedCommands": False,
+        "failIfUnavailable": True,
     }
     assert options.setting_sources == []
     assert options.strict_mcp_config is True

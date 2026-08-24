@@ -14,7 +14,7 @@ OPHIRA：面向出海小 B 的 AI 全球商业系统，对标 Accio Work。一�
 - 核心 Agent 只能经 `ClaudeSDKClient`/`query()` 驱动；禁止 OpenAI/Anthropic 裸 Client、LangGraph/LangChain/Dify、手写工具循环。
 - `tools` 与 `system_prompt` 用 `claude_code` preset；`setting_sources=[]`；应用 Skills 只经本地 Plugin（`backend/ophira-capabilities/`）装载；`strict_mcp_config=True`。
 - 普通模式单主 Agent：`disallowed_tools=["Agent"]`、`agents=None`（有测试断言，"只读临时子代理"放宽提案待用户拍板，勿自行放开）；仅 Deep Research 模式注入 3 个只读研究子代理。
-- `sandbox.enabled=True` 且 `allowUnsandboxedCommands=False` 不得关闭；worker env 必须先清空 `ANTHROPIC_API_KEY`/`ANTHROPIC_AUTH_TOKEN`/`CLAUDE_CODE_OAUTH_TOKEN` 再注入所选 Provider 的唯一凭据。
+- `sandbox.enabled=True`、`allowUnsandboxedCommands=False`、`failIfUnavailable=True` 不得关闭；`autoAllowBashIfSandboxed=True`（SDK 原生默认，2026-08-24 拍板恢复，不得改回强制 ask）；worker env 必须先清空 `ANTHROPIC_API_KEY`/`ANTHROPIC_AUTH_TOKEN`/`CLAUDE_CODE_OAUTH_TOKEN` 再注入所选 Provider 的唯一凭据。
 - 国产模型只走各厂商官方 Anthropic 兼容端点（Provider Profile），不做 OpenAI 协议转换；Coding Plan 套餐 Key 禁止进入后端（条款红线，见 PRD §4.9）。
 - `claude-agent-sdk` 钉 `0.2.82`；升级必须先跑 Provider 合约测试。
 
@@ -79,7 +79,7 @@ npm run lint && npm run build
 
 一次运行的数据流：`POST /api/projects/{id}/runs`（main.py）→ `RunManager.create_and_start`（runs.py，固化 provider/skill 快照）→ `ClaudeAgentRuntime.run`（sdk_adapter.py，装配 `ClaudeAgentOptions` 并把 SDK 消息流映射为 27 种 SSE 事件）→ 事件经 `EventPublisher`（events.py，全量 `redact()` 脱敏）落 `FileLedger`（storage.py，JSON/JSONL 原子写）→ 前端 `useOpportunityRuntime.ts` 经 SSE（`Last-Event-ID` 续传）消费。
 
-- **权限双层防御**：`can_use_tool` 回调（workspace 路径包含检查 + 禁 unsandboxed Bash + `PermissionBroker` 实时授权，有副作用的 Bash 授权永不按 run 缓存）+ `PreToolUse` hook（敏感路径黑名单；只读探查 Bash 经 `bash_policy.py` fail-closed 白名单自动放行，v2.2 2026-08-23）。前端权限卡片经 `POST /api/runs/{run_id}/permissions/{request_id}` 回传。
+- **权限双层防御**：`can_use_tool` 回调（workspace 路径包含检查 + 禁 unsandboxed Bash + `PermissionBroker` 实时授权）+ `PreToolUse` hook（敏感路径黑名单 + 拦逃逸沙箱）。沙箱内 Bash 走 SDK 原生 `autoAllowBashIfSandboxed` 自动批准（v2.2 2026-08-24，教材口径；`failIfUnavailable=True` 沙箱起不来必须失败）；人把关只在账本写入/对外发送等业务动作的 MCP ask 层。前端权限卡片经 `POST /api/runs/{run_id}/permissions/{request_id}` 回传。
 - **Provider 体系**（providers.py）：`ProviderRegistry` 文件存 profile（`backend/data/providers/*.json`，不含密钥），密钥在 `FileSecretVault`（`backend/data/secrets/`，0600）；`build_worker_env` 负责凭据隔离与全档位模型映射；`preflight()`（sdk_adapter.py）走真实 SDK `query()` 断言 Skill 发现 + MCP health 调用，错误分 8 类码。
 - **MCP**（ledger_tools.py）：5 个进程内 server 共 14 工具（ledger/market/supplier/customer/commerce_math），工具描述一律声明"不代替商业判断"。
 - **记忆**（memory.py）：Agent 只能提案，用户批准后生效；agent 作用域批准项经 marker 行镜像进该 Agent 的 `MEMORY.md`。
@@ -87,6 +87,8 @@ npm run lint && npm run build
 
 ## 数据与验证纪律
 
+- **PDF 与图片统一先转 Markdown 再进 Agent**（教材口径：PaddleOCR-VL；需要精确坐标溯源用 TextIn）。产品运行时的 OCR 摄取管线尚未实现（见 docs/textbook-audit-2026-08-24.md 开放缺口），实现前不要让 Agent 直接啃多页 PDF。
+- 改完功能让 AI 做端到端验证：Web 面优先用浏览器真实走一遍（真实 query/真实文件），API 面跑 Green Path；只跑单测不算端到端。
 - `backend/data/` 整体 gitignored（项目账本、runs、providers、secrets）；**绝不读取或提交 `backend/data/secrets/`**，测试一律用 `tmp_path`。
 - 声称"完成/修好/通过"之前，先在对应目录实际跑测试/lint 并给出输出证据（AGENTS.md §Verification）。
 - 评测资产在 `evals/`（基准任务集、judge 模板、报告）；judge 未经 gold 校准不得进入发布门禁；门槛数值留空待基线填定（PRD §3.11）。

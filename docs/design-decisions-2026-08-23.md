@@ -13,7 +13,7 @@
 
 | # | 决策 | 对应不变量 | 改动 |
 |---|---|---|---|
-| A | 只读探查 Bash 沙箱内自动放行；有副作用/识别不了的仍 ask 且永不按 run 缓存 | 一台电脑（bash 是兜底的手，只读动作可逆） | `bash_policy.py` 新增 fail-closed 白名单分类器；`sdk_adapter.py` PreToolUse hook 接入；PRD §4.10 v2.2 |
+| A | **（2026-08-24 终版）沙箱内 Bash 全量自动批准**：恢复 SDK 原生默认 `autoAllowBashIfSandboxed=True` + `failIfUnavailable=True`；hook 只拦逃逸沙箱。中间版本的 fail-closed 白名单分类器（bash_policy.py，78bb7cf）随"教材为最终权威"拍板删除——它本身是一层多余的代码判断（"如无必要的东西都不要"），SDK 原生机制已覆盖 | 一台电脑 + 一个循环（bash 是兜底的手；副作用由沙箱围住，人把关留在账本写入/对外发送的 MCP ask 层） | `sdk_adapter.py` 两处 sandbox 配置 + hook 简化；PRD §4.10 v2.2 |
 | — | 默认不设 `max_turns`；成本保险丝只留 `max_budget_usd` | 一个循环（让模型自己决定何时结束） | `config.py` `max_turns: int \| None = None`；PRD §4.10 包络口径修订 |
 | B | 每 run 变化的 project_id/trace_id 从 prompt 前部挪到末尾 | （教材 13 章：固定内容往前排，cache 前缀稳定） | `agent_core.assemble_default_prompt` |
 | C | 评测代码归属口径澄清：判定逻辑只住 `evals/`，驱动脚本住 `backend/scripts/` | （评测与主系统不耦合） | `evals/README.md` 新增小节 |
@@ -44,8 +44,11 @@ FM-02 残余（打断密度）应显著下降；基线对照 `evals/reports/l2-2
 
 - **Deep Research 只读子代理**：教材第 04 章四个合法例外之一；普通模式单主 Agent
   有测试断言，不动。
-- **写入/外发走暂写+人审**：教材第 09 章"人把关，不是代码把关"的标准形态，不是门禁。
-- **沙箱 + workspace 路径围栏 + 敏感路径黑名单**：Hook 只管副作用与安全拦截
-  （教材第 09 章合法 Hook 类别），判断权仍在 Agent。
+- **账本写入/对外发送走暂写+人审**：教材第 09 章"人把关，不是代码把关"的标准形态，不是门禁。
+- **workspace 路径围栏 + 敏感路径黑名单**：Hook 只管副作用与安全拦截
+  （教材第 09 章〔补〕明确支持凭据路径拦截），判断权仍在 Agent。
+- **SDK 原生沙箱（enabled=True）**：教材反对的是"自造沙箱/什么都读不到"的伪 Harness；
+  本仓库用的是 SDK 原生机制（AGENTS.md"优先官方扩展点"），且 2026-08-24 起沙箱内
+  Bash 全量自动批准——沙箱不再产生任何打断，只围副作用。
 - **账本读写走 MCP 而非直读文件**：单一业务系统内的结构化动作（教材第 06 章
   "MCP 适合单一业务系统里的动作"），且要挂去重/失效联动/审计副作用。

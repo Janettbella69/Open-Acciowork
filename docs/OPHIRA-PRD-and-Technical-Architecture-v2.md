@@ -707,13 +707,13 @@ Claude Agent SDK worker 只接收 Anthropic 协议环境配置。OPHIRA 不安�
 
 ### 4.10 权限、安全和沙箱
 
-权限矩阵维持 v1.1，一处 v2.2 修订（Read/Glob/Grep 项目内自动允许；Web 公开读取自动或域策略；只读 MCP 自动；Ledger 写入按项目策略；Write/Edit 限 Workspace；**Bash 分二级：只读探查命令沙箱内自动允许，有副作用或识别不了的默认询问**〔v2.2，2026-08-23 用户拍板，白名单分类器 fail-closed，见 `bash_policy.py`〕；浏览器读按域、写逐次；子 Agent 普通模式拒绝；危险命令/密钥读取/越界永久拒绝）。
+权限矩阵维持 v1.1，一处 v2.2 修订（Read/Glob/Grep 项目内自动允许；Web 公开读取自动或域策略；只读 MCP 自动；Ledger 写入按项目策略；Write/Edit 限 Workspace；**沙箱内 Bash 走 SDK 原生 `autoAllowBashIfSandboxed` 自动批准（副作用被沙箱围住），逃逸沙箱永久拒绝**〔v2.2，2026-08-24 用户拍板"教材为最终权威"：恢复 SDK 原生默认，删除中间白名单层；人把关只留在账本写入/对外发送等业务动作的 MCP ask 层〕；浏览器读按域、写逐次；子 Agent 普通模式拒绝；危险命令/密钥读取/越界永久拒绝）。
 
 已实现的防御结构（保留为验收基线）：
 
 - SDK 判定链 Hooks → deny → permission mode → allow → `can_use_tool`；OPHIRA 用 deny 做不可突破边界、allow 减少安全读取摩擦、`can_use_tool` 承担实时授权。
 - **双层路径防御**：`can_use_tool` 内 workspace 包含检查（resolve + relative_to，防符号链接）+ `PreToolUse` hook 独立复查并拦截敏感路径（`.env`、`.git-credentials`、`credentials`、`secrets`）。
-- **有副作用的 Bash 授权永不按 run 缓存**（有测试）；只读探查 Bash 经 fail-closed 白名单分类器自动放行（v2.2，动作可逆、不碰生产数据，对齐"一台电脑"不变量并消除 FM-01/FM-02 打断来源）；权限等待超时自动 deny 并发 `permission.timed_out`。
+- **沙箱内 Bash 自动批准**（v2.2：SDK 原生 `autoAllowBashIfSandboxed=True` + `failIfUnavailable=True`——沙箱起不来必须失败而非静默裸跑；有测试）。对齐"一台电脑/一个循环"不变量并消除 FM-01/FM-02 打断来源；权限等待超时自动 deny 并发 `permission.timed_out`。
 - SDK `sandbox` 启用且禁 `dangerouslyDisableSandbox`；文件 checkpoint 只回滚文件工具修改，Bash 造成的改动需容器卷快照/项目版本提交兜底（口径不变）。
 
 v2.1 增补（吸收品类实证教训）：
