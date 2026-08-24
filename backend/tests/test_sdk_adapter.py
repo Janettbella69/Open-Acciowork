@@ -62,7 +62,6 @@ def test_default_sdk_options_keep_the_agent_general_and_observable(tmp_path: Pat
     assert options.enable_file_checkpointing is True
     assert set(options.mcp_servers or {}) == {
         "ophira_ledger",
-        "ophira_market",
         "ophira_supplier",
         "ophira_customer",
         "ophira_commerce_math",

@@ -106,3 +106,23 @@ CLI 特性开关变动（同日 25→28，新出现 Workflow/SendMessage/ReportF
 - **待拍板（下一步收敛候选）**：market 域与账本证据域重复概念——`record_market_signal` 是
   `record_evidence` 的固定参数便捷封装、`search_market_signals` 是 tag 过滤视图；按教材"相同域
   合并"可并入 ledger（23→21）。涉及 L2 任务行为面与 allowed_tools 常量，留待 L2 复测后决定。
+
+## 2026-08-24 MCP 收敛第二步 + 工具手艺五条（用户拍板"MCP 最好 20 个左右"）
+
+- **market 域并入账本（23→21 工具 / 7→6 server）**：`record_market_signal` 是
+  `record_evidence` 的固定参数便捷封装、`search_market_signals` 是 tag 过滤视图——与账本
+  证据零距离同域（查询本就打在 evidence 存储上），教材"相同域的做成一个 MCP"字面命中。
+  市场信号口径不变：market-signal + 类型双标签的 COMMUNITY_SIGNAL 证据；PRD §4.6 规划列
+  的三个未来工具（listing 快照/价格带/关键词趋势）到时按域独立建或走连接器。
+- **工具手艺五条（教材 06 章〔补〕）对照修正**：
+  1. 描述就是 Prompt：read_project_context 过时描述（含已删的 legacy views）重写为场景化
+     （"要项目当前真相或有效 id 时先调它；重聚合直读 ../project.json"）；
+  2. 错误指导自纠：unknown id 类错误全部附带修复路径（"先 search_evidence /
+     read_project_context 拿有效 id 再重试"）；
+  3. 返回量控制：read_project_context 与 search_evidence 的长 excerpt 默认预览 200 字符
+     （标注全文在 ../project.json），列表视图不再整段搬运 8K 摘录；
+  4. 业务语义命名：既有参数全部合规，无改动；
+  5. 幂等：record_decision 补齐（同 question+outcome+type 重试返回既有决策）——此前仅
+     evidence/hypothesis/schedule/intent 幂等，决策是漏网之鱼。
+- 新增回归：test_ledger_tool_craft.py（预览/自纠文案/幂等）；test_market_signals.py 改写为
+  通用 search_evidence 通道的同场景断言。

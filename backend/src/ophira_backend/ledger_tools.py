@@ -11,7 +11,6 @@ from .constants import (
     COMMERCE_MATH_MCP_SERVER_NAME,
     CUSTOMER_MCP_SERVER_NAME,
     LEDGER_MCP_SERVER_NAME,
-    MARKET_MCP_SERVER_NAME,
     SUPPLIER_MCP_SERVER_NAME,
     USER_SCOPE_ID,
     WEB_MCP_SERVER_NAME,
@@ -49,6 +48,20 @@ def _tool_result(value: Any, *, is_error: bool = False) -> dict[str, Any]:
     }
 
 
+_EXCERPT_PREVIEW_CHARS = 200
+
+
+def _preview_excerpt(item: dict) -> dict:
+    """List views preview long excerpts; the full text stays in ../project.json."""
+    excerpt = item.get("excerpt")
+    if isinstance(excerpt, str) and len(excerpt) > _EXCERPT_PREVIEW_CHARS:
+        item["excerpt"] = (
+            excerpt[:_EXCERPT_PREVIEW_CHARS]
+            + f"…[preview only, {len(excerpt)} chars total; full text in ../project.json]"
+        )
+    return item
+
+
 def _decimal(value: Any, name: str) -> Decimal:
     try:
         result = Decimal(str(value))
@@ -73,11 +86,16 @@ def build_ledger_tools(
     handlers directly without going through a live SDK session."""
     @tool(
         "read_project_context",
-        "Read the authoritative OPHIRA project, evidence, decisions, artifacts, and legacy views.",
+        "Read the authoritative project state: objective, constraints, hypotheses, "
+        "evidence, decisions, and artifacts. Call this first when you need current "
+        "project truth or valid ids. Long evidence excerpts are previewed; read "
+        "../project.json directly for full text or heavy aggregation.",
         {},
     )
     async def read_project_context(_args: dict[str, Any]) -> dict[str, Any]:
-        return _tool_result(ledger.get_project(project_id))
+        data = ledger.get_project(project_id).model_dump(mode="json")
+        data["evidence"] = [_preview_excerpt(item) for item in data.get("evidence", [])]
+        return _tool_result(data)
 
     @tool(
         "search_evidence",
@@ -106,7 +124,9 @@ def build_ledger_tools(
             tag=args.get("tag"),
             limit=args.get("limit", 20),
         )
-        return _tool_result(matches)
+        return _tool_result(
+            [_preview_excerpt(item.model_dump(mode="json")) for item in matches]
+        )
 
     @tool(
         "update_evidence_status",
@@ -134,7 +154,13 @@ def build_ledger_tools(
             )
         except LedgerNotFoundError:
             return _tool_result(
-                {"error": f"unknown evidence id: {args['evidence_id']}"}, is_error=True
+                {
+                    "error": (
+                        f"unknown evidence id: {args['evidence_id']}; "
+                        "find valid ids via search_evidence"
+                    )
+                },
+                is_error=True,
             )
         return _tool_result(
             {
@@ -254,7 +280,10 @@ def build_ledger_tools(
             hypothesis_ids = {item.id for item in project.hypotheses}
             unknown = set(evidence.supports_hypothesis_ids) - hypothesis_ids
             if unknown:
-                raise ValueError(f"unknown hypothesis ids: {sorted(unknown)}")
+                raise ValueError(
+                    f"unknown hypothesis ids: {sorted(unknown)}; call "
+                    "read_project_context to list valid hypothesis ids, then retry"
+                )
             duplicate = next(
                 (
                     item
@@ -343,8 +372,26 @@ def build_ledger_tools(
     )
     async def record_decision(args: dict[str, Any]) -> dict[str, Any]:
         decision = Decision(**args, status=DecisionStatus.ACTIVE)
+        result = decision
 
         def mutate(project) -> None:
+            nonlocal result
+            # 幂等：同 question+outcome+type 的重试返回已有决策，不重复落账。
+            duplicate = next(
+                (
+                    item
+                    for item in project.decisions
+                    if item.question.strip().casefold()
+                    == decision.question.strip().casefold()
+                    and item.outcome.strip().casefold()
+                    == decision.outcome.strip().casefold()
+                    and item.decision_type == decision.decision_type
+                ),
+                None,
+            )
+            if duplicate:
+                result = duplicate
+                return
             known_evidence = {item.id for item in project.evidence}
             known_hypotheses = {item.id for item in project.hypotheses}
             unknown_evidence = set(decision.evidence_ids) - known_evidence
@@ -352,12 +399,13 @@ def build_ledger_tools(
             if unknown_evidence or unknown_hypotheses:
                 raise ValueError(
                     f"unknown references: evidence={sorted(unknown_evidence)}, "
-                    f"hypotheses={sorted(unknown_hypotheses)}"
+                    f"hypotheses={sorted(unknown_hypotheses)}; fetch valid ids via "
+                    "search_evidence or read_project_context, then retry"
                 )
             project.decisions.append(decision)
 
         ledger.update_project(project_id, mutate)
-        return _tool_result(decision)
+        return _tool_result(result)
 
     tools = [
         read_project_context,
@@ -449,106 +497,6 @@ def build_ledger_mcp_server(
         name=LEDGER_MCP_SERVER_NAME,
         version="1.0.0",
         tools=build_ledger_tools(ledger, project_id, memory=memory, agent_id=agent_id),
-    )
-
-
-def filter_market_signals(
-    ledger: FileLedger,
-    project_id: str,
-    *,
-    query: str = "",
-    signal_type: str = "",
-    limit: int = 20,
-) -> list:
-    """Read-only view over evidence tagged market-signal; limit applies post-filter."""
-    candidates = ledger.search_evidence(
-        project_id, query=query, tag="market-signal", limit=max(limit * 5, 100)
-    )
-    needle = signal_type.strip().casefold()
-    if needle:
-        candidates = [
-            item
-            for item in candidates
-            if needle in {value.casefold() for value in item.tags}
-        ]
-    return candidates[:limit]
-
-
-def build_market_mcp_server(ledger: FileLedger, project_id: str):
-    @tool(
-        "record_market_signal",
-        "Record one public market signal with source and observation time; "
-        "does not decide viability.",
-        {
-            "type": "object",
-            "properties": {
-                "claim": {"type": "string", "minLength": 1},
-                "source_title": {"type": "string", "minLength": 1},
-                "source_url": {"type": "string", "minLength": 1},
-                "observed_at": {"type": ["string", "null"], "format": "date-time"},
-                "excerpt": {"type": ["string", "null"]},
-                "signal_type": {"type": "string", "minLength": 1},
-                "confidence": {"type": "number", "minimum": 0, "maximum": 1},
-            },
-            "required": [
-                "claim",
-                "source_title",
-                "source_url",
-                "signal_type",
-                "confidence",
-            ],
-            "additionalProperties": False,
-        },
-    )
-    async def record_market_signal(args: dict[str, Any]) -> dict[str, Any]:
-        evidence = Evidence(
-            tags=["market-signal", args["signal_type"]],
-            kind=EvidenceKind.COMMUNITY_SIGNAL,
-            claim=args["claim"],
-            source_title=args["source_title"],
-            source_url=args["source_url"],
-            source_type=EvidenceSourceType.WEB,
-            observed_at=(
-                datetime.fromisoformat(args["observed_at"]) if args.get("observed_at") else None
-            ),
-            excerpt=args.get("excerpt"),
-            confidence=args["confidence"],
-            recorded_by="ophira-market-mcp",
-        )
-        ledger.update_project(project_id, lambda project: project.evidence.append(evidence))
-        return _tool_result(evidence)
-
-    @tool(
-        "search_market_signals",
-        "Search market signals already recorded in this project's evidence ledger "
-        "by text or signal type. Returns sourced records with retrieval times; "
-        "never live platform data and never a viability judgment.",
-        {
-            "type": "object",
-            "properties": {
-                "query": {"type": "string"},
-                "signal_type": {"type": "string"},
-                "limit": {"type": "integer", "minimum": 1, "maximum": 100},
-            },
-            "required": [],
-            "additionalProperties": False,
-        },
-    )
-    async def search_market_signals(args: dict[str, Any]) -> dict[str, Any]:
-        return _tool_result(
-            filter_market_signals(
-                ledger,
-                project_id,
-                query=str(args.get("query") or ""),
-                signal_type=str(args.get("signal_type") or ""),
-                limit=args.get("limit", 20),
-            )
-        )
-
-    return create_sdk_mcp_server(
-        name=MARKET_MCP_SERVER_NAME,
-        version="1.0.0",
-        tools=[record_market_signal, search_market_signals],
     )
 
 
@@ -805,7 +753,6 @@ def build_mcp_servers(
             memory=memory,
             agent_id=agent_id,
         ),
-        MARKET_MCP_SERVER_NAME: build_market_mcp_server(ledger, project_id),
         SUPPLIER_MCP_SERVER_NAME: build_supplier_mcp_server(),
         CUSTOMER_MCP_SERVER_NAME: build_customer_mcp_server(),
         COMMERCE_MATH_MCP_SERVER_NAME: build_commerce_math_mcp_server(),
