@@ -124,6 +124,21 @@
 | 不造插件轮子 | ✅ | SDK 原生 plugin 机制 |
 | 通用做不过大厂→垂直 | ✅ | 垂直跨境小 B，非通用 workbuddy |
 
+## 第二轮：全文件通读校正（2026-08-24，18d34ce）
+
+判据抽查之后又对源码做了逐文件通读（sdk_adapter/agent_core/templates/permissions/runs/
+ledger_tools/web_tools/automation_tools/greenpath/scheduler/events/main + 全部 4 个 SKILL.md）：
+
+- **修正 3 处 prompt 层旧口径**（Agent 每轮都读，影响最大）：SECURITY_PREAMBLE"执行 Shell
+  须批准"→"绕过沙箱须批准"；DEFAULT_AGENT_PROMPT 压制 Bash 的旧条款→教材万能兜底句
+  （"Skill/MCP 没覆盖的任务直接用 Bash/Write/Edit 写代码解决"）；_GENERAL_TOOLS"Bash 每次
+  执行都需用户批准"→沙箱内自动放行 + 兜底句。
+- **其余全部读净**：唯一 AI 调用点在 sdk_adapter（全仓 grep 证明无偷塞）；事件流 1:1 映射
+  原始 SDK 流、redact 只脱敏不重组（原始日志不封装）；scheduler/main 把 prompt 原样直达
+  主 Agent（无中间改写）；权限 broker 纯人把关；工具描述全部声明"不代替商业判断"、错误
+  结构化可自纠；4 个 Skill 全是经验口径、外发点人把关。
+- 磁盘上无已建 Agent（backend/data/agents 不存在），core 文件无需迁移。
+
 ## 汇总与反模式自查
 
 - **本次已修（78bb7cf + 后续提交）**：max_turns 上限（→None，不设轮数上限）、Bash 强制 ask（→SDK 原生沙箱内全量自动批准，中间白名单层随"教材为最终权威"拍板删除）、trace_id 位置（→prompt 末尾）、评测归属口径、计算 MCP 理由记录、反馈闭环立项、CLAUDE.md 补 OCR 规则与端到端验证纪律。
