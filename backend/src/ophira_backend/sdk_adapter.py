@@ -83,6 +83,15 @@ def _resolve_path(root: Path, candidate: str) -> Path:
     return (root / path).resolve() if not path.is_absolute() else path.resolve()
 
 
+def _contained(cwd: Path, fence: Path, candidate: str) -> bool:
+    """Resolve candidate against the real cwd, then require containment in fence."""
+    try:
+        _resolve_path(cwd, candidate).relative_to(fence)
+    except (OSError, ValueError):
+        return False
+    return True
+
+
 class ClaudeAgentRuntime:
     """Adapter from Claude Agent SDK's native stream to OPHIRA's event contract."""
 
@@ -348,12 +357,13 @@ class ClaudeAgentRuntime:
                 message=resolution.reason or "The user denied this tool call.",
             )
 
+        hook = self._hook(run.id, workspace)
         hooks = {
-            "PreToolUse": [HookMatcher(hooks=[self._hook(run.id, workspace)])],
-            "PostToolUse": [HookMatcher(hooks=[self._hook(run.id, workspace)])],
-            "PostToolUseFailure": [HookMatcher(hooks=[self._hook(run.id, workspace)])],
-            "SubagentStart": [HookMatcher(hooks=[self._hook(run.id, workspace)])],
-            "SubagentStop": [HookMatcher(hooks=[self._hook(run.id, workspace)])],
+            "PreToolUse": [HookMatcher(hooks=[hook])],
+            "PostToolUse": [HookMatcher(hooks=[hook])],
+            "PostToolUseFailure": [HookMatcher(hooks=[hook])],
+            "SubagentStart": [HookMatcher(hooks=[hook])],
+            "SubagentStop": [HookMatcher(hooks=[hook])],
         }
         model = self.settings.claude_model
         budget_scale = 1.0
@@ -452,13 +462,28 @@ class ClaudeAgentRuntime:
                 }.get(str(tool_name))
                 if candidate_key and tool_input.get(candidate_key):
                     candidate = tool_input.get(candidate_key)
-                    if not isinstance(candidate, str) or not _path_within(workspace, candidate):
+                    # 读权限与动作权限分开（PRD §4.10"Read/Glob/Grep 项目内自动允许"）：
+                    # 只读工具围栏=项目目录（含账本 project.json 等原始数据，兜住 MCP
+                    # 查询接口覆盖不了的意料之外分析）；写入围栏仍=工作区。
+                    fence = (
+                        workspace
+                        if str(tool_name) in ("Write", "Edit")
+                        else workspace.parent
+                    )
+                    fence_name = (
+                        "project workspace"
+                        if str(tool_name) in ("Write", "Edit")
+                        else "project directory"
+                    )
+                    if not isinstance(candidate, str) or not _contained(
+                        workspace, fence, candidate
+                    ):
                         return {
                             "hookSpecificOutput": {
                                 "hookEventName": "PreToolUse",
                                 "permissionDecision": "deny",
                                 "permissionDecisionReason": (
-                                    f"{tool_name} path is outside the project workspace."
+                                    f"{tool_name} path is outside the {fence_name}."
                                 ),
                             }
                         }

@@ -88,7 +88,7 @@ v2.0 的核心新判断：**架构目标已基本代码就绪，当前最大风�
 - 5 个进程内 MCP server 共 14 个工具（`ophira_ledger`/`market`/`supplier`/`customer`/`commerce_math`），`strict_mcp_config=True`，工具描述统一带"不代替商业判断"声明。
 - Provider Registry + 文件密钥库（0600/0700 + 原子写）+ SDK 预检（真实 `query()` 路径，断言 Skill 发现与 MCP health 调用）+ 8 类错误码分类已实现（`providers.py`）。
 - 凭据隔离：`ANTHROPIC_API_KEY`/`ANTHROPIC_AUTH_TOKEN`/`CLAUDE_CODE_OAUTH_TOKEN` 先置空再注入所选 Profile 唯一凭据；每 Profile 独立 `CLAUDE_CONFIG_DIR`（0700）；`CLAUDE_CODE_DISABLE_AUTO_MEMORY=1`、`CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`。
-- 权限双层防御：`can_use_tool`（workspace 路径包含检查 + 禁 unsandboxed Bash）+ `PreToolUse` hook（敏感路径黑名单 `.env`/`credentials`/`secrets` 等）；沙箱内 Bash 自动批准（v2.2，SDK 原生默认）、逃逸沙箱永久拒绝；权限超时自动 deny。
+- 权限双层防御：`can_use_tool`（写入 workspace 包含检查 + 禁 unsandboxed Bash）+ `PreToolUse` hook（敏感路径黑名单 `.env`/`credentials`/`secrets` 等；**读写围栏分开（v2.2）：Read/Glob/Grep 围栏=项目目录（含账本原始 JSON，兜住 MCP 接口外的意料之外分析），Write/Edit 围栏=工作区**）；沙箱内 Bash 自动批准（v2.2，SDK 原生默认）、逃逸沙箱永久拒绝；权限超时自动 deny。
 - 记忆提案—审批—回滚 + MEMORY.md 受控同步（注入上限 8 条/4000 字符）；Scheduler 后端完整（croniter + 时区 + missed-run 策略）；27 种 SSE 事件、单调 sequence、`Last-Event-ID` 续传、全量脱敏。
 - `RunRecord` 固化 provider/skill/policy 快照，`extra="forbid"`；`Decision` 已通用化，四维降级为可选 `dimension` 标签（v1.1 目标达成）。
 
@@ -726,7 +726,7 @@ Claude Agent SDK worker 只接收 Anthropic 协议环境配置。OPHIRA 不安�
 已实现的防御结构（保留为验收基线）：
 
 - SDK 判定链 Hooks → deny → permission mode → allow → `can_use_tool`；OPHIRA 用 deny 做不可突破边界、allow 减少安全读取摩擦、`can_use_tool` 承担实时授权。
-- **双层路径防御**：`can_use_tool` 内 workspace 包含检查（resolve + relative_to，防符号链接）+ `PreToolUse` hook 独立复查并拦截敏感路径（`.env`、`.git-credentials`、`credentials`、`secrets`）。
+- **双层路径防御**：`can_use_tool` 内写入 workspace 包含检查（resolve + relative_to，防符号链接）+ `PreToolUse` hook 独立复查并拦截敏感路径（`.env`、`.git-credentials`、`credentials`、`secrets`）。v2.2 起读写围栏分开：只读工具（Read/Glob/Grep）围栏=项目目录——账本原始 `project.json` 可直读，MCP 查询接口不再是意料之外分析的天花板（教材第 05 章兜底审查的产物）；写入（Write/Edit）围栏维持工作区。
 - **沙箱内 Bash 自动批准**（v2.2：SDK 原生 `autoAllowBashIfSandboxed=True` + `failIfUnavailable=True`——沙箱起不来必须失败而非静默裸跑；有测试）。对齐"一台电脑/一个循环"不变量并消除 FM-01/FM-02 打断来源；权限等待超时自动 deny 并发 `permission.timed_out`。
 - SDK `sandbox` 启用且禁 `dangerouslyDisableSandbox`；文件 checkpoint 只回滚文件工具修改，Bash 造成的改动需容器卷快照/项目版本提交兜底（口径不变）。
 

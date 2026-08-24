@@ -171,3 +171,40 @@ async def test_pre_tool_hook_forces_bash_to_ask_instead_of_sandbox_auto_allow(
         None,
     )
     assert read == {}
+
+    # 读围栏=项目目录：账本原始数据（workspace 上一级的 project.json）允许直读，
+    # 兜住 MCP 查询接口覆盖不了的意料之外分析（PRD §4.10 "Read/Glob/Grep 项目内自动允许"）。
+    read_ledger = await hook(
+        {
+            "hook_event_name": "PreToolUse",
+            "tool_name": "Read",
+            "tool_input": {"file_path": "../project.json"},
+        },
+        None,
+        None,
+    )
+    assert read_ledger == {}
+
+    # 项目目录之外仍拒绝。
+    read_outside = await hook(
+        {
+            "hook_event_name": "PreToolUse",
+            "tool_name": "Read",
+            "tool_input": {"file_path": "../../other-project/project.json"},
+        },
+        None,
+        None,
+    )
+    assert read_outside["hookSpecificOutput"]["permissionDecision"] == "deny"
+
+    # 写围栏仍=工作区：账本文件不可经 Write 直改（写入只走 MCP 的审计化通道）。
+    write_ledger = await hook(
+        {
+            "hook_event_name": "PreToolUse",
+            "tool_name": "Write",
+            "tool_input": {"file_path": "../project.json", "content": "x"},
+        },
+        None,
+        None,
+    )
+    assert write_ledger["hookSpecificOutput"]["permissionDecision"] == "deny"
