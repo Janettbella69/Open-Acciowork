@@ -451,7 +451,9 @@ export default function WorkspaceComposer({
               <article className="conversation-agent-message">
                 {(run || historyLoading) && (
                   <div className="conversation-activity">
-                    <details className="conversation-process">
+                    {/* 上线前处于调试阶段：过程默认展开，先过程后结果（教材第 11 章
+                        "调试阶段还是显示原始日志"）。上线后按开发者/用户模式再分档。 */}
+                    <details className="conversation-process" open>
                       <summary>
                         <span>{historyLoading ? 'Restoring history' : isActive ? `Working for ${elapsed}` : `Ran for ${elapsed}`}</span>
                         <i aria-hidden="true">›</i>

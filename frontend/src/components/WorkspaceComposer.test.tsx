@@ -140,8 +140,8 @@ describe('WorkspaceComposer', () => {
     )
 
     const activitySummary = screen.getByText(/working for/i).closest('summary')
-    expect(activitySummary?.parentElement).not.toHaveAttribute('open')
-    fireEvent.click(activitySummary!)
+    // 调试期过程默认展开：先过程后结果（教材第 11 章），无需点击即可见。
+    expect(activitySummary?.parentElement).toHaveAttribute('open')
 
     expect(screen.getByRole('heading', { name: 'Result' })).toBeInTheDocument()
     expect(screen.getByText(/websearch completed/i)).toBeVisible()
