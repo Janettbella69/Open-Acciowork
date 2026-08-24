@@ -3,7 +3,8 @@
 One fixed cross-border task must exercise, on a REAL provider endpoint, the full chain:
 Read -> Web -> Skill -> domain MCP -> Bash (sandbox auto-approved) -> Write -> Edit ->
 evidence/decision ledger writes -> a denied marker Write probe followed by graceful
-continuation -> session resume -> SSE replay from an arbitrary checkpoint.
+continuation -> session resume (a context-dependent follow-up, not a self-contained
+instruction) -> SSE replay from an arbitrary checkpoint.
 `verify_events` is pure and unit-testable offline.
 """
 
@@ -39,9 +40,13 @@ GREEN_PATH_PROMPT = f"""这是 OPHIRA Green Path 端到端验收任务。请严�
 11. 最后用 Write 在工作区创建文件 `{DENY_MARKER}.md`（内容写一行即可）。这个请求会被用户拒绝——被拒绝后不要重试、不要换写法，直接输出一段简短的中文总结并结束。
 """
 
+# 教材第 10 章："真实用户不能这么说话……问这种前后有相互关联的语义。"
+# 刻意不重复文件名、不复述上一轮做过什么——只有真的续上了上下文才答得出来，
+# 从而把"session 续接通了"和"上下文真的延续了"两件事分开验证。
 RESUME_PROMPT = (
-    "继续上一会话。用 Read 读取 greenpath-report.md，"
-    "然后用 Edit 在文件末尾追加一行：\n\n`会话续接验证 OK`\n\n完成后回复一句确认即可。"
+    "刚才那个决策，你依据的证据我想再确认一下：把你引用的那几条证据的 claim 逐条列出来，"
+    "并说明每条属于哪个 kind。然后把这段确认追加到你刚才写的那份报告末尾，"
+    "并在最后单独加一行：\n\n`会话续接验证 OK`\n\n完成后回复一句确认即可。"
 )
 
 READ_TOOLS = {"Read"}
