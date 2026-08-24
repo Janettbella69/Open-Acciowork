@@ -52,3 +52,27 @@ FM-02 残余（打断密度）应显著下降；基线对照 `evals/reports/l2-2
   Bash 全量自动批准——沙箱不再产生任何打断，只围副作用。
 - **账本读写走 MCP 而非直读文件**：单一业务系统内的结构化动作（教材第 06 章
   "MCP 适合单一业务系统里的动作"），且要挂去重/失效联动/审计副作用。
+
+## 2026-08-24 追加拍板：工具面全部保留（hello 时刻审计的后续）
+
+真实 run init 事件审计发现工具面 = 53（原生内置 28 + 自研 MCP 25），且原生面会随捆绑
+CLI 特性开关变动（同日 25→28，新出现 Workflow/SendMessage/ReportFindings）。
+
+**用户拍板：原生工具面全部保留，不做 disallow 裁剪**（既有红线例外：普通模式
+`disallowed_tools=["Agent"]` 维持）。依据：
+
+- PRD §4.10 包络原则"治理不作用于能力裁剪，原生能力一律保留"；
+- 教材第 04 章：**SDK 原生 workflow 模式是官方轮子**（"它不是一个真正的 workflow，
+  是让 AI 去控制一个 workflow……不要制造轮子，官方就支持"）——原生 `Workflow` 工具
+  即此机制，为大规模并发/Deep Research（教材合法例外）而存在，不是需要封堵的旁路。
+  中间一度实现的 Workflow/SendMessage disallow 已回滚未合入。
+
+**定时任务重叠的处置：双轨分工，自研 Scheduler 保留。**"删自研、复用原生 Cron"经
+证据核实不可行——捆绑 CLI 内 CronCreate 的自述："Schedule a prompt to run …
+**within this Claude session**"；"durable: true to persist to
+`.claude/scheduled_tasks.json`; otherwise **session-only**"。OPHIRA 的 SDK worker 是
+一次 run 一个短命进程，原生 cron 无常驻执行者，且即使被执行也在产品控制面外
+（无 Provider 凭据注入/权限 broker/账本/收件箱）。自研 Scheduler 属教材第 03 章
+传统代码四个合法位置中的**基础设施**（对应教材 13 章引 Accio"定时任务本机关机即停"
+反例，后端常驻是产品差异化）。分工口径已写入 `_GENERAL_TOOLS` 模板：跨会话/无人值守
+用 `create_schedule`；原生 Cron 只在会话内生效。

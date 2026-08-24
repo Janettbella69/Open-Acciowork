@@ -31,6 +31,8 @@ _GENERAL_TOOLS = """# 可用工具
 - 命令：Bash（沙箱内自动放行，可自由写代码、跑脚本、处理数据；绕过沙箱被禁止）。
 - 记忆：propose_memory 提议新记忆，search_memory 检索已批准记忆。
 - 项目账本：read_project_context、record_evidence、record_decision 等工具读写共享项目状态。
+- 定时任务分工：跨会话/无人值守的定时用 create_schedule（服务端常驻执行、结果进收件箱、
+  用户界面可管理）；原生 Cron 工具只在当前会话内生效，适合会话内的临时安排。
 
 如果任务不在 Skill 或 MCP 覆盖范围内，用 Bash、Write、Edit 等基础工具在合理的场景下自行解决。
 """
