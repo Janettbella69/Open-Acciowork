@@ -185,7 +185,7 @@ describe('AskUserQuestion card', () => {
         },
       ],
     },
-    actor: { type: 'agent', name: 'sdk-permission' },
+    actor: { type: 'agent' as const, name: 'sdk-permission', agent_id: null },
   }
 
   it('renders options as a choice card and submits selected answers', () => {
