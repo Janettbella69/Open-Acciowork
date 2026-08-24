@@ -243,6 +243,16 @@
 .conversation-permission span { color: #8b6128; font-size: var(--ophira-type-small); font-weight: 750; text-transform: uppercase; }
 .conversation-permission strong { font-size: var(--ophira-type-body); }
 .conversation-permission > div:last-child { display: flex; flex-wrap: wrap; gap: 7px; }
+
+/* AskUserQuestion 结构化追问卡：选择题形态，纵向布局盖过基础卡的横向排布 */
+.conversation-question { flex-direction: column; align-items: stretch; }
+.conversation-question fieldset { border: 0; margin: 0; padding: 0; display: grid; gap: 8px; }
+.conversation-question legend { display: grid; gap: 2px; padding: 0; }
+.conversation-question legend small { color: #8b6128; font-size: var(--ophira-type-small); font-weight: 750; text-transform: uppercase; }
+.conversation-question-options { display: flex; flex-wrap: wrap; gap: 8px; }
+.conversation-question-options button { display: grid; gap: 2px; text-align: left; padding: 10px 14px; border: 1px solid #e2cba5; border-radius: 10px; background: #fff; cursor: pointer; }
+.conversation-question-options button[data-active] { border-color: #8b6128; background: #f6ead2; }
+.conversation-question-options button small { color: #6b5b45; }
 .conversation-permission button { min-height: 38px; border: 1px solid #d9c39f; border-radius: 8px; padding: 0 12px; color: #55452f; background: #fff; font-size: var(--ophira-type-small); font-weight: 700; }
 .conversation-permission button:last-child { color: #91483e; }
 

@@ -167,3 +167,65 @@ describe('WorkspaceComposer', () => {
     expect(screen.queryByRole('heading', { name: /recorded assessment/i })).not.toBeInTheDocument()
   })
 })
+
+describe('AskUserQuestion card', () => {
+  const questionPermission = {
+    id: 'perm_q1',
+    toolName: 'AskUserQuestion',
+    toolInput: {
+      questions: [
+        {
+          question: '重构的主要目的是什么？',
+          header: '目的',
+          options: [
+            { label: '提升性能', description: '优化热点路径' },
+            { label: '改善维护性', description: '降低复杂度' },
+          ],
+          multiSelect: false,
+        },
+      ],
+    },
+    actor: { type: 'agent', name: 'sdk-permission' },
+  }
+
+  it('renders options as a choice card and submits selected answers', () => {
+    const onDecision = vi.fn()
+    render(
+      <WorkspaceComposer
+        {...baseProps()}
+        run={{ ...completedRun, status: 'running', finished_at: null }}
+        isActive
+        permissions={[questionPermission]}
+        onDecision={onDecision}
+      />,
+    )
+
+    // 选择题形态，不是 Allow/Deny 授权卡
+    expect(screen.queryByText('Allow once')).toBeNull()
+    const submit = screen.getByText('提交回答')
+    expect(submit).toBeDisabled()
+
+    fireEvent.click(screen.getByText('改善维护性'))
+    expect(submit).not.toBeDisabled()
+    fireEvent.click(submit)
+
+    expect(onDecision).toHaveBeenCalledWith('perm_q1', 'allow_once', {
+      '重构的主要目的是什么？': '改善维护性',
+    })
+  })
+
+  it('skip falls back to deny so the agent proceeds on stated assumptions', () => {
+    const onDecision = vi.fn()
+    render(
+      <WorkspaceComposer
+        {...baseProps()}
+        run={{ ...completedRun, status: 'running', finished_at: null }}
+        isActive
+        permissions={[questionPermission]}
+        onDecision={onDecision}
+      />,
+    )
+    fireEvent.click(screen.getByText('跳过（按现有信息继续）'))
+    expect(onDecision).toHaveBeenCalledWith('perm_q1', 'deny')
+  })
+})

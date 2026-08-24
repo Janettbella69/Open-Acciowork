@@ -68,7 +68,7 @@ def test_runtime_options_keep_the_governance_envelope(tmp_path: Path) -> None:
     assert options.setting_sources == []
     assert options.strict_mcp_config is True
     # Standard mode: one main Agent, no delegation, no role teams.
-    assert options.disallowed_tools == ["Agent"]
+    assert options.disallowed_tools == []
     assert options.agents is None
     # Credential blanking happens before profile credential injection.
     for name in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN"):

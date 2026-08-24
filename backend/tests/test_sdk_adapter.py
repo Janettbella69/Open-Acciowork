@@ -48,7 +48,7 @@ def test_default_sdk_options_keep_the_agent_general_and_observable(tmp_path: Pat
     assert options.include_hook_events is True
     assert options.thinking == {"type": "adaptive", "display": "summarized"}
     assert options.tools == {"type": "preset", "preset": "claude_code"}
-    assert options.disallowed_tools == ["Agent"]
+    assert options.disallowed_tools == []
     assert options.system_prompt["preset"] == "claude_code"
     assert "不要把请求强制归入预设意图" in options.system_prompt["append"]
     assert runtime._query_prompt(run) == "Start"

@@ -281,6 +281,8 @@ READ_ONLY_MCP_TOOL_NAMES = [
 ]
 
 READ_ONLY_BUILTIN_TOOLS = ["Read", "Glob", "Grep", "WebSearch", "WebFetch"]
+# 结构化追问（CLI 内置工具，经 can_use_tool 到达；答案经 updated_input 回传）。
+CLARIFYING_TOOL = "AskUserQuestion"
 WRITE_BUILTIN_TOOLS = ["Write", "Edit"]
 SHELL_BUILTIN_TOOLS = ["Bash"]
 DELEGATION_TOOL = "Agent"

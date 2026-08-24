@@ -33,7 +33,7 @@ class ProviderConfigurationError(RuntimeError):
 
 
 class FileSecretVault:
-    """Local-MVP key-vault port. The file is never served and is mode 0600."""
+    """Local key-vault port. The file is never served and is mode 0600."""
 
     def __init__(self, root: Path) -> None:
         self.root = root.resolve()

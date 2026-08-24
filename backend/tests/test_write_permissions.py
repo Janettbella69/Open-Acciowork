@@ -208,3 +208,34 @@ async def test_pre_tool_hook_forces_bash_to_ask_instead_of_sandbox_auto_allow(
         None,
     )
     assert write_ledger["hookSpecificOutput"]["permissionDecision"] == "deny"
+
+
+@pytest.mark.asyncio
+async def test_subagent_ledger_writes_are_denied_code_level(tmp_path: Path) -> None:
+    """§6.1 红线：账本写入只属主 Agent——子代理调用不进 broker、直接代码级拒绝。"""
+    ledger, permissions, runtime = build_runtime(tmp_path)
+    project = ledger.create_project(ProjectCreate(name="Kettle", objective="Validate"))
+    run = ledger.create_run(project.id, "Start")
+    options = runtime._build_options(run)
+
+    deny = await options.can_use_tool(
+        "mcp__ophira_ledger__record_evidence", {}, FakeToolContext(agent_id="sub_researcher")
+    )
+    assert isinstance(deny, PermissionResultDeny)
+    assert "主 Agent" in deny.message
+    assert permissions._pending == {}
+
+    # 同名调用来自主 Agent（无 agent_id）则照常进入 broker 等人审。
+    task = asyncio.create_task(
+        options.can_use_tool("mcp__ophira_ledger__record_evidence", {}, FakeToolContext())
+    )
+    for _ in range(200):
+        if permissions._pending:
+            break
+        await asyncio.sleep(0.01)
+    assert permissions._pending
+    request_id = next(iter(permissions._pending))
+    await permissions.resolve(
+        run.id, request_id, PermissionResolution(decision=PermissionDecision.DENY)
+    )
+    await task

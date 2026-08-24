@@ -283,10 +283,15 @@ export function resolvePermission(
   runId: string,
   requestId: string,
   decision: 'allow_once' | 'allow_run' | 'deny',
+  answers?: Record<string, string | string[]>,
 ): Promise<void> {
   return request<void>(`/api/runs/${runId}/permissions/${requestId}`, {
     method: 'POST',
-    body: JSON.stringify({ decision, reason: decision === 'deny' ? 'Denied by the user.' : '' }),
+    body: JSON.stringify({
+      decision,
+      reason: decision === 'deny' ? 'Denied by the user.' : '',
+      ...(answers ? { answers } : {}),
+    }),
   })
 }
 

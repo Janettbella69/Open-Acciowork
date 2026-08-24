@@ -34,7 +34,10 @@ DEFAULT_AGENT_PROMPT = """# 运行方式
   沙箱内的命令执行是自由的。
 - 需要连续记录多条证据时优先用 record_evidence_batch，一次授权完成批量写入。
 - 不要为了展示过程而调用工具、拆分任务或委派角色。
-- 信息足够时直接推进；只有缺少关键决策、权限或会造成真实外部影响时才询问用户。
+- 什么时候问人：动作不可逆时问；信息缺失时自己找；判断有分歧时用 AskUserQuestion
+  给出 2–4 个选项让用户选，别开放式追问，也别自己脑补。
+- 遇到不理解的字段、工具参数或账本结构，可以直接读这个系统自己的源码
+  （backend/src/ 下），弄明白上层业务逻辑再继续；如果仍然不确定，可以直接问用户。
 - 角色描述代表关注视角，不代表能力边界。
 """
 
@@ -110,8 +113,12 @@ def assemble_default_prompt(
     project_id: str,
     trace_id: str,
     memories: list[MemoryItem],
+    mode_rules: str = "",
 ) -> str:
+    # 段序即缓存策略：固定的往前排，变的收尾（cache 按前缀匹配，一字变则其后全失效）。
     sections = [SECURITY_PREAMBLE, DEFAULT_AGENT_PROMPT]
+    if mode_rules:
+        sections.append(f"# 运行模式\n\n{mode_rules}")
     digest = _memory_digest(memories)
     if digest:
         sections.append(f"# 已批准记忆（可选上下文）\n\n{digest}")
@@ -125,8 +132,14 @@ def assemble_system_prompt(
     core_dir: Path,
     spec: AgentTemplateSpec,
     memories: list[MemoryItem],
+    mode_rules: str = "",
 ) -> str:
-    """Assemble context in the fixed PRD order; security policy always first."""
+    """Assemble context; security policy first, then stable-to-volatile for cache reuse.
+
+    段序即缓存策略（cache 按前缀匹配）：固定区（安全政策/身份/规则/工具/运行模式/
+    SOUL.md）在前，变量区（USER.md 半稳 → MEMORY.md/记忆 digest 随审批变）收尾——
+    记忆一变只失效尾部，不再血洗整个 prompt。
+    """
     sections = [SECURITY_PREAMBLE]
     identity = read_core_file(core_dir, "IDENTITY.md") or spec.identity_md
     sections.append(identity)
@@ -134,15 +147,17 @@ def assemble_system_prompt(
     sections.append(agents_md)
     tools_md = read_core_file(core_dir, "TOOLS.md") or spec.tools_note
     sections.append(tools_md)
-    digest = _memory_digest(memories)
-    if digest:
-        sections.append(f"# 已批准记忆（检索注入）\n\n{digest}")
+    if mode_rules:
+        sections.append(f"# 运行模式\n\n{mode_rules}")
     for name, title in (
-        ("MEMORY.md", "长期记忆"),
-        ("USER.md", "用户画像"),
         ("SOUL.md", "价值观与行为边界"),
+        ("USER.md", "用户画像"),
+        ("MEMORY.md", "长期记忆"),
     ):
         content = read_core_file(core_dir, name)
         if content:
             sections.append(f"# {title}（{name}）\n\n{content}")
+    digest = _memory_digest(memories)
+    if digest:
+        sections.append(f"# 已批准记忆（检索注入）\n\n{digest}")
     return "\n\n---\n\n".join(sections)

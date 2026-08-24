@@ -257,10 +257,11 @@ export function useOpportunityRuntime() {
   const decidePermission = useCallback(async (
     requestId: string,
     decision: 'allow_once' | 'allow_run' | 'deny',
+    answers?: Record<string, string | string[]>,
   ) => {
     if (!run) return
     try {
-      await resolvePermission(run.id, requestId, decision)
+      await resolvePermission(run.id, requestId, decision, answers)
     } catch (permissionError) {
       setError(errorMessage(permissionError))
     }

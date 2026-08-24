@@ -47,7 +47,7 @@ These rules apply to every contributor and AI agent in this repository.
 
 ## Verification and delivery
 
-- Keep changes small and focused. Cut optional MVP scope before compromising the core architecture or correctness.
+- Keep changes small and focused. Cut optional scope before compromising the core architecture or correctness; never frame work as an MVP or a demo — build the real product.
 - Add tests for changed behavior and protocol contracts.
 - Run the relevant test, lint, and build commands from the directory being changed.
 - Commit and push verified work promptly. Stage only files owned by the current task; never sweep in another agent's unfinished changes.

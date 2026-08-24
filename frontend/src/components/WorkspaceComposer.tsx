@@ -2,9 +2,11 @@ import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'r
 import Markdown from 'react-markdown'
 import {
   dimensions,
+  type AskUserQuestionItem,
   type OpportunityProject,
   type OphiraEvent,
   type PendingPermission,
+  type PermissionAnswers,
   type RunMode,
   type RunRecord,
 } from '../api/types'
@@ -38,7 +40,92 @@ type WorkspaceComposerProps = {
   onNewResearch: () => void
   onSelectProject: (projectId: string) => void
   onCancel: () => void
-  onDecision: (requestId: string, decision: 'allow_once' | 'allow_run' | 'deny') => void
+  onDecision: (
+    requestId: string,
+    decision: 'allow_once' | 'allow_run' | 'deny',
+    answers?: PermissionAnswers,
+  ) => void
+}
+
+function parseQuestions(toolInput: unknown): AskUserQuestionItem[] {
+  if (!toolInput || typeof toolInput !== 'object') return []
+  const questions = (toolInput as { questions?: unknown }).questions
+  if (!Array.isArray(questions)) return []
+  return questions.filter(
+    (item): item is AskUserQuestionItem =>
+      !!item && typeof item === 'object'
+      && typeof (item as AskUserQuestionItem).question === 'string'
+      && Array.isArray((item as AskUserQuestionItem).options),
+  )
+}
+
+type QuestionCardProps = {
+  permission: PendingPermission
+  questions: AskUserQuestionItem[]
+  onDecision: WorkspaceComposerProps['onDecision']
+}
+
+function QuestionCard({ permission, questions, onDecision }: QuestionCardProps) {
+  const [selected, setSelected] = useState<Record<string, string[]>>({})
+
+  const toggle = (question: AskUserQuestionItem, label: string) => {
+    setSelected((current) => {
+      const existing = current[question.question] ?? []
+      if (question.multiSelect) {
+        const next = existing.includes(label)
+          ? existing.filter((item) => item !== label)
+          : [...existing, label]
+        return { ...current, [question.question]: next }
+      }
+      return { ...current, [question.question]: [label] }
+    })
+  }
+
+  const complete = questions.every((question) => (selected[question.question] ?? []).length > 0)
+
+  const submit = () => {
+    const answers: PermissionAnswers = {}
+    for (const question of questions) {
+      const labels = selected[question.question] ?? []
+      answers[question.question] = question.multiSelect ? labels : (labels[0] ?? '')
+    }
+    onDecision(permission.id, 'allow_once', answers)
+  }
+
+  return (
+    <section className="conversation-permission conversation-question" aria-label="Agent question">
+      <div><span>Agent 需要你的输入</span></div>
+      {questions.map((question) => (
+        <fieldset key={question.question}>
+          <legend>
+            {question.header && <small>{question.header}</small>}
+            <strong>{question.question}</strong>
+          </legend>
+          <div className="conversation-question-options" role={question.multiSelect ? 'group' : 'radiogroup'}>
+            {question.options.map((option) => {
+              const active = (selected[question.question] ?? []).includes(option.label)
+              return (
+                <button
+                  type="button"
+                  key={option.label}
+                  data-active={active || undefined}
+                  aria-pressed={active}
+                  onClick={() => toggle(question, option.label)}
+                >
+                  <strong>{option.label}</strong>
+                  {option.description && <small>{option.description}</small>}
+                </button>
+              )
+            })}
+          </div>
+        </fieldset>
+      ))}
+      <div>
+        <button type="button" disabled={!complete} onClick={submit}>提交回答</button>
+        <button type="button" onClick={() => onDecision(permission.id, 'deny')}>跳过（按现有信息继续）</button>
+      </div>
+    </section>
+  )
 }
 
 const quickStarts = [
@@ -540,16 +627,31 @@ export default function WorkspaceComposer({
                   </div>
                 )}
 
-                {permissions.map((permission) => (
-                  <section className="conversation-permission" key={permission.id} aria-label={`Approval for ${permission.toolName}`}>
-                    <div><span>Approval required</span><strong>{permission.actor.name} wants to use {permission.toolName}</strong></div>
-                    <div>
-                      <button type="button" onClick={() => onDecision(permission.id, 'allow_once')}>Allow once</button>
-                      <button type="button" onClick={() => onDecision(permission.id, 'allow_run')}>Allow for run</button>
-                      <button type="button" onClick={() => onDecision(permission.id, 'deny')}>Deny</button>
-                    </div>
-                  </section>
-                ))}
+                {permissions.map((permission) => {
+                  if (permission.toolName === 'AskUserQuestion') {
+                    const questions = parseQuestions(permission.toolInput)
+                    if (questions.length > 0) {
+                      return (
+                        <QuestionCard
+                          key={permission.id}
+                          permission={permission}
+                          questions={questions}
+                          onDecision={onDecision}
+                        />
+                      )
+                    }
+                  }
+                  return (
+                    <section className="conversation-permission" key={permission.id} aria-label={`Approval for ${permission.toolName}`}>
+                      <div><span>Approval required</span><strong>{permission.actor.name} wants to use {permission.toolName}</strong></div>
+                      <div>
+                        <button type="button" onClick={() => onDecision(permission.id, 'allow_once')}>Allow once</button>
+                        <button type="button" onClick={() => onDecision(permission.id, 'allow_run')}>Allow for run</button>
+                        <button type="button" onClick={() => onDecision(permission.id, 'deny')}>Deny</button>
+                      </div>
+                    </section>
+                  )
+                })}
 
                 {project && hasProjectTruth && (
                   <details className="conversation-project-truth">

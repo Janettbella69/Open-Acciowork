@@ -235,6 +235,8 @@ class RunSummary(APIModel):
 class PermissionResolution(APIModel):
     decision: PermissionDecision
     reason: str = Field(default="", max_length=2_000)
+    # AskUserQuestion 结构化追问的回答：{问题原文: 选项 label 或 label 列表}。
+    answers: dict[str, str | list[str]] | None = None
 
 
 class AgentProfile(APIModel):

@@ -217,7 +217,7 @@ def create_app(
         if not content:
             raise HTTPException(status_code=400, detail="File is empty")
         if len(content) > 50 * 1024 * 1024:
-            raise HTTPException(status_code=413, detail="File exceeds the 50 MB MVP limit")
+            raise HTTPException(status_code=413, detail="File exceeds the 50 MB upload limit")
         try:
             return ledger.save_upload(project_id, filename, content, mime=mime)
         except (LedgerNotFoundError, ValueError) as exc:

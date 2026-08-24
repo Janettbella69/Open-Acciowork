@@ -83,7 +83,7 @@ v2.0 的核心新判断：**架构目标已基本代码就绪，当前最大风�
 **已实现（大部分在未提交的工作树中）：**
 
 - `ClaudeAgentOptions` 已使用 `claude_code` tools preset 和 system prompt preset+append（`sdk_adapter.py`），并启用 `sandbox`（v2.2 起 `autoAllowBashIfSandboxed=True`〔SDK 原生默认，2026-08-24 拍板恢复〕、`allowUnsandboxedCommands=False`、`failIfUnavailable=True`）、`enable_file_checkpointing`、`thinking={"type":"adaptive","display":"summarized"}`、`max_budget_usd`、`include_partial_messages/include_hook_events`。
-- 四专业 Agent（Opportunity Lead + 需求/供应/资金/销售）**已删除**；普通模式 `agents=None` 且 `disallowed_tools=["Agent"]`；Deep Research 模式仅注入 3 个只读研究子代理（`source-mapper`/`multilingual-researcher`/`conflict-verifier`，各自禁 Write/Edit/Bash/Agent/Task）。
+- 四专业 Agent（Opportunity Lead + 需求/供应/资金/销售）**已删除**；普通模式 `agents=None`、`disallowed_tools=[]`（v2.2：原生支线子代理开放，账本写入对子代理代码级拒绝）；Deep Research 模式另注入 3 个只读研究子代理（`source-mapper`/`multilingual-researcher`/`conflict-verifier`，各自禁 Write/Edit/Bash/Agent/Task）。
 - 应用托管 Plugin `ophira-core` 已建成（4 个 Skill：`global-opportunity-execution`、`supplier-due-diligence`、`landed-cost-analysis`、`customer-path`，均有合法 frontmatter）。
 - 6 个进程内 MCP server 共 21 个工具（`ophira_ledger`/`supplier`/`customer`/`commerce_math`/`web`/`automation`），`strict_mcp_config=True`，工具描述统一带"不代替商业判断"声明（v2.2 收敛至教材"20 个左右"口径：legacy 视图工具已删、market 域并入账本，见 §4.6）。
 - Provider Registry + 文件密钥库（0600/0700 + 原子写）+ SDK 预检（真实 `query()` 路径，断言 Skill 发现与 MCP health 调用）+ 8 类错误码分类已实现（`providers.py`）。
@@ -303,7 +303,7 @@ Accio 同时也**抬高了 table stakes**：权限四态与审计日志、分层
 - **自动化**：真实连接后端定时任务，展示下次运行、最近结果、失败原因和通知策略。（后端已就绪，前端仍是本地草稿——P0 收尾项。）
 - **设置**：模型 Provider、Key、数据区域、MCP 连接器、浏览器/桌面桥、权限策略与隐私。（当前完全缺 Provider UI——P0 收尾项。）
 
-### 3.7 MVP 范围
+### 3.7 首发范围（v2.2 更名：抛弃 MVP/demo 概念，教材口径——做真产品，只是还没上线）
 
 #### P0：必须交付（△=代码已就绪待打通/验证，✗=未开始）
 
@@ -344,7 +344,7 @@ Accio 同时也**抬高了 table stakes**：权限四态与审计日志、分层
 - 不把四个维度做成固定四 Agent 或必经工作流。
 - 不用普通模型 API 或其他 Agent 框架实现降级路径。
 - 不承诺没有授权数据源支撑的"官方实时销量""平台内部趋势"。
-- 不在 MVP 中自动下单、付款、群发询盘或未经确认修改线上店铺。
+- 首发不自动下单、付款、群发询盘或未经确认修改线上店铺。
 - 不用向量库自动写入所有对话来替代可审核的长期记忆。
 - 不在一个共享宿主目录里让不同用户的 Agent 执行 Bash。
 
@@ -597,7 +597,7 @@ v2.0 增补建议（不改变红线，按需采纳）：
 - **`output_format`**：对"运行结束生成结构化摘要"这类需要严格 schema 的输出，可用 JSON Schema 约束 result；不用于替代自由产物。
 - **`fallback_model`**：同一 Provider 内的模型降级（例如主模型限流时回退同厂商小模型）；跨 Provider 切换仍必须显式走 Profile，不自动。
 - **`user`** 字段：传租户/用户标识用于审计与成本归集。
-- **普通模式只读子代理（提案）**：**已否决（2026-08-24 用户拍板"只用一个 Agent"，教材口径：多 Agent 仅 Deep Research/大规模并发等例外）**。普通模式永久单主 Agent（`disallowed_tools=["Agent"]`、`agents=None`，测试断言维持）；Deep Research 子代理也不再设 maxTurns（同拍板，预算由主 run 统一约束）。
+- **普通模式支线子代理：已开放（2026-08-24 终版拍板"按原生能力来做"）**。`disallowed_tools=[]`、`Agent` 工具进 allowed_tools（派遣动作无副作用自动放行）；普通模式用的是 SDK 内置 general-purpose/Explore 等一次性子代理（上下文隔离、只带回摘要），`agents=None` 不自造；主线不撒手、九成五任务用不到的经验劝阻写在运行模式规则里；**账本写入与自动化承诺对子代理在 `can_use_tool` 代码级拒绝**（§6.1 红线"账本写入只属主 Agent"不变）。Deep Research 模式另注入 3 个只读研究子代理定义（无 maxTurns，预算随主 run）。
 - 预检配置维持独立收紧版：`permission_mode="dontAsk"`、仅 health 工具自动批准、`disallowed_tools=["Agent","Write","Edit","Bash"]`、`max_turns=4`、预算 ≤0.25 USD。
 
 ### 4.5 OPHIRA 系统提示词边界（不变）
@@ -770,7 +770,7 @@ v1.1 规划仍缺的事件：`artifact.updated`、`evidence.added`、`decision.r
 
 ### 4.13 部署拓扑（不变，两处更新）
 
-**本地优先 MVP**：React + FastAPI + 本地隔离 Agent worker；项目和产物留在本机工作区；独立配置目录与沙箱进程；未来加桌面壳/桌面桥。
+**本地优先形态**：React + FastAPI + 本地隔离 Agent worker；项目和产物留在本机工作区；独立配置目录与沙箱进程；未来加桌面壳/桌面桥。
 
 **云端 SaaS**：Control Plane 与 Agent Runner 分离；按租户隔离的短生命周期容器/微虚机；只读 Plugin、临时 Claude 配置目录、短期密钥；出网按 Provider/MCP 域名 allowlist；浏览器能力经本地 Bridge/Relay（不上传登录 Cookie）；**session transcript 用 SDK `session_store` 适配器外置**（更新：官方能力已可用）；多租户隔离遵循官方 hosting 指引三件套（`setting_sources=[]` + `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1` + 每租户 `CLAUDE_CONFIG_DIR`/`cwd`）。绝不让多租户 Agent 在 Control Plane 宿主上直接执行 Bash。
 
@@ -871,7 +871,7 @@ PATCH  /api/schedules/{id}
 
 - 核心后端依赖存在 `claude-agent-sdk`；业务代码不得导入 OpenAI Client、Anthropic Client、LangGraph、LangChain 或 Dify SDK 实现 Agent。
 - `ClaudeAgentOptions.tools` 使用 `claude_code` preset；`system_prompt` 使用 preset + `append`。
-- 普通模式无子代理（`disallowed_tools=["Agent"]`、`agents=None`，v2.2 拍板永久）；Deep Research 子代理仅限只读临时研究定义（禁 Write/Edit/Bash/Agent/Task，无轮数上限、预算随主 run）；账本写入工具对子代理不可见；任何模式无固定角色团队。
+- 普通模式主线单 Agent + 原生支线子代理（内置 general-purpose/Explore，一次性、只带回摘要；v2.2 终版拍板"按原生能力来做"）；账本写入与自动化承诺工具对子代理代码级拒绝（can_use_tool，有测试）；Deep Research 子代理仅限只读临时研究定义；任何模式无固定角色团队、无平行 Agent、无自造子代理机制。
 - 应用 Skill 由 Plugin/`SKILL.md` 提供；不得把 prompt 从数据库拼进用户消息冒充 Skill。
 - MCP 显式传入 SDK，`strict_mcp_config=True`。
 - （新增）`sandbox.enabled=True`、`allowUnsandboxedCommands=False`、`failIfUnavailable=True` 不得被关闭；`autoAllowBashIfSandboxed=True`（SDK 原生默认，v2.2 拍板，不得改回强制 ask）；worker env 构建必须先清空三个模型凭据变量。
@@ -910,7 +910,7 @@ PATCH  /api/schedules/{id}
 | **零真实运行验证**（新增） | Phase 0 出口=真实端点 Green Path 3 连过，不以单元测试代替 | — |
 | SDK 版本策略（新增） | 先在 0.2.82 上过 Green Path，再评估升级 0.2.142（跑合约测试，逐 Provider 认证） | SDK 安全公告或必需能力（如 session_store）出现 |
 | 首发业务范围 | 围绕"发现需求、组织供给、连接客户并走向成交"的通用闭环收敛，不用单个平台定义产品 | 用户研究证明某细分任务值得专门入口（仍作为 Skill/连接器） |
-| 市场数据许可 | MVP 公开来源 + 用户文件 + 授权连接器，清楚标代理信号 | 宣传"实时销量/官方趋势"前必须取得数据许可 |
+| 市场数据许可 | 首发公开来源 + 用户文件 + 授权连接器，清楚标代理信号 | 宣传"实时销量/官方趋势"前必须取得数据许可 |
 | 本地还是 SaaS | 先修通本地隔离 runtime；控制面保持可云化 | 需要团队共享、集中计费或跨设备自动化 |
 | BYOK 还是托管 | 架构同时支持；早期 BYOK 降低供应风险，并把"成本=厂商牌价+逐运行熔断"做成对 Accio 积分制的显性优势 | 付费转化要求一键使用和统一账单 |
 | 国产 Provider 商用资格 | 协议兼容与商用资格分开；默认只上架已审查套餐；Coding Plan 一律排除 | 厂商条款、套餐或 Base URL 变化 |

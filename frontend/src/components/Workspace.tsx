@@ -91,7 +91,8 @@ export default function Workspace() {
       onNewResearch={() => void startNewResearch()}
       onSelectProject={(projectId) => void selectSavedProject(projectId)}
       onCancel={() => void runtime.cancel()}
-      onDecision={(requestId, decision) => void runtime.decidePermission(requestId, decision)}
+      onDecision={(requestId, decision, answers) =>
+        void runtime.decidePermission(requestId, decision, answers)}
     />
   )
 }

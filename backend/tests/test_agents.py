@@ -100,7 +100,7 @@ def test_single_agent_options_gate_write_tools_and_pass_resume(tmp_path: Path) -
     assert "Write" not in options.allowed_tools
     assert "Edit" not in options.allowed_tools
     assert "Bash" not in options.allowed_tools
-    assert options.disallowed_tools == ["Agent"]
+    assert options.disallowed_tools == []
     assert options.system_prompt["preset"] == "claude_code"
     assert "安全政策" in options.system_prompt["append"]
     assert options.plugins[0]["path"].endswith("ophira-capabilities")
@@ -119,7 +119,7 @@ def test_opportunity_template_is_a_normal_single_agent(tmp_path: Path) -> None:
     options = runtime._build_options(run)
 
     assert options.agents is None
-    assert options.disallowed_tools == ["Agent"]
+    assert options.disallowed_tools == []
 
 
 def test_deep_research_must_be_explicit_and_subagents_are_read_only(tmp_path: Path) -> None:

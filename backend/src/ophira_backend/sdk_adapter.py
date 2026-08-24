@@ -29,9 +29,10 @@ from claude_agent_sdk import (
 
 from .agent_core import MAX_MEMORY_ITEMS, assemble_default_prompt, assemble_system_prompt
 from .agents import build_deep_research_agents
-from .config import Settings
+from .config import BACKEND_DIR, Settings
 from .constants import (
     AUTOMATION_MCP_SERVER_NAME,
+    CLARIFYING_TOOL,
     DELEGATION_TOOL,
     ENVELOPE_APPROVED_MCP_TOOL_NAMES,
     READ_ONLY_BUILTIN_TOOLS,
@@ -307,22 +308,30 @@ class ClaudeAgentRuntime:
                 ],
                 limit=MAX_MEMORY_ITEMS,
             )
-        if agent and spec:
-            prompt = assemble_system_prompt(
-                agent,
-                self.ledger.agent_core_dir(agent.id),
-                spec,
-                memories,
-            )
-        else:
-            prompt = assemble_default_prompt(run.project_id, run.trace_id, memories)
         mode_rules = (
             "Deep Research 已由用户显式开启。临时子 Agent 只能做只读来源研究；"
             "你负责汇总、去重、处理冲突，并且只有你能写最终项目真相。"
             if run.mode == RunMode.DEEP_RESEARCH
-            else "当前是常规单 Agent 模式。不得尝试创建子 Agent；按需使用原生工具、Skill 与 MCP。"
+            else (
+                "主线由你一以贯之地干完，不把主线工作交给别人。"
+                "只有当一个独立支线任务会产生大量脏上下文（例如翻几十个网页或文件）时，"
+                "才值得派一个一次性子代理去做并只取回摘要——前辈经验是九成五的任务用不到它。"
+                "不要把修复你自己刚做的事交给子代理（它没有你的上下文），"
+                "账本记录永远由你本人完成。"
+            )
         )
-        return f"{prompt}\n\n---\n\n# 运行模式\n\n{mode_rules}"
+        # 运行模式是固定文案，进稳定前缀；每 run 变的 trace_id 由 assemble 收尾。
+        if agent and spec:
+            return assemble_system_prompt(
+                agent,
+                self.ledger.agent_core_dir(agent.id),
+                spec,
+                memories,
+                mode_rules=mode_rules,
+            )
+        return assemble_default_prompt(
+            run.project_id, run.trace_id, memories, mode_rules=mode_rules
+        )
 
     def _build_options(self, run: RunRecord) -> ClaudeAgentOptions:
         agent = self.ledger.get_agent(run.agent_id) if run.agent_id else None
@@ -330,6 +339,19 @@ class ClaudeAgentRuntime:
         deep_research = run.mode == RunMode.DEEP_RESEARCH
 
         async def can_use_tool(tool_name: str, tool_input: dict[str, Any], context):
+            # §6.1 红线：账本写入与自动化承诺只属主 Agent。支线子代理（原生
+            # general-purpose/Explore 等）做研究与计算，把发现带回主线落账。
+            if (
+                getattr(context, "agent_id", None)
+                and tool_name.startswith("mcp__ophira_")
+                and tool_name not in READ_ONLY_MCP_TOOL_NAMES
+            ):
+                return PermissionResultDeny(
+                    message=(
+                        "子代理只读：账本写入与自动化承诺只属主 Agent（PRD §6.1）。"
+                        "请把结论带回主线，由主 Agent 记录。"
+                    )
+                )
             if tool_name in WRITE_BUILTIN_TOOLS:
                 candidate = tool_input.get("file_path")
                 if not _path_within(workspace, candidate if isinstance(candidate, str) else None):
@@ -352,7 +374,20 @@ class ClaudeAgentRuntime:
                 PermissionDecision.ALLOW_ONCE,
                 PermissionDecision.ALLOW_RUN,
             }:
+                if tool_name == CLARIFYING_TOOL:
+                    # 官方回传形态（docs/claude-agent-sdk/user-input.md）：
+                    # answers = {问题原文: 选中选项 label（多选为 label 列表）}。
+                    return PermissionResultAllow(
+                        updated_input={
+                            "questions": tool_input.get("questions", []),
+                            "answers": resolution.answers or {},
+                        }
+                    )
                 return PermissionResultAllow()
+            if tool_name == CLARIFYING_TOOL:
+                return PermissionResultDeny(
+                    message="用户跳过了这些问题。按现有信息继续，并明确说明你所做的假设。",
+                )
             return PermissionResultDeny(
                 message=resolution.reason or "The user denied this tool call.",
             )
@@ -399,8 +434,12 @@ class ClaudeAgentRuntime:
                 # Envelope-approved automation tools (§4.10): inbox delivery and
                 # throttled intent firing work unattended inside scheduled runs.
                 *ENVELOPE_APPROVED_MCP_TOOL_NAMES,
+                # 2026-08-24 拍板"按原生能力来做"：支线子代理开放，派遣动作
+                # 自动放行（无副作用）；子代理内部的工具调用仍逐项过权限，
+                # 账本写入在 can_use_tool 对子代理代码级拒绝。
+                DELEGATION_TOOL,
             ],
-            disallowed_tools=[] if deep_research else [DELEGATION_TOOL],
+            disallowed_tools=[],
             system_prompt={
                 "type": "preset",
                 "preset": "claude_code",
@@ -463,20 +502,18 @@ class ClaudeAgentRuntime:
                 if candidate_key and tool_input.get(candidate_key):
                     candidate = tool_input.get(candidate_key)
                     # 读权限与动作权限分开（PRD §4.10"Read/Glob/Grep 项目内自动允许"）：
-                    # 只读工具围栏=项目目录（含账本 project.json 等原始数据，兜住 MCP
-                    # 查询接口覆盖不了的意料之外分析）；写入围栏仍=工作区。
-                    fence = (
-                        workspace
-                        if str(tool_name) in ("Write", "Edit")
-                        else workspace.parent
-                    )
-                    fence_name = (
-                        "project workspace"
-                        if str(tool_name) in ("Write", "Edit")
-                        else "project directory"
-                    )
-                    if not isinstance(candidate, str) or not _contained(
-                        workspace, fence, candidate
+                    # 写入围栏=工作区；只读围栏=白名单（2026-08-24 Q2 拍板，窄档）：
+                    #   自己项目目录（账本 project.json 等原始数据）+ backend/src（系统
+                    #   源码——在线理解字段与工具背后的业务逻辑，教材"开放代码库"）。
+                    # backend/data 下其他项目的账本不在名单内：能力越自由，权限越收窄。
+                    if str(tool_name) in ("Write", "Edit"):
+                        fences = [workspace]
+                        fence_name = "project workspace"
+                    else:
+                        fences = [workspace.parent, (BACKEND_DIR / "src").resolve()]
+                        fence_name = "read allowlist (project directory, backend/src)"
+                    if not isinstance(candidate, str) or not any(
+                        _contained(workspace, fence, candidate) for fence in fences
                     ):
                         return {
                             "hookSpecificOutput": {

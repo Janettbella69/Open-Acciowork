@@ -301,3 +301,17 @@ export type PendingPermission = {
   toolInput: unknown
   actor: EventActor
 }
+
+export type AskUserQuestionOption = {
+  label: string
+  description?: string
+}
+
+export type AskUserQuestionItem = {
+  question: string
+  header?: string
+  options: AskUserQuestionOption[]
+  multiSelect?: boolean
+}
+
+export type PermissionAnswers = Record<string, string | string[]>

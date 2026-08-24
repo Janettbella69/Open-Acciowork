@@ -13,7 +13,7 @@ OPHIRA：面向出海小 B 的 AI 全球商业系统，对标 Accio Work。一�
 
 - 核心 Agent 只能经 `ClaudeSDKClient`/`query()` 驱动；禁止 OpenAI/Anthropic 裸 Client、LangGraph/LangChain/Dify、手写工具循环。
 - `tools` 与 `system_prompt` 用 `claude_code` preset；`setting_sources=[]`；应用 Skills 只经本地 Plugin（`backend/ophira-capabilities/`）装载；`strict_mcp_config=True`。
-- 普通模式单主 Agent：`disallowed_tools=["Agent"]`、`agents=None`（有测试断言，"只读临时子代理"放宽提案待用户拍板，勿自行放开）；仅 Deep Research 模式注入 3 个只读研究子代理。
+- 主线单 Agent + 原生支线子代理（2026-08-24 拍板"按原生能力来做"）：普通模式 `disallowed_tools=[]`、`agents=None`（内置 general-purpose/Explore 一次性支线，只带回摘要，不自造机制）；**账本写入与自动化承诺对子代理在 can_use_tool 代码级拒绝**（有测试）；仅 Deep Research 模式注入 3 个只读研究子代理；任何模式禁平行 Agent/固定角色团队。
 - `sandbox.enabled=True`、`allowUnsandboxedCommands=False`、`failIfUnavailable=True` 不得关闭；`autoAllowBashIfSandboxed=True`（SDK 原生默认，2026-08-24 拍板恢复，不得改回强制 ask）；worker env 必须先清空 `ANTHROPIC_API_KEY`/`ANTHROPIC_AUTH_TOKEN`/`CLAUDE_CODE_OAUTH_TOKEN` 再注入所选 Provider 的唯一凭据。
 - 国产模型只走各厂商官方 Anthropic 兼容端点（Provider Profile），不做 OpenAI 协议转换；Coding Plan 套餐 Key 禁止进入后端（条款红线，见 PRD §4.9）。
 - `claude-agent-sdk` 钉 `0.2.82`；升级必须先跑 Provider 合约测试。
@@ -84,6 +84,12 @@ npm run lint && npm run build
 - **MCP**（ledger_tools.py + web_tools.py + automation_tools.py）：6 个进程内 server 共 21 工具（ledger/supplier/customer/commerce_math/web/automation），工具描述一律声明"不代替商业判断"；v2.2 收敛：legacy 视图工具已删、market 域并入账本证据标签（教材"相同域合并"，用户拍板 MCP≈20）。
 - **记忆**（memory.py）：Agent 只能提案，用户批准后生效；agent 作用域批准项经 marker 行镜像进该 Agent 的 `MEMORY.md`。
 - **前端四页**（App.tsx 路由）：`/app` Workspace（WorkspaceComposer 为主体）、`/app/schedules`、`/app/skills`、`/app/settings`；`/` 是营销页。
+
+## 给开发 Agent 的工作法（教材 CLAUDE.md 要点）
+
+- 不做 MVP，不分阶段，不兼容老版本——直接把架构里的功能一次做完；任何地方不要出现 MVP/demo 字样（做的是真产品，只是还没上线）。
+- 讨论方案的时候只读不写；拍板后再动代码。
+- 犯错被纠正时，把教训写进记忆（用户级 auto-memory 或本仓文档），下次不再犯。
 
 ## 数据与验证纪律
 
