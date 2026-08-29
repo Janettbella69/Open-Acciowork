@@ -10,6 +10,7 @@ const completedRun: RunRecord = {
   trace_id: 'trace_1',
   project_id: 'project_1',
   prompt: 'Review this market',
+  agent_id: null,
   mode: 'standard',
   provider_profile_id: null,
   provider_snapshot: null,
@@ -73,8 +74,11 @@ describe('WorkspaceComposer', () => {
     expect(screen.getByRole('heading', { level: 1, name: /what can i do for you/i })).toBeInTheDocument()
     expect(screen.getByRole('textbox', { name: /ask trademind/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /send/i })).toBeDisabled()
-    expect(screen.getByRole('link', { name: /agent workspace/i })).toHaveAttribute('href', '/app')
-    expect(screen.getByRole('link', { name: /skill studio/i })).toHaveAttribute('href', '/app/skills')
+    expect(screen.getByRole('link', { name: /^agents$/i })).toHaveAttribute('href', '/app/agents')
+    expect(screen.getByRole('link', { name: /^plugins$/i })).toHaveAttribute('href', '/app/plugins')
+    expect(screen.queryByRole('link', { name: /^connectors$/i })).not.toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /mobile/i })).toHaveAttribute('href', '/app/mobile')
+    expect(screen.getByRole('button', { name: /new task/i })).toBeInTheDocument()
     expect(screen.queryByText('Workspace')).not.toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: /agent team/i })).not.toBeInTheDocument()
     expect(screen.queryByRole('combobox', { name: /run mode/i })).not.toBeInTheDocument()
@@ -125,7 +129,8 @@ describe('WorkspaceComposer', () => {
 
     expect(screen.getByRole('heading', { level: 1, name: 'What can I do for you?' })).toBeInTheDocument()
     expect(screen.getByRole('textbox', { name: '询问 TradeMind' })).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: /Agent 工作台/ })).toHaveAttribute('href', '/app')
+    expect(screen.getByRole('link', { name: '智能体' })).toHaveAttribute('href', '/app/agents')
+    expect(screen.getByRole('link', { name: '插件' })).toHaveAttribute('href', '/app/plugins')
     expect(screen.getByText('TM')).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: '打开 TradeMind 工作台账户菜单' }))

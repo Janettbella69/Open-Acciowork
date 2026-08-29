@@ -6,6 +6,10 @@ function importedBrief(): string {
   return new URLSearchParams(window.location.search).get('brief') ?? ''
 }
 
+function importedAgentId(): string | null {
+  return new URLSearchParams(window.location.search).get('agent')
+}
+
 function normalizeWorkspaceUrl(): void {
   const canonicalUrl = new URL(window.location.href)
   canonicalUrl.searchParams.delete('brief')
@@ -14,8 +18,11 @@ function normalizeWorkspaceUrl(): void {
 
 export default function Workspace() {
   const runtime = useOpportunityRuntime()
+  const agentId = importedAgentId()
   const [briefInput, setBriefInput] = useState(importedBrief)
-  const [notice, setNotice] = useState(importedBrief() ? 'Brief imported from the website.' : '')
+  const [notice, setNotice] = useState(importedBrief()
+    ? 'Brief imported from the website.'
+    : agentId ? 'Agent selected. Start a conversation to use it.' : '')
   const [attachedFiles, setAttachedFiles] = useState<File[]>([])
 
   const runAnalysis = async (event: React.FormEvent<HTMLFormElement>) => {
@@ -26,9 +33,9 @@ export default function Workspace() {
     setNotice('Starting TradeMind…')
     try {
       if (runtime.project) {
-        await runtime.continueProject(brief, attachedFiles, 'standard')
+        await runtime.continueProject(brief, attachedFiles, 'standard', agentId)
       } else {
-        await runtime.start(brief, attachedFiles, 'standard')
+        await runtime.start(brief, attachedFiles, 'standard', agentId)
       }
       normalizeWorkspaceUrl()
       setBriefInput('')

@@ -35,6 +35,10 @@ The repository now contains two connected React surfaces:
 - `/` — the TradeMind marketing site and product story.
 - `/app` — the interactive AI global commerce workspace.
 
+The product rail also opens Agents (`/app/agents`), a Plugins hub (`/app/plugins`)
+with Skills and Connectors sections, Scheduled tasks (`/app/schedules`), and Mobile
+pairing preparation (`/app/mobile`).
+
 ### Run locally
 
 Start the backend from the repository root:

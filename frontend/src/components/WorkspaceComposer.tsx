@@ -443,7 +443,7 @@ export default function WorkspaceComposer({
 
             {skillsOpen && (
               <section className="conversation-skills-menu" role="dialog" aria-label={t('Choose a TradeMind skill')}>
-                <header><div><span>{t('Built-in capabilities')}</span><strong>{t('Use a skill')}</strong></div><a href="/app/skills">{t('Skill Studio')} <i aria-hidden="true">→</i></a></header>
+                <header><div><span>{t('Built-in capabilities')}</span><strong>{t('Use a skill')}</strong></div><a href="/app/plugins/skills">{t('Skills')} <i aria-hidden="true">→</i></a></header>
                 <div>
                   {builtInSkills.map((skill) => (
                     <button key={skill.id} type="button" onClick={() => selectSkill(t(skill.prompt))}>
@@ -475,10 +475,10 @@ export default function WorkspaceComposer({
         <a className="conversation-sidebar-brand" href="/" aria-label={t('Back to TradeMind website')}><Brand /></a>
 
         <button className="conversation-new-research" type="button" onClick={onNewResearch}>
-          <span aria-hidden="true">＋</span> {t('New conversation')}
+          <span aria-hidden="true">＋</span> {t('New task')}
         </button>
 
-        <WorkspaceNav active="workspace" />
+        <WorkspaceNav />
 
         <section className="conversation-sidebar-projects" aria-labelledby="sidebar-projects-title">
           <div><h2 id="sidebar-projects-title">{t('Recent projects')}</h2><span>{projects.length}</span></div>

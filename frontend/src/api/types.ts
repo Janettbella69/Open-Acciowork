@@ -13,6 +13,7 @@ export type RunStatus =
   | 'failed'
   | 'cancelled'
 export type RunMode = 'standard' | 'deep_research'
+export type AgentTemplate = 'general' | 'research' | 'sourcing' | 'marketing' | 'docs' | 'opportunity'
 
 export type Hypothesis = {
   id: string
@@ -130,6 +131,7 @@ export type RunRecord = {
   trace_id: string
   project_id: string
   prompt: string
+  agent_id: string | null
   mode: RunMode
   provider_profile_id: string | null
   provider_snapshot: Record<string, unknown> | null
@@ -174,6 +176,18 @@ export type ProtocolMetadata = {
   dimensions: string[]
   project_stages: string[]
   permission_decisions: string[]
+  agent_templates: AgentTemplate[]
+}
+
+export type AgentProfile = {
+  id: string
+  name: string
+  template: AgentTemplate
+  role_description: string
+  model: string | null
+  revision: number
+  created_at: string
+  updated_at: string
 }
 
 export type ProviderCapabilities = {

@@ -1,10 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { errorMessage, listSkills, setSkillEnabled, testSkill } from '../api/client'
 import type { SkillTestResult, SkillVersion } from '../api/types'
-import Brand from './Brand'
-import WorkspaceNav from './WorkspaceNav'
 import { useT } from '../i18n'
-import './workspace-composer.css'
 import './skills-page.css'
 
 function initials(name: string): string {
@@ -65,20 +62,9 @@ export default function SkillsPage() {
   const featured = skills.find((skill) => skill.name === 'global-opportunity-execution')
 
   return (
-    <div className="skills-shell">
-      <aside className="conversation-sidebar skills-sidebar">
-        <a className="conversation-sidebar-brand" href="/" aria-label={t('Back to TradeMind website')}><Brand /></a>
-        <a className="conversation-new-research" href="/app"><span aria-hidden="true">＋</span> {t('New conversation')}</a>
-        <WorkspaceNav active="skills" />
-        <div className="skills-sidebar-note">
-          <strong>{t('Real Plugin Skills')}</strong>
-          <p>{t('Every item below is a versioned SKILL.md discovered by Claude Agent SDK.')}</p>
-        </div>
-      </aside>
-
-      <main className="skills-main">
+    <section className="skills-content" aria-labelledby="skills-page-heading">
         <header className="skills-header">
-          <div className="skills-title-group"><p>{t('Runtime capability registry')}</p><h1>{t('Skills')}</h1></div>
+          <div className="skills-title-group"><p>{t('Runtime capability registry')}</p><h1 id="skills-page-heading">{t('Skills')}</h1></div>
           <div className="skills-view-switch" role="group" aria-label={t('Skill view')}>
             <button type="button" data-active="true">{t('Installed')} <span>{skills.length}</span></button>
           </div>
@@ -159,7 +145,6 @@ export default function SkillsPage() {
             </div>
           )}
         </section>
-      </main>
-    </div>
+    </section>
   )
 }

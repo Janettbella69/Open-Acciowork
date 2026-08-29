@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { OpportunityProject, OphiraEvent, RunRecord } from './api/types'
 import App from './App'
@@ -47,6 +47,7 @@ const run: RunRecord = {
   trace_id: 'trace_test',
   project_id: project.id,
   prompt: project.objective,
+  agent_id: null,
   mode: 'standard',
   provider_profile_id: null,
   provider_snapshot: null,
@@ -144,8 +145,11 @@ describe('TradeMind frontend', () => {
           dimensions: [],
           project_stages: [],
           permission_decisions: [],
+          agent_templates: ['general', 'research', 'sourcing', 'marketing', 'docs', 'opportunity'],
         })
       }
+      if (url.endsWith('/api/agents') && !init?.method) return jsonResponse([])
+      if (url.endsWith('/api/connectors') && !init?.method) return jsonResponse([])
       if (url.endsWith('/api/skills') && !init?.method) return jsonResponse([])
       if (url.endsWith('/api/projects') && !init?.method) return jsonResponse(storedProjects)
       if (url.endsWith('/api/projects') && init?.method === 'POST') return jsonResponse(project, 201)
@@ -166,7 +170,13 @@ describe('TradeMind frontend', () => {
     expect(pageTitle('/')).toBe('TradeMind - AI Global Commerce Workspace')
     expect(pageTitle('/app')).toBe('TradeMind - AI Global Commerce Workspace')
     expect(pageTitle('/app/schedules')).toBe('TradeMind Scheduled - AI Global Commerce Workspace')
+    expect(pageTitle('/app/plugins')).toBe('TradeMind Plugins - AI Global Commerce Workspace')
+    expect(pageTitle('/app/plugins/skills')).toBe('TradeMind Skills - AI Global Commerce Workspace')
     expect(pageTitle('/app/skills')).toBe('TradeMind Skills - AI Global Commerce Workspace')
+    expect(pageTitle('/app/agents')).toBe('TradeMind Agents - AI Global Commerce Workspace')
+    expect(pageTitle('/app/plugins/connectors')).toBe('TradeMind Connectors - AI Global Commerce Workspace')
+    expect(pageTitle('/app/connectors')).toBe('TradeMind Connectors - AI Global Commerce Workspace')
+    expect(pageTitle('/app/mobile')).toBe('TradeMind Mobile - AI Global Commerce Workspace')
     expect(pageTitle('/app/settings')).toBe('TradeMind Settings - AI Global Commerce Workspace')
   })
 
@@ -188,15 +198,41 @@ describe('TradeMind frontend', () => {
     expect(screen.getByRole('button', { name: /launch across every channel/i })).toHaveAttribute('data-panel', 'europe')
   })
 
-  it('routes the product skill studio without replacing the research workspace', async () => {
-    window.history.replaceState({}, '', '/app/skills')
+  it('keeps Plugins, Skills, and Connectors inside one Plugins navigation page', async () => {
+    window.history.replaceState({}, '', '/app/plugins/skills')
     render(<App />)
 
     expect(screen.getByRole('heading', { level: 1, name: 'Skills' })).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: /agent workspace/i })).toHaveAttribute('href', '/app')
-    expect(screen.getByRole('link', { name: /skill studio/i })).toHaveAttribute('aria-current', 'page')
-    expect(screen.getByRole('link', { name: /new conversation/i })).toHaveAttribute('href', '/app')
+    expect(screen.getByRole('link', { name: /^agents$/i })).toHaveAttribute('href', '/app/agents')
+    const pluginLinks = screen.getAllByRole('link', { name: /^plugins$/i })
+    expect(pluginLinks.some((link) => link.getAttribute('aria-current') === 'page' && link.getAttribute('href') === '/app/plugins')).toBe(true)
+    const sections = screen.getByRole('navigation', { name: /plugin sections/i })
+    expect(within(sections).getByRole('link', { name: /^plugins$/i })).toHaveAttribute('href', '/app/plugins')
+    expect(within(sections).getByRole('link', { name: /^skills$/i })).toHaveAttribute('aria-current', 'page')
+    expect(within(sections).getByRole('link', { name: /^connectors$/i })).toHaveAttribute('href', '/app/plugins/connectors')
+    expect(screen.getByRole('link', { name: /new task/i })).toHaveAttribute('href', '/app')
     expect(await screen.findByText(/no plugin skills discovered/i)).toBeInTheDocument()
+  })
+
+  it('renders Connectors as a Plugins page section rather than a sidebar branch', async () => {
+    window.history.replaceState({}, '', '/app/plugins/connectors')
+    render(<App />)
+
+    expect(screen.getByRole('heading', { level: 1, name: 'Connectors' })).toBeInTheDocument()
+    const sections = screen.getByRole('navigation', { name: /plugin sections/i })
+    expect(within(sections).getByRole('link', { name: /^connectors$/i })).toHaveAttribute('aria-current', 'page')
+    expect(screen.queryByRole('link', { name: /^connectors$/i, current: 'page' })).toBeInTheDocument()
+    expect(await screen.findByText(/no connectors configured/i)).toBeInTheDocument()
+  })
+
+  it('routes Agents to its own directory instead of reloading the task composer', async () => {
+    window.history.replaceState({}, '', '/app/agents')
+    render(<App />)
+
+    expect(screen.getByRole('heading', { level: 1, name: 'Agents' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /^agents$/i })).toHaveAttribute('aria-current', 'page')
+    expect(await screen.findByText('Market Research Expert')).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: /what can i do for you/i })).not.toBeInTheDocument()
   })
 
   it('creates a live backend run and renders observable SDK events', async () => {
@@ -225,6 +261,25 @@ describe('TradeMind frontend', () => {
     expect(screen.getByText('Validating demand evidence.')).toBeInTheDocument()
     expect(screen.getByText(/using websearch/i)).toBeInTheDocument()
     expect(screen.getByText(/trace trace_test/i)).toBeInTheDocument()
+  })
+
+  it('passes a personal Agent selection into the backend run', async () => {
+    window.history.replaceState({}, '', '/app?agent=agent_research')
+    render(<Workspace />)
+
+    expect(await screen.findByText(/agent selected/i)).toBeInTheDocument()
+    fireEvent.change(screen.getByRole('textbox', { name: /ask trademind/i }), {
+      target: { value: project.objective },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /send/i }))
+
+    await waitFor(() => {
+      const runRequest = vi.mocked(fetch).mock.calls.find(([input, init]) => (
+        String(input).endsWith(`/api/projects/${project.id}/runs`) && init?.method === 'POST'
+      ))
+      expect(runRequest).toBeDefined()
+      expect(JSON.parse(String(runRequest?.[1]?.body))).toMatchObject({ agent_id: 'agent_research' })
+    })
   })
 
   it('keeps an imported website brief inside the same conversation workspace', async () => {

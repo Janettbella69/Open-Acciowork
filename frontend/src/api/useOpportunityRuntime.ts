@@ -178,6 +178,7 @@ export function useOpportunityRuntime() {
     brief: string,
     files: File[] = [],
     mode: RunMode = 'standard',
+    agentId?: string | null,
   ) => {
     selectionRef.current += 1
     closeStream()
@@ -195,7 +196,7 @@ export function useOpportunityRuntime() {
       setProject(nextProject)
       setProjects((current) => [nextProject, ...current])
       if (files.length) await Promise.all(files.map((file) => uploadProjectFile(nextProject.id, file)))
-      const nextRun = await startRun(nextProject.id, brief, null, mode)
+      const nextRun = await startRun(nextProject.id, brief, null, mode, null, agentId)
       runRef.current = nextRun
       setRun(nextRun)
       await connectToRun(nextRun)
@@ -213,8 +214,9 @@ export function useOpportunityRuntime() {
     brief: string,
     files: File[] = [],
     mode: RunMode = 'standard',
+    agentId?: string | null,
   ) => {
-    if (!project) return start(brief, files, mode)
+    if (!project) return start(brief, files, mode, agentId)
 
     selectionRef.current += 1
     closeStream()
@@ -229,7 +231,7 @@ export function useOpportunityRuntime() {
     sawReasoningDeltaRef.current = false
     try {
       if (files.length) await Promise.all(files.map((file) => uploadProjectFile(project.id, file)))
-      const nextRun = await startRun(project.id, brief, run?.sdk_session_id, mode)
+      const nextRun = await startRun(project.id, brief, run?.sdk_session_id, mode, null, agentId)
       runRef.current = nextRun
       setRun(nextRun)
       await connectToRun(nextRun)

@@ -4,7 +4,7 @@
 
 ## Existence and status
 - TradeMind is the current product name for this in-development global-commerce workspace.
-- The repository contains a React marketing site, a live conversation workspace, settings, memory review, evidence controls, Plugin Skills, and backend scheduled-task surfaces.
+- The repository contains a React marketing site, a live conversation workspace, an Agent directory, a Plugins hub with distinct Skills and Connectors sections, scheduled tasks, Mobile pairing preparation, settings, memory review, and evidence controls.
 - The historical internal package/API identifiers still use `ophira` in some places for compatibility; user-facing copy uses TradeMind.
 
 ## Product definition
@@ -21,7 +21,7 @@
 
 ## Current reference snapshot
 - YouMind's current overview uses a quiet navigation bar, an input-led hero, mode selectors, editorial capability chapters, and an output gallery. TradeMind borrows that information rhythm only.
-- Accio Work currently presents an AI business-work category with Agent teams, workspaces, memory, Skills, and scheduled work. TradeMind uses this only as a category reference and retains one main Agent in the normal execution path.
+- Accio Work currently presents an AI business-work category with Agent teams, workspaces, memory, Skills, and scheduled work. TradeMind uses this only as a category reference; its Agents directory is backed by TradeMind's own templates and registry, and normal execution retains one accountable lead.
 
 ## Reference boundary
 - YouMind is used as a current reference for information rhythm: quiet navigation, an input-led hero, editorial typography, generous whitespace, visual storytelling, and a consistent composer between marketing and product.

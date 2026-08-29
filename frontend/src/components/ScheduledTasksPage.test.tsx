@@ -64,6 +64,7 @@ const failedRun = {
   trace_id: 'trace_9',
   project_id: 'project_1',
   prompt: schedule.prompt,
+  agent_id: null,
   mode: 'standard',
   provider_profile_id: 'deepseek',
   provider_snapshot: null,

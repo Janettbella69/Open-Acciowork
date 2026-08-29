@@ -4,51 +4,7 @@ import MemoryReview from './MemoryReview'
 import ProviderSettings from './ProviderSettings'
 import './settings-page.css'
 import { languageChangedEvent, useT } from '../i18n'
-
-type LocalSettings = {
-  workspaceAccess: boolean
-  autoReview: boolean
-  fullAccess: boolean
-  keepAwake: boolean
-  rememberProjects: boolean
-  approvalMode: 'review_external' | 'review_all' | 'allow_low_risk'
-  language: 'auto' | 'en' | 'zh-CN'
-  permissionTimeout: '120' | '300' | '600'
-  pluginAccess: 'ask' | 'disabled'
-  browserAccess: 'ask' | 'disabled'
-  computerControl: 'ask' | 'disabled'
-  computerDiscoverable: boolean
-  workspaceMemory: boolean
-  conversationMemory: boolean
-}
-
-const storageKey = 'ophira-workspace-settings'
-
-const defaultSettings: LocalSettings = {
-  workspaceAccess: true,
-  autoReview: true,
-  fullAccess: false,
-  keepAwake: true,
-  rememberProjects: true,
-  approvalMode: 'review_external',
-  language: 'auto',
-  permissionTimeout: '300',
-  pluginAccess: 'ask',
-  browserAccess: 'ask',
-  computerControl: 'disabled',
-  computerDiscoverable: false,
-  workspaceMemory: true,
-  conversationMemory: false,
-}
-
-function loadSettings(): LocalSettings {
-  try {
-    const saved = window.localStorage.getItem(storageKey)
-    return saved ? { ...defaultSettings, ...JSON.parse(saved) as Partial<LocalSettings> } : defaultSettings
-  } catch {
-    return defaultSettings
-  }
-}
+import { loadLocalSettings, saveLocalSettings, type LocalSettings } from '../localSettings'
 
 function ToggleRow({
   title,
@@ -74,11 +30,11 @@ function ToggleRow({
 
 export default function SettingsPage() {
   const t = useT()
-  const [settings, setSettings] = useState<LocalSettings>(loadSettings)
+  const [settings, setSettings] = useState<LocalSettings>(loadLocalSettings)
   const [activeSection, setActiveSection] = useState('providers')
 
   useEffect(() => {
-    window.localStorage.setItem(storageKey, JSON.stringify(settings))
+    saveLocalSettings(settings)
     // 语言改动即时生效（同页广播；跨标签页由 storage 事件覆盖）。
     window.dispatchEvent(new Event(languageChangedEvent))
   }, [settings])

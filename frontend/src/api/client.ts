@@ -1,4 +1,6 @@
 import type {
+  AgentProfile,
+  AgentTemplate,
   Artifact,
   Connector,
   Evidence,
@@ -70,6 +72,22 @@ export function listProjects(): Promise<OpportunityProject[]> {
   return request<OpportunityProject[]>('/api/projects')
 }
 
+export function listAgents(): Promise<AgentProfile[]> {
+  return request<AgentProfile[]>('/api/agents')
+}
+
+export function createAgent(input: {
+  name: string
+  template: AgentTemplate
+  role_description?: string
+  model?: string | null
+}): Promise<AgentProfile> {
+  return request<AgentProfile>('/api/agents', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  })
+}
+
 export function createProject(brief: string): Promise<OpportunityProject> {
   return request<OpportunityProject>('/api/projects', {
     method: 'POST',
@@ -97,6 +115,7 @@ export function startRun(
   resumeSessionId?: string | null,
   mode: RunMode = 'standard',
   providerProfileId?: string | null,
+  agentId?: string | null,
 ): Promise<RunRecord> {
   return request<RunRecord>(`/api/projects/${projectId}/runs`, {
     method: 'POST',
@@ -105,6 +124,7 @@ export function startRun(
       mode,
       ...(resumeSessionId ? { resume_session_id: resumeSessionId } : {}),
       ...(providerProfileId ? { provider_profile_id: providerProfileId } : {}),
+      ...(agentId ? { agent_id: agentId } : {}),
     }),
   })
 }
