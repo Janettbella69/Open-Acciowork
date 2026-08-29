@@ -74,6 +74,9 @@ describe('WorkspaceComposer', () => {
     expect(screen.getByRole('heading', { level: 1, name: /what can i do for you/i })).toBeInTheDocument()
     expect(screen.getByRole('textbox', { name: /ask trademind/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /send/i })).toBeDisabled()
+    expect(screen.queryByText('For you')).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: /browse all/i })).not.toBeInTheDocument()
+    expect(screen.getByRole('heading', { level: 2, name: 'Recents' })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: /^agents$/i })).toHaveAttribute('href', '/app/agents')
     expect(screen.getByRole('link', { name: /^plugins$/i })).toHaveAttribute('href', '/app/plugins')
     expect(screen.queryByRole('link', { name: /^connectors$/i })).not.toBeInTheDocument()
@@ -83,7 +86,7 @@ describe('WorkspaceComposer', () => {
     expect(screen.queryByRole('heading', { name: /agent team/i })).not.toBeInTheDocument()
     expect(screen.queryByRole('combobox', { name: /run mode/i })).not.toBeInTheDocument()
 
-    expect(screen.getByRole('heading', { level: 2, name: /^for you$/i })).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: /example opportunities/i })).toBeInTheDocument()
     expect(screen.getAllByRole('button', { name: /find what sells|source with confidence|localize to convert|launch and grow/i })).toHaveLength(4)
     expect(props.onChange).not.toHaveBeenCalled()
   })

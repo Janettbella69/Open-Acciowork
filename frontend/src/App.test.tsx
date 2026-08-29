@@ -306,7 +306,7 @@ describe('TradeMind frontend', () => {
     fireEvent.change(input, { target: { value: 'Help me reason through an unfamiliar problem.' } })
 
     expect(input).toHaveValue('Help me reason through an unfamiliar problem.')
-    expect(screen.getByRole('heading', { level: 2, name: /^for you$/i })).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: /example opportunities/i })).toBeInTheDocument()
   })
 
   it('continues inside the same project and resumes the model session', async () => {

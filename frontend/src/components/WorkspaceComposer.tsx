@@ -481,7 +481,7 @@ export default function WorkspaceComposer({
         <WorkspaceNav />
 
         <section className="conversation-sidebar-projects" aria-labelledby="sidebar-projects-title">
-          <div><h2 id="sidebar-projects-title">{t('Recent projects')}</h2><span>{projects.length}</span></div>
+          <div><h2 id="sidebar-projects-title">{t('Recents')}</h2><span>{projects.length}</span></div>
           {projects.length > 0 ? projects.map((savedProject) => (
             <button
               key={savedProject.id}
@@ -509,11 +509,7 @@ export default function WorkspaceComposer({
 
             {composer}
 
-            <section className="conversation-quick-starts" aria-labelledby="quick-starts-title">
-              <div className="conversation-quick-heading">
-                <h2 id="quick-starts-title">{t('For you')}</h2>
-                <a href="/">{t('Browse all')} <span aria-hidden="true">→</span></a>
-              </div>
+            <section className="conversation-quick-starts" aria-label={t('Example opportunities')}>
               <div className="conversation-quick-grid">
                 {quickStarts.map((item) => (
                   <button key={item.title} type="button" onClick={() => onChange(t(item.prompt))}>
