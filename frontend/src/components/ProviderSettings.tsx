@@ -7,6 +7,7 @@ import {
   type ProviderInput,
 } from '../api/client'
 import type { ProviderPreflightResult, ProviderProfile } from '../api/types'
+import { useLanguage, useT } from '../i18n'
 
 type EditorState = {
   id: string
@@ -84,6 +85,8 @@ function payloadFrom(editor: EditorState): ProviderInput {
 }
 
 export default function ProviderSettings() {
+  const t = useT()
+  const language = useLanguage()
   const [providers, setProviders] = useState<ProviderProfile[]>([])
   const [editor, setEditor] = useState<EditorState | null>(null)
   const [preflights, setPreflights] = useState<Record<string, ProviderPreflightResult>>({})
@@ -142,7 +145,7 @@ export default function ProviderSettings() {
 
   return (
     <div className="settings-card provider-settings">
-      {error && <p className="conversation-error" role="alert">{error}</p>}
+      {error && <p className="conversation-error" role="alert">{t(error)}</p>}
 
       {providers.map((provider) => {
         const preflight = preflights[provider.id]
@@ -153,7 +156,7 @@ export default function ProviderSettings() {
                 <strong>{provider.display_name}</strong>
                 <small>
                   <code>{provider.model}</code>
-                  {provider.base_url ? <> · {provider.base_url}</> : ' · Anthropic default endpoint'}
+                  {provider.base_url ? <> · {provider.base_url}</> : <> · {t('Anthropic default endpoint')}</>}
                 </small>
               </div>
               <div className="provider-row-actions">
@@ -162,47 +165,52 @@ export default function ProviderSettings() {
                   disabled={busy === `preflight:${provider.id}`}
                   onClick={() => void runPreflight(provider.id)}
                 >
-                  {busy === `preflight:${provider.id}` ? 'Preflighting…' : 'Run preflight'}
+                  {busy === `preflight:${provider.id}` ? t('Preflighting…') : t('Run preflight')}
                 </button>
-                <button type="button" onClick={() => setEditor(editorFor(provider))}>Edit</button>
+                <button type="button" onClick={() => setEditor(editorFor(provider))}>{t('Edit')}</button>
               </div>
             </header>
             <div className="provider-row-badges">
               <span data-tone={provider.secret_configured ? 'ok' : 'warn'}>
-                {provider.secret_configured ? 'Key configured' : 'No key stored'}
+                {provider.secret_configured ? t('Key configured') : t('No key stored')}
               </span>
               <span data-tone={provider.production_eligible ? 'ok' : 'neutral'}>
-                {provider.production_eligible ? 'Production eligible' : 'Not production-cleared'}
+                {provider.production_eligible ? t('Production eligible') : t('Not production-cleared')}
               </span>
               <span data-tone="neutral">{provider.region}</span>
               <span data-tone={provider.capabilities.native_web_search ? 'ok' : 'warn'}>
                 {provider.capabilities.native_web_search
-                  ? 'Web: native search'
-                  : 'Web: fallback via ophira_web MCP (FR-23)'}
+                  ? t('Web: native search')
+                  : t('Web: fallback via ophira_web MCP (FR-23)')}
               </span>
               {capabilityLabels.map(([key, label]) => (
                 <span key={key} data-tone={provider.capabilities[key] ? 'ok' : 'off'}>
-                  {label}: {provider.capabilities[key] ? 'yes' : 'no'}
+                  {t(label)}: {provider.capabilities[key] ? t('yes') : t('no')}
                 </span>
               ))}
             </div>
             <p className="provider-row-status">
               {provider.last_error_code ? (
                 <span data-tone="error">
-                  {provider.last_error_code} · {provider.last_error_message ?? 'See preflight details.'}
+                  {provider.last_error_code} · {provider.last_error_message ?? t('See preflight details.')}
                 </span>
               ) : provider.last_verified_at ? (
                 <span data-tone="ok">
-                  Verified {new Date(provider.last_verified_at).toLocaleString()}
+                  {t('Verified {time}', {
+                    time: new Date(provider.last_verified_at).toLocaleString(language === 'zh-CN' ? 'zh-CN' : 'en'),
+                  })}
                 </span>
               ) : (
-                <span data-tone="neutral">Never verified — run preflight before first use.</span>
+                <span data-tone="neutral">{t('Never verified — run preflight before first use.')}</span>
               )}
             </p>
             {preflight && (
               <p className="provider-row-preflight" data-ok={preflight.ok}>
                 {preflight.ok
-                  ? `预检通过 · session ${preflight.sdk_session_id ?? 'n/a'} · ${preflight.discovered_skills.length} skills discovered`
+                  ? t('Preflight passed · session {session} · {n} skills discovered', {
+                    session: preflight.sdk_session_id ?? 'n/a',
+                    n: preflight.discovered_skills.length,
+                  })
                   : preflight.message}
               </p>
             )}
@@ -212,46 +220,46 @@ export default function ProviderSettings() {
 
       {!providers.length && !error && (
         <p className="settings-integration-note">
-          No provider profiles yet. Add one to run the Agent on a real Anthropic-compatible endpoint.
+          {t('No provider profiles yet. Add one to run the Agent on a real Anthropic-compatible endpoint.')}
         </p>
       )}
 
       {editor ? (
-        <form className="provider-editor" aria-label="Provider editor" onSubmit={(event) => void submit(event)}>
-          <h3>{editor.isNew ? 'Add provider' : `Edit ${editor.id}`}</h3>
+        <form className="provider-editor" aria-label={t('Provider editor')} onSubmit={(event) => void submit(event)}>
+          <h3>{editor.isNew ? t('Add provider') : t('Edit {id}', { id: editor.id })}</h3>
           {editor.isNew && (
-            <label>Profile id
+            <label>{t('Profile id')}
               <input value={editor.id} onChange={(event) => update('id', event.target.value)} placeholder="deepseek" required />
             </label>
           )}
-          <label>Display name
+          <label>{t('Display name')}
             <input value={editor.display_name} onChange={(event) => update('display_name', event.target.value)} required />
           </label>
-          <label>Base URL
+          <label>{t('Base URL')}
             <input value={editor.base_url} onChange={(event) => update('base_url', event.target.value)} placeholder="https://api.deepseek.com/anthropic" />
           </label>
-          <label>Auth variable
+          <label>{t('Auth variable')}
             <select value={editor.auth_env_name} onChange={(event) => update('auth_env_name', event.target.value as EditorState['auth_env_name'])}>
               <option value="ANTHROPIC_AUTH_TOKEN">ANTHROPIC_AUTH_TOKEN</option>
               <option value="ANTHROPIC_API_KEY">ANTHROPIC_API_KEY</option>
             </select>
           </label>
-          <label>Model
+          <label>{t('Model')}
             <input value={editor.model} onChange={(event) => update('model', event.target.value)} placeholder="deepseek-v4-pro" required />
           </label>
-          <label>Subagent model
+          <label>{t('Subagent model')}
             <input value={editor.subagent_model} onChange={(event) => update('subagent_model', event.target.value)} placeholder="deepseek-v4-flash" />
           </label>
-          <label>API key
+          <label>{t('API key')}
             <input
               type="password"
               autoComplete="off"
               value={editor.secret}
               onChange={(event) => update('secret', event.target.value)}
-              placeholder={editor.isNew ? 'Required for first preflight' : 'Leave blank to keep the stored key'}
+              placeholder={editor.isNew ? t('Required for first preflight') : t('Leave blank to keep the stored key')}
             />
           </label>
-          <label>Region
+          <label>{t('Region')}
             <input value={editor.region} onChange={(event) => update('region', event.target.value)} />
           </label>
           <label className="provider-editor-checkbox">
@@ -260,18 +268,18 @@ export default function ProviderSettings() {
               checked={editor.production_eligible}
               onChange={(event) => update('production_eligible', event.target.checked)}
             />
-            Production eligible (terms reviewed; never a coding-plan key)
+            {t('Production eligible (terms reviewed; never a coding-plan key)')}
           </label>
           <footer>
-            <button type="button" onClick={() => setEditor(null)}>Cancel</button>
+            <button type="button" onClick={() => setEditor(null)}>{t('Cancel')}</button>
             <button type="submit" disabled={busy === 'save'}>
-              {busy === 'save' ? 'Saving…' : 'Save provider'}
+              {busy === 'save' ? t('Saving…') : t('Save provider')}
             </button>
           </footer>
         </form>
       ) : (
         <button type="button" className="provider-add" onClick={() => setEditor(emptyEditor())}>
-          ＋ Add provider
+          ＋ {t('Add provider')}
         </button>
       )}
     </div>

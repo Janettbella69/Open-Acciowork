@@ -7,18 +7,18 @@ import {
   type OphiraEvent,
   type PendingPermission,
   type PermissionAnswers,
-  type RunMode,
   type RunRecord,
 } from '../api/types'
 import { builtInSkills } from '../data/skillCatalog'
+import { useLanguage, useT, type Translate } from '../i18n'
 import Brand from './Brand'
 import EvidenceDrawer from './EvidenceDrawer'
+import WorkspaceNav from './WorkspaceNav'
 import './workspace-composer.css'
 
 type WorkspaceComposerProps = {
   value: string
   attachedFiles: File[]
-  mode: RunMode
   busy: boolean
   notice: string
   error: string
@@ -34,7 +34,6 @@ type WorkspaceComposerProps = {
   isActive: boolean
   onChange: (value: string) => void
   onAttachedFilesChange: (files: File[]) => void
-  onModeChange: (mode: RunMode) => void
   onSubmit: (event: FormEvent<HTMLFormElement>) => void
   onProjectRefresh: () => void
   onNewResearch: () => void
@@ -66,6 +65,7 @@ type QuestionCardProps = {
 }
 
 function QuestionCard({ permission, questions, onDecision }: QuestionCardProps) {
+  const t = useT()
   const [selected, setSelected] = useState<Record<string, string[]>>({})
 
   const toggle = (question: AskUserQuestionItem, label: string) => {
@@ -93,8 +93,8 @@ function QuestionCard({ permission, questions, onDecision }: QuestionCardProps) 
   }
 
   return (
-    <section className="conversation-permission conversation-question" aria-label="Agent question">
-      <div><span>Agent 需要你的输入</span></div>
+    <section className="conversation-permission conversation-question" aria-label={t('Agent question')}>
+      <div><span>{t('TradeMind needs your input')}</span></div>
       {questions.map((question) => (
         <fieldset key={question.question}>
           <legend>
@@ -121,8 +121,8 @@ function QuestionCard({ permission, questions, onDecision }: QuestionCardProps) 
         </fieldset>
       ))}
       <div>
-        <button type="button" disabled={!complete} onClick={submit}>提交回答</button>
-        <button type="button" onClick={() => onDecision(permission.id, 'deny')}>跳过（按现有信息继续）</button>
+        <button type="button" disabled={!complete} onClick={submit}>{t('Submit answers')}</button>
+        <button type="button" onClick={() => onDecision(permission.id, 'deny')}>{t('Skip — continue with what is known')}</button>
       </div>
     </section>
   )
@@ -130,24 +130,24 @@ function QuestionCard({ permission, questions, onDecision }: QuestionCardProps) 
 
 const quickStarts = [
   {
-    dimension: 'Need',
-    title: 'Start from a market need',
-    prompt: 'Find a specific unmet customer need where a small cross-border team could create a credible offer.',
+    title: 'Find what sells',
+    prompt: 'Find products gaining demand on Amazon and TikTok Shop',
+    image: '/images/recommendations/product-discovery-classical.jpg',
   },
   {
-    dimension: 'Product',
-    title: 'Start from what we can supply',
-    prompt: 'Assess which global market best fits our current product and supply capability.',
+    title: 'Source with confidence',
+    prompt: 'Compare suppliers, quotes, and landed margin for this product',
+    image: '/images/recommendations/global-sourcing-classical.jpg',
   },
   {
-    dimension: 'Customer',
-    title: 'Find a path to customers',
-    prompt: 'Identify the best-fit customer profiles, channels, and smallest credible contact test for this offer.',
+    title: 'Localize to convert',
+    prompt: 'Localize this listing for the US, UK, and Germany',
+    image: '/images/recommendations/localize-convert-classical.jpg',
   },
   {
-    dimension: 'Decision',
-    title: 'Turn materials into a decision',
-    prompt: 'Review my materials and produce a sourced Go, Test, or No-go decision with assumptions and next actions.',
+    title: 'Launch and grow',
+    prompt: 'Turn this product into a launch plan across Shopify and social',
+    image: '/images/recommendations/launch-growth-classical.jpg',
   },
 ]
 
@@ -178,28 +178,35 @@ function eventKind(event: OphiraEvent): string {
   return 'system'
 }
 
-function eventTitle(event: OphiraEvent): string {
+function eventTitle(event: OphiraEvent, t: Translate): string {
   const toolName = typeof event.data.tool_name === 'string' ? label(event.data.tool_name.replace(/^mcp__ophira__/, '')) : 'Tool'
   const actorName = typeof event.data.agent_type === 'string' ? label(event.data.agent_type) : label(event.actor.name)
   const text = typeof event.data.text === 'string' ? event.data.text : ''
   const description = typeof event.data.description === 'string' ? event.data.description : ''
   const summary = typeof event.data.summary === 'string' ? event.data.summary : ''
-  const decision = typeof event.data.decision === 'string' ? label(event.data.decision) : ''
+  const permissionDecisionLabels: Record<string, string> = {
+    allow_once: 'Allow once',
+    allow_run: 'Allow for run',
+    deny: 'Deny',
+  }
+  const decision = typeof event.data.decision === 'string'
+    ? t(permissionDecisionLabels[event.data.decision] ?? label(event.data.decision))
+    : ''
 
-  if (event.type === 'tool.planned') return `Preparing ${toolName}`
-  if (event.type === 'tool.started') return `Using ${toolName}`
-  if (event.type === 'tool.completed') return `${toolName} completed`
-  if (event.type === 'tool.failed') return `${toolName} failed`
-  if (event.type === 'subagent.started') return `${actorName} joined the work`
-  if (event.type === 'subagent.stopped') return `${actorName} finished`
-  if (event.type === 'task.started') return description || 'Agent task started'
-  if (event.type === 'task.progress') return description || 'Agent task updated'
-  if (event.type === 'task.completed') return summary || 'Agent task completed'
+  if (event.type === 'tool.planned') return t('Preparing {tool}', { tool: toolName })
+  if (event.type === 'tool.started') return t('Using {tool}', { tool: toolName })
+  if (event.type === 'tool.completed') return t('{tool} completed', { tool: toolName })
+  if (event.type === 'tool.failed') return t('{tool} failed', { tool: toolName })
+  if (event.type === 'subagent.started') return t('{actor} joined the work', { actor: actorName })
+  if (event.type === 'subagent.stopped') return t('{actor} finished', { actor: actorName })
+  if (event.type === 'task.started') return description || t('Agent task started')
+  if (event.type === 'task.progress') return description || t('Agent task updated')
+  if (event.type === 'task.completed') return summary || t('Agent task completed')
   if (event.type === 'assistant.message.completed' && text) return text
-  if (event.type === 'permission.requested') return `Approval requested for ${toolName}`
-  if (event.type === 'permission.resolved') return decision ? `Confirmed: ${decision}` : 'Approval confirmed'
-  if (event.type === 'run.result') return event.data.is_error ? 'Research ended with an error' : 'Research response prepared'
-  return activityLabel(event)
+  if (event.type === 'permission.requested') return t('Approval requested for {tool}', { tool: toolName })
+  if (event.type === 'permission.resolved') return decision ? t('Confirmed: {decision}', { decision }) : t('Approval confirmed')
+  if (event.type === 'run.result') return event.data.is_error ? t('Research ended with an error') : t('Research response prepared')
+  return t(activityLabel(event))
 }
 
 function formatDuration(milliseconds: number): string {
@@ -220,6 +227,7 @@ function processIcon(kind: string): string {
 }
 
 function WorkspaceAccountMenu({ backendState }: { backendState: string }) {
+  const t = useT()
   const [open, setOpen] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
 
@@ -244,25 +252,25 @@ function WorkspaceAccountMenu({ backendState }: { backendState: string }) {
   return (
     <div className="conversation-account" ref={rootRef}>
       {open && (
-        <section className="conversation-account-menu" role="dialog" aria-label="Workspace account menu">
+        <section className="conversation-account-menu" role="dialog" aria-label={t('Workspace account menu')}>
           <header>
-            <span>OP</span>
-            <div><strong>Ophira workspace</strong><small>Local development workspace</small></div>
+            <span>TM</span>
+            <div><strong>{t('TradeMind workspace')}</strong><small>{t('Local development workspace')}</small></div>
           </header>
 
           <div className="conversation-account-plan">
-            <div><strong>Developer preview</strong><span>Local</span></div>
-            <p><span>Runtime</span><strong>{backendState}</strong></p>
-            <small>Usage follows the AI provider configured on this backend.</small>
+            <div><strong>{t('Developer preview')}</strong><span>{t('Local')}</span></div>
+            <p><span>{t('Runtime')}</span><strong>{backendState}</strong></p>
+            <small>{t('Usage follows the AI provider configured on this backend.')}</small>
           </div>
 
-          <nav aria-label="Account destinations">
-            <a href="/app/settings"><span><strong>Settings</strong><small>Permissions, runtime, and language</small></span><i aria-hidden="true">→</i></a>
-            <a href="/"><span><strong>Homepage</strong><small>Return to the OPHIRA website</small></span><i aria-hidden="true">↗</i></a>
-            <a href="https://github.com/Janettbella69/Open-Acciowork" target="_blank" rel="noreferrer"><span><strong>GitHub</strong><small>Open the source repository</small></span><i aria-hidden="true">↗</i></a>
+          <nav aria-label={t('Account destinations')}>
+            <a href="/app/settings"><span><strong>{t('Settings')}</strong><small>{t('Permissions, runtime, and language')}</small></span><i aria-hidden="true">→</i></a>
+            <a href="/"><span><strong>{t('Homepage')}</strong><small>{t('Return to the TradeMind website')}</small></span><i aria-hidden="true">↗</i></a>
+            <a href="https://github.com/Janettbella69/Open-Acciowork" target="_blank" rel="noreferrer"><span><strong>GitHub</strong><small>{t('Open the source repository')}</small></span><i aria-hidden="true">↗</i></a>
           </nav>
 
-          <footer>Account authentication and billing are not enabled in this local build.</footer>
+          <footer>{t('Account authentication and billing are not enabled in this local build.')}</footer>
         </section>
       )}
 
@@ -271,11 +279,11 @@ function WorkspaceAccountMenu({ backendState }: { backendState: string }) {
         type="button"
         aria-haspopup="dialog"
         aria-expanded={open}
-        aria-label="Open account menu for Ophira workspace"
+        aria-label={t('Open account menu for TradeMind workspace')}
         onClick={() => setOpen((current) => !current)}
       >
-        <span>OP</span>
-        <div><strong>Ophira workspace</strong><small>{backendState}</small></div>
+        <span>TM</span>
+        <div><strong>{t('TradeMind workspace')}</strong><small>{backendState}</small></div>
         <i aria-hidden="true">⌃</i>
       </button>
     </div>
@@ -285,7 +293,6 @@ function WorkspaceAccountMenu({ backendState }: { backendState: string }) {
 export default function WorkspaceComposer({
   value,
   attachedFiles,
-  mode,
   busy,
   notice,
   error,
@@ -301,7 +308,6 @@ export default function WorkspaceComposer({
   isActive,
   onChange,
   onAttachedFilesChange,
-  onModeChange,
   onSubmit,
   onProjectRefresh,
   onNewResearch,
@@ -311,6 +317,8 @@ export default function WorkspaceComposer({
 }: WorkspaceComposerProps) {
   const [skillsOpen, setSkillsOpen] = useState(false)
   const [clock, setClock] = useState(() => Date.now())
+  const t = useT()
+  const language = useLanguage()
   const composerToolsRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const sessionOpen = Boolean(project || run)
@@ -371,7 +379,7 @@ export default function WorkspaceComposer({
   const composer = (
     <div className="conversation-composer-dock" data-inline={!sessionOpen}>
       <form className="conversation-composer" onSubmit={onSubmit}>
-        <label className="conversation-visually-hidden" htmlFor="workspace-conversation-brief">Ask Ophira</label>
+        <label className="conversation-visually-hidden" htmlFor="workspace-conversation-brief">{t('Ask TradeMind')}</label>
         <textarea
           id="workspace-conversation-brief"
           value={value}
@@ -382,13 +390,13 @@ export default function WorkspaceComposer({
               event.currentTarget.form?.requestSubmit()
             }
           }}
-          placeholder={sessionOpen ? 'Continue this conversation…' : 'Message Ophira…'}
+          placeholder={sessionOpen ? t('Continue this conversation…') : t('Message TradeMind…')}
           rows={sessionOpen ? 1 : 3}
           disabled={busy}
           autoFocus={!sessionOpen}
         />
         {attachedFiles.length > 0 && (
-          <div className="conversation-attachments" aria-label="Locally staged attachments">
+          <div className="conversation-attachments" aria-label={t('Locally staged attachments')}>
             <div>
               {attachedFiles.map((file, index) => (
                 <span key={`${file.name}-${file.size}-${index}`}>
@@ -396,13 +404,13 @@ export default function WorkspaceComposer({
                   <b>{file.name}</b>
                   <button
                     type="button"
-                    aria-label={`Remove ${file.name}`}
+                    aria-label={t('Remove {file}', { file: file.name })}
                     onClick={() => onAttachedFilesChange(attachedFiles.filter((_, currentIndex) => currentIndex !== index))}
                   >×</button>
                 </span>
               ))}
             </div>
-            <small>Uploaded into the isolated project workspace when you send</small>
+            <small>{t('Uploaded into the isolated project workspace when you send')}</small>
           </div>
         )}
         <div className="conversation-composer-footer">
@@ -411,7 +419,7 @@ export default function WorkspaceComposer({
               ref={fileInputRef}
               className="conversation-file-input"
               type="file"
-              aria-label="Choose files or images"
+              aria-label={t('Choose files or images')}
               accept="image/*,.pdf,.txt,.csv,.doc,.docx,.xls,.xlsx,.ppt,.pptx"
               multiple
               onChange={stageFiles}
@@ -419,71 +427,61 @@ export default function WorkspaceComposer({
             <button
               className="conversation-tool-add"
               type="button"
-              aria-label="Add files or images"
-              title="Add files or images"
+              aria-label={t('Add files or images')}
+              title={t('Add files or images')}
               onClick={() => fileInputRef.current?.click()}
             >＋</button>
             <button
               className="conversation-tool-skills"
               type="button"
+              aria-label={t('Skills')}
+              title={t('Skills')}
               aria-haspopup="dialog"
               aria-expanded={skillsOpen}
               onClick={() => setSkillsOpen((current) => !current)}
-            ><span aria-hidden="true">◇</span> Skills</button>
+            ><span aria-hidden="true">◇</span><span className="conversation-visually-hidden">{t('Skills')}</span></button>
 
             {skillsOpen && (
-              <section className="conversation-skills-menu" role="dialog" aria-label="Choose an OPHIRA skill">
-                <header><div><span>Built-in capabilities</span><strong>Use a skill</strong></div><a href="/app/skills">Skill Studio <i aria-hidden="true">→</i></a></header>
+              <section className="conversation-skills-menu" role="dialog" aria-label={t('Choose a TradeMind skill')}>
+                <header><div><span>{t('Built-in capabilities')}</span><strong>{t('Use a skill')}</strong></div><a href="/app/skills">{t('Skill Studio')} <i aria-hidden="true">→</i></a></header>
                 <div>
                   {builtInSkills.map((skill) => (
-                    <button key={skill.id} type="button" onClick={() => selectSkill(skill.prompt)}>
+                    <button key={skill.id} type="button" onClick={() => selectSkill(t(skill.prompt))}>
                       <span data-category={skill.category.toLowerCase()}>{skill.code}</span>
-                      <div><strong>{skill.name}</strong><small>{skill.description}</small></div>
+                      <div><strong>{t(skill.name)}</strong><small>{t(skill.description)}</small></div>
                       <i aria-hidden="true">→</i>
                     </button>
                   ))}
                 </div>
-                <footer>Installed Plugin Skills are discovered by the Agent at runtime; this menu only helps frame intent.</footer>
+                <footer>{t('Installed Plugin Skills are discovered by the Agent at runtime; this menu only helps frame intent.')}</footer>
               </section>
             )}
           </div>
-          <label className="conversation-mode-select">
-            <span className="conversation-visually-hidden">Run mode</span>
-            <select value={mode} onChange={(event) => onModeChange(event.target.value as RunMode)}>
-              <option value="standard">Standard · one Agent</option>
-              <option value="deep_research">Deep Research · explicit beta</option>
-            </select>
-          </label>
-          <span className="conversation-composer-coordinator">⌘ Enter to send</span>
-          <button className="conversation-submit" type="submit" aria-label={busy ? 'Working' : 'Send'} disabled={busy || !value.trim()}>
-            <span className="conversation-submit-label">{busy ? 'Working…' : 'Send'}</span>
+          <span className="conversation-composer-coordinator">{t('⌘ Enter to send')}</span>
+          <button className="conversation-submit" type="submit" aria-label={busy ? t('Working') : t('Send')} disabled={busy || !value.trim()}>
+            <span className="conversation-submit-label">{busy ? t('Working…') : t('Send')}</span>
             <span aria-hidden="true">↑</span>
           </button>
         </div>
       </form>
-      {notice && <p className="conversation-notice" role="status">{notice}</p>}
-      {error && <p className="conversation-error" role="alert">{error}</p>}
+      {notice && <p className="conversation-notice" role="status">{t(notice)}</p>}
+      {error && (sessionOpen || value.trim()) && <p className="conversation-error" role="alert">{t(error)}</p>}
     </div>
   )
 
   return (
     <div className="conversation-entry" data-session={sessionOpen}>
       <aside className="conversation-sidebar">
-        <a className="conversation-sidebar-brand" href="/" aria-label="Back to OPHIRA website"><Brand /></a>
+        <a className="conversation-sidebar-brand" href="/" aria-label={t('Back to TradeMind website')}><Brand /></a>
 
         <button className="conversation-new-research" type="button" onClick={onNewResearch}>
-          <span aria-hidden="true">＋</span> New conversation
+          <span aria-hidden="true">＋</span> {t('New conversation')}
         </button>
 
-        <nav className="conversation-sidebar-nav" aria-label="Workspace navigation">
-          <p>Workspace</p>
-          <a href="/app" aria-current="page"><span>01</span>Agent workspace</a>
-          <a href="/app/schedules"><span>02</span>Scheduled tasks</a>
-          <a href="/app/skills"><span>03</span>Skill Studio</a>
-        </nav>
+        <WorkspaceNav active="workspace" />
 
         <section className="conversation-sidebar-projects" aria-labelledby="sidebar-projects-title">
-          <div><h2 id="sidebar-projects-title">Recent projects</h2><span>{projects.length}</span></div>
+          <div><h2 id="sidebar-projects-title">{t('Recent projects')}</h2><span>{projects.length}</span></div>
           {projects.length > 0 ? projects.map((savedProject) => (
             <button
               key={savedProject.id}
@@ -492,44 +490,42 @@ export default function WorkspaceComposer({
               onClick={() => onSelectProject(savedProject.id)}
             >
               <span>{savedProject.name}</span>
-              <small>{label(savedProject.stage)} · {new Date(savedProject.updated_at).toLocaleDateString([], { month: 'short', day: 'numeric' })}</small>
+              <small>{t(label(savedProject.stage))} · {new Date(savedProject.updated_at).toLocaleDateString(language === 'zh-CN' ? 'zh-CN' : 'en', { month: 'short', day: 'numeric' })}</small>
             </button>
-          )) : <p>Your saved conversations will appear here.</p>}
+          )) : <p>{t('Your saved conversations will appear here.')}</p>}
         </section>
 
-        <WorkspaceAccountMenu backendState={error ? 'Backend needs attention' : run ? `Backend ${connection}` : 'Backend ready'} />
+        <WorkspaceAccountMenu backendState={error ? t('Backend needs attention') : run ? t('Backend {state}', { state: connection }) : t('Backend ready')} />
       </aside>
 
       <main className="conversation-entry-main" data-session={sessionOpen}>
         {!sessionOpen && (
-          <a href="/" className="conversation-site-link">Website <span aria-hidden="true">↗</span></a>
+          <a href="/" className="conversation-site-link">{t('Website')} <span aria-hidden="true">↗</span></a>
         )}
 
         {!sessionOpen ? (
           <div className="conversation-entry-center">
-            <div className="conversation-entry-mark" aria-hidden="true">
-              <img src="/ophira-mark.svg" alt="" width="48" height="48" />
-            </div>
-            <p className="conversation-entry-kicker">Ophira</p>
-            <h1>What are you working on?</h1>
+            <h1>What can I do for you?</h1>
 
             {composer}
 
             <section className="conversation-quick-starts" aria-labelledby="quick-starts-title">
-              <h2 id="quick-starts-title">Start with a validation task</h2>
+              <div className="conversation-quick-heading">
+                <h2 id="quick-starts-title">{t('For you')}</h2>
+                <a href="/">{t('Browse all')} <span aria-hidden="true">→</span></a>
+              </div>
               <div className="conversation-quick-grid">
-                {quickStarts.map((item, index) => (
-                  <button key={item.dimension} type="button" data-dimension={item.dimension.toLowerCase()} onClick={() => onChange(item.prompt)}>
-                    <span>{String(index + 1).padStart(2, '0')} · {item.dimension}</span>
-                    <strong>{item.title}</strong>
-                    <i aria-hidden="true">↗</i>
+                {quickStarts.map((item) => (
+                  <button key={item.title} type="button" onClick={() => onChange(t(item.prompt))}>
+                    <img src={item.image} alt="" loading="eager" />
+                    <strong>{t(item.title)}</strong>
                   </button>
                 ))}
               </div>
             </section>
           </div>
         ) : (
-          <section className="conversation-session" aria-label="Conversation with Ophira">
+          <section className="conversation-session" aria-label={t('Conversation with TradeMind')}>
             <div className="conversation-thread">
               <article className="conversation-user-message">
                 <p>{run?.prompt ?? project?.objective ?? value}</p>
@@ -542,13 +538,13 @@ export default function WorkspaceComposer({
                         "调试阶段还是显示原始日志"）。上线后按开发者/用户模式再分档。 */}
                     <details className="conversation-process" open>
                       <summary>
-                        <span>{historyLoading ? 'Restoring history' : isActive ? `Working for ${elapsed}` : `Ran for ${elapsed}`}</span>
+                        <span>{historyLoading ? t('Restoring history') : isActive ? t('Working for {elapsed}', { elapsed }) : t('Ran for {elapsed}', { elapsed })}</span>
                         <i aria-hidden="true">›</i>
                       </summary>
                       <div className="conversation-process-body">
                         <header>
-                          <span>{historyLoading ? 'Restoring' : label(run?.status ?? 'Saved')}</span>
-                          <small>{processSteps} {processSteps === 1 ? 'event' : 'events'} · {connection}</small>
+                          <span>{historyLoading ? t('Restoring') : t(label(run?.status ?? 'Saved'))}</span>
+                          <small>{t(processSteps === 1 ? '{n} event' : '{n} events', { n: processSteps })} · {t(label(connection))}</small>
                         </header>
                         {(reasoningSummary || traceEvents.length > 0) && (
                           <ol>
@@ -557,7 +553,7 @@ export default function WorkspaceComposer({
                                 <details>
                                   <summary>
                                     <i aria-hidden="true">◇</i>
-                                    <span><strong>{isActive ? 'Thinking' : 'Approach'}</strong><small>Reasoning summary</small></span>
+                                    <span><strong>{isActive ? t('Thinking') : t('Approach')}</strong><small>{t('Reasoning summary')}</small></span>
                                     <b aria-hidden="true">›</b>
                                   </summary>
                                   <div className="conversation-thought-detail"><p>{reasoningSummary}</p></div>
@@ -571,16 +567,16 @@ export default function WorkspaceComposer({
                                   <details>
                                     <summary>
                                       <i aria-hidden="true">{processIcon(kind)}</i>
-                                      <span><strong>{eventTitle(event)}</strong><small>{label(event.actor.name)} · {new Date(event.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</small></span>
+                                      <span><strong>{eventTitle(event, t)}</strong><small>{label(event.actor.name)} · {new Date(event.timestamp).toLocaleTimeString(language === 'zh-CN' ? 'zh-CN' : 'en', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</small></span>
                                       <b aria-hidden="true">›</b>
                                     </summary>
                                     <div className="conversation-event-detail">
                                       <dl>
-                                        <div><dt>Event</dt><dd>{event.type}</dd></div>
-                                        <div><dt>Actor</dt><dd>{label(event.actor.type)}</dd></div>
-                                        {event.actor.agent_id && <div><dt>Agent ID</dt><dd>{event.actor.agent_id}</dd></div>}
-                                        {event.tool_use_id && <div><dt>Tool use ID</dt><dd>{event.tool_use_id}</dd></div>}
-                                        {event.parent_id && <div><dt>Parent</dt><dd>{event.parent_id}</dd></div>}
+                                        <div><dt>{t('Event')}</dt><dd>{event.type}</dd></div>
+                                        <div><dt>{t('Actor')}</dt><dd>{t(label(event.actor.type))}</dd></div>
+                                        {event.actor.agent_id && <div><dt>{t('Agent ID')}</dt><dd>{event.actor.agent_id}</dd></div>}
+                                        {event.tool_use_id && <div><dt>{t('Tool use ID')}</dt><dd>{event.tool_use_id}</dd></div>}
+                                        {event.parent_id && <div><dt>{t('Parent')}</dt><dd>{event.parent_id}</dd></div>}
                                       </dl>
                                       <pre>{eventDetail(event)}</pre>
                                     </div>
@@ -592,20 +588,20 @@ export default function WorkspaceComposer({
                         )}
                         {run && (
                           <p className="conversation-trace-note">
-                            {run.mode === 'deep_research' ? 'Deep Research · ' : 'Single Agent · '}
-                            Trace {run.trace_id}
+                            {run.mode === 'deep_research' ? `${t('Deep Research')} · ` : `${t('Single Agent')} · `}
+                            {t('Trace')} {run.trace_id}
                           </p>
                         )}
                       </div>
                     </details>
-                    {isActive && <button type="button" onClick={onCancel}>Cancel</button>}
+                    {isActive && <button type="button" onClick={onCancel}>{t('Cancel')}</button>}
                   </div>
                 )}
 
                 {historyLoading ? (
                   <div className="conversation-agent-waiting" role="status">
                     <i aria-hidden="true" />
-                    <p>Restoring the recorded response and activity…</p>
+                    <p>{t('Restoring the recorded response and activity…')}</p>
                   </div>
                 ) : assistantText ? (
                   <div className="conversation-agent-output">
@@ -613,17 +609,17 @@ export default function WorkspaceComposer({
                   </div>
                 ) : run?.status === 'failed' ? (
                   <div className="conversation-run-outcome" data-status="failed" role="alert">
-                    <strong>Run failed</strong>
-                    <p>{run.error || 'The backend ended this run without a response.'}</p>
+                    <strong>{t('Run failed')}</strong>
+                    <p>{run.error || t('The backend ended this run without a response.')}</p>
                   </div>
                 ) : (
                   <div className="conversation-agent-waiting" role="status">
                     {isActive && <i aria-hidden="true" />}
                     <p>{isActive
-                      ? 'Ophira is working and using the available tools as needed…'
+                      ? t('TradeMind is working and using the available tools as needed…')
                       : run?.status === 'cancelled'
-                        ? 'This run was cancelled.'
-                        : 'Send a message to continue from this project.'}</p>
+                        ? t('This run was cancelled.')
+                        : t('Send a message to continue from this project.')}</p>
                   </div>
                 )}
 
@@ -642,12 +638,12 @@ export default function WorkspaceComposer({
                     }
                   }
                   return (
-                    <section className="conversation-permission" key={permission.id} aria-label={`Approval for ${permission.toolName}`}>
-                      <div><span>Approval required</span><strong>{permission.actor.name} wants to use {permission.toolName}</strong></div>
+                    <section className="conversation-permission" key={permission.id} aria-label={t('Approval for {tool}', { tool: permission.toolName })}>
+                      <div><span>{t('Approval required')}</span><strong>{t('{actor} wants to use {tool}', { actor: permission.actor.name, tool: permission.toolName })}</strong></div>
                       <div>
-                        <button type="button" onClick={() => onDecision(permission.id, 'allow_once')}>Allow once</button>
-                        <button type="button" onClick={() => onDecision(permission.id, 'allow_run')}>Allow for run</button>
-                        <button type="button" onClick={() => onDecision(permission.id, 'deny')}>Deny</button>
+                        <button type="button" onClick={() => onDecision(permission.id, 'allow_once')}>{t('Allow once')}</button>
+                        <button type="button" onClick={() => onDecision(permission.id, 'allow_run')}>{t('Allow for run')}</button>
+                        <button type="button" onClick={() => onDecision(permission.id, 'deny')}>{t('Deny')}</button>
                       </div>
                     </section>
                   )
@@ -656,8 +652,8 @@ export default function WorkspaceComposer({
                 {project && hasProjectTruth && (
                   <details className="conversation-project-truth">
                     <summary>
-                      <span>Project record</span>
-                      <small>{project.evidence.length} evidence records</small>
+                      <span>{t('Project record')}</span>
+                      <small>{t('{n} evidence records', { n: project.evidence.length })}</small>
                       <i aria-hidden="true">›</i>
                     </summary>
                     <div className="conversation-project-truth-body">
@@ -668,10 +664,10 @@ export default function WorkspaceComposer({
                             if (!assessment) return null
                             return (
                               <article key={dimension}>
-                                <span>{label(dimension)}</span>
+                                <span>{t(label(dimension))}</span>
                                 <strong>{assessment.score}</strong>
-                                <small data-status={assessment.status}>{label(assessment.status)}</small>
-                                <p>{assessment.summary || assessment.gaps[0] || 'No recorded assessment.'}</p>
+                                <small data-status={assessment.status}>{t(label(assessment.status))}</small>
+                                <p>{assessment.summary || assessment.gaps[0] || t('No recorded assessment.')}</p>
                               </article>
                             )
                           })}
@@ -679,21 +675,23 @@ export default function WorkspaceComposer({
                       )}
                       {project.evidence.length > 0 && (
                         <div className="conversation-evidence-ledger">
-                          <div><strong>Evidence ledger</strong><span>{project.evidence.length} records</span></div>
+                          <div><strong>{t('Evidence ledger')}</strong><span>{t('{n} records', { n: project.evidence.length })}</span></div>
                           <EvidenceDrawer project={project} onChanged={onProjectRefresh} />
                         </div>
                       )}
                       {project.decisions.length > 0 && (
                         <div className="conversation-evidence-ledger">
-                          <div><strong>Decisions</strong><span>{project.decisions.length} recorded</span></div>
+                          <div><strong>{t('Decisions')}</strong><span>{t('{n} recorded', { n: project.decisions.length })}</span></div>
                           {project.decisions.slice(-3).reverse().map((decision) => (
                             <article key={decision.id} data-status={decision.status}>
-                              <small>{label(decision.decision_type)} · {label(decision.status)}</small>
+                              <small>{t(label(decision.decision_type))} · {t(label(decision.status))}</small>
                               <p>{decision.outcome}</p>
-                              <span>{decision.evidence_ids.length} linked evidence records</span>
+                              <span>{t('{n} linked evidence records', { n: decision.evidence_ids.length })}</span>
                               {decision.invalidated_by_evidence_ids.length > 0 && (
                                 <em className="conversation-decision-invalidated" role="alert">
-                                  ⚠ {decision.invalidated_by_evidence_ids.length} 条依据证据已失效，需复核
+                                  ⚠ {t('{n} supporting evidence records are no longer active and require review', {
+                                    n: decision.invalidated_by_evidence_ids.length,
+                                  })}
                                 </em>
                               )}
                             </article>
@@ -702,12 +700,12 @@ export default function WorkspaceComposer({
                       )}
                       {project.artifacts.length > 0 && (
                         <div className="conversation-evidence-ledger">
-                          <div><strong>Artifacts</strong><span>{project.artifacts.length} files</span></div>
+                          <div><strong>{t('Artifacts')}</strong><span>{t('{n} files', { n: project.artifacts.length })}</span></div>
                           {project.artifacts.slice(-4).reverse().map((artifact) => (
                             <article key={artifact.id}>
                               <small>{artifact.mime} · v{artifact.version}</small>
                               <p>{artifact.name}</p>
-                              <a href={artifact.download_url}>Download</a>
+                              <a href={artifact.download_url}>{t('Download')}</a>
                             </article>
                           ))}
                         </div>

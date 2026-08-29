@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { OpportunityProject, RunRecord, Schedule } from '../api/types'
+import { I18nContext } from '../i18n'
 import ScheduledTasksPage from './ScheduledTasksPage'
 
 vi.mock('../api/client', () => ({
@@ -139,5 +140,21 @@ describe('ScheduledTasksPage', () => {
 
     fireEvent.click(within(row).getByRole('button', { name: /run now/i }))
     await waitFor(() => expect(runSchedule).toHaveBeenCalledWith('schedule_1'))
+  })
+
+  it('localizes a template prompt before the user schedules it', async () => {
+    render(
+      <I18nContext.Provider value="zh-CN">
+        <ScheduledTasksPage />
+      </I18nContext.Provider>,
+    )
+    const template = await screen.findByRole('button', { name: /晨间机会简报/ })
+
+    fireEvent.click(template)
+
+    const dialog = screen.getByRole('dialog', { name: '创建定时任务' })
+    expect(within(dialog).getByRole('textbox', { name: '周期性需求' })).toHaveValue(
+      '准备一份晨间机会简报，包含新信号、证据缺口和三个最高优先级行动。',
+    )
   })
 })

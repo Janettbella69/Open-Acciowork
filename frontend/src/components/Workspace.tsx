@@ -1,6 +1,5 @@
 import { useState } from 'react'
 import { useOpportunityRuntime } from '../api/useOpportunityRuntime'
-import type { RunMode } from '../api/types'
 import WorkspaceComposer from './WorkspaceComposer'
 
 function importedBrief(): string {
@@ -18,19 +17,18 @@ export default function Workspace() {
   const [briefInput, setBriefInput] = useState(importedBrief)
   const [notice, setNotice] = useState(importedBrief() ? 'Brief imported from the website.' : '')
   const [attachedFiles, setAttachedFiles] = useState<File[]>([])
-  const [runMode, setRunMode] = useState<RunMode>('standard')
 
   const runAnalysis = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     const brief = briefInput.trim()
     if (!brief) return
 
-    setNotice('Starting Ophira…')
+    setNotice('Starting TradeMind…')
     try {
       if (runtime.project) {
-        await runtime.continueProject(brief, attachedFiles, runMode)
+        await runtime.continueProject(brief, attachedFiles, 'standard')
       } else {
-        await runtime.start(brief, attachedFiles, runMode)
+        await runtime.start(brief, attachedFiles, 'standard')
       }
       normalizeWorkspaceUrl()
       setBriefInput('')
@@ -69,7 +67,6 @@ export default function Workspace() {
     <WorkspaceComposer
       value={briefInput}
       attachedFiles={attachedFiles}
-      mode={runMode}
       busy={runtime.starting || runtime.isActive || runtime.historyLoading}
       notice={notice}
       error={runtime.error}
@@ -85,7 +82,6 @@ export default function Workspace() {
       isActive={runtime.isActive}
       onChange={setBriefInput}
       onAttachedFilesChange={setAttachedFiles}
-      onModeChange={setRunMode}
       onSubmit={runAnalysis}
       onProjectRefresh={() => void runtime.refreshActiveProject()}
       onNewResearch={() => void startNewResearch()}

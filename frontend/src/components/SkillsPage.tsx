@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from 'react'
 import { errorMessage, listSkills, setSkillEnabled, testSkill } from '../api/client'
 import type { SkillTestResult, SkillVersion } from '../api/types'
 import Brand from './Brand'
+import WorkspaceNav from './WorkspaceNav'
+import { useT } from '../i18n'
 import './workspace-composer.css'
 import './skills-page.css'
 
@@ -10,6 +12,7 @@ function initials(name: string): string {
 }
 
 export default function SkillsPage() {
+  const t = useT()
   const [skills, setSkills] = useState<SkillVersion[]>([])
   const [query, setQuery] = useState('')
   const [error, setError] = useState('')
@@ -64,30 +67,25 @@ export default function SkillsPage() {
   return (
     <div className="skills-shell">
       <aside className="conversation-sidebar skills-sidebar">
-        <a className="conversation-sidebar-brand" href="/" aria-label="Back to OPHIRA website"><Brand /></a>
-        <a className="conversation-new-research" href="/app"><span aria-hidden="true">＋</span> New conversation</a>
-        <nav className="conversation-sidebar-nav" aria-label="Workspace navigation">
-          <p>Workspace</p>
-          <a href="/app"><span>01</span>Agent workspace</a>
-          <a href="/app/schedules"><span>02</span>Scheduled tasks</a>
-          <a href="/app/skills" aria-current="page"><span>03</span>Skill Studio</a>
-        </nav>
+        <a className="conversation-sidebar-brand" href="/" aria-label={t('Back to TradeMind website')}><Brand /></a>
+        <a className="conversation-new-research" href="/app"><span aria-hidden="true">＋</span> {t('New conversation')}</a>
+        <WorkspaceNav active="skills" />
         <div className="skills-sidebar-note">
-          <strong>Real Plugin Skills</strong>
-          <p>Every item below is a versioned SKILL.md discovered by Claude Agent SDK.</p>
+          <strong>{t('Real Plugin Skills')}</strong>
+          <p>{t('Every item below is a versioned SKILL.md discovered by Claude Agent SDK.')}</p>
         </div>
       </aside>
 
       <main className="skills-main">
         <header className="skills-header">
-          <div className="skills-title-group"><p>Runtime capability registry</p><h1>Skills</h1></div>
-          <div className="skills-view-switch" role="group" aria-label="Skill view">
-            <button type="button" data-active="true">Installed <span>{skills.length}</span></button>
+          <div className="skills-title-group"><p>{t('Runtime capability registry')}</p><h1>{t('Skills')}</h1></div>
+          <div className="skills-view-switch" role="group" aria-label={t('Skill view')}>
+            <button type="button" data-active="true">{t('Installed')} <span>{skills.length}</span></button>
           </div>
           <div className="skills-actions">
             <label className="skills-search">
               <span aria-hidden="true">⌕</span>
-              <input type="search" aria-label="Search skills" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search skills" />
+              <input type="search" aria-label={t('Search skills')} value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t('Search skills')} />
             </label>
           </div>
         </header>
@@ -97,23 +95,23 @@ export default function SkillsPage() {
         {featured && !query && (
           <section className="skills-feature" aria-labelledby="featured-skill-heading">
             <div>
-              <span>Featured Plugin Skill · v{featured.version}</span>
-              <h2 id="featured-skill-heading">Global Opportunity Execution</h2>
+              <span>{t('Featured Plugin Skill')} · v{featured.version}</span>
+              <h2 id="featured-skill-heading">{featured.name.replaceAll('-', ' ')}</h2>
               <p>{featured.description}</p>
-              <a href="/app">Start a task <span aria-hidden="true">→</span></a>
+              <a href="/app">{t('Start a task')} <span aria-hidden="true">→</span></a>
             </div>
             <dl>
-              <div><dt>Runtime name</dt><dd>{featured.id}</dd></div>
-              <div><dt>Content hash</dt><dd>{featured.content_hash.slice(0, 12)}</dd></div>
-              <div><dt>Status</dt><dd>{featured.enabled ? 'Enabled' : 'Disabled'}</dd></div>
+              <div><dt>{t('Runtime name')}</dt><dd>{featured.id}</dd></div>
+              <div><dt>{t('Content hash')}</dt><dd>{featured.content_hash.slice(0, 12)}</dd></div>
+              <div><dt>{t('Status')}</dt><dd>{featured.enabled ? t('Enabled') : t('Disabled')}</dd></div>
             </dl>
           </section>
         )}
 
         <section className="skills-catalog" aria-labelledby="skills-catalog-heading">
           <div className="skills-catalog-heading">
-            <div><p>Application Plugin</p><h2 id="skills-catalog-heading">Installed OPHIRA skills</h2></div>
-            <span>{visibleSkills.length} {visibleSkills.length === 1 ? 'skill' : 'skills'}</span>
+            <div><p>{t('Application Plugin')}</p><h2 id="skills-catalog-heading">{t('Installed TradeMind skills')}</h2></div>
+            <span>{t('{n} skills', { n: visibleSkills.length })}</span>
           </div>
 
           {visibleSkills.length ? (
@@ -130,16 +128,16 @@ export default function SkillsPage() {
                       <span>v{skill.version} · {skill.content_hash.slice(0, 8)}</span>
                       <span className="skill-card-buttons">
                         <button type="button" disabled={testing === skill.id} onClick={() => void runSkillTest(skill)}>
-                          {testing === skill.id ? 'Testing…' : 'Test'}
+                          {testing === skill.id ? t('Testing…') : t('Test')}
                         </button>
                         <button type="button" disabled={updating === skill.id} onClick={() => void toggleSkill(skill)}>
-                          {updating === skill.id ? 'Saving…' : skill.enabled ? 'Disable' : 'Enable'}
+                          {updating === skill.id ? t('Saving…') : skill.enabled ? t('Disable') : t('Enable')}
                         </button>
                       </span>
                     </footer>
                     {testResults[skill.id] && (
                       <div className="skill-test-result" data-ok={testResults[skill.id].ok} role="status">
-                        <strong>{testResults[skill.id].ok ? '✓ Package test passed' : '✗ Package test failed'}</strong>
+                        <strong>{testResults[skill.id].ok ? `✓ ${t('Package test passed')}` : `✗ ${t('Package test failed')}`}</strong>
                         <ul>
                           {testResults[skill.id].checks.map((check) => (
                             <li key={check.name} data-status={check.status}>
@@ -156,8 +154,8 @@ export default function SkillsPage() {
             </div>
           ) : (
             <div className="skills-empty">
-              <strong>{query ? 'No skills match this search.' : 'No Plugin Skills discovered.'}</strong>
-              <p>{query ? 'Try another capability name.' : 'Check the backend capability Plugin path and manifest.'}</p>
+              <strong>{query ? t('No skills match this search.') : t('No Plugin Skills discovered.')}</strong>
+              <p>{query ? t('Try another capability name.') : t('Check the backend capability Plugin path and manifest.')}</p>
             </div>
           )}
         </section>

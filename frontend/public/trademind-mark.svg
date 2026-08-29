@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="trademind-title">
+  <title id="trademind-title">TradeMind</title>
+  <circle cx="32" cy="32" r="27" fill="#1f1f1f" />
+  <path d="M16 41C24 49 41 47 48 32" fill="none" stroke="#fff" stroke-linecap="round" stroke-width="4.2" />
+  <circle cx="48" cy="32" r="4.6" fill="#fff" />
+</svg>

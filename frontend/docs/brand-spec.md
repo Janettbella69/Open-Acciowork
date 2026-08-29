@@ -1,50 +1,62 @@
-# OPHIRA AI · Brand Spec
-> Captured: 2026-08-05
-> Sources: repository `README.md` · https://github.com/Janettbella69/Open-Acciowork · https://youmind.com/
-> Completeness: initial system inferred from the approved brand foundation
+# TradeMind · Brand Spec
+> Updated: 2026-08-29
+> Sources: repository `README.md`, live frontend, https://youmind.com/overview
+
+## Brand idea
+- Name: TradeMind.
+- Meaning: “Trade” states the cross-border commerce category; “Mind” signals research, judgment, and coordinated action.
+- Homepage line: “Go beyond borders.”
+- Supporting line: “From product idea to global sales.”
+- Audience line: “AI global commerce intelligence for cross-border teams.”
 
 ## Core assets
 
-### Logo
-- Primary: `public/ophira-mark.svg`
-- Wordmark treatment: mark + uppercase `OPHIRA` in the interface typography.
-- Intended uses: navigation, application rail, favicon, product preview.
-- Forbidden manipulations: no gradients, no metallic effects, no stretching, no decorative glow.
+### Mark
+- Primary: `public/trademind-mark.svg`.
+- Treatment: near-black circular mark with the TradeMind wordmark; coral is reserved for product accents and action states.
+- Intended uses: navigation, application rail, favicon, and empty product state.
+- The former `public/ophira-mark.svg` remains only as a compatibility asset and is not referenced by the current UI.
 
-### UI screenshots
-- No pre-existing product screenshots were available.
-- The landing page uses the actual React product interface as its product demonstration rather than a fabricated screenshot.
-- Product truth: `src/components/Workspace.tsx`.
+### Editorial imagery
+- Story triptych: `public/images/global-commerce-triptych.png`, representing demand discovery, the supply/route layer, and buyer connection.
+- Recommendation series: the four `public/images/recommendations/*-classical.jpg` assets use bright, historically inspired editorial painting to represent product discovery, sourcing, localization, and growth without copying a specific artwork.
+- Introduction film: `public/images/trademind-introduction.png`, a separate cinematic signal-to-sale composition.
+- Each adjacent section uses a different source or a code-native graphic treatment; YouMind artwork is never reused.
+
+### Product interface
+- The landing page introduces the product through an original cinematic path visual, avoiding a heavy browser or device mockup.
+- The functional React workspace remains available at `/app`; the marketing visual does not pretend to be a live product screenshot.
 
 ## Color palette
-- Marketing background: `#ffffff` — clean white, matched to the approved reference.
-- Product background: `#f2f0e9` — restrained warm neutral for workspace depth.
-- Surface: `#fffdf8` — paper white.
-- Ink: `#1b1a17` — near black.
-- Primary accent: `#bc7b2c` — mineral gold.
-- Product signal: `#2f6a52` — evidence green.
-- Product route: `#365e73` — harbor blue.
-- Avoid: saturated purple/blue AI gradients and glossy gold effects.
+- Canvas: `#ffffff`.
+- Ink: `#1d1d1b`.
+- Muted text: `#62625e` / `#969691`.
+- Hairline: `#e7e7e2`.
+- Brand accent: `#e8442d`.
+- Deep route blue: `#173e9f`.
+- Evidence green: `#2f6a52`.
+- Warm editorial paper: `#efe8d9`.
+- Avoid saturated purple AI gradients, glossy effects, and heavy device frames.
 
 ## Typography
-- Marketing display: `Iowan Old Style`, `Palatino Linotype`, Palatino, Georgia, serif.
-- Product interface: Apple system UI stack (`SF Pro Text` / `SF Pro Display` for Latin, `PingFang SC` for Simplified Chinese, with platform-safe fallbacks). Product headings and controls stay in this single B2B sans-serif family.
-- Data: `SFMono-Regular`, Consolas, `Liberation Mono`, monospace, reserved for indexes, trace IDs, and technical metadata.
+- Marketing display: self-hosted Libre Baskerville.
+- Interface and body copy: self-hosted Inter variable with platform fallbacks.
+- Data and indexes: `SFMono-Regular`, Consolas, `Liberation Mono`, monospace.
 
-## System
-- Marketing type scale: `88 / 64 / 48 / 32 / 20 / 16 / 13`.
-- Product type scale: `48 / 32 / 20 / 16 / 14 / 12`; no product copy renders below `12px`.
-- Spacing: `4 / 8 / 12 / 16 / 24 / 32 / 48 / 64 / 96`.
-- Motion: 160–600ms, restrained rise/fade with cubic-bezier `(0.22, 1, 0.36, 1)`.
-- Section pattern: one editorial claim paired with one real product surface.
+## Layout system
+- Navigation: quiet 76px sticky bar with centered links and a right-side workspace pill.
+- Hero: one large serif proposition, one supporting line, a composer at roughly two-thirds of the viewport, prompt-lens controls, and four opportunity recommendations.
+- Story rhythm: three visual chapters → cinematic product introduction → decision gallery → panoramic brand line → use cases → product architecture → CTA.
+- Corners: 15–24px for cards and large surfaces; pills use full rounding.
+- Motion: 160–620ms, limited to restrained rise, hover lift, and saturation changes.
+- Breakpoints: desktop, 1180px, 860px, and 600px; horizontal content becomes swipeable where useful.
 
-## Vibe keywords
-- Perceptive
-- Resourceful
-- International
-- Grounded
-- Commercially intelligent
+## Voice
+- Use short, common English words.
+- Start with the buyer or market need, then explain the commercial path.
+- Prefer “market,” “product,” “supply,” “route,” “buyer,” and “sale” over abstract AI language.
+- Never fabricate customer counts, transaction volume, revenue, testimonials, or performance claims.
 
-## Completeness notes
-- No supplied logo, product photography, UI screenshots, typeface files, Figma system, or brand-guideline PDF existed in the repository.
-- The first-party mark and interface in this repository establish the initial system and can be revised when formal brand assets become available.
+## Reference boundary
+- YouMind informs page rhythm, whitespace, editorial type, and input-led product storytelling only.
+- TradeMind uses original copy, global-commerce scenarios, UI, mark, colors, and generated imagery.

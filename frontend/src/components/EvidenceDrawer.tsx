@@ -1,18 +1,19 @@
 import { useMemo, useState } from 'react'
 import { errorMessage, setEvidenceStatus } from '../api/client'
 import type { Evidence, EvidenceStatus, OpportunityProject } from '../api/types'
+import { useLanguage, useT } from '../i18n'
 
 const kindLabels: Record<Evidence['kind'], string> = {
-  observed_fact: '观测事实',
-  user_statement: '用户陈述',
-  community_signal: '社区信号',
-  inference: '推断',
+  observed_fact: 'Observed fact',
+  user_statement: 'User statement',
+  community_signal: 'Community signal',
+  inference: 'Inference',
 }
 
 const statusLabels: Record<EvidenceStatus, string> = {
-  active: '有效',
-  stale: '已过期',
-  removed: '已移除',
+  active: 'Active',
+  stale: 'Stale',
+  removed: 'Removed',
 }
 
 type EvidenceDrawerProps = {
@@ -21,6 +22,8 @@ type EvidenceDrawerProps = {
 }
 
 export default function EvidenceDrawer({ project, onChanged }: EvidenceDrawerProps) {
+  const t = useT()
+  const language = useLanguage()
   const [kindFilter, setKindFilter] = useState<'all' | Evidence['kind']>('all')
   const [statusFilter, setStatusFilter] = useState<'all' | EvidenceStatus>('all')
   const [query, setQuery] = useState('')
@@ -46,10 +49,17 @@ export default function EvidenceDrawer({ project, onChanged }: EvidenceDrawerPro
     try {
       const change = await setEvidenceStatus(project.id, item.id, status)
       const affected = change.affected_decision_ids.length
+      const statusText = language === 'zh-CN'
+        ? t(statusLabels[status])
+        : statusLabels[status].toLowerCase()
       setNotice(
         status === 'active'
-          ? `证据已恢复${affected ? `；${affected} 条结论已联动更新` : ''}`
-          : `证据已标记为${statusLabels[status]}${affected ? `；${affected} 条结论转入待复核` : ''}`,
+          ? affected
+            ? t('Evidence restored; {n} linked decisions were updated', { n: affected })
+            : t('Evidence restored')
+          : affected
+            ? t('Evidence marked {status}; {n} linked decisions need review', { status: statusText, n: affected })
+            : t('Evidence marked {status}', { status: statusText }),
       )
       onChanged()
     } catch (statusError) {
@@ -60,55 +70,55 @@ export default function EvidenceDrawer({ project, onChanged }: EvidenceDrawerPro
   }
 
   return (
-    <div className="evidence-drawer" aria-label="Evidence drawer">
+    <div className="evidence-drawer" aria-label={t('Evidence drawer')}>
       <div className="evidence-drawer-controls">
         <label>
-          <span className="conversation-visually-hidden">Search evidence</span>
+          <span className="conversation-visually-hidden">{t('Search evidence')}</span>
           <input
             type="search"
-            placeholder="搜索证据…"
+            placeholder={t('Search evidence…')}
             value={query}
             onChange={(event) => setQuery(event.target.value)}
           />
         </label>
         <label>
-          <span className="conversation-visually-hidden">Filter by kind</span>
+          <span className="conversation-visually-hidden">{t('Filter by kind')}</span>
           <select
-            aria-label="Filter by kind"
+            aria-label={t('Filter by kind')}
             value={kindFilter}
             onChange={(event) => setKindFilter(event.target.value as typeof kindFilter)}
           >
-            <option value="all">全部类型</option>
+            <option value="all">{t('All kinds')}</option>
             {Object.entries(kindLabels).map(([value, text]) => (
-              <option key={value} value={value}>{text}</option>
+              <option key={value} value={value}>{t(text)}</option>
             ))}
           </select>
         </label>
         <label>
-          <span className="conversation-visually-hidden">Filter by status</span>
+          <span className="conversation-visually-hidden">{t('Filter by status')}</span>
           <select
-            aria-label="Filter by status"
+            aria-label={t('Filter by status')}
             value={statusFilter}
             onChange={(event) => setStatusFilter(event.target.value as typeof statusFilter)}
           >
-            <option value="all">全部状态</option>
+            <option value="all">{t('All statuses')}</option>
             {Object.entries(statusLabels).map(([value, text]) => (
-              <option key={value} value={value}>{text}</option>
+              <option key={value} value={value}>{t(text)}</option>
             ))}
           </select>
         </label>
       </div>
 
       {notice && <p className="evidence-drawer-notice" role="status">{notice}</p>}
-      {error && <p className="conversation-error" role="alert">{error}</p>}
+      {error && <p className="conversation-error" role="alert">{t(error)}</p>}
 
       {visible.length ? visible.map((item) => (
         <article key={item.id} className="evidence-card" data-status={item.status}>
           <header>
-            <span data-kind={item.kind}>{kindLabels[item.kind]}</span>
-            {item.dimension && <span data-kind="dimension">{item.dimension}</span>}
-            <span data-status={item.status}>{statusLabels[item.status]}</span>
-            <b>置信度 {(item.confidence * 100).toFixed(0)}%</b>
+            <span data-kind={item.kind}>{t(kindLabels[item.kind])}</span>
+            {item.dimension && <span data-kind="dimension">{t(item.dimension[0].toUpperCase() + item.dimension.slice(1))}</span>}
+            <span data-status={item.status}>{t(statusLabels[item.status])}</span>
+            <b>{t('Confidence {n}%', { n: (item.confidence * 100).toFixed(0) })}</b>
           </header>
           <p>{item.claim}</p>
           <footer>
@@ -124,8 +134,12 @@ export default function EvidenceDrawer({ project, onChanged }: EvidenceDrawerPro
               )}
             </span>
             <small>
-              抓取 {new Date(item.retrieved_at).toLocaleString()}
-              {item.observed_at && ` · 观察 ${new Date(item.observed_at).toLocaleDateString()}`}
+              {t('Retrieved {time}', {
+                time: new Date(item.retrieved_at).toLocaleString(language === 'zh-CN' ? 'zh-CN' : 'en'),
+              })}
+              {item.observed_at && ` · ${t('Observed {date}', {
+                date: new Date(item.observed_at).toLocaleDateString(language === 'zh-CN' ? 'zh-CN' : 'en'),
+              })}`}
             </small>
             {item.freshness_note && <em>{item.freshness_note}</em>}
           </footer>
@@ -137,28 +151,28 @@ export default function EvidenceDrawer({ project, onChanged }: EvidenceDrawerPro
                   type="button"
                   disabled={busy === item.id}
                   onClick={() => void changeStatus(item, 'stale')}
-                >标记过期</button>
+                >{t('Mark stale')}</button>
                 <button
                   type="button"
                   data-tone="danger"
                   disabled={busy === item.id}
                   onClick={() => void changeStatus(item, 'removed')}
-                >移除</button>
+                >{t('Remove')}</button>
               </>
             ) : (
               <button
                 type="button"
                 disabled={busy === item.id}
                 onClick={() => void changeStatus(item, 'active')}
-              >恢复</button>
+              >{t('Restore')}</button>
             )}
           </div>
         </article>
       )) : (
         <p className="evidence-drawer-empty">
           {project.evidence.length
-            ? '没有符合筛选条件的证据。'
-            : '还没有证据记录。Agent 使用账本工具后会出现在这里。'}
+            ? t('No evidence matches these filters.')
+            : t('No evidence has been recorded yet. Evidence appears here after the Agent uses the ledger tools.')}
         </p>
       )}
     </div>

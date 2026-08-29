@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { decideMemory, errorMessage, listMemory } from '../api/client'
 import type { MemoryItem } from '../api/types'
+import { useLanguage, useT } from '../i18n'
 
 const kindLabels: Record<MemoryItem['kind'], string> = {
   preference: 'Preference',
@@ -9,7 +10,22 @@ const kindLabels: Record<MemoryItem['kind'], string> = {
   lesson: 'Lesson',
 }
 
+const scopeLabels: Record<MemoryItem['scope'], string> = {
+  user: 'User scope',
+  project: 'Project scope',
+  agent: 'Agent scope',
+}
+
+const statusLabels: Record<MemoryItem['status'], string> = {
+  proposed: 'Proposed',
+  approved: 'Approved',
+  rejected: 'Rejected',
+  disabled: 'Disabled',
+}
+
 export default function MemoryReview() {
+  const t = useT()
+  const language = useLanguage()
   const [items, setItems] = useState<MemoryItem[]>([])
   const [busy, setBusy] = useState('')
   const [error, setError] = useState('')
@@ -40,40 +56,39 @@ export default function MemoryReview() {
 
   return (
     <div className="settings-card memory-review">
-      {error && <p className="conversation-error" role="alert">{error}</p>}
+      {error && <p className="conversation-error" role="alert">{t(error)}</p>}
 
       {proposed.length ? proposed.map((item) => (
         <article key={item.id} className="memory-review-item">
           <div>
             <p>{item.text}</p>
             <small>
-              {kindLabels[item.kind]} · scope {item.scope}
-              {' · proposed '}
-              {new Date(item.created_at).toLocaleDateString()}
+              {t(kindLabels[item.kind])} · {t(scopeLabels[item.scope])} · {t('Proposed {date}', {
+                date: new Date(item.created_at).toLocaleDateString(language === 'zh-CN' ? 'zh-CN' : 'en'),
+              })}
             </small>
           </div>
           <div className="memory-review-actions">
             <button type="button" disabled={busy === item.id} onClick={() => void decide(item.id, 'approve')}>
-              Approve
+              {t('Approve')}
             </button>
             <button type="button" data-tone="danger" disabled={busy === item.id} onClick={() => void decide(item.id, 'reject')}>
-              Reject
+              {t('Reject')}
             </button>
           </div>
         </article>
       )) : (
         <p className="settings-integration-note">
-          No memory proposals are waiting for review. Agent proposals appear here and only
-          take effect after you approve them.
+          {t('No memory proposals are waiting for review. Agent proposals appear here and only take effect after you approve them.')}
         </p>
       )}
 
       {decided.length > 0 && (
         <details className="memory-review-history">
-          <summary>Reviewed memories ({decided.length})</summary>
+          <summary>{t('Reviewed memories ({n})', { n: decided.length })}</summary>
           {decided.map((item) => (
             <p key={item.id}>
-              <span data-status={item.status}>{item.status}</span> {item.text}
+              <span data-status={item.status}>{t(statusLabels[item.status])}</span> {item.text}
             </p>
           ))}
         </details>

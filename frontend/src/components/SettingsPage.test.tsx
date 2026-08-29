@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { MemoryItem, ProviderProfile } from '../api/types'
+import { I18nContext } from '../i18n'
 import SettingsPage from './SettingsPage'
 
 vi.mock('../api/client', () => ({
@@ -193,5 +194,21 @@ describe('SettingsPage · local preferences', () => {
 
     fireEvent.change(computerControl, { target: { value: 'ask' } })
     expect(stored.get('ophira-workspace-settings')).toContain('"computerControl":"ask"')
+  })
+
+  it('localizes provider, memory, and permission controls in Chinese', async () => {
+    stubLocalStorage()
+    render(
+      <I18nContext.Provider value="zh-CN">
+        <SettingsPage />
+      </I18nContext.Provider>,
+    )
+
+    const row = (await screen.findByText('DeepSeek (api.deepseek.com)')).closest('article')!
+    expect(within(row).getByText('密钥已配置')).toBeInTheDocument()
+    expect(within(row).getByRole('button', { name: '运行预检' })).toBeInTheDocument()
+    expect(screen.getByRole('navigation', { name: '设置分区' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '批准' })).toBeInTheDocument()
+    expect(screen.getByRole('combobox', { name: '插件访问权限' })).toBeInTheDocument()
   })
 })

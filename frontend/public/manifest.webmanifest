@@ -1,12 +1,14 @@
 {
-  "name": "OPHIRA AI",
-  "short_name": "OPHIRA",
-  "description": "AI global commerce system for small cross-border teams.",
+  "name": "TradeMind",
+  "short_name": "TradeMind",
+  "description": "AI global commerce workspace for cross-border teams.",
+  "id": "/app",
   "start_url": "/app",
+  "scope": "/",
   "display": "standalone",
-  "background_color": "#f4f1e8",
-  "theme_color": "#bc7b2c",
+  "background_color": "#fbf5e9",
+  "theme_color": "#e8442d",
   "icons": [
-    { "src": "/ophira-mark.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+    { "src": "/trademind-mark.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
   ]
 }

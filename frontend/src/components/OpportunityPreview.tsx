@@ -4,7 +4,7 @@ export default function OpportunityPreview() {
   const lead = opportunitySignals[0]
 
   return (
-    <div className="ophira-product-window" aria-label="OPHIRA opportunity workspace preview">
+    <div className="ophira-product-window" aria-label="TradeMind opportunity workspace preview">
       <div className="preview-topbar">
         <div className="preview-dots" aria-hidden="true"><span /><span /><span /></div>
         <div className="preview-project"><strong>New market study</strong><span>Illustrative workspace</span></div>

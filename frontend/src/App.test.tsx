@@ -4,6 +4,7 @@ import type { OpportunityProject, OphiraEvent, RunRecord } from './api/types'
 import App from './App'
 import LandingPage from './components/LandingPage'
 import Workspace from './components/Workspace'
+import { pageTitle } from './pageMetadata'
 
 const timestamp = '2026-08-05T10:00:00Z'
 const emptyAssessment = (dimension: 'demand' | 'supply' | 'capital' | 'sales') => ({
@@ -116,8 +117,18 @@ function runtimeEvent(type: string, data: Record<string, unknown>): OphiraEvent 
   }
 }
 
-describe('OPHIRA frontend', () => {
+describe('TradeMind frontend', () => {
   beforeEach(() => {
+    const localStore = new Map<string, string>()
+    Object.defineProperty(window, 'localStorage', {
+      configurable: true,
+      value: {
+        getItem: (key: string) => localStore.get(key) ?? null,
+        setItem: (key: string, value: string) => void localStore.set(key, value),
+        removeItem: (key: string) => void localStore.delete(key),
+        clear: () => localStore.clear(),
+      },
+    })
     window.history.replaceState({}, '', '/app')
     MockEventSource.instances = []
     eventSequence = 0
@@ -135,6 +146,7 @@ describe('OPHIRA frontend', () => {
           permission_decisions: [],
         })
       }
+      if (url.endsWith('/api/skills') && !init?.method) return jsonResponse([])
       if (url.endsWith('/api/projects') && !init?.method) return jsonResponse(storedProjects)
       if (url.endsWith('/api/projects') && init?.method === 'POST') return jsonResponse(project, 201)
       if (url.endsWith(`/api/projects/${project.id}/runs`) && init?.method === 'POST') return jsonResponse(run, 202)
@@ -147,30 +159,50 @@ describe('OPHIRA frontend', () => {
 
   afterEach(() => {
     vi.unstubAllGlobals()
+    Reflect.deleteProperty(window, 'localStorage')
+  })
+
+  it('uses distinct browser titles for product routes', () => {
+    expect(pageTitle('/')).toBe('TradeMind - AI Global Commerce Workspace')
+    expect(pageTitle('/app')).toBe('TradeMind - AI Global Commerce Workspace')
+    expect(pageTitle('/app/schedules')).toBe('TradeMind Scheduled - AI Global Commerce Workspace')
+    expect(pageTitle('/app/skills')).toBe('TradeMind Skills - AI Global Commerce Workspace')
+    expect(pageTitle('/app/settings')).toBe('TradeMind Settings - AI Global Commerce Workspace')
   })
 
   it('presents the brand proposition and sends a brief to the app', () => {
     render(<LandingPage />)
 
-    expect(screen.getByRole('heading', { level: 1, name: /discover what the world needs/i })).toBeInTheDocument()
-    expect(screen.getAllByText(/connect who can supply it/i).length).toBeGreaterThan(0)
-    expect(screen.getByRole('textbox', { name: /what opportunity should ophira explore/i })).toHaveAttribute('name', 'brief')
+    expect(screen.getByRole('heading', { level: 1, name: /go beyond borders/i })).toBeInTheDocument()
+    expect(screen.getByText(/from product idea to global sales/i)).toBeInTheDocument()
+    const brief = screen.getByRole('textbox', { name: /what opportunity should trademind explore/i })
+    expect(brief).toHaveAttribute('name', 'brief')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Sourcing' }))
+    expect(screen.getByRole('button', { name: 'Sourcing' })).toHaveAttribute('aria-pressed', 'true')
+    expect(brief).toHaveValue('Compare suppliers, quotes, and landed margin for this product')
+
+    expect(screen.getByRole('button', { name: /spot products before they peak/i })).toHaveAttribute('data-panel', 'demand')
+    expect(screen.getByRole('button', { name: /compare factories and true margin/i })).toHaveAttribute('data-panel', 'route')
+    expect(screen.getByRole('button', { name: /localize listings that convert/i })).toHaveAttribute('data-panel', 'sale')
+    expect(screen.getByRole('button', { name: /launch across every channel/i })).toHaveAttribute('data-panel', 'europe')
   })
 
-  it('routes the product skill studio without replacing the research workspace', () => {
+  it('routes the product skill studio without replacing the research workspace', async () => {
     window.history.replaceState({}, '', '/app/skills')
     render(<App />)
 
     expect(screen.getByRole('heading', { level: 1, name: 'Skills' })).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: /01 agent workspace/i })).toHaveAttribute('href', '/app')
-    expect(screen.getByRole('link', { name: /03 skill studio/i })).toHaveAttribute('aria-current', 'page')
+    expect(screen.getByRole('link', { name: /agent workspace/i })).toHaveAttribute('href', '/app')
+    expect(screen.getByRole('link', { name: /skill studio/i })).toHaveAttribute('aria-current', 'page')
     expect(screen.getByRole('link', { name: /new conversation/i })).toHaveAttribute('href', '/app')
+    expect(await screen.findByText(/no plugin skills discovered/i)).toBeInTheDocument()
   })
 
   it('creates a live backend run and renders observable SDK events', async () => {
     render(<Workspace />)
-    await screen.findByRole('heading', { name: /what are you working on/i })
-    const input = screen.getByRole('textbox', { name: /ask ophira/i })
+    await screen.findByRole('heading', { name: /what can i do for you/i })
+    const input = screen.getByRole('textbox', { name: /ask trademind/i })
 
     fireEvent.change(input, { target: { value: project.objective } })
     fireEvent.click(screen.getByRole('button', { name: /send/i }))
@@ -178,7 +210,7 @@ describe('OPHIRA frontend', () => {
     expect(screen.getAllByText(project.objective).length).toBeGreaterThan(0)
     await screen.findByText(/backend connected/i)
     expect(screen.queryByRole('heading', { name: /turn a market question into a commercial path/i })).not.toBeInTheDocument()
-    expect(screen.getByRole('textbox', { name: /ask ophira/i })).toBeInTheDocument()
+    expect(screen.getByRole('textbox', { name: /ask trademind/i })).toBeInTheDocument()
     expect(MockEventSource.instances).toHaveLength(1)
     const source = MockEventSource.instances[0]
     expect(source.url).toContain(`/api/runs/${run.id}/events`)
@@ -199,13 +231,13 @@ describe('OPHIRA frontend', () => {
     window.history.replaceState({}, '', '/app?brief=%E4%BD%A0%E5%A5%BD')
     render(<Workspace />)
 
-    const input = await screen.findByRole('textbox', { name: /ask ophira/i })
+    const input = await screen.findByRole('textbox', { name: /ask trademind/i })
     expect(input).toHaveValue('你好')
 
     fireEvent.click(screen.getByRole('button', { name: /send/i }))
 
     await screen.findByText(/backend connected/i)
-    expect(await screen.findByRole('region', { name: /conversation with ophira/i })).toBeInTheDocument()
+    expect(await screen.findByRole('region', { name: /conversation with trademind/i })).toBeInTheDocument()
     expect(screen.queryByRole('heading', { level: 1, name: project.name })).not.toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: /turn a market question into a commercial path/i })).not.toBeInTheDocument()
     expect(window.location.pathname).toBe('/app')
@@ -214,17 +246,17 @@ describe('OPHIRA frontend', () => {
 
   it('keeps the primary input open-ended instead of injecting a preset workflow', async () => {
     render(<Workspace />)
-    const input = await screen.findByRole('textbox', { name: /ask ophira/i })
+    const input = await screen.findByRole('textbox', { name: /ask trademind/i })
 
     fireEvent.change(input, { target: { value: 'Help me reason through an unfamiliar problem.' } })
 
     expect(input).toHaveValue('Help me reason through an unfamiliar problem.')
-    expect(screen.getByRole('heading', { name: /start with a validation task/i })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { level: 2, name: /^for you$/i })).toBeInTheDocument()
   })
 
   it('continues inside the same project and resumes the model session', async () => {
     render(<Workspace />)
-    const input = await screen.findByRole('textbox', { name: /ask ophira/i })
+    const input = await screen.findByRole('textbox', { name: /ask trademind/i })
 
     fireEvent.change(input, { target: { value: project.objective } })
     fireEvent.click(screen.getByRole('button', { name: /send/i }))
@@ -236,7 +268,7 @@ describe('OPHIRA frontend', () => {
     })
     await waitFor(() => expect(screen.getByText(/ran for/i)).toBeInTheDocument())
 
-    const followUp = screen.getByRole('textbox', { name: /ask ophira/i })
+    const followUp = screen.getByRole('textbox', { name: /ask trademind/i })
     fireEvent.change(followUp, { target: { value: 'Now challenge the strongest assumption.' } })
     fireEvent.click(screen.getByRole('button', { name: /send/i }))
 

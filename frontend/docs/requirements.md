@@ -1,28 +1,34 @@
 # Frontend requirement inventory
 
-Updated: 2026-08-05
+Updated: 2026-08-29
 
 | Requirement | Status | Evidence / note |
 | --- | --- | --- |
-| Build an original OPHIRA marketing site inspired by YouMind principles | Delivered | `/` uses an input-led hero, editorial scale, generous whitespace, and first-party OPHIRA content |
+| Rebuild the marketing site with YouMind-like information rhythm without copying its protected assets | Delivered | `/` now follows an input-led hero, functional prompt-lens controls, four recommendation cards, three visual chapters, a cinematic product introduction, decision gallery, panoramic brand section, team use cases, architecture facts, and final CTA; copy and assets are original to TradeMind |
+| Rename the visible product from OPHIRA to TradeMind | Delivered | Brand, landing page, workspace labels, settings, skills, scheduled tasks, metadata, PWA manifest, README, tests, and accessibility labels use TradeMind; historical internal API and storage identifiers remain compatible |
+| Position the product for cross-border commerce teams without the “small” qualifier | Delivered | Footer, marketing copy, SEO description, PWA description, README, and product facts now say cross-border teams |
+| Use a cohesive original editorial image system | Delivered | Four bright, historically inspired recommendation paintings cover discovery, sourcing, localization, and growth; separate original assets cover the commerce chapters and signal-to-sale introduction |
+| Keep the product introduction visually integrated with the editorial page | Delivered | The abrupt mock-device surface was replaced by a borderless cinematic trade-path visual; the functional workspace remains available at `/app` |
 | Build a usable frontend product surface | Delivered | `/app` keeps the empty, running, completed, failed, and saved-project states inside one conversation workspace |
 | Prioritize the primary research input | Delivered | The empty workspace places the conversation composer directly below the opportunity prompt, followed by the four secondary validation shortcuts; active sessions retain the bottom-docked composer |
 | Provide useful composer tools without duplicating settings | Delivered | The composer stages files and images locally and inserts reviewable prompts from the shared built-in skill catalog; plugin controls remain exclusively in Settings, and the UI does not claim that staged attachments have uploaded |
 | Keep website briefs on the formal workspace | Delivered | `/app?brief=...` seeds the primary composer, then normalizes to `/app` after the brief is consumed; starting a run never switches to the retired dashboard |
 | Provide an account-to-settings navigation flow | Delivered | Clicking the workspace identity opens an accessible account menu; Settings routes to `/app/settings`, while outside press and Escape close the menu |
-| Keep the product navigation focused and readable for B2B users | Delivered | The workspace rail exposes Opportunity studio, Scheduled tasks, and Skill Studio; Settings remains in the account menu, and all product surfaces use a 48 / 32 / 20 / 16 / 14 / 12 sans-serif type scale |
-| Provide a reusable skill workspace | Delivered | `/app/skills` supports built-in skill discovery, local custom-skill drafts, search, and an accessible skill creator without fabricating marketplace metrics |
+| Keep the product navigation focused and readable for B2B users | Delivered | The workspace rail exposes Agent workspace, Skill Studio, and Scheduled tasks as a flat list; Settings remains in the account menu, and product controls use the shared sans-serif type scale |
+| Provide a reusable skill workspace | Delivered | `/app/skills` lists backend-discovered, versioned Plugin Skills and supports search, package tests, enable, and disable without fabricating marketplace metrics |
 | Let users control workspace memory | Delivered | Settings includes persisted local preferences for workspace memory and optional recent-conversation context; the UI states that runtime use depends on the backend memory policy being connected |
 | Expose external capability policies | Delivered | Settings includes Plugins, Browser, and Computer control permission preferences; high-risk computer control defaults to disabled |
-| Prepare recurring Agent work | Delivered | `/app/schedules` provides categorized templates and a functional local task-draft creator; automatic execution is explicitly deferred until the scheduler API is connected |
+| Provide recurring Agent work | Delivered | `/app/schedules` lists backend schedules, creates cron-backed tasks from templates or a custom brief, and supports pause, resume, and manual run; execution remains server-side when the browser is closed |
 | Prepare trusted companion-device control | Delivered | Computer control settings include discovery/control and keep-awake preferences plus an honest pairing placeholder; no fake QR code or mobile account is shown before secure pairing services exist |
-| Match the OPHIRA opportunity-team architecture | Delivered | Opportunity Lead owns one project truth and identifies the weakest validation dimension |
+| Match the TradeMind opportunity-team architecture | Delivered | Opportunity Lead owns one project truth and identifies the weakest validation dimension |
 | Keep Agent orchestration contextual | Delivered | The sidebar no longer presents a fixed specialist roster; actual runtime actors appear only in live backend activity, while user-managed Agents remain a backend registry concern |
 | Present an auditable Agent execution process | Delivered | The conversation renders the SDK's visible reasoning summary and the complete received event trace, including actors, tool inputs, tool responses, IDs, and raw event data; private reasoning not emitted by the SDK is not fabricated |
 | Distinguish facts, user statements, community signals, and inference | Delivered | The live evidence ledger renders the backend evidence kind for every claim without promoting it to fact |
-| Avoid fabricated commercial precision | Delivered | Sample workspace is explicitly illustrative; capital values remain uncalculated until inputs exist |
+| Avoid fabricated commercial precision | Delivered | Marketing examples make no customer, revenue, transaction, or performance claims; capital values remain uncalculated until inputs exist, and source evidence is preserved without invented translations or metrics |
+| Provide an English and Simplified Chinese interface | Delivered | Marketing, workspace chrome, settings, memory review, evidence controls, Skills, schedules, status, dates, notices, and accessibility labels follow the selected language; user, evidence, runtime, and backend-authored content remains in its source language |
 | Responsive marketing and product UI | Delivered | Desktop, tablet, and mobile breakpoints; mobile controls retain 44px minimum targets |
-| Automated frontend verification | Delivered | Component flow tests, ESLint, TypeScript, and Vite production build |
+| Automated frontend verification | Delivered | 39 Vitest component and contract tests, ESLint, TypeScript, and Vite production build |
+| Browser visual-regression pass | Delivered | The deployed homepage and workspace were inspected on desktop and mobile after the final typography, navigation, and image changes; a fresh pass should be repeated after future visual edits |
 | Connect the live backend API and SSE event stream | Delivered | The persistent conversation shell creates projects and runs, renders durable project truth, consumes protocol-discovered SSE event names, exposes Trace and Agent activity, handles approvals and cancellation, and refreshes the ledger |
-| Authentication and external side effects | Omitted | Not requested; the first frontend is a local product prototype |
-| Production deployment | Deferred | `VITE_OPHIRA_API_URL` supports a deployed API origin, but no hosting target, domain, or deployment workflow has been selected |
+| Authentication and external side effects | Omitted | Authentication has not been implemented; runtime permissions still gate consequential Agent actions |
+| Production deployment | Delivered | The frontend is deployed at `https://trademind.store` behind Nginx with HTTPS, SPA fallback, security headers, and an `/api` reverse-proxy path; backend service deployment remains separate |

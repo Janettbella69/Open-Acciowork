@@ -301,5 +301,5 @@ export function runEventUrl(runId: string): string {
 
 export function errorMessage(error: unknown): string {
   if (error instanceof Error) return error.message
-  return 'The OPHIRA backend returned an unknown error.'
+  return 'The TradeMind backend returned an unknown error.'
 }

@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Evidence, OpportunityProject } from '../api/types'
+import { I18nContext } from '../i18n'
 import EvidenceDrawer from './EvidenceDrawer'
 
 vi.mock('../api/client', () => ({
@@ -76,8 +77,8 @@ describe('EvidenceDrawer', () => {
     render(<EvidenceDrawer project={project} onChanged={vi.fn()} />)
 
     const factCard = screen.getByText(/报价单显示单价/).closest('article')!
-    expect(within(factCard).getByText('观测事实')).toBeInTheDocument()
-    expect(within(factCard).getByText(/置信度 90%/)).toBeInTheDocument()
+    expect(within(factCard).getByText('Observed fact')).toBeInTheDocument()
+    expect(within(factCard).getByText(/confidence 90%/i)).toBeInTheDocument()
     expect(within(factCard).getByText('uploads/quotes.csv')).toBeInTheDocument()
 
     const signalCard = screen.getByText(/社媒热度上升/).closest('article')!
@@ -103,12 +104,12 @@ describe('EvidenceDrawer', () => {
     render(<EvidenceDrawer project={project} onChanged={onChanged} />)
 
     const factCard = screen.getByText(/报价单显示单价/).closest('article')!
-    fireEvent.click(within(factCard).getByRole('button', { name: '标记过期' }))
+    fireEvent.click(within(factCard).getByRole('button', { name: /mark stale/i }))
 
     await waitFor(() =>
       expect(setEvidenceStatus).toHaveBeenCalledWith('project_1', 'ev_fact', 'stale'),
     )
-    expect(await screen.findByRole('status')).toHaveTextContent(/1 条结论转入待复核/)
+    expect(await screen.findByRole('status')).toHaveTextContent(/1 linked decisions need review/i)
     expect(onChanged).toHaveBeenCalledTimes(1)
   })
 
@@ -119,7 +120,21 @@ describe('EvidenceDrawer', () => {
     } as unknown as OpportunityProject
     render(<EvidenceDrawer project={staleProject} onChanged={vi.fn()} />)
 
-    expect(screen.getByRole('button', { name: '恢复' })).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: '标记过期' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /restore/i })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /mark stale/i })).not.toBeInTheDocument()
+  })
+
+  it('translates evidence controls while preserving source content', () => {
+    render(
+      <I18nContext.Provider value="zh-CN">
+        <EvidenceDrawer project={project} onChanged={vi.fn()} />
+      </I18nContext.Provider>,
+    )
+
+    const factCard = screen.getByText(/报价单显示单价/).closest('article')!
+    expect(within(factCard).getByText('观测事实')).toBeInTheDocument()
+    expect(within(factCard).getByText(/置信度 90%/)).toBeInTheDocument()
+    expect(screen.getByRole('combobox', { name: '按类型筛选' })).toBeInTheDocument()
+    expect(within(factCard).getByRole('button', { name: '标记过期' })).toBeInTheDocument()
   })
 })
