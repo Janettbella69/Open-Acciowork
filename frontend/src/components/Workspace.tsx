@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import type { RunMode } from '../api/types'
 import { useOpportunityRuntime } from '../api/useOpportunityRuntime'
 import WorkspaceComposer from './WorkspaceComposer'
 
@@ -24,6 +25,7 @@ export default function Workspace() {
     ? 'Brief imported from the website.'
     : agentId ? 'Agent selected. Start a conversation to use it.' : '')
   const [attachedFiles, setAttachedFiles] = useState<File[]>([])
+  const [runMode, setRunMode] = useState<RunMode>('standard')
 
   const runAnalysis = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -33,9 +35,9 @@ export default function Workspace() {
     setNotice('Starting TradeMind…')
     try {
       if (runtime.project) {
-        await runtime.continueProject(brief, attachedFiles, 'standard', agentId)
+        await runtime.continueProject(brief, attachedFiles, runMode, agentId)
       } else {
-        await runtime.start(brief, attachedFiles, 'standard', agentId)
+        await runtime.start(brief, attachedFiles, runMode, agentId)
       }
       normalizeWorkspaceUrl()
       setBriefInput('')
@@ -87,8 +89,10 @@ export default function Workspace() {
       connection={runtime.connection}
       historyLoading={runtime.historyLoading}
       isActive={runtime.isActive}
+      runMode={runMode}
       onChange={setBriefInput}
       onAttachedFilesChange={setAttachedFiles}
+      onRunModeChange={setRunMode}
       onSubmit={runAnalysis}
       onProjectRefresh={() => void runtime.refreshActiveProject()}
       onNewResearch={() => void startNewResearch()}

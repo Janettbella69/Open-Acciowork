@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react'
 import { useState } from 'react'
 import { vi } from 'vitest'
-import type { RunRecord } from '../api/types'
+import type { RunMode, RunRecord } from '../api/types'
 import { I18nContext } from '../i18n'
 import WorkspaceComposer from './WorkspaceComposer'
 
@@ -41,8 +41,10 @@ function baseProps() {
     connection: 'idle',
     historyLoading: false,
     isActive: false,
+    runMode: 'standard' as RunMode,
     onChange: vi.fn(),
     onAttachedFilesChange: vi.fn(),
+    onRunModeChange: vi.fn(),
     onSubmit: vi.fn(),
     onProjectRefresh: vi.fn(),
     onNewResearch: vi.fn(),
@@ -55,13 +57,16 @@ function baseProps() {
 function StatefulComposer() {
   const [value, setValue] = useState('')
   const [attachedFiles, setAttachedFiles] = useState<File[]>([])
+  const [runMode, setRunMode] = useState<RunMode>('standard')
   return (
     <WorkspaceComposer
       {...baseProps()}
       value={value}
       attachedFiles={attachedFiles}
+      runMode={runMode}
       onChange={setValue}
       onAttachedFilesChange={setAttachedFiles}
+      onRunModeChange={setRunMode}
     />
   )
 }
@@ -91,14 +96,33 @@ describe('WorkspaceComposer', () => {
     expect(props.onChange).not.toHaveBeenCalled()
   })
 
-  it('keeps add files and skills as separate composer controls', () => {
+  it('opens files, modes, experts, skills, and connectors from one composer tools menu', () => {
     render(<StatefulComposer />)
 
     const attachment = new File(['supplier notes'], 'supplier-notes.pdf', { type: 'application/pdf' })
     fireEvent.change(screen.getByLabelText(/choose files or images/i), { target: { files: [attachment] } })
     expect(screen.getByLabelText(/locally staged attachments/i)).toHaveTextContent('supplier-notes.pdf')
 
-    fireEvent.click(screen.getByRole('button', { name: /skills/i }))
+    expect(screen.queryByRole('button', { name: /^skills$/i })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /open tools menu/i }))
+
+    expect(screen.getByRole('dialog', { name: /composer tools/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^add files$/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^mode$/i })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /^experts$/i })).toHaveAttribute('href', '/app/agents')
+    expect(screen.getByRole('button', { name: /^skills$/i })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /^connectors$/i })).toHaveAttribute('href', '/app/plugins/connectors')
+
+    fireEvent.click(screen.getByRole('button', { name: /^mode$/i }))
+    expect(screen.getByRole('dialog', { name: /choose a mode/i })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /^deep research/i }))
+    expect(screen.queryByRole('dialog', { name: /choose a mode/i })).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /open tools menu/i }))
+    fireEvent.click(screen.getByRole('button', { name: /^mode$/i }))
+    expect(screen.getByRole('button', { name: /^deep research/i })).toHaveAttribute('data-active', 'true')
+    fireEvent.click(screen.getByRole('button', { name: /back to tools/i }))
+    fireEvent.click(screen.getByRole('button', { name: /^skills$/i }))
     expect(screen.getByRole('dialog', { name: /choose a trademind skill/i })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /buyer test designer/i }))
     expect(screen.getByRole('textbox', { name: /ask trademind/i })).toHaveValue(

@@ -8,6 +8,7 @@ import {
   type PendingPermission,
   type PermissionAnswers,
   type RunRecord,
+  type RunMode,
 } from '../api/types'
 import { builtInSkills } from '../data/skillCatalog'
 import { useLanguage, useT, type Translate } from '../i18n'
@@ -32,8 +33,10 @@ type WorkspaceComposerProps = {
   connection: string
   historyLoading: boolean
   isActive: boolean
+  runMode: RunMode
   onChange: (value: string) => void
   onAttachedFilesChange: (files: File[]) => void
+  onRunModeChange: (mode: RunMode) => void
   onSubmit: (event: FormEvent<HTMLFormElement>) => void
   onProjectRefresh: () => void
   onNewResearch: () => void
@@ -44,6 +47,46 @@ type WorkspaceComposerProps = {
     decision: 'allow_once' | 'allow_run' | 'deny',
     answers?: PermissionAnswers,
   ) => void
+}
+
+type ComposerMenuView = 'closed' | 'root' | 'mode' | 'skills'
+type ComposerToolIconName = 'files' | 'mode' | 'experts' | 'skills' | 'connectors'
+
+function ComposerToolIcon({ name }: { name: ComposerToolIconName }) {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      {name === 'files' && (
+        <path d="m8.8 12.8 5.7-5.7a3 3 0 0 1 4.2 4.2l-7.2 7.2a5 5 0 0 1-7.1-7.1l7-7a3.5 3.5 0 0 1 5 5l-7.1 7.1a2 2 0 1 1-2.8-2.8l6.4-6.4" />
+      )}
+      {name === 'mode' && (
+        <>
+          <path d="M4 20c1.7-4.8 5.1-8.2 10-10" />
+          <path d="M8.6 15.4c-1.8-2.9-.6-6.7 2.6-8.1L20 3.5l-3.8 8.8c-1.4 3.2-5.2 4.4-8.1 2.6" />
+          <path d="m5 4 .5 1.5L7 6l-1.5.5L5 8l-.5-1.5L3 6l1.5-.5L5 4Z" />
+        </>
+      )}
+      {name === 'experts' && (
+        <>
+          <circle cx="12" cy="8" r="3.2" />
+          <path d="M5.8 19c.6-3.5 2.7-5.3 6.2-5.3s5.6 1.8 6.2 5.3" />
+          <path d="m17.5 4.5.5 1.2 1.2.5-1.2.5-.5 1.2-.5-1.2-1.2-.5 1.2-.5.5-1.2Z" />
+        </>
+      )}
+      {name === 'skills' && (
+        <>
+          <path d="m12 3 7 7-7 7-7-7 7-7Z" />
+          <path d="m9 18 3 3 3-3" />
+        </>
+      )}
+      {name === 'connectors' && (
+        <>
+          <path d="m9.5 14.5-1.2 1.2a3.6 3.6 0 1 1-5.1-5.1l3.4-3.4a3.6 3.6 0 0 1 5.1 0" />
+          <path d="m14.5 9.5 1.2-1.2a3.6 3.6 0 1 1 5.1 5.1l-3.4 3.4a3.6 3.6 0 0 1-5.1 0" />
+          <path d="m8.5 15.5 7-7" />
+        </>
+      )}
+    </svg>
+  )
 }
 
 function parseQuestions(toolInput: unknown): AskUserQuestionItem[] {
@@ -306,8 +349,10 @@ export default function WorkspaceComposer({
   connection,
   historyLoading,
   isActive,
+  runMode,
   onChange,
   onAttachedFilesChange,
+  onRunModeChange,
   onSubmit,
   onProjectRefresh,
   onNewResearch,
@@ -315,7 +360,7 @@ export default function WorkspaceComposer({
   onCancel,
   onDecision,
 }: WorkspaceComposerProps) {
-  const [skillsOpen, setSkillsOpen] = useState(false)
+  const [composerMenu, setComposerMenu] = useState<ComposerMenuView>('closed')
   const [clock, setClock] = useState(() => Date.now())
   const t = useT()
   const language = useLanguage()
@@ -341,13 +386,13 @@ export default function WorkspaceComposer({
   const processSteps = traceEvents.length + (reasoningSummary ? 1 : 0)
 
   useEffect(() => {
-    if (!skillsOpen) return
+    if (composerMenu === 'closed') return
 
     const closeOnOutsidePress = (event: PointerEvent) => {
-      if (!composerToolsRef.current?.contains(event.target as Node)) setSkillsOpen(false)
+      if (!composerToolsRef.current?.contains(event.target as Node)) setComposerMenu('closed')
     }
     const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setSkillsOpen(false)
+      if (event.key === 'Escape') setComposerMenu('closed')
     }
 
     document.addEventListener('pointerdown', closeOnOutsidePress)
@@ -356,7 +401,7 @@ export default function WorkspaceComposer({
       document.removeEventListener('pointerdown', closeOnOutsidePress)
       document.removeEventListener('keydown', closeOnEscape)
     }
-  }, [skillsOpen])
+  }, [composerMenu])
 
   useEffect(() => {
     if (!isActive) return
@@ -373,7 +418,17 @@ export default function WorkspaceComposer({
 
   const selectSkill = (prompt: string) => {
     onChange(prompt)
-    setSkillsOpen(false)
+    setComposerMenu('closed')
+  }
+
+  const chooseFiles = () => {
+    setComposerMenu('closed')
+    fileInputRef.current?.click()
+  }
+
+  const selectRunMode = (mode: RunMode) => {
+    onRunModeChange(mode)
+    setComposerMenu('closed')
   }
 
   const composer = (
@@ -425,25 +480,73 @@ export default function WorkspaceComposer({
               onChange={stageFiles}
             />
             <button
-              className="conversation-tool-add"
+              className="conversation-tool-menu-trigger"
               type="button"
-              aria-label={t('Add files or images')}
-              title={t('Add files or images')}
-              onClick={() => fileInputRef.current?.click()}
-            >＋</button>
-            <button
-              className="conversation-tool-skills"
-              type="button"
-              aria-label={t('Skills')}
-              title={t('Skills')}
+              aria-label={t('Open tools menu')}
+              title={t('Open tools menu')}
               aria-haspopup="dialog"
-              aria-expanded={skillsOpen}
-              onClick={() => setSkillsOpen((current) => !current)}
-            ><span aria-hidden="true">◇</span><span className="conversation-visually-hidden">{t('Skills')}</span></button>
+              aria-expanded={composerMenu !== 'closed'}
+              onClick={() => setComposerMenu((current) => current === 'closed' ? 'root' : 'closed')}
+            ><span aria-hidden="true">＋</span></button>
 
-            {skillsOpen && (
+            {composerMenu === 'root' && (
+              <section className="conversation-tools-menu" role="dialog" aria-label={t('Composer tools')}>
+                <button className="conversation-tool-menu-row conversation-tool-menu-row-files" type="button" onClick={chooseFiles}>
+                  <ComposerToolIcon name="files" />
+                  <strong>{t('Add Files')}</strong>
+                  <i aria-hidden="true">›</i>
+                </button>
+                <button className="conversation-tool-menu-row" type="button" onClick={() => setComposerMenu('mode')}>
+                  <ComposerToolIcon name="mode" />
+                  <strong>{t('Mode')}</strong>
+                  <i aria-hidden="true">›</i>
+                </button>
+                <a className="conversation-tool-menu-row" href="/app/agents">
+                  <ComposerToolIcon name="experts" />
+                  <strong>{t('Experts')}</strong>
+                  <i aria-hidden="true">›</i>
+                </a>
+                <button className="conversation-tool-menu-row" type="button" onClick={() => setComposerMenu('skills')}>
+                  <ComposerToolIcon name="skills" />
+                  <strong>{t('Skills')}</strong>
+                  <i aria-hidden="true">›</i>
+                </button>
+                <a className="conversation-tool-menu-row" href="/app/plugins/connectors">
+                  <ComposerToolIcon name="connectors" />
+                  <strong>{t('Connectors')}</strong>
+                  <i aria-hidden="true">›</i>
+                </a>
+              </section>
+            )}
+
+            {composerMenu === 'mode' && (
+              <section className="conversation-mode-menu" role="dialog" aria-label={t('Choose a mode')}>
+                <header>
+                  <button type="button" aria-label={t('Back to tools')} onClick={() => setComposerMenu('root')}>←</button>
+                  <div><span>{t('Run mode')}</span><strong>{t('Choose a mode')}</strong></div>
+                </header>
+                <div>
+                  <button type="button" data-active={runMode === 'standard' || undefined} onClick={() => selectRunMode('standard')}>
+                    <ComposerToolIcon name="experts" />
+                    <span><strong>{t('Single Agent')}</strong><small>{t('Standard · one Agent')}</small></span>
+                    <i aria-hidden="true">{runMode === 'standard' ? '✓' : ''}</i>
+                  </button>
+                  <button type="button" data-active={runMode === 'deep_research' || undefined} onClick={() => selectRunMode('deep_research')}>
+                    <ComposerToolIcon name="mode" />
+                    <span><strong>{t('Deep Research')}</strong><small>{t('Deep Research · explicit beta')}</small></span>
+                    <i aria-hidden="true">{runMode === 'deep_research' ? '✓' : ''}</i>
+                  </button>
+                </div>
+              </section>
+            )}
+
+            {composerMenu === 'skills' && (
               <section className="conversation-skills-menu" role="dialog" aria-label={t('Choose a TradeMind skill')}>
-                <header><div><span>{t('Built-in capabilities')}</span><strong>{t('Use a skill')}</strong></div><a href="/app/plugins/skills">{t('Skills')} <i aria-hidden="true">→</i></a></header>
+                <header>
+                  <button type="button" aria-label={t('Back to tools')} onClick={() => setComposerMenu('root')}>←</button>
+                  <div><span>{t('Built-in capabilities')}</span><strong>{t('Use a skill')}</strong></div>
+                  <a href="/app/plugins/skills">{t('Skills')} <i aria-hidden="true">→</i></a>
+                </header>
                 <div>
                   {builtInSkills.map((skill) => (
                     <button key={skill.id} type="button" onClick={() => selectSkill(t(skill.prompt))}>

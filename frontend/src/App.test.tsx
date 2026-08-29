@@ -282,6 +282,27 @@ describe('TradeMind frontend', () => {
     })
   })
 
+  it('sends the mode selected from the composer tools menu to the backend run', async () => {
+    render(<Workspace />)
+    await screen.findByRole('heading', { name: /what can i do for you/i })
+
+    fireEvent.click(screen.getByRole('button', { name: /open tools menu/i }))
+    fireEvent.click(screen.getByRole('button', { name: /^mode$/i }))
+    fireEvent.click(screen.getByRole('button', { name: /^deep research/i }))
+    fireEvent.change(screen.getByRole('textbox', { name: /ask trademind/i }), {
+      target: { value: project.objective },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /send/i }))
+
+    await waitFor(() => {
+      const runRequest = vi.mocked(fetch).mock.calls.find(([input, init]) => (
+        String(input).endsWith(`/api/projects/${project.id}/runs`) && init?.method === 'POST'
+      ))
+      expect(runRequest).toBeDefined()
+      expect(JSON.parse(String(runRequest?.[1]?.body))).toMatchObject({ mode: 'deep_research' })
+    })
+  })
+
   it('keeps an imported website brief inside the same conversation workspace', async () => {
     window.history.replaceState({}, '', '/app?brief=%E4%BD%A0%E5%A5%BD')
     render(<Workspace />)
