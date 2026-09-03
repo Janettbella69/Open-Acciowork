@@ -102,6 +102,29 @@ class TestFetchSnapshot:
         assert len(result["excerpt"]) <= 6_000
 
     @pytest.mark.asyncio
+    async def test_oversized_stream_stops_reading_after_limit(self, tmp_path: Path) -> None:
+        class GuardedStream(httpx.AsyncByteStream):
+            async def __aiter__(self):
+                yield b"x" * 10_001
+                raise AssertionError("body must not be consumed after the byte cap")
+
+        def handler(_request: httpx.Request) -> httpx.Response:
+            return httpx.Response(
+                200,
+                headers={"content-type": "text/plain"},
+                stream=GuardedStream(),
+            )
+
+        result = await fetch_page_snapshot_impl(
+            settings_with(tmp_path, web_fetch_max_bytes=10_000),
+            "https://example.org/stream",
+            transport=httpx.MockTransport(handler),
+        )
+
+        assert result["truncated"] is True
+        assert len(result["excerpt"]) == 6_000
+
+    @pytest.mark.asyncio
     async def test_redirect_to_private_address_is_blocked(self, tmp_path: Path) -> None:
         def handler(request: httpx.Request) -> httpx.Response:
             if request.url.host == "example.org":

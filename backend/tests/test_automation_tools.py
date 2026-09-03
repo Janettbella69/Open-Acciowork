@@ -1,5 +1,6 @@
 """ophira_automation MCP tools: schedule/intent commitments, throttled delivery."""
 
+import asyncio
 import json
 from pathlib import Path
 
@@ -9,6 +10,7 @@ from httpx import ASGITransport, AsyncClient
 from ophira_backend.automation import IntentStore, NotificationStore
 from ophira_backend.automation_tools import build_automation_tools
 from ophira_backend.config import Settings
+from ophira_backend.constants import RunStatus
 from ophira_backend.main import create_app
 from ophira_backend.models import ProjectCreate, RunRecord
 from ophira_backend.storage import FileLedger
@@ -154,8 +156,6 @@ async def test_failed_scheduled_run_lands_in_the_inbox(tmp_path: Path) -> None:
             status = (await client.get(f"/api/runs/{run_id}")).json()["status"]
             if status == "failed":
                 break
-            import asyncio
-
             await asyncio.sleep(0.01)
         assert status == "failed"
 
@@ -164,10 +164,53 @@ async def test_failed_scheduled_run_lands_in_the_inbox(tmp_path: Path) -> None:
         assert inbox[0]["severity"] == "error"
         assert inbox[0]["schedule_id"] == schedule_id
         assert "AUTH_REVOKED_OR_INVALID" in inbox[0]["title"]
+        assert ledger.get_schedule(schedule_id).enabled is False
 
         marked = await client.post(f"/api/notifications/{inbox[0]['id']}/read")
         assert marked.json()["read"] is True
         assert (await client.get("/api/notifications", params={"unread": True})).json() == []
+
+
+class TransientFailingRuntime:
+    async def run(self, run: RunRecord) -> None:
+        raise RuntimeError("connection timed out")
+
+    async def cancel(self, run_id: str) -> None:  # pragma: no cover
+        return None
+
+
+@pytest.mark.asyncio
+async def test_transient_scheduled_run_failure_does_not_pause_schedule(tmp_path: Path) -> None:
+    app = create_app(Settings(data_dir=tmp_path), runtime=TransientFailingRuntime())
+    ledger = app.state.ledger
+    project = ledger.create_project(ProjectCreate(name="Sched", objective="x"))
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        created = await client.post(
+            "/api/schedules",
+            json={
+                "project_id": project.id,
+                "prompt": "heartbeat",
+                "cron": "0 8 * * *",
+                "timezone": "UTC",
+            },
+        )
+        schedule_id = created.json()["id"]
+        response = await client.post(f"/api/schedules/{schedule_id}/run")
+        run_id = response.json()["id"]
+
+        for _ in range(100):
+            status = ledger.get_run(run_id).status
+            if status == RunStatus.FAILED:
+                break
+            await asyncio.sleep(0.01)
+
+    assert status == RunStatus.FAILED
+    assert ledger.get_schedule(schedule_id).enabled is True
+    notices = app.state.notifications.list()
+    assert len(notices) == 1
+    assert notices[0].schedule_id == schedule_id
+    assert "已暂停" not in notices[0].title
 
 
 @pytest.mark.asyncio

@@ -104,46 +104,62 @@ async def fetch_page_snapshot_impl(
             reason = check_public_http_url(current)
             if reason:
                 return {"error_code": "URL_REJECTED", "error": reason, "url": current}
-            response = await client.get(current)
-            if response.status_code in {301, 302, 303, 307, 308}:
-                location = response.headers.get("location")
-                if not location:
+            request = client.build_request("GET", current)
+            response = await client.send(request, stream=True)
+            try:
+                if response.status_code in {301, 302, 303, 307, 308}:
+                    location = response.headers.get("location")
+                    if not location:
+                        return {
+                            "error_code": "FETCH_FAILED",
+                            "error": f"重定向缺少 Location（HTTP {response.status_code}）",
+                            "url": current,
+                        }
+                    current = urljoin(current, location)
+                    continue
+                if response.status_code >= 400:
                     return {
                         "error_code": "FETCH_FAILED",
-                        "error": f"重定向缺少 Location（HTTP {response.status_code}）",
+                        "error": f"HTTP {response.status_code}",
                         "url": current,
                     }
-                current = urljoin(current, location)
-                continue
-            if response.status_code >= 400:
+                content_type = response.headers.get("content-type", "").casefold()
+                if not any(
+                    allowed in content_type
+                    for allowed in ("text/", "html", "json", "xml")
+                ):
+                    return {
+                        "error_code": "UNSUPPORTED_CONTENT",
+                        "error": f"不支持的内容类型：{content_type or '未知'}",
+                        "url": current,
+                    }
+
+                body = bytearray()
+                truncated_bytes = False
+                async for chunk in response.aiter_bytes():
+                    remaining = settings.web_fetch_max_bytes - len(body)
+                    if len(chunk) > remaining:
+                        body.extend(chunk[:remaining])
+                        truncated_bytes = True
+                        break
+                    body.extend(chunk)
+
+                text = extract_text(
+                    bytes(body).decode(response.encoding or "utf-8", "replace"),
+                    content_type,
+                )
+                excerpt = text[:MAX_EXCERPT_CHARS]
                 return {
-                    "error_code": "FETCH_FAILED",
-                    "error": f"HTTP {response.status_code}",
-                    "url": current,
+                    "url": url,
+                    "final_url": current,
+                    "retrieved_at": datetime.now(UTC).isoformat(),
+                    "content_type": content_type,
+                    "excerpt": excerpt,
+                    "truncated": truncated_bytes or len(text) > MAX_EXCERPT_CHARS,
+                    "note": UNTRUSTED_NOTE,
                 }
-            content_type = response.headers.get("content-type", "").casefold()
-            if not any(
-                allowed in content_type
-                for allowed in ("text/", "html", "json", "xml")
-            ):
-                return {
-                    "error_code": "UNSUPPORTED_CONTENT",
-                    "error": f"不支持的内容类型：{content_type or '未知'}",
-                    "url": current,
-                }
-            body = response.content[: settings.web_fetch_max_bytes]
-            truncated_bytes = len(response.content) > settings.web_fetch_max_bytes
-            text = extract_text(body.decode(response.encoding or "utf-8", "replace"), content_type)
-            excerpt = text[:MAX_EXCERPT_CHARS]
-            return {
-                "url": url,
-                "final_url": current,
-                "retrieved_at": datetime.now(UTC).isoformat(),
-                "content_type": content_type,
-                "excerpt": excerpt,
-                "truncated": truncated_bytes or len(text) > MAX_EXCERPT_CHARS,
-                "note": UNTRUSTED_NOTE,
-            }
+            finally:
+                await response.aclose()
     return {"error_code": "FETCH_FAILED", "error": "重定向次数超限", "url": current}
 
 

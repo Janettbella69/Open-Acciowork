@@ -1,3 +1,4 @@
+import asyncio
 from pathlib import Path
 
 import pytest
@@ -11,12 +12,12 @@ from claude_agent_sdk import (
 )
 
 from ophira_backend.config import Settings
-from ophira_backend.constants import EventType
+from ophira_backend.constants import EventType, RunMode
 from ophira_backend.events import EventPublisher
 from ophira_backend.models import ProjectCreate, ProviderProfileUpsert
 from ophira_backend.permissions import PermissionBroker
 from ophira_backend.providers import ProviderRegistry
-from ophira_backend.sdk_adapter import ClaudeAgentRuntime
+from ophira_backend.sdk_adapter import AgentRunError, ClaudeAgentRuntime
 from ophira_backend.storage import FileLedger
 
 
@@ -59,6 +60,9 @@ def test_default_sdk_options_keep_the_agent_general_and_observable(tmp_path: Pat
     assert options.setting_sources == []
     assert options.skills == "all"
     assert options.plugins
+    assert len(options.plugins) == 2
+    assert options.plugins[0]["path"].endswith("ophira-capabilities")
+    assert options.plugins[1]["path"].endswith("skills/tenant-plugin")
     assert options.enable_file_checkpointing is True
     assert set(options.mcp_servers or {}) == {
         "ophira_ledger",
@@ -67,6 +71,9 @@ def test_default_sdk_options_keep_the_agent_general_and_observable(tmp_path: Pat
         "ophira_commerce_math",
         "ophira_web",
         "ophira_automation",
+        "ophira_compliance",
+        "ophira_browser",
+        "ophira_media",
     }
     # Envelope-approved automation tools run unattended; commitments still ask.
     assert "mcp__ophira_automation__send_notification" in options.allowed_tools
@@ -79,6 +86,31 @@ def test_default_sdk_options_keep_the_agent_general_and_observable(tmp_path: Pat
         "SubagentStart",
         "SubagentStop",
     }
+
+
+@pytest.mark.asyncio
+async def test_deep_research_wall_clock_timeout_cancels_session(
+    tmp_path: Path,
+) -> None:
+    _ledger, run, runtime = build_runtime(tmp_path)
+    runtime.settings.deep_research_timeout_seconds = 0.01  # type: ignore[assignment]
+    runtime._require_provider = lambda _run: None  # type: ignore[method-assign]
+    runtime._build_options = lambda _run: object()  # type: ignore[method-assign,return-value]
+    cleaned_up = asyncio.Event()
+
+    async def slow_session(_run, _options) -> None:
+        try:
+            await asyncio.Event().wait()
+        finally:
+            cleaned_up.set()
+
+    runtime._run_sdk_session = slow_session  # type: ignore[method-assign]
+    deep_run = run.model_copy(update={"mode": RunMode.DEEP_RESEARCH})
+
+    with pytest.raises(AgentRunError, match="wall-clock limit"):
+        await runtime.run(deep_run)
+
+    assert cleaned_up.is_set()
 
 
 def test_sdk_key_is_passed_to_subprocess_without_entering_events(tmp_path: Path) -> None:
@@ -231,3 +263,26 @@ async def test_sdk_messages_map_to_frontend_events(tmp_path: Path) -> None:
     ]
     reasoning = ledger.list_events(run.id)[2]
     assert reasoning.data["display"] == "summarized"
+
+
+@pytest.mark.asyncio
+async def test_subagent_start_hook_publishes_one_run_scoped_event(tmp_path: Path) -> None:
+    ledger, run, runtime = build_runtime(tmp_path)
+    hook = runtime._hook(run.id, ledger.workspace_for_project(run.project_id))
+
+    result = await hook(
+        {
+            "hook_event_name": "SubagentStart",
+            "agent_id": "sub-1",
+            "agent_type": "Explore",
+        },
+        None,
+        None,
+    )
+
+    assert result == {}
+    events = ledger.list_events(run.id)
+    assert len(events) == 1
+    assert events[0].type == EventType.SUBAGENT_STARTED.value
+    assert events[0].run_id == run.id
+    assert events[0].data == {"agent_id": "sub-1", "agent_type": "Explore"}

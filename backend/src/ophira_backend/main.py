@@ -18,6 +18,18 @@ from .automation import (
     NotificationNotFoundError,
     NotificationStore,
 )
+from .channels import (
+    MAX_FEISHU_BODY_BYTES,
+    ChannelError,
+    ChannelReplayGuard,
+    decrypt_feishu_payload,
+    feishu_challenge,
+    feishu_event_id,
+    feishu_should_handle,
+    feishu_timestamp_is_fresh,
+    to_inbound,
+    verify_feishu_signature,
+)
 from .config import Settings, get_settings
 from .connectors import ConnectorNotFoundError, ConnectorRegistry
 from .constants import (
@@ -26,17 +38,22 @@ from .constants import (
     EventType,
     EvidenceKind,
     EvidenceStatus,
+    FeedbackKind,
     MemoryScope,
     MemorySource,
     MemoryStatus,
     MissedRunPolicy,
     PermissionDecision,
+    PermissionModePolicy,
     ProjectStage,
     ProviderErrorCode,
     RunMode,
     RunStatus,
+    ScheduleKind,
 )
 from .events import EventPublisher
+from .feedback import FeedbackStore
+from .grants import GrantNotFoundError, PermissionGrantStore
 from .memory import FileMemoryProvider, MemoryNotFoundError
 from .models import (
     AgentCreate,
@@ -44,15 +61,23 @@ from .models import (
     AgentUpdate,
     Artifact,
     Connector,
+    ConnectorUpsert,
+    ConstraintAppend,
     Evidence,
     EvidenceStatusChange,
     EvidenceStatusUpdate,
+    FeedbackCreate,
+    FeedbackItem,
+    MemoryCorrection,
     MemoryCreate,
     MemoryDecision,
     MemoryItem,
     MemoryRollback,
     Notification,
     OpportunityProject,
+    OrgPolicy,
+    PendingPermissionView,
+    PermissionGrant,
     PermissionResolution,
     ProjectCreate,
     ProviderPreflightResult,
@@ -60,6 +85,7 @@ from .models import (
     ProviderProfileUpsert,
     RunCreate,
     RunRecord,
+    RunRetryRequest,
     Schedule,
     ScheduleCreate,
     ScheduleUpdate,
@@ -70,13 +96,42 @@ from .models import (
     utc_now,
 )
 from .permissions import PermissionBroker, PermissionNotFoundError
-from .providers import ProviderNotFoundError, ProviderRegistry
-from .runs import AgentRuntime, RunManager
+from .policy import OrgPolicyStore, PolicyDeniedError
+from .providers import FileSecretVault, ProviderNotFoundError, ProviderRegistry
+from .runs import AgentRuntime, RunManager, RunRetryConflictError
 from .scheduler import ScheduleService, ScheduleValidationError, compute_next_fire, new_schedule
 from .sdk_adapter import ClaudeAgentRuntime
-from .skills import SkillNotFoundError, SkillRegistry
+from .skills import MAX_SKILL_ARCHIVE_BYTES, SkillNotFoundError, SkillRegistry
 from .storage import FileLedger, LedgerNotFoundError
 from .templates import TEMPLATE_SPECS
+
+MAX_PROJECT_UPLOAD_BYTES = 50 * 1024 * 1024
+
+
+async def _read_bounded_body(
+    request: Request,
+    *,
+    max_bytes: int,
+    too_large_detail: str,
+) -> bytes:
+    """Read an HTTP body without trusting Content-Length or buffering past the cap."""
+    declared_length = request.headers.get("content-length")
+    if declared_length:
+        try:
+            declared_bytes = int(declared_length)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="invalid Content-Length") from exc
+        if declared_bytes < 0:
+            raise HTTPException(status_code=400, detail="invalid Content-Length")
+        if declared_bytes > max_bytes:
+            raise HTTPException(status_code=413, detail=too_large_detail)
+
+    body = bytearray()
+    async for chunk in request.stream():
+        if len(body) + len(chunk) > max_bytes:
+            raise HTTPException(status_code=413, detail=too_large_detail)
+        body.extend(chunk)
+    return bytes(body)
 
 
 def create_app(
@@ -90,15 +145,25 @@ def create_app(
         settings.data_dir / "memory",
         agents_root=settings.data_dir / "agents",
     )
+    grants = PermissionGrantStore(settings.data_dir / "grants")
+    policy = OrgPolicyStore(settings.data_dir / "org" / "policy.json")
+    feedback = FeedbackStore(settings.data_dir / "feedback")
+    channel_replays = ChannelReplayGuard(settings.data_dir / "channels" / "replays.json")
     permissions = PermissionBroker(
         ledger,
         events,
         timeout_seconds=settings.permission_timeout_seconds,
+        grants=grants,
     )
     providers = ProviderRegistry(settings)
     skills = SkillRegistry(settings.capability_plugin_dir, settings.data_dir / "skills")
     notifications = NotificationStore(settings.data_dir / "notifications")
     intents = IntentStore(settings.data_dir / "intents")
+    connectors = ConnectorRegistry(
+        settings.data_dir / "connectors",
+        vault=FileSecretVault(settings.data_dir / "secrets", filename="connector-secrets.json"),
+    )
+    connectors.ensure_catalog()
     runtime = runtime or ClaudeAgentRuntime(
         settings,
         ledger,
@@ -109,6 +174,8 @@ def create_app(
         skills=skills,
         intents=intents,
         notifications=notifications,
+        connectors=connectors,
+        policy=policy,
     )
     runs = RunManager(
         ledger,
@@ -118,10 +185,11 @@ def create_app(
         providers=providers,
         skills=skills,
         notifications=notifications,
+        memory=memory,
+        policy=policy,
+        settings=settings,
     )
-    scheduler = ScheduleService(ledger, runs, events)
-    connectors = ConnectorRegistry(settings.data_dir / "connectors")
-
+    scheduler = ScheduleService(ledger, runs, events, notifications=notifications)
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         await scheduler.start()
@@ -143,6 +211,9 @@ def create_app(
     application.state.connectors = connectors
     application.state.notifications = notifications
     application.state.intents = intents
+    application.state.grants = grants
+    application.state.policy = policy
+    application.state.feedback = feedback
     application.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,
@@ -170,6 +241,9 @@ def create_app(
             "dimensions": [item.value for item in Dimension],
             "project_stages": [item.value for item in ProjectStage],
             "permission_decisions": [item.value for item in PermissionDecision],
+            "permission_modes": [item.value for item in PermissionModePolicy],
+            "schedule_kinds": [item.value for item in ScheduleKind],
+            "feedback_kinds": [item.value for item in FeedbackKind],
             "agent_templates": [item.value for item in AgentTemplate],
             "memory_scopes": [item.value for item in MemoryScope],
             "memory_statuses": [item.value for item in MemoryStatus],
@@ -213,11 +287,13 @@ def create_app(
         filename: Annotated[str, Query(min_length=1, max_length=240)],
         mime: Annotated[str | None, Query(max_length=200)] = None,
     ) -> Artifact:
-        content = await request.body()
+        content = await _read_bounded_body(
+            request,
+            max_bytes=MAX_PROJECT_UPLOAD_BYTES,
+            too_large_detail="File exceeds the 50 MB upload limit",
+        )
         if not content:
             raise HTTPException(status_code=400, detail="File is empty")
-        if len(content) > 50 * 1024 * 1024:
-            raise HTTPException(status_code=413, detail="File exceeds the 50 MB upload limit")
         try:
             return ledger.save_upload(project_id, filename, content, mime=mime)
         except (LedgerNotFoundError, ValueError) as exc:
@@ -297,6 +373,8 @@ def create_app(
                 provider_snapshot=provider_snapshot,
                 skill_snapshot=skills.snapshot(),
             )
+        except PolicyDeniedError as exc:
+            raise HTTPException(status_code=403, detail=str(exc)) from exc
         except (LedgerNotFoundError, ProviderNotFoundError, ValueError) as exc:
             raise HTTPException(
                 status_code=404,
@@ -344,6 +422,8 @@ def create_app(
             return skills.set_enabled(skill_id, enabled)
         except SkillNotFoundError as exc:
             raise HTTPException(status_code=404, detail="Skill not found") from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     @application.post("/api/skills/{skill_id:path}/test", response_model=SkillTestResult)
     async def test_skill(skill_id: str) -> SkillTestResult:
@@ -351,6 +431,22 @@ def create_app(
             return skills.test(skill_id)
         except SkillNotFoundError as exc:
             raise HTTPException(status_code=404, detail="Skill not found") from exc
+
+    @application.post(
+        "/api/skills/install",
+        response_model=SkillVersion,
+        status_code=status.HTTP_201_CREATED,
+    )
+    async def install_skill(request: Request) -> SkillVersion:
+        content = await _read_bounded_body(
+            request,
+            max_bytes=MAX_SKILL_ARCHIVE_BYTES,
+            too_large_detail="Skill archive exceeds the upload limit",
+        )
+        try:
+            return skills.install_zip(content)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     @application.get("/api/connectors", response_model=list[Connector])
     async def list_connectors() -> list[Connector]:
@@ -363,12 +459,49 @@ def create_app(
         except (ConnectorNotFoundError, ValueError) as exc:
             raise HTTPException(status_code=404, detail="Connector not found") from exc
 
+    @application.put("/api/connectors/{connector_id}", response_model=Connector)
+    async def upsert_connector(connector_id: str, payload: ConnectorUpsert) -> Connector:
+        try:
+            return connectors.upsert(
+                connector_id,
+                type=payload.type,
+                display_name=payload.display_name,
+                scope=payload.scope,
+                secret_env=payload.secret_env,
+                endpoint=payload.endpoint,
+                secret=payload.secret,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @application.post("/api/connectors/{connector_id}/revoke", response_model=Connector)
+    async def revoke_connector(connector_id: str) -> Connector:
+        try:
+            return connectors.revoke(connector_id)
+        except (ConnectorNotFoundError, ValueError) as exc:
+            raise HTTPException(status_code=404, detail="Connector not found") from exc
+
     @application.get("/api/runs/{run_id}", response_model=RunRecord)
     async def get_run(run_id: str) -> RunRecord:
         try:
             return ledger.get_run(run_id)
         except (LedgerNotFoundError, ValueError) as exc:
             raise HTTPException(status_code=404, detail="Run not found") from exc
+
+    @application.post(
+        "/api/runs/{run_id}/retry",
+        response_model=RunRecord,
+        status_code=status.HTTP_202_ACCEPTED,
+    )
+    async def retry_run(run_id: str, payload: RunRetryRequest) -> RunRecord:
+        try:
+            return await runs.retry(run_id, payload.strategy)
+        except RunRetryConflictError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except (PolicyDeniedError, ProviderNotFoundError) as exc:
+            raise HTTPException(status_code=403, detail=str(exc)) from exc
+        except (LedgerNotFoundError, ValueError) as exc:
+            raise HTTPException(status_code=404, detail="Run or project not found") from exc
 
     @application.get("/api/runs/{run_id}/events")
     async def stream_run_events(
@@ -483,6 +616,22 @@ def create_app(
             return memory.decide(memory_id, payload.decision, payload.reason)
         except MemoryNotFoundError as exc:
             raise HTTPException(status_code=404, detail="Memory not found") from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @application.patch("/api/memory/{memory_id}", response_model=MemoryItem)
+    async def correct_memory(memory_id: str, payload: MemoryCorrection) -> MemoryItem:
+        try:
+            return memory.correct(
+                memory_id,
+                text=payload.text,
+                kind=payload.kind,
+                sensitivity=payload.sensitivity,
+            )
+        except MemoryNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="Memory not found") from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     @application.post("/api/memory/{memory_id}/rollback", response_model=MemoryItem)
     async def rollback_memory(memory_id: str, payload: MemoryRollback) -> MemoryItem:
@@ -581,7 +730,11 @@ def create_app(
 
     @application.patch("/api/schedules/{schedule_id}", response_model=Schedule)
     async def patch_schedule(schedule_id: str, payload: ScheduleUpdate) -> Schedule:
-        changes = payload.model_dump(exclude_unset=True)
+        # Keep nested SchedulePermissionRule instances typed; model_dump would turn
+        # them into dicts and model_copy(update=...) intentionally skips validation.
+        changes = {field: getattr(payload, field) for field in payload.model_fields_set}
+        if changes.get("permission_ceiling", ...) is None:
+            changes.pop("permission_ceiling", None)
         try:
             schedule = ledger.get_schedule(schedule_id)
         except (LedgerNotFoundError, ValueError) as exc:
@@ -613,8 +766,124 @@ def create_app(
     async def run_schedule_now(schedule_id: str) -> RunRecord:
         try:
             return await scheduler.run_now(schedule_id)
+        except (PolicyDeniedError, ProviderNotFoundError) as exc:
+            raise HTTPException(status_code=403, detail=str(exc)) from exc
         except (LedgerNotFoundError, ValueError) as exc:
             raise HTTPException(status_code=404, detail="Schedule not found") from exc
+
+    @application.get("/api/org/policy", response_model=OrgPolicy)
+    async def get_org_policy() -> OrgPolicy:
+        return policy.get()
+
+    @application.put("/api/org/policy", response_model=OrgPolicy)
+    async def put_org_policy(payload: OrgPolicy) -> OrgPolicy:
+        return policy.save(payload)
+
+    @application.get("/api/permissions/pending", response_model=list[PendingPermissionView])
+    async def list_pending_permissions() -> list[PendingPermissionView]:
+        return permissions.list_pending()
+
+    @application.get("/api/permissions/grants", response_model=list[PermissionGrant])
+    async def list_permission_grants() -> list[PermissionGrant]:
+        return grants.list()
+
+    @application.post("/api/permissions/grants/{grant_id}/revoke", response_model=PermissionGrant)
+    async def revoke_permission_grant(grant_id: str) -> PermissionGrant:
+        try:
+            return grants.revoke(grant_id)
+        except (GrantNotFoundError, ValueError) as exc:
+            raise HTTPException(status_code=404, detail="Grant not found") from exc
+
+    @application.post(
+        "/api/feedback",
+        response_model=FeedbackItem,
+        status_code=status.HTTP_201_CREATED,
+    )
+    async def create_feedback(payload: FeedbackCreate) -> FeedbackItem:
+        return feedback.add(payload)
+
+    @application.get("/api/feedback", response_model=list[FeedbackItem])
+    async def list_feedback() -> list[FeedbackItem]:
+        return feedback.list()
+
+    @application.post(
+        "/api/projects/{project_id}/constraints",
+        response_model=OpportunityProject,
+    )
+    async def append_constraints(project_id: str, payload: ConstraintAppend) -> OpportunityProject:
+        try:
+            def mutate(project: OpportunityProject) -> None:
+                for line in payload.constraints:
+                    if line not in project.constraints:
+                        project.constraints.append(line)
+
+            return ledger.update_project(project_id, mutate)
+        except (LedgerNotFoundError, ValueError) as exc:
+            raise HTTPException(status_code=404, detail="Project not found") from exc
+
+    @application.post("/api/channels/feishu")
+    async def feishu_channel(request: Request) -> dict:
+        body = await _read_bounded_body(
+            request,
+            max_bytes=MAX_FEISHU_BODY_BYTES,
+            too_large_detail="channel payload too large",
+        )
+        try:
+            payload = json.loads(body or b"{}")
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="invalid JSON") from exc
+        if not isinstance(payload, dict):
+            raise HTTPException(status_code=400, detail="channel payload must be an object")
+        encrypt_key = (
+            settings.feishu_encrypt_key.get_secret_value() if settings.feishu_encrypt_key else ""
+        )
+        if not encrypt_key:
+            raise HTTPException(status_code=503, detail="Feishu webhook is not configured")
+        timestamp = request.headers.get("x-lark-request-timestamp", "")
+        nonce = request.headers.get("x-lark-request-nonce", "")
+        signature = request.headers.get("x-lark-signature", "")
+        if not feishu_timestamp_is_fresh(timestamp) or not verify_feishu_signature(
+            timestamp,
+            nonce,
+            signature,
+            encrypt_key,
+            body,
+        ):
+            raise HTTPException(status_code=401, detail="invalid channel signature")
+        try:
+            payload = decrypt_feishu_payload(payload, encrypt_key)
+        except ChannelError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        identity = feishu_event_id(payload) or f"{timestamp}:{nonce}:{signature}"
+        replay_token = channel_replays.claim(identity)
+        if replay_token is None:
+            return {"duplicate": True, "channel": "feishu"}
+        challenge = feishu_challenge(payload)
+        if challenge:
+            return challenge
+        if not feishu_should_handle(payload, settings.feishu_bot_open_id):
+            return {"ignored": True, "reason": "bot_not_mentioned", "channel": "feishu"}
+        try:
+            inbound = to_inbound(payload, project_id=request.query_params.get("project_id"))
+        except ChannelError as exc:
+            channel_replays.release(replay_token)
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        project_id = inbound.project_id
+        if not project_id:
+            projects = ledger.list_projects()
+            if not projects:
+                channel_replays.release(replay_token)
+                raise HTTPException(
+                    status_code=400,
+                    detail="no project to attach the channel message",
+                )
+            project_id = projects[0].id
+        try:
+            run = await runs.create_and_start(project_id, inbound.text)
+        except Exception:
+            channel_replays.release(replay_token)
+            raise
+        return {"run_id": run.id, "project_id": project_id, "channel": inbound.channel}
 
     return application
 

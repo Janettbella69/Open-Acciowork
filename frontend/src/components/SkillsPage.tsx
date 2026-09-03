@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { errorMessage, listSkills, setSkillEnabled, testSkill } from '../api/client'
+import { errorMessage, installSkill, listSkills, setSkillEnabled, testSkill } from '../api/client'
 import type { SkillTestResult, SkillVersion } from '../api/types'
 import { useT } from '../i18n'
 import './skills-page.css'
@@ -72,6 +72,23 @@ export default function SkillsPage() {
             <label className="skills-search">
               <span aria-hidden="true">⌕</span>
               <input type="search" aria-label={t('Search skills')} value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t('Search skills')} />
+            </label>
+            <label className="skills-upload">
+              <span>{t('Upload skill zip')}</span>
+              <input
+                type="file"
+                accept=".zip,application/zip"
+                aria-label={t('Upload skill zip')}
+                onChange={(event) => {
+                  const file = event.target.files?.[0]
+                  event.target.value = ''
+                  if (!file) return
+                  setError('')
+                  void installSkill(file)
+                    .then((uploaded) => setSkills((current) => [uploaded, ...current.filter((item) => item.id !== uploaded.id)]))
+                    .catch((uploadError) => setError(errorMessage(uploadError)))
+                }}
+              />
             </label>
           </div>
         </header>

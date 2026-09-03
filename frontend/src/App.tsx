@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
 import AgentsPage from './components/AgentsPage'
+import InboxPage from './components/InboxPage'
 import LandingPage from './components/LandingPage'
 import MobilePage from './components/MobilePage'
 import PluginsPage from './components/PluginsPage'
@@ -13,6 +14,7 @@ function route(pathname: string) {
   if (pathname.startsWith('/app/settings')) return <SettingsPage />
   if (pathname.startsWith('/app/schedules')) return <ScheduledTasksPage />
   if (pathname.startsWith('/app/agents')) return <AgentsPage />
+  if (pathname.startsWith('/app/inbox')) return <InboxPage />
   if (pathname.startsWith('/app/plugins')) return <PluginsPage />
   if (pathname.startsWith('/app/skills')) return <PluginsPage legacyTab="skills" />
   if (pathname.startsWith('/app/connectors')) return <PluginsPage legacyTab="connectors" />

@@ -18,7 +18,7 @@ OPHIRA：面向出海小 B 的 AI 全球商业系统，对标 Accio Work。一�
 - 主线单 Agent + 原生支线子代理（2026-08-24 拍板"按原生能力来做"）：普通模式 `disallowed_tools=[]`、`agents=None`（内置 general-purpose/Explore 一次性支线，只带回摘要，不自造机制）；**账本写入与自动化承诺对子代理在 can_use_tool 代码级拒绝**（有测试）；仅 Deep Research 模式注入 3 个只读研究子代理；任何模式禁平行 Agent/固定角色团队。
 - `sandbox.enabled=True`、`allowUnsandboxedCommands=False`、`failIfUnavailable=True` 不得关闭；`autoAllowBashIfSandboxed=True`（SDK 原生默认，2026-08-24 拍板恢复，不得改回强制 ask）；worker env 必须先清空 `ANTHROPIC_API_KEY`/`ANTHROPIC_AUTH_TOKEN`/`CLAUDE_CODE_OAUTH_TOKEN` 再注入所选 Provider 的唯一凭据。
 - 国产模型只走各厂商官方 Anthropic 兼容端点（Provider Profile），不做 OpenAI 协议转换；Coding Plan 套餐 Key 禁止进入后端（条款红线，见 PRD §4.9）。
-- `claude-agent-sdk` 钉 `0.2.82`；升级必须先跑 Provider 合约测试。
+- `claude-agent-sdk` 钉 `0.2.143`（2026-08-21 由 0.2.82 升级）；升级必须先跑 Provider 合约测试。
 
 ## AI 知识盲区提醒（先读文档，再写代码）
 
@@ -33,7 +33,7 @@ OPHIRA：面向出海小 B 的 AI 全球商业系统，对标 Accio Work。一�
 遇到设计上拿不准的问题时，按以下顺序参考，不要自由发挥：
 
 1. **官方**：`docs/claude-agent-sdk/`（官方文档快照，按 README 索引找）＋
-   `.venv/lib/python3.11/site-packages/claude_agent_sdk/`（钉 0.2.82 的安装源码，
+   `.venv/lib/python3.11/site-packages/claude_agent_sdk/`（钉 0.2.143 的安装源码，
    行为的最终裁决）；快照不够新时上 https://code.claude.com/docs/en/agent-sdk/ 。
    这是官方的，逻辑完善，优先看这里。
 2. **官方示例工程**：https://github.com/anthropics/claude-agent-sdk-python （examples/）与

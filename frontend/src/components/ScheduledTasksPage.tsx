@@ -9,13 +9,20 @@ import {
   resumeSchedule,
   runSchedule,
 } from '../api/client'
-import type { OpportunityProject, RunRecord, Schedule } from '../api/types'
+import type {
+  OpportunityProject,
+  RunRecord,
+  Schedule,
+  ScheduleKind,
+  SchedulePermissionRule,
+} from '../api/types'
 import Brand from './Brand'
 import { useLanguage, useT } from '../i18n'
 import './scheduled-tasks-page.css'
 
 type ScheduleCategory = 'daily' | 'monitoring' | 'reports' | 'automation'
 type ScheduleCadence = 'daily_morning' | 'daily_evening' | 'weekly_monday' | 'every_six_hours'
+type SchedulePermissionPreset = 'read_only' | 'workspace_files'
 
 type ScheduleTemplate = {
   id: string
@@ -24,18 +31,19 @@ type ScheduleTemplate = {
   description: string
   category: ScheduleCategory
   cadence: ScheduleCadence
+  kind: ScheduleKind
   prompt: string
 }
 
 const templates: ScheduleTemplate[] = [
-  { id: 'morning-brief', code: 'AM', name: 'Morning opportunity brief', description: 'Summarize new market signals, priority evidence, and today’s next actions.', category: 'daily', cadence: 'daily_morning', prompt: 'Prepare a morning opportunity brief with new signals, evidence gaps, and the three highest-priority actions.' },
-  { id: 'end-of-day', code: 'PM', name: 'End-of-day synthesis', description: 'Summarize progress, unresolved questions, and tomorrow’s validation priorities.', category: 'daily', cadence: 'daily_evening', prompt: 'Summarize today’s opportunity work, unresolved questions, and recommended priorities for tomorrow.' },
-  { id: 'competitor-watch', code: 'CW', name: 'Competitor watch', description: 'Review material product, pricing, positioning, and channel changes.', category: 'monitoring', cadence: 'every_six_hours', prompt: 'Monitor the defined competitors for material product, pricing, positioning, and channel changes.' },
-  { id: 'market-radar', code: 'MR', name: 'Market signal radar', description: 'Track high-signal changes in buyer needs, policy, supply, and category behavior.', category: 'monitoring', cadence: 'daily_morning', prompt: 'Track high-signal changes in buyer needs, policy, supply conditions, and category behavior.' },
-  { id: 'weekly-review', code: 'WR', name: 'Weekly opportunity review', description: 'Review validated evidence, weakest links, and next-stage readiness.', category: 'reports', cadence: 'weekly_monday', prompt: 'Create a weekly opportunity review covering evidence, weakest links, and stage-gate readiness.' },
-  { id: 'quality-review', code: 'QA', name: 'Project quality review', description: 'Check unsupported claims, stale evidence, open permissions, and missing stop conditions.', category: 'reports', cadence: 'weekly_monday', prompt: 'Audit active opportunity projects for unsupported claims, stale evidence, open permissions, and missing stop conditions.' },
-  { id: 'supplier-follow-up', code: 'SF', name: 'Supplier follow-up queue', description: 'Prepare the next approved supplier questions from unresolved project gaps.', category: 'automation', cadence: 'daily_morning', prompt: 'Prepare a supplier follow-up queue from unresolved supply gaps. Do not contact anyone without approval.' },
-  { id: 'buyer-test-prep', code: 'BT', name: 'Buyer test preparation', description: 'Turn current sales assumptions into the smallest falsifiable buyer test.', category: 'automation', cadence: 'weekly_monday', prompt: 'Prepare the smallest falsifiable buyer test from current sales assumptions. Do not send outreach without approval.' },
+  { id: 'morning-brief', code: 'AM', name: 'Morning opportunity brief', description: 'Summarize new market signals, priority evidence, and today’s next actions.', category: 'daily', cadence: 'daily_morning', kind: 'task', prompt: 'Prepare a morning opportunity brief with new signals, evidence gaps, and the three highest-priority actions.' },
+  { id: 'end-of-day', code: 'PM', name: 'End-of-day synthesis', description: 'Summarize progress, unresolved questions, and tomorrow’s validation priorities.', category: 'daily', cadence: 'daily_evening', kind: 'task', prompt: 'Summarize today’s opportunity work, unresolved questions, and recommended priorities for tomorrow.' },
+  { id: 'competitor-watch', code: 'CW', name: 'Competitor watch', description: 'Review material product, pricing, positioning, and channel changes.', category: 'monitoring', cadence: 'every_six_hours', kind: 'heartbeat', prompt: 'Monitor the defined competitors for material product, pricing, positioning, and channel changes.' },
+  { id: 'market-radar', code: 'MR', name: 'Market signal radar', description: 'Track high-signal changes in buyer needs, policy, supply, and category behavior.', category: 'monitoring', cadence: 'daily_morning', kind: 'heartbeat', prompt: 'Track high-signal changes in buyer needs, policy, supply conditions, and category behavior.' },
+  { id: 'weekly-review', code: 'WR', name: 'Weekly opportunity review', description: 'Review validated evidence, weakest links, and next-stage readiness.', category: 'reports', cadence: 'weekly_monday', kind: 'task', prompt: 'Create a weekly opportunity review covering evidence, weakest links, and stage-gate readiness.' },
+  { id: 'quality-review', code: 'QA', name: 'Project quality review', description: 'Check unsupported claims, stale evidence, open permissions, and missing stop conditions.', category: 'reports', cadence: 'weekly_monday', kind: 'task', prompt: 'Audit active opportunity projects for unsupported claims, stale evidence, open permissions, and missing stop conditions.' },
+  { id: 'supplier-follow-up', code: 'SF', name: 'Supplier follow-up queue', description: 'Prepare the next approved supplier questions from unresolved project gaps.', category: 'automation', cadence: 'daily_morning', kind: 'task', prompt: 'Prepare a supplier follow-up queue from unresolved supply gaps. Do not contact anyone without approval.' },
+  { id: 'buyer-test-prep', code: 'BT', name: 'Buyer test preparation', description: 'Turn current sales assumptions into the smallest falsifiable buyer test.', category: 'automation', cadence: 'weekly_monday', kind: 'task', prompt: 'Prepare the smallest falsifiable buyer test from current sales assumptions. Do not send outreach without approval.' },
 ]
 
 const categoryLabels: Record<ScheduleCategory, string> = {
@@ -57,6 +65,18 @@ const cadenceCron: Record<ScheduleCadence, string> = {
   daily_evening: '0 18 * * *',
   weekly_monday: '0 9 * * 1',
   every_six_hours: '0 */6 * * *',
+}
+
+const workspaceFilePermissionCeiling: SchedulePermissionRule[] = [
+  { tool_name: 'Write', scope: 'path:.' },
+  { tool_name: 'Edit', scope: 'path:.' },
+]
+
+function isWorkspaceFileCeiling(rules: SchedulePermissionRule[]): boolean {
+  return rules.length === workspaceFilePermissionCeiling.length
+    && workspaceFilePermissionCeiling.every((expected) => rules.some(
+      (rule) => rule.tool_name === expected.tool_name && rule.scope === expected.scope,
+    ))
 }
 
 function browserTimezone(): string {
@@ -92,7 +112,9 @@ export default function ScheduledTasksPage() {
   const [creatorOpen, setCreatorOpen] = useState(false)
   const [prompt, setPrompt] = useState('')
   const [cadence, setCadence] = useState<ScheduleCadence>('daily_morning')
+  const [scheduleKind, setScheduleKind] = useState<ScheduleKind>('task')
   const [projectId, setProjectId] = useState('')
+  const [permissionPreset, setPermissionPreset] = useState<SchedulePermissionPreset>('read_only')
 
   useEffect(() => {
     let active = true
@@ -134,7 +156,9 @@ export default function ScheduledTasksPage() {
   const openCreator = (template?: ScheduleTemplate) => {
     setPrompt(template ? t(template.prompt) : '')
     setCadence(template?.cadence ?? 'daily_morning')
+    setScheduleKind(template?.kind ?? 'task')
     setProjectId(projects[0]?.id ?? '')
+    setPermissionPreset('read_only')
     setError('')
     setCreatorOpen(true)
   }
@@ -151,6 +175,10 @@ export default function ScheduledTasksPage() {
         cron: cadenceCron[cadence],
         timezone: browserTimezone(),
         mode: 'standard',
+        kind: scheduleKind,
+        permission_ceiling: permissionPreset === 'workspace_files'
+          ? workspaceFilePermissionCeiling.map((rule) => ({ ...rule }))
+          : [],
       })
       setSchedules((current) => [created, ...current])
       setCreatorOpen(false)
@@ -254,12 +282,43 @@ export default function ScheduledTasksPage() {
                   <div>
                     <strong>{schedule.prompt}</strong>
                     <p>
-                      <code>{schedule.cron ?? schedule.run_once_at ?? ''}</code> · {schedule.timezone} · {projectName}
+                      <code>{schedule.cron ?? schedule.run_once_at ?? ''}</code> · {schedule.timezone} · {projectName} ·{' '}
+                      <b className="schedule-kind" data-kind={schedule.kind}>{t(schedule.kind === 'heartbeat' ? 'Heartbeat' : 'Task')}</b>
                     </p>
                     <p>
                       {t('Next')} {fireTime(schedule.next_fire_at, language)} · {t('Last')} {fireTime(schedule.last_fire_at, language)}
                       {!schedule.enabled && <em> · {t('Paused')}</em>}
                     </p>
+                    <section
+                      className="schedule-permission-ceiling"
+                      aria-label={t('Permission ceiling')}
+                    >
+                      <span>{t('Permission ceiling')}</span>
+                      {schedule.permission_ceiling.length === 0 ? (
+                        <div>
+                          <strong>{t('Read-only analysis · no added action grants')}</strong>
+                          <small>{t('No workspace writes or new external actions. Delivery already authorized by this schedule or channel policy may still occur.')}</small>
+                        </div>
+                      ) : (
+                        <div>
+                          <strong>{isWorkspaceFileCeiling(schedule.permission_ceiling)
+                            ? t('Workspace file changes only')
+                            : t('Bounded unattended permissions')}</strong>
+                          <ul>
+                            {schedule.permission_ceiling.map((rule, index) => (
+                              <li key={`${rule.tool_name}:${rule.scope}:${index}`}>
+                                <code>{rule.tool_name}</code>
+                                <small>{rule.scope === 'path:.'
+                                  ? t('Project workspace (path:.)')
+                                  : rule.scope.startsWith('url:https://')
+                                    ? `${t('Exact HTTPS origin')} · ${rule.scope.slice(4)}`
+                                    : rule.scope}</small>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                    </section>
                     {lastRun && lastRun.status === 'failed' && (
                       <p className="schedules-run-error" role="alert">
                         {t('Last run failed')}{lastRun.error_code ? <>: <code>{lastRun.error_code}</code></> : ''}
@@ -294,7 +353,7 @@ export default function ScheduledTasksPage() {
                     <button key={template.id} type="button" onClick={() => openCreator(template)}>
                       <span>{template.code}</span>
                       <div><strong>{t(template.name)}</strong><p>{t(template.description)}</p></div>
-                      <small>{t(cadenceLabels[template.cadence])}</small>
+                      <small>{t(cadenceLabels[template.cadence])} · {t(template.kind === 'heartbeat' ? 'Heartbeat' : 'Task')}</small>
                     </button>
                   ))}
                 </div>
@@ -320,6 +379,43 @@ export default function ScheduledTasksPage() {
                 </select></label>
               </div>
               {!projects.length && <p>{t('No projects yet — start a conversation in the workspace to create one, then come back to schedule it.')}</p>}
+              <p className="schedule-kind-note">
+                <strong>{t(scheduleKind === 'heartbeat' ? 'Heartbeat monitor' : 'Scheduled task')}</strong>{' · '}
+                {scheduleKind === 'heartbeat'
+                  ? t('Unchanged checks stay silent; changes and failures go to Inbox.')
+                  : t('Each scheduled run is recorded in this project.')}
+              </p>
+              <fieldset className="schedule-permission-picker">
+                <legend>{t('Permission ceiling')}</legend>
+                <p>{t('Choose the maximum access this task may use without someone present.')}</p>
+                <label data-selected={permissionPreset === 'read_only' || undefined}>
+                  <input
+                    type="radio"
+                    name="schedule-permission-preset"
+                    value="read_only"
+                    checked={permissionPreset === 'read_only'}
+                    onChange={() => setPermissionPreset('read_only')}
+                  />
+                  <span>
+                    <strong>{t('Read-only analysis · no added action grants')}</strong>
+                    <small>{t('Default. No workspace writes or new external actions are granted. Delivery already authorized by this schedule or channel policy may still occur.')}</small>
+                  </span>
+                </label>
+                <label data-selected={permissionPreset === 'workspace_files' || undefined}>
+                  <input
+                    type="radio"
+                    name="schedule-permission-preset"
+                    value="workspace_files"
+                    checked={permissionPreset === 'workspace_files'}
+                    onChange={() => setPermissionPreset('workspace_files')}
+                  />
+                  <span>
+                    <strong>{t('Workspace files · Write and Edit only')}</strong>
+                    <small>{t("Explicit opt-in. Allows only Write and Edit inside this project's workspace (path:.).")}</small>
+                  </span>
+                </label>
+                <p>{t('Shell commands, deletion, browser actions, and new external actions remain blocked. Previously authorized schedule or channel delivery may still occur.')}</p>
+              </fieldset>
               <p>{t('Runs on the backend scheduler in timezone {tz} ({cron}). The Agent keeps the same ledger, permissions, and provider profile rules.', { tz: browserTimezone(), cron: cadenceCron[cadence] })}</p>
               {error && <p className="schedules-error" role="alert">{error}</p>}
               <footer><button type="button" onClick={() => setCreatorOpen(false)}>{t('Cancel')}</button><button type="submit" disabled={busy === 'create' || !projects.length}>{busy === 'create' ? t('Creating…') : t('Create schedule')} <span aria-hidden="true">→</span></button></footer>

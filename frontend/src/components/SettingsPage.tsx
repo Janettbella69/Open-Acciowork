@@ -1,10 +1,12 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Brand from './Brand'
 import MemoryReview from './MemoryReview'
 import ProviderSettings from './ProviderSettings'
 import './settings-page.css'
 import { languageChangedEvent, useT } from '../i18n'
 import { loadLocalSettings, saveLocalSettings, type LocalSettings } from '../localSettings'
+import { errorMessage, getOrgPolicy, listPermissionGrants, revokePermissionGrant, saveOrgPolicy } from '../api/client'
+import type { OrgPolicy, PermissionGrant } from '../api/types'
 
 function ToggleRow({
   title,
@@ -25,6 +27,142 @@ function ToggleRow({
       <span><strong>{t(title)}</strong><small>{t(description)}</small>{warning && <i>{t('High-risk setting')}</i>}</span>
       <input type="checkbox" role="switch" checked={checked} onChange={(event) => onChange(event.target.checked)} />
     </label>
+  )
+}
+
+function OrgPolicyPanel() {
+  const t = useT()
+  const [policy, setPolicy] = useState<OrgPolicy | null>(null)
+  const [grants, setGrants] = useState<PermissionGrant[]>([])
+  const [error, setError] = useState('')
+  const [loading, setLoading] = useState(true)
+  const [savingPolicy, setSavingPolicy] = useState(false)
+  const [revokingGrant, setRevokingGrant] = useState('')
+  const revokingGrantRef = useRef('')
+  const policyRef = useRef<OrgPolicy | null>(null)
+  const confirmedPolicyRef = useRef<OrgPolicy | null>(null)
+  const saveQueueRef = useRef<Promise<void>>(Promise.resolve())
+  const saveRevisionRef = useRef(0)
+
+  useEffect(() => {
+    let active = true
+    void Promise.allSettled([getOrgPolicy(), listPermissionGrants()])
+      .then(([policyResult, grantResult]) => {
+        if (!active) return
+        const failures: string[] = []
+        if (policyResult.status === 'fulfilled') {
+          policyRef.current = policyResult.value
+          confirmedPolicyRef.current = policyResult.value
+          setPolicy(policyResult.value)
+        } else {
+          failures.push(errorMessage(policyResult.reason))
+        }
+        if (grantResult.status === 'fulfilled') {
+          setGrants(grantResult.value)
+        } else {
+          failures.push(errorMessage(grantResult.reason))
+        }
+        setError(failures.join(' · '))
+        setLoading(false)
+      })
+    return () => { active = false }
+  }, [])
+
+  const save = (changes: Partial<OrgPolicy>) => {
+    const current = policyRef.current
+    if (!current) return
+    const nextPolicy = { ...current, ...changes }
+    const revision = saveRevisionRef.current + 1
+    saveRevisionRef.current = revision
+    policyRef.current = nextPolicy
+    setPolicy(nextPolicy)
+    setSavingPolicy(true)
+    setError('')
+    saveQueueRef.current = saveQueueRef.current
+      .catch(() => undefined)
+      .then(async () => {
+        const saved = await saveOrgPolicy(nextPolicy)
+        confirmedPolicyRef.current = saved
+        if (revision === saveRevisionRef.current) {
+          policyRef.current = saved
+          setPolicy(saved)
+          setError('')
+        }
+      })
+      .catch((saveError: unknown) => {
+        if (revision === saveRevisionRef.current) {
+          const confirmed = confirmedPolicyRef.current
+          policyRef.current = confirmed
+          setPolicy(confirmed)
+          setError(errorMessage(saveError))
+        }
+      })
+      .finally(() => {
+        if (revision === saveRevisionRef.current) setSavingPolicy(false)
+      })
+  }
+
+  const revokeGrant = async (grant: PermissionGrant) => {
+    if (revokingGrantRef.current) return
+    revokingGrantRef.current = grant.id
+    setRevokingGrant(grant.id)
+    setError('')
+    try {
+      const updated = await revokePermissionGrant(grant.id)
+      setGrants((current) => current.map((item) => item.id === updated.id ? updated : item))
+    } catch (revokeError) {
+      setError(errorMessage(revokeError))
+    } finally {
+      revokingGrantRef.current = ''
+      setRevokingGrant('')
+    }
+  }
+
+  return (
+    <div className="settings-card" style={{ marginTop: 16 }}>
+      {error && <p role="alert">{error}</p>}
+      {loading && <p className="settings-integration-note" role="status">{t('Loading organization policy…')}</p>}
+      {policy && (
+        <>
+          <label className="settings-row settings-select-row">
+            <span><strong>{t('Organization permission mode')}</strong><small>{t('Auto uses the SDK native permission_mode. Deleting files still always asks.')}</small></span>
+            <select
+              aria-label={t('Organization permission mode')}
+              value={policy.permission_mode}
+              disabled={savingPolicy}
+              onChange={(event) => save({ permission_mode: event.target.value as OrgPolicy['permission_mode'] })}
+            >
+              <option value="default">{t('Ask for consequential actions')}</option>
+              <option value="auto">{t('Auto (SDK native)')}</option>
+            </select>
+          </label>
+          <label className="settings-row settings-toggle-row">
+            <span><strong>{t('Browser (org policy)')}</strong><small>{t('Enable GUI L1/L2 browser tools for this organization.')}</small></span>
+            <input type="checkbox" role="switch" checked={policy.browser_enabled} disabled={savingPolicy} onChange={(event) => save({ browser_enabled: event.target.checked })} />
+          </label>
+          <label className="settings-row settings-toggle-row">
+            <span><strong>{t('Channel delivery')}</strong><small>{t('Push inbox notifications to the configured IM webhook.')}</small></span>
+            <input type="checkbox" role="switch" checked={policy.channel_delivery_enabled} disabled={savingPolicy} onChange={(event) => save({ channel_delivery_enabled: event.target.checked })} />
+          </label>
+          {savingPolicy && <p className="settings-integration-note" role="status">{t('Saving organization policy…')}</p>}
+        </>
+      )}
+      {grants.filter((grant) => !grant.revoked).map((grant) => (
+        <div className="settings-row settings-grant-row" key={grant.id}>
+          <span>
+            <strong>{grant.tool_name}</strong>
+            <small>{t('Scope: {scope}', { scope: grant.path_prefix || t('All matching targets') })}</small>
+            <small>{t('Project: {project} · Expires: {expiry}', {
+              project: grant.project_id ?? t('All projects'),
+              expiry: new Date(grant.expires_at).toLocaleString(),
+            })}</small>
+          </span>
+          <button type="button" disabled={Boolean(revokingGrant)} onClick={() => void revokeGrant(grant)}>
+            {revokingGrant === grant.id ? t('Revoking…') : t('Revoke grant')}
+          </button>
+        </div>
+      ))}
+    </div>
   )
 }
 
@@ -109,6 +247,7 @@ export default function SettingsPage() {
               onChange={(checked) => update('fullAccess', checked)}
             />
           </div>
+          <OrgPolicyPanel />
         </section>
 
         <section id="general" className="settings-section" aria-labelledby="general-heading">

@@ -2,18 +2,23 @@ import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'r
 import Markdown from 'react-markdown'
 import {
   dimensions,
-  type AskUserQuestionItem,
+  type FeedbackKind,
   type OpportunityProject,
   type OphiraEvent,
   type PendingPermission,
   type PermissionAnswers,
-  type RunRecord,
+  type PermissionDecision,
+  type ProviderProfile,
   type RunMode,
+  type RunRecord,
+  type RunRetryStrategy,
 } from '../api/types'
 import { builtInSkills } from '../data/skillCatalog'
 import { useLanguage, useT, type Translate } from '../i18n'
+import { providerIsRunnable, providerUnavailableReason } from '../providerEligibility'
 import Brand from './Brand'
 import EvidenceDrawer from './EvidenceDrawer'
+import { PermissionDetails, PermissionQuestionCard } from './PermissionRequest'
 import WorkspaceNav from './WorkspaceNav'
 import './workspace-composer.css'
 
@@ -33,9 +38,12 @@ type WorkspaceComposerProps = {
   connection: string
   historyLoading: boolean
   isActive: boolean
+  providers: ProviderProfile[]
+  providerProfileId: string | null
   runMode: RunMode
   onChange: (value: string) => void
   onAttachedFilesChange: (files: File[]) => void
+  onProviderProfileChange: (providerProfileId: string | null) => void
   onRunModeChange: (mode: RunMode) => void
   onSubmit: (event: FormEvent<HTMLFormElement>) => void
   onProjectRefresh: () => void
@@ -44,9 +52,16 @@ type WorkspaceComposerProps = {
   onCancel: () => void
   onDecision: (
     requestId: string,
-    decision: 'allow_once' | 'allow_run' | 'deny',
+    decision: PermissionDecision,
     answers?: PermissionAnswers,
   ) => void
+  retrying?: RunRetryStrategy | null
+  retryError?: string
+  onRetry?: (strategy: RunRetryStrategy) => void
+  feedbackBusy?: FeedbackKind | null
+  feedbackSubmitted?: FeedbackKind[]
+  feedbackError?: string
+  onFeedback?: (kind: FeedbackKind) => void
 }
 
 type ComposerMenuView = 'closed' | 'root' | 'mode' | 'skills'
@@ -89,85 +104,12 @@ function ComposerToolIcon({ name }: { name: ComposerToolIconName }) {
   )
 }
 
-function parseQuestions(toolInput: unknown): AskUserQuestionItem[] {
-  if (!toolInput || typeof toolInput !== 'object') return []
-  const questions = (toolInput as { questions?: unknown }).questions
-  if (!Array.isArray(questions)) return []
-  return questions.filter(
-    (item): item is AskUserQuestionItem =>
-      !!item && typeof item === 'object'
-      && typeof (item as AskUserQuestionItem).question === 'string'
-      && Array.isArray((item as AskUserQuestionItem).options),
-  )
-}
-
-type QuestionCardProps = {
-  permission: PendingPermission
-  questions: AskUserQuestionItem[]
-  onDecision: WorkspaceComposerProps['onDecision']
-}
-
-function QuestionCard({ permission, questions, onDecision }: QuestionCardProps) {
-  const t = useT()
-  const [selected, setSelected] = useState<Record<string, string[]>>({})
-
-  const toggle = (question: AskUserQuestionItem, label: string) => {
-    setSelected((current) => {
-      const existing = current[question.question] ?? []
-      if (question.multiSelect) {
-        const next = existing.includes(label)
-          ? existing.filter((item) => item !== label)
-          : [...existing, label]
-        return { ...current, [question.question]: next }
-      }
-      return { ...current, [question.question]: [label] }
-    })
-  }
-
-  const complete = questions.every((question) => (selected[question.question] ?? []).length > 0)
-
-  const submit = () => {
-    const answers: PermissionAnswers = {}
-    for (const question of questions) {
-      const labels = selected[question.question] ?? []
-      answers[question.question] = question.multiSelect ? labels : (labels[0] ?? '')
-    }
-    onDecision(permission.id, 'allow_once', answers)
-  }
-
+function ModelIcon() {
   return (
-    <section className="conversation-permission conversation-question" aria-label={t('Agent question')}>
-      <div><span>{t('TradeMind needs your input')}</span></div>
-      {questions.map((question) => (
-        <fieldset key={question.question}>
-          <legend>
-            {question.header && <small>{question.header}</small>}
-            <strong>{question.question}</strong>
-          </legend>
-          <div className="conversation-question-options" role={question.multiSelect ? 'group' : 'radiogroup'}>
-            {question.options.map((option) => {
-              const active = (selected[question.question] ?? []).includes(option.label)
-              return (
-                <button
-                  type="button"
-                  key={option.label}
-                  data-active={active || undefined}
-                  aria-pressed={active}
-                  onClick={() => toggle(question, option.label)}
-                >
-                  <strong>{option.label}</strong>
-                  {option.description && <small>{option.description}</small>}
-                </button>
-              )
-            })}
-          </div>
-        </fieldset>
-      ))}
-      <div>
-        <button type="button" disabled={!complete} onClick={submit}>{t('Submit answers')}</button>
-        <button type="button" onClick={() => onDecision(permission.id, 'deny')}>{t('Skip — continue with what is known')}</button>
-      </div>
-    </section>
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <circle cx="12" cy="12" r="8.5" />
+      <path d="m8.7 15.8 3.3-8 3.3 8M10 13h4" />
+    </svg>
   )
 }
 
@@ -230,6 +172,7 @@ function eventTitle(event: OphiraEvent, t: Translate): string {
   const permissionDecisionLabels: Record<string, string> = {
     allow_once: 'Allow once',
     allow_run: 'Allow for run',
+    allow_persistent: 'Allow persistent',
     deny: 'Deny',
   }
   const decision = typeof event.data.decision === 'string'
@@ -349,9 +292,12 @@ export default function WorkspaceComposer({
   connection,
   historyLoading,
   isActive,
+  providers,
+  providerProfileId,
   runMode,
   onChange,
   onAttachedFilesChange,
+  onProviderProfileChange,
   onRunModeChange,
   onSubmit,
   onProjectRefresh,
@@ -359,12 +305,21 @@ export default function WorkspaceComposer({
   onSelectProject,
   onCancel,
   onDecision,
+  retrying = null,
+  retryError = '',
+  onRetry,
+  feedbackBusy = null,
+  feedbackSubmitted = [],
+  feedbackError = '',
+  onFeedback,
 }: WorkspaceComposerProps) {
   const [composerMenu, setComposerMenu] = useState<ComposerMenuView>('closed')
+  const [modelMenuOpen, setModelMenuOpen] = useState(false)
   const [clock, setClock] = useState(() => Date.now())
   const t = useT()
   const language = useLanguage()
   const composerToolsRef = useRef<HTMLDivElement>(null)
+  const modelSelectorRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const sessionOpen = Boolean(project || run)
   const hasProjectTruth = Boolean(project && (
@@ -384,6 +339,10 @@ export default function WorkspaceComposer({
   const finishedAt = run?.finished_at ? new Date(run.finished_at).getTime() : clock
   const elapsed = formatDuration(finishedAt - startedAt)
   const processSteps = traceEvents.length + (reasoningSummary ? 1 : 0)
+  const selectedProvider = providers.find((provider) => provider.id === providerProfileId) ?? null
+  const selectedProviderUnavailable = Boolean(
+    providerProfileId && (!selectedProvider || !providerIsRunnable(selectedProvider)),
+  )
 
   useEffect(() => {
     if (composerMenu === 'closed') return
@@ -402,6 +361,24 @@ export default function WorkspaceComposer({
       document.removeEventListener('keydown', closeOnEscape)
     }
   }, [composerMenu])
+
+  useEffect(() => {
+    if (!modelMenuOpen) return
+
+    const closeOnOutsidePress = (event: PointerEvent) => {
+      if (!modelSelectorRef.current?.contains(event.target as Node)) setModelMenuOpen(false)
+    }
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setModelMenuOpen(false)
+    }
+
+    document.addEventListener('pointerdown', closeOnOutsidePress)
+    document.addEventListener('keydown', closeOnEscape)
+    return () => {
+      document.removeEventListener('pointerdown', closeOnOutsidePress)
+      document.removeEventListener('keydown', closeOnEscape)
+    }
+  }, [modelMenuOpen])
 
   useEffect(() => {
     if (!isActive) return
@@ -429,6 +406,11 @@ export default function WorkspaceComposer({
   const selectRunMode = (mode: RunMode) => {
     onRunModeChange(mode)
     setComposerMenu('closed')
+  }
+
+  const selectProvider = (nextProviderProfileId: string | null) => {
+    onProviderProfileChange(nextProviderProfileId)
+    setModelMenuOpen(false)
   }
 
   const composer = (
@@ -486,7 +468,10 @@ export default function WorkspaceComposer({
               title={t('Open tools menu')}
               aria-haspopup="dialog"
               aria-expanded={composerMenu !== 'closed'}
-              onClick={() => setComposerMenu((current) => current === 'closed' ? 'root' : 'closed')}
+              onClick={() => {
+                setModelMenuOpen(false)
+                setComposerMenu((current) => current === 'closed' ? 'root' : 'closed')
+              }}
             ><span aria-hidden="true">＋</span></button>
 
             {composerMenu === 'root' && (
@@ -561,7 +546,60 @@ export default function WorkspaceComposer({
             )}
           </div>
           <span className="conversation-composer-coordinator">{t('⌘ Enter to send')}</span>
-          <button className="conversation-submit" type="submit" aria-label={busy ? t('Working') : t('Send')} disabled={busy || !value.trim()}>
+          <div className="conversation-model-selector" ref={modelSelectorRef}>
+            <button
+              className="conversation-model-trigger"
+              type="button"
+              aria-label={t('Open model selector')}
+              title={selectedProvider?.model ?? t('Auto')}
+              aria-haspopup="dialog"
+              aria-expanded={modelMenuOpen}
+              onClick={() => {
+                setComposerMenu('closed')
+                setModelMenuOpen((current) => !current)
+              }}
+            >
+              <ModelIcon />
+              <span>{selectedProvider?.model ?? t('Auto')}</span>
+              <i aria-hidden="true">{modelMenuOpen ? '⌃' : '⌄'}</i>
+            </button>
+
+            {modelMenuOpen && (
+              <section className="conversation-model-menu" role="dialog" aria-label={t('Choose a model')}>
+                <header><span>{t('Model')}</span><strong>{t('Choose a model')}</strong></header>
+                <div>
+                  <button type="button" data-active={!providerProfileId || undefined} onClick={() => selectProvider(null)}>
+                    <ModelIcon />
+                    <span><strong>{t('Auto')}</strong><small>{t('Use workspace default model')}</small></span>
+                    <i aria-hidden="true">{!providerProfileId ? '✓' : ''}</i>
+                  </button>
+                  {providers.map((provider) => {
+                    const selectable = providerIsRunnable(provider)
+                    const status = providerUnavailableReason(provider)
+                    return (
+                      <button
+                        key={provider.id}
+                        type="button"
+                        data-active={providerProfileId === provider.id || undefined}
+                        disabled={!selectable}
+                        onClick={() => selectProvider(provider.id)}
+                      >
+                        <ModelIcon />
+                        <span>
+                          <strong>{provider.model}</strong>
+                          <small>{selectable ? provider.display_name : `${provider.display_name} · ${status}`}</small>
+                        </span>
+                        <i aria-hidden="true">{providerProfileId === provider.id ? '✓' : ''}</i>
+                      </button>
+                    )
+                  })}
+                  {!providers.length && <p>{t('No configured model profiles yet.')}</p>}
+                </div>
+                <footer><a href="/app/settings">{t('Configure custom models')} <i aria-hidden="true">→</i></a></footer>
+              </section>
+            )}
+          </div>
+          <button className="conversation-submit" type="submit" aria-label={busy ? t('Working') : t('Send')} disabled={busy || !value.trim() || selectedProviderUnavailable}>
             <span className="conversation-submit-label">{busy ? t('Working…') : t('Send')}</span>
             <span aria-hidden="true">↑</span>
           </button>
@@ -722,26 +760,92 @@ export default function WorkspaceComposer({
                   </div>
                 )}
 
+                {run && onRetry && (run.status === 'failed' || run.status === 'cancelled') && (
+                  <section className="conversation-retry" aria-label={t('Retry this run')}>
+                    <header>
+                      <strong>{t('Continue this run')}</strong>
+                      <p>{t('Both choices reuse the saved project, agent, model, and skill snapshots.')}</p>
+                    </header>
+                    {retryError && <p className="conversation-retry-error" role="alert">{t(retryError)}</p>}
+                    <div className="conversation-retry-actions">
+                      <button
+                        type="button"
+                        disabled={retrying !== null || !run.sdk_session_id}
+                        title={!run.sdk_session_id ? t('No recorded SDK session is available.') : undefined}
+                        onClick={() => onRetry('resume')}
+                      >
+                        <strong>{retrying === 'resume' ? t('Resuming…') : t('Resume session')}</strong>
+                        <span>{run.sdk_session_id
+                          ? t('Continue the recorded SDK session with its conversation context.')
+                          : t('No recorded SDK session is available.')}</span>
+                      </button>
+                      <button
+                        type="button"
+                        disabled={retrying !== null}
+                        onClick={() => onRetry('new_branch')}
+                      >
+                        <strong>{retrying === 'new_branch' ? t('Starting branch…') : t('Start new branch')}</strong>
+                        <span>{t('Start a separate SDK session while keeping saved evidence and artifacts.')}</span>
+                      </button>
+                    </div>
+                  </section>
+                )}
+
+                {run && onFeedback && (assistantText || run.status === 'failed') && (
+                  <div className="conversation-feedback">
+                    <span data-error={feedbackError ? 'true' : undefined} role={feedbackError ? 'alert' : undefined}>{feedbackError || t('Was this conclusion useful?')}</span>
+                    {assistantText && (
+                      <>
+                        <button
+                          type="button"
+                          disabled={feedbackBusy !== null || feedbackSubmitted.includes('conclusion_wrong')}
+                          onClick={() => onFeedback('conclusion_wrong')}
+                        >{feedbackSubmitted.includes('conclusion_wrong') ? `✓ ${t('Feedback sent')}` : feedbackBusy === 'conclusion_wrong' ? t('Sending…') : t('Flag conclusion')}</button>
+                        <button
+                          type="button"
+                          disabled={feedbackBusy !== null || feedbackSubmitted.includes('evidence_issue')}
+                          onClick={() => onFeedback('evidence_issue')}
+                        >{feedbackSubmitted.includes('evidence_issue') ? `✓ ${t('Feedback sent')}` : feedbackBusy === 'evidence_issue' ? t('Sending…') : t('Flag evidence')}</button>
+                      </>
+                    )}
+                    {run.status === 'failed' && (
+                      <button
+                        type="button"
+                        disabled={feedbackBusy !== null || feedbackSubmitted.includes('run_failure')}
+                        onClick={() => onFeedback('run_failure')}
+                      >{feedbackSubmitted.includes('run_failure') ? `✓ ${t('Feedback sent')}` : feedbackBusy === 'run_failure' ? t('Sending…') : t('Flag run failure')}</button>
+                    )}
+                  </div>
+                )}
+
                 {permissions.map((permission) => {
                   if (permission.toolName === 'AskUserQuestion') {
-                    const questions = parseQuestions(permission.toolInput)
-                    if (questions.length > 0) {
-                      return (
-                        <QuestionCard
+                    return (
+                      <PermissionQuestionCard
                           key={permission.id}
-                          permission={permission}
-                          questions={questions}
-                          onDecision={onDecision}
-                        />
-                      )
-                    }
+                          toolInput={permission.toolInput}
+                          scope={permission.scope}
+                          timeoutSeconds={permission.timeoutSeconds}
+                        onSubmit={(answers) => onDecision(permission.id, 'allow_once', answers)}
+                        onDeny={() => onDecision(permission.id, 'deny')}
+                      />
+                    )
                   }
                   return (
                     <section className="conversation-permission" key={permission.id} aria-label={t('Approval for {tool}', { tool: permission.toolName })}>
                       <div><span>{t('Approval required')}</span><strong>{t('{actor} wants to use {tool}', { actor: permission.actor.name, tool: permission.toolName })}</strong></div>
+                      <PermissionDetails
+                        toolName={permission.toolName}
+                        toolInput={permission.toolInput}
+                        scope={permission.scope}
+                        destructive={permission.destructive}
+                        persistable={permission.persistable}
+                        timeoutSeconds={permission.timeoutSeconds}
+                      />
                       <div>
                         <button type="button" onClick={() => onDecision(permission.id, 'allow_once')}>{t('Allow once')}</button>
-                        <button type="button" onClick={() => onDecision(permission.id, 'allow_run')}>{t('Allow for run')}</button>
+                        {permission.persistable && !permission.destructive && <button type="button" onClick={() => onDecision(permission.id, 'allow_run')}>{t('Allow for run')}</button>}
+                        {permission.persistable && !permission.destructive && <button type="button" onClick={() => onDecision(permission.id, 'allow_persistent')}>{t('Allow persistent')}</button>}
                         <button type="button" onClick={() => onDecision(permission.id, 'deny')}>{t('Deny')}</button>
                       </div>
                     </section>

@@ -73,6 +73,11 @@ class RunMode(StrEnum):
     DEEP_RESEARCH = "deep_research"
 
 
+class RunRetryStrategy(StrEnum):
+    RESUME = "resume"
+    NEW_BRANCH = "new_branch"
+
+
 class ProviderErrorCode(StrEnum):
     AUTH_REVOKED_OR_INVALID = "AUTH_REVOKED_OR_INVALID"
     BASE_URL_UNREACHABLE = "BASE_URL_UNREACHABLE"
@@ -135,7 +140,31 @@ class EventType(StrEnum):
 class PermissionDecision(StrEnum):
     ALLOW_ONCE = "allow_once"
     ALLOW_RUN = "allow_run"
+    ALLOW_PERSISTENT = "allow_persistent"
     DENY = "deny"
+
+
+class PermissionModePolicy(StrEnum):
+    DEFAULT = "default"
+    AUTO = "auto"
+
+
+class MemoryOrigin(StrEnum):
+    OWNER = "owner"
+    AGENT = "agent"
+    UNTRUSTED = "untrusted"
+    SYSTEM = "system"
+
+
+class ScheduleKind(StrEnum):
+    TASK = "task"
+    HEARTBEAT = "heartbeat"
+
+
+class FeedbackKind(StrEnum):
+    CONCLUSION_WRONG = "conclusion_wrong"
+    EVIDENCE_ISSUE = "evidence_issue"
+    RUN_FAILURE = "run_failure"
 
 
 class AgentTemplate(StrEnum):
@@ -163,6 +192,7 @@ class MemoryKind(StrEnum):
 class MemorySource(StrEnum):
     USER = "user"
     AGENT_PROPOSAL = "agent_proposal"
+    DISTILLATION = "distillation"
 
 
 class MemorySensitivity(StrEnum):
@@ -188,6 +218,13 @@ CUSTOMER_MCP_SERVER_NAME = "ophira_customer"
 COMMERCE_MATH_MCP_SERVER_NAME = "ophira_commerce_math"
 WEB_MCP_SERVER_NAME = "ophira_web"
 AUTOMATION_MCP_SERVER_NAME = "ophira_automation"
+COMPLIANCE_MCP_SERVER_NAME = "ophira_compliance"
+BROWSER_MCP_SERVER_NAME = "ophira_browser"
+MEDIA_MCP_SERVER_NAME = "ophira_media"
+HEARTBEAT_OK = "HEARTBEAT_OK"
+PERSISTENT_GRANT_DAYS = 30
+APPROVED_MEMORY_CAP = 32
+APPROVED_MEMORY_CHARS = 8_000
 
 TOOL_GET_PROJECT_CONTEXT = "mcp__ophira_ledger__read_project_context"
 TOOL_SEARCH_EVIDENCE = "mcp__ophira_ledger__search_evidence"
@@ -195,6 +232,7 @@ TOOL_RECORD_HYPOTHESIS = "mcp__ophira_ledger__record_hypothesis"
 TOOL_RECORD_EVIDENCE = "mcp__ophira_ledger__record_evidence"
 TOOL_RECORD_EVIDENCE_BATCH = "mcp__ophira_ledger__record_evidence_batch"
 TOOL_RECORD_DECISION = "mcp__ophira_ledger__record_decision"
+TOOL_REGISTER_ARTIFACT = "mcp__ophira_ledger__register_artifact"
 TOOL_UPDATE_EVIDENCE_STATUS = "mcp__ophira_ledger__update_evidence_status"
 TOOL_PROPOSE_MEMORY = "mcp__ophira_ledger__propose_memory"
 TOOL_SEARCH_MEMORY = "mcp__ophira_ledger__search_memory"
@@ -203,9 +241,17 @@ TOOL_SEARCH_PUBLIC_WEB = "mcp__ophira_web__search_public_web"
 TOOL_FETCH_PAGE_SNAPSHOT = "mcp__ophira_web__fetch_page_snapshot"
 
 TOOL_COMPARE_SUPPLIER_QUOTES = "mcp__ophira_supplier__compare_supplier_quotes"
+TOOL_SEARCH_SUPPLIERS = "mcp__ophira_supplier__search_suppliers"
+TOOL_DRAFT_OUTBOUND = "mcp__ophira_supplier__draft_outbound"
 TOOL_RANK_CUSTOMER_CANDIDATES = "mcp__ophira_customer__rank_customer_candidates"
+TOOL_RECORD_INTERACTION = "mcp__ophira_customer__record_interaction"
 TOOL_CALCULATE_LANDED_COST = "mcp__ophira_commerce_math__calculate_landed_cost"
 TOOL_CALCULATE_UNIT_ECONOMICS = "mcp__ophira_commerce_math__calculate_unit_economics"
+TOOL_SENSITIVITY_TABLE = "mcp__ophira_commerce_math__sensitivity_table"
+TOOL_LOOKUP_REQUIREMENTS = "mcp__ophira_compliance__lookup_requirements"
+TOOL_SNAPSHOT_PAGE = "mcp__ophira_browser__snapshot_page"
+TOOL_ACT_ON_PAGE = "mcp__ophira_browser__act_on_page"
+TOOL_GENERATE_MEDIA = "mcp__ophira_media__generate_media"
 
 LEDGER_TOOL_NAMES = [
     TOOL_GET_PROJECT_CONTEXT,
@@ -214,6 +260,7 @@ LEDGER_TOOL_NAMES = [
     TOOL_RECORD_EVIDENCE,
     TOOL_RECORD_EVIDENCE_BATCH,
     TOOL_RECORD_DECISION,
+    TOOL_REGISTER_ARTIFACT,
     TOOL_UPDATE_EVIDENCE_STATUS,
 ]
 
@@ -224,9 +271,23 @@ MEMORY_TOOL_NAMES = [
 
 DOMAIN_TOOL_NAMES = [
     TOOL_COMPARE_SUPPLIER_QUOTES,
+    TOOL_SEARCH_SUPPLIERS,
+    TOOL_DRAFT_OUTBOUND,
     TOOL_RANK_CUSTOMER_CANDIDATES,
+    TOOL_RECORD_INTERACTION,
     TOOL_CALCULATE_LANDED_COST,
     TOOL_CALCULATE_UNIT_ECONOMICS,
+    TOOL_SENSITIVITY_TABLE,
+    TOOL_LOOKUP_REQUIREMENTS,
+]
+
+BROWSER_TOOL_NAMES = [
+    TOOL_SNAPSHOT_PAGE,
+    TOOL_ACT_ON_PAGE,
+]
+
+MEDIA_TOOL_NAMES = [
+    TOOL_GENERATE_MEDIA,
 ]
 
 WEB_TOOL_NAMES = [
@@ -266,6 +327,8 @@ OPHIRA_TOOL_NAMES = [
     *DOMAIN_TOOL_NAMES,
     *WEB_TOOL_NAMES,
     *AUTOMATION_TOOL_NAMES,
+    *BROWSER_TOOL_NAMES,
+    *MEDIA_TOOL_NAMES,
 ]
 
 READ_ONLY_MCP_TOOL_NAMES = [
@@ -273,9 +336,13 @@ READ_ONLY_MCP_TOOL_NAMES = [
     TOOL_SEARCH_EVIDENCE,
     TOOL_SEARCH_MEMORY,
     TOOL_COMPARE_SUPPLIER_QUOTES,
+    TOOL_SEARCH_SUPPLIERS,
     TOOL_RANK_CUSTOMER_CANDIDATES,
     TOOL_CALCULATE_LANDED_COST,
     TOOL_CALCULATE_UNIT_ECONOMICS,
+    TOOL_SENSITIVITY_TABLE,
+    TOOL_LOOKUP_REQUIREMENTS,
+    TOOL_SNAPSHOT_PAGE,
     # FR-23 fallback retrieval: public read-only, same trust level as native Web tools.
     *WEB_TOOL_NAMES,
 ]
@@ -284,7 +351,7 @@ READ_ONLY_BUILTIN_TOOLS = ["Read", "Glob", "Grep", "WebSearch", "WebFetch"]
 # 结构化追问（CLI 内置工具，经 can_use_tool 到达；答案经 updated_input 回传）。
 CLARIFYING_TOOL = "AskUserQuestion"
 WRITE_BUILTIN_TOOLS = ["Write", "Edit"]
+DELETE_BUILTIN_TOOLS = ["Delete"]
 SHELL_BUILTIN_TOOLS = ["Bash"]
 DELEGATION_TOOL = "Agent"
-
 USER_SCOPE_ID = "default"

@@ -1,16 +1,22 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from datetime import UTC, datetime
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from croniter import croniter
 
-from .constants import TERMINAL_RUN_STATUSES, EventType, MissedRunPolicy
-from .events import EventPublisher
+from .automation import NotificationStore
+from .constants import HEARTBEAT_OK, TERMINAL_RUN_STATUSES, EventType, MissedRunPolicy, ScheduleKind
+from .events import EventPublisher, redact
 from .models import EventActor, RunRecord, Schedule, ScheduleCreate, utc_now
+from .policy import PolicyDeniedError
+from .providers import ProviderConfigurationError, ProviderNotFoundError
 from .runs import RunManager
 from .storage import FileLedger, LedgerNotFoundError
+
+logger = logging.getLogger(__name__)
 
 
 class ScheduleValidationError(ValueError):
@@ -54,6 +60,16 @@ def new_schedule(payload: ScheduleCreate) -> Schedule:
     return schedule.model_copy(update={"next_fire_at": next_at})
 
 
+def wrap_schedule_prompt(schedule: Schedule) -> str:
+    if schedule.kind != ScheduleKind.HEARTBEAT:
+        return schedule.prompt
+    return (
+        f"这是心跳巡检。若相对上次观察没有实质变化，只回复 {HEARTBEAT_OK}，"
+        "不要调用发送通知工具。若有变化，用不超过 400 字说明变化要点。\n\n"
+        f"{schedule.prompt}"
+    )
+
+
 class ScheduleService:
     """Local asyncio scheduler: due-scan loop plus missed-run reconciliation."""
 
@@ -63,11 +79,13 @@ class ScheduleService:
         runs: RunManager,
         events: EventPublisher,
         interval_seconds: float = 30,
+        notifications: NotificationStore | None = None,
     ) -> None:
         self.ledger = ledger
         self.runs = runs
         self.events = events
         self.interval_seconds = interval_seconds
+        self.notifications = notifications
         self._task: asyncio.Task[None] | None = None
 
     async def start(self) -> None:
@@ -83,7 +101,11 @@ class ScheduleService:
     async def _loop(self) -> None:
         while True:
             await asyncio.sleep(self.interval_seconds)
-            await self.tick()
+            try:
+                await self.tick()
+            except Exception as exc:
+                # A transient ledger failure must not permanently stop the scheduler task.
+                logger.error("scheduler tick failed: %s", redact(str(exc)))
 
     async def reconcile(self) -> None:
         """On startup: overdue enabled schedules catch up once or skip ahead."""
@@ -93,10 +115,18 @@ class ScheduleService:
                 continue
             if schedule.next_fire_at > now:
                 continue
-            if schedule.missed_run_policy == MissedRunPolicy.CATCH_UP:
-                await self._fire(schedule, now, missed=True)
-            else:
-                self._advance(schedule, now)
+            try:
+                if schedule.missed_run_policy == MissedRunPolicy.CATCH_UP:
+                    await self._fire(schedule, now, missed=True)
+                else:
+                    self._advance(schedule, now)
+            except Exception as exc:
+                # One invalid/denied schedule cannot block reconciliation for all others.
+                logger.error(
+                    "failed to reconcile schedule %s: %s",
+                    schedule.id,
+                    redact(str(exc)),
+                )
 
     async def tick(self) -> None:
         now = utc_now()
@@ -104,7 +134,15 @@ class ScheduleService:
             if not schedule.enabled or schedule.next_fire_at is None:
                 continue
             if schedule.next_fire_at <= now:
-                await self._fire(schedule, now)
+                try:
+                    await self._fire(schedule, now)
+                except Exception as exc:
+                    # Keep this schedule due for a later retry, but continue scanning peers.
+                    logger.error(
+                        "failed to fire schedule %s: %s",
+                        schedule.id,
+                        redact(str(exc)),
+                    )
 
     async def _fire(self, schedule: Schedule, now: datetime, *, missed: bool = False) -> None:
         if schedule.last_run_id:
@@ -115,14 +153,7 @@ class ScheduleService:
             if last_run is not None and last_run.status not in TERMINAL_RUN_STATUSES:
                 self._advance(schedule, now)
                 return
-        run = await self.runs.create_and_start(
-            schedule.project_id,
-            schedule.prompt,
-            agent_id=schedule.agent_id,
-            schedule_id=schedule.id,
-            mode=schedule.mode,
-            provider_profile_id=schedule.provider_profile_id,
-        )
+        run = await self._start_run(schedule)
         await self.events.publish(
             run.id,
             EventType.SCHEDULE_FIRED,
@@ -139,6 +170,47 @@ class ScheduleService:
             )
         self.ledger.update_schedule(schedule.id, **changes)
 
+    async def _start_run(self, schedule: Schedule) -> RunRecord:
+        try:
+            return await self.runs.create_and_start(
+                schedule.project_id,
+                wrap_schedule_prompt(schedule),
+                agent_id=schedule.agent_id,
+                schedule_id=schedule.id,
+                mode=schedule.mode,
+                provider_profile_id=schedule.provider_profile_id,
+            )
+        except (PolicyDeniedError, ProviderConfigurationError, ProviderNotFoundError) as exc:
+            self._pause_unstartable(schedule, exc)
+            raise
+
+    def _pause_unstartable(self, schedule: Schedule, error: Exception) -> None:
+        """Pause a schedule whose configured provider/policy cannot start a run."""
+        try:
+            self.ledger.update_schedule(schedule.id, enabled=False)
+        except (LedgerNotFoundError, ValueError):
+            return
+        if self.notifications is None:
+            return
+        safe_error = str(redact(str(error)))[:1_000]
+        try:
+            self.notifications.add(
+                title="定时任务已暂停：Provider 或策略未就绪",
+                body=(
+                    f"本次运行未启动：{safe_error}。请修复凭据、完成成功预检或调整组织策略后"
+                    "再恢复此任务。"
+                ),
+                severity="error",
+                project_id=schedule.project_id,
+                schedule_id=schedule.id,
+            )
+        except Exception as exc:
+            logger.error(
+                "failed to notify paused schedule %s: %s",
+                schedule.id,
+                redact(str(exc)),
+            )
+
     def _advance(self, schedule: Schedule, now: datetime) -> None:
         next_at = compute_next_fire(
             schedule.cron, schedule.run_once_at, schedule.timezone, now
@@ -151,11 +223,4 @@ class ScheduleService:
     async def run_now(self, schedule_id: str) -> RunRecord:
         """Manual test run; does not change the schedule's fire bookkeeping."""
         schedule = self.ledger.get_schedule(schedule_id)
-        return await self.runs.create_and_start(
-            schedule.project_id,
-            schedule.prompt,
-            agent_id=schedule.agent_id,
-            schedule_id=schedule.id,
-            mode=schedule.mode,
-            provider_profile_id=schedule.provider_profile_id,
-        )
+        return await self._start_run(schedule)

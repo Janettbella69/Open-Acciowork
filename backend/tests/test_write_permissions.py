@@ -6,10 +6,10 @@ import pytest
 from claude_agent_sdk import PermissionResultAllow, PermissionResultDeny
 
 from ophira_backend.config import Settings
-from ophira_backend.constants import AgentTemplate, PermissionDecision
+from ophira_backend.constants import TOOL_SNAPSHOT_PAGE, AgentTemplate, PermissionDecision
 from ophira_backend.events import EventPublisher
 from ophira_backend.memory import FileMemoryProvider
-from ophira_backend.models import AgentCreate, PermissionResolution, ProjectCreate
+from ophira_backend.models import AgentCreate, PermissionResolution, ProjectCreate, Schedule
 from ophira_backend.permissions import PermissionBroker
 from ophira_backend.sdk_adapter import ClaudeAgentRuntime, _path_within
 from ophira_backend.storage import FileLedger
@@ -103,9 +103,9 @@ async def test_bash_is_never_reused_for_run_scope(tmp_path: Path) -> None:
     project = ledger.create_project(ProjectCreate(name="Kettle", objective="Validate"))
     run = ledger.create_run(project.id, "Start")
 
-    async def request_and_resolve(tool_name: str) -> None:
+    async def request_and_resolve(tool_name: str, tool_input: dict) -> None:
         task = asyncio.create_task(
-            permissions.request(run.id, tool_name, {}, agent_id=None, context={})
+            permissions.request(run.id, tool_name, tool_input, agent_id=None, context={})
         )
         for _ in range(200):
             if permissions._pending:
@@ -119,11 +119,11 @@ async def test_bash_is_never_reused_for_run_scope(tmp_path: Path) -> None:
         )
         await task
 
-    await request_and_resolve("Write")
-    assert "Write" in permissions._run_allowed_tools[run.id]
+    await request_and_resolve("Write", {"file_path": "report.md"})
+    assert ("Write", "path:report.md") in permissions._run_allowed_scopes[run.id]
 
-    await request_and_resolve("Bash")
-    assert "Bash" not in permissions._run_allowed_tools[run.id]
+    await request_and_resolve("Bash", {"command": "printf safe"})
+    assert all(tool_name != "Bash" for tool_name, _scope in permissions._run_allowed_scopes[run.id])
 
 
 @pytest.mark.asyncio
@@ -211,6 +211,42 @@ async def test_pre_tool_hook_forces_bash_to_ask_instead_of_sandbox_auto_allow(
 
 
 @pytest.mark.asyncio
+async def test_scheduled_run_hook_denies_all_bash_while_sandbox_default_stays_enabled(
+    tmp_path: Path,
+) -> None:
+    ledger, _permissions, runtime = build_runtime(tmp_path)
+    project = ledger.create_project(ProjectCreate(name="Kettle", objective="Validate"))
+    schedule = ledger.create_schedule(
+        Schedule(project_id=project.id, prompt="Export report", cron="0 8 * * *")
+    )
+    run = ledger.create_run(project.id, "Start", schedule_id=schedule.id)
+
+    options = runtime._build_options(run)
+    assert options.sandbox is not None
+    assert options.sandbox["autoAllowBashIfSandboxed"] is True
+
+    hook = runtime._hook(run.id, ledger.workspace_for_project(project.id))
+    for tool_input in (
+        {"command": "python scripts/transform.py"},
+        {"command": "rm -rf reports"},
+        {"command": "printf unsafe", "dangerouslyDisableSandbox": True},
+    ):
+        result = await hook(
+            {
+                "hook_event_name": "PreToolUse",
+                "tool_name": "Bash",
+                "tool_input": tool_input,
+            },
+            None,
+            None,
+        )
+        assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
+        assert "Scheduled runs cannot use Bash" in result["hookSpecificOutput"][
+            "permissionDecisionReason"
+        ]
+
+
+@pytest.mark.asyncio
 async def test_subagent_ledger_writes_are_denied_code_level(tmp_path: Path) -> None:
     """§6.1 红线：账本写入只属主 Agent——子代理调用不进 broker、直接代码级拒绝。"""
     ledger, permissions, runtime = build_runtime(tmp_path)
@@ -224,6 +260,37 @@ async def test_subagent_ledger_writes_are_denied_code_level(tmp_path: Path) -> N
     assert isinstance(deny, PermissionResultDeny)
     assert "主 Agent" in deny.message
     assert permissions._pending == {}
+
+    for tool_name, tool_input in (
+        ("Write", {"file_path": "report.md", "content": "x"}),
+        ("Edit", {"file_path": "report.md", "old_string": "x", "new_string": "y"}),
+        ("Delete", {"path": "report.md"}),
+        ("Bash", {"command": "printf safe"}),
+        ("mcp__third_party__create_issue", {"title": "write"}),
+    ):
+        result = await options.can_use_tool(
+            tool_name,
+            tool_input,
+            FakeToolContext(agent_id="sub_researcher"),
+        )
+        assert isinstance(result, PermissionResultDeny)
+    assert permissions._pending == {}
+
+    # Hook enforcement is the non-bypassable backstop when SDK permission modes or
+    # allow rules resolve a call before can_use_tool.
+    hook_result = await runtime._hook(
+        run.id, ledger.workspace_for_project(project.id)
+    )(
+        {
+            "hook_event_name": "PreToolUse",
+            "tool_name": "Bash",
+            "tool_input": {"command": "printf safe"},
+            "agent_id": "sub_researcher",
+        },
+        None,
+        None,
+    )
+    assert hook_result["hookSpecificOutput"]["permissionDecision"] == "deny"
 
     # 同名调用来自主 Agent（无 agent_id）则照常进入 broker 等人审。
     task = asyncio.create_task(
@@ -239,3 +306,36 @@ async def test_subagent_ledger_writes_are_denied_code_level(tmp_path: Path) -> N
         run.id, request_id, PermissionResolution(decision=PermissionDecision.DENY)
     )
     await task
+
+
+@pytest.mark.asyncio
+async def test_connected_browser_snapshot_hook_forces_one_time_approval(tmp_path: Path) -> None:
+    ledger, _permissions, runtime = build_runtime(tmp_path)
+    project = ledger.create_project(ProjectCreate(name="Kettle", objective="Validate"))
+    run = ledger.create_run(project.id, "Start")
+    hook = runtime._hook(run.id, ledger.workspace_for_project(project.id))
+
+    connected = await hook(
+        {
+            "hook_event_name": "PreToolUse",
+            "tool_name": TOOL_SNAPSHOT_PAGE,
+            "tool_input": {
+                "url": "https://example.com",
+                "use_connected_browser": True,
+            },
+        },
+        None,
+        None,
+    )
+    isolated = await hook(
+        {
+            "hook_event_name": "PreToolUse",
+            "tool_name": TOOL_SNAPSHOT_PAGE,
+            "tool_input": {"url": "https://example.com"},
+        },
+        None,
+        None,
+    )
+
+    assert connected["hookSpecificOutput"]["permissionDecision"] == "ask"
+    assert isolated == {}

@@ -1,29 +1,40 @@
 from __future__ import annotations
 
+import posixpath
 from datetime import UTC, datetime
 from typing import Any, Literal
+from urllib.parse import urlsplit
 from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl, model_validator
 
 from .constants import (
+    CLARIFYING_TOOL,
+    DELETE_BUILTIN_TOOLS,
+    SHELL_BUILTIN_TOOLS,
+    TOOL_ACT_ON_PAGE,
     AgentTemplate,
     DecisionStatus,
     Dimension,
     EvidenceKind,
     EvidenceSourceType,
     EvidenceStatus,
+    FeedbackKind,
     MemoryKind,
+    MemoryOrigin,
     MemoryScope,
     MemorySensitivity,
     MemorySource,
     MemoryStatus,
     MissedRunPolicy,
     PermissionDecision,
+    PermissionModePolicy,
     ProjectStage,
     ProviderErrorCode,
     RunMode,
+    RunRetryStrategy,
     RunStatus,
+    ScheduleKind,
     StageDecisionValue,
     ValidationStatus,
 )
@@ -80,6 +91,7 @@ class Evidence(APIModel):
     confidence: float = Field(ge=0, le=1)
     supports_hypothesis_ids: list[str] = Field(default_factory=list)
     recorded_by: str
+    source_run_id: str | None = None
     recorded_at: datetime = Field(default_factory=utc_now)
 
 
@@ -120,6 +132,7 @@ class Decision(APIModel):
     next_actions: list[str] = Field(default_factory=list, max_length=100)
     status: DecisionStatus = DecisionStatus.ACTIVE
     made_by: str
+    source_run_id: str | None = None
     review_at: datetime | None = None
     invalidated_by_evidence_ids: list[str] = Field(default_factory=list)
     created_at: datetime = Field(default_factory=utc_now)
@@ -176,6 +189,10 @@ class RunCreate(APIModel):
     resume_session_id: str | None = None
     mode: RunMode = RunMode.STANDARD
     provider_profile_id: str | None = None
+
+
+class RunRetryRequest(APIModel):
+    strategy: RunRetryStrategy
 
 
 class RunRecord(APIModel):
@@ -237,6 +254,32 @@ class PermissionResolution(APIModel):
     reason: str = Field(default="", max_length=2_000)
     # AskUserQuestion 结构化追问的回答：{问题原文: 选项 label 或 label 列表}。
     answers: dict[str, str | list[str]] | None = None
+    expires_at: datetime | None = None
+
+
+class PendingPermissionView(APIModel):
+    id: str
+    run_id: str
+    project_id: str | None = None
+    tool_name: str
+    tool_input: dict[str, Any] = Field(default_factory=dict)
+    agent_id: str | None = None
+    scope: str
+    destructive: bool
+    persistable: bool
+    timeout_seconds: int = 300
+    created_at: datetime = Field(default_factory=utc_now)
+
+
+class PermissionGrant(APIModel):
+    id: str = Field(default_factory=lambda: new_id("grant"))
+    project_id: str | None = None
+    tool_name: str
+    path_prefix: str = ""
+    decision: PermissionDecision = PermissionDecision.ALLOW_PERSISTENT
+    expires_at: datetime
+    created_at: datetime = Field(default_factory=utc_now)
+    revoked: bool = False
 
 
 class AgentProfile(APIModel):
@@ -377,6 +420,9 @@ class MemoryItem(APIModel):
     text: str = Field(min_length=1, max_length=4_000)
     kind: MemoryKind
     source: MemorySource
+    origin: MemoryOrigin = MemoryOrigin.AGENT
+    source_run_id: str | None = None
+    source_anchor: str = Field(default="", max_length=500)
     confidence: float = Field(default=1.0, ge=0, le=1)
     sensitivity: MemorySensitivity = MemorySensitivity.NORMAL
     status: MemoryStatus = MemoryStatus.PROPOSED
@@ -397,6 +443,12 @@ class MemoryCreate(APIModel):
 class MemoryDecision(APIModel):
     decision: Literal["approve", "reject", "disable"]
     reason: str = Field(default="", max_length=2_000)
+
+
+class MemoryCorrection(APIModel):
+    text: str = Field(min_length=1, max_length=4_000)
+    kind: MemoryKind | None = None
+    sensitivity: MemorySensitivity | None = None
 
 
 class MemoryRollback(APIModel):
@@ -442,21 +494,98 @@ class StandingIntentCreate(APIModel):
     expires_days: int = Field(default=90, ge=1, le=365)
 
 
+class SchedulePermissionRule(APIModel):
+    """One exact tool and normalized scope approved for unattended execution."""
+
+    tool_name: str = Field(min_length=1, max_length=300)
+    scope: str = Field(min_length=1, max_length=1_000)
+
+    @model_validator(mode="after")
+    def normalized_and_persistable(self) -> SchedulePermissionRule:
+        if self.tool_name != self.tool_name.strip() or any(
+            ord(character) < 32 or character in "*?[]" for character in self.tool_name
+        ):
+            raise ValueError("schedule permission tool_name must be exact and normalized")
+        leaf = self.tool_name.rsplit("__", 1)[-1]
+        never_persistable = {
+            CLARIFYING_TOOL,
+            *SHELL_BUILTIN_TOOLS,
+            *DELETE_BUILTIN_TOOLS,
+            TOOL_ACT_ON_PAGE.rsplit("__", 1)[-1],
+        }
+        if leaf in never_persistable:
+            raise ValueError("schedule permission tool is restricted to per-invocation approval")
+
+        if any(ord(character) < 32 for character in self.scope):
+            raise ValueError("schedule permission scope contains control characters")
+        if self.scope.startswith("path:"):
+            path = self.scope.removeprefix("path:")
+            if (
+                not path
+                or path.startswith("/")
+                or path != path.strip()
+                or path.startswith("~")
+                or "\\" in path
+                or any(character in path for character in "*?[")
+                or ".." in path.split("/")
+                or posixpath.normpath(path) != path
+            ):
+                raise ValueError("schedule permission path scope must be normalized and bounded")
+            return self
+
+        if self.scope.startswith("url:"):
+            origin = self.scope.removeprefix("url:")
+            try:
+                parsed = urlsplit(origin)
+                if (
+                    parsed.scheme not in {"http", "https"}
+                    or not parsed.hostname
+                    or parsed.username is not None
+                    or parsed.password is not None
+                    or parsed.path
+                    or parsed.query
+                    or parsed.fragment
+                ):
+                    raise ValueError
+                hostname = parsed.hostname.rstrip(".").casefold()
+                if ":" not in hostname:
+                    hostname = hostname.encode("idna").decode("ascii")
+                else:
+                    hostname = f"[{hostname}]"
+                port = parsed.port
+            except (UnicodeError, ValueError) as exc:
+                raise ValueError(
+                    "schedule permission URL scope must be an http(s) origin"
+                ) from exc
+            default_port = 443 if parsed.scheme == "https" else 80
+            port_suffix = f":{port}" if port is not None and port != default_port else ""
+            if origin != f"{parsed.scheme}://{hostname}{port_suffix}":
+                raise ValueError("schedule permission URL scope must be a normalized origin")
+            return self
+
+        raise ValueError("schedule permission scope must start with path: or url:")
+
+
 class Schedule(APIModel):
     id: str = Field(default_factory=lambda: new_id("schedule"))
     project_id: str
     agent_id: str | None = None
     provider_profile_id: str | None = None
     mode: RunMode = RunMode.STANDARD
+    kind: ScheduleKind = ScheduleKind.TASK
     prompt: str = Field(min_length=1, max_length=40_000)
     cron: str | None = None
     run_once_at: datetime | None = None
     timezone: str = "UTC"
     missed_run_policy: MissedRunPolicy = MissedRunPolicy.SKIP
+    permission_ceiling: list[SchedulePermissionRule] = Field(
+        default_factory=list, max_length=100
+    )
     enabled: bool = True
     next_fire_at: datetime | None = None
     last_fire_at: datetime | None = None
     last_run_id: str | None = None
+    last_result_digest: str | None = None
     created_at: datetime = Field(default_factory=utc_now)
 
 
@@ -471,6 +600,10 @@ class ScheduleUpdate(APIModel):
     missed_run_policy: MissedRunPolicy | None = None
     provider_profile_id: str | None = None
     mode: RunMode | None = None
+    kind: ScheduleKind | None = None
+    permission_ceiling: list[SchedulePermissionRule] | None = Field(
+        default=None, max_length=100
+    )
     enabled: bool | None = None
 
 
@@ -479,14 +612,68 @@ class ScheduleCreate(APIModel):
     agent_id: str | None = None
     provider_profile_id: str | None = None
     mode: RunMode = RunMode.STANDARD
+    kind: ScheduleKind = ScheduleKind.TASK
     prompt: str = Field(min_length=1, max_length=40_000)
     cron: str | None = Field(default=None, min_length=9, max_length=120)
     run_once_at: datetime | None = None
     timezone: str = Field(default="UTC", max_length=64)
     missed_run_policy: MissedRunPolicy = MissedRunPolicy.SKIP
+    permission_ceiling: list[SchedulePermissionRule] = Field(
+        default_factory=list, max_length=100
+    )
 
     @model_validator(mode="after")
     def exactly_one_trigger(self) -> ScheduleCreate:
         if (self.cron is None) == (self.run_once_at is None):
             raise ValueError("exactly one of cron or run_once_at is required")
         return self
+
+
+class OrgPolicy(APIModel):
+    permission_mode: PermissionModePolicy = PermissionModePolicy.DEFAULT
+    allowed_provider_ids: list[str] = Field(default_factory=list)
+    allowed_skill_ids: list[str] = Field(default_factory=list)
+    browser_enabled: bool = True
+    computer_control_enabled: bool = False
+    channel_delivery_enabled: bool = False
+    domain_allowlist: list[str] = Field(default_factory=list)
+    updated_at: datetime = Field(default_factory=utc_now)
+
+
+class FeedbackItem(APIModel):
+    id: str = Field(default_factory=lambda: new_id("feedback"))
+    project_id: str | None = None
+    run_id: str | None = None
+    evidence_id: str | None = None
+    kind: FeedbackKind
+    user_note: str = Field(min_length=1, max_length=4_000)
+    status: Literal["open", "reviewed", "folded_into_skill", "rejected"] = "open"
+    created_at: datetime = Field(default_factory=utc_now)
+
+
+class FeedbackCreate(APIModel):
+    project_id: str | None = None
+    run_id: str | None = None
+    evidence_id: str | None = None
+    kind: FeedbackKind
+    user_note: str = Field(min_length=1, max_length=4_000)
+
+
+class ConnectorUpsert(APIModel):
+    type: str = Field(min_length=1, max_length=80)
+    display_name: str = Field(min_length=1, max_length=160)
+    scope: str = Field(default="", max_length=400)
+    secret_env: str | None = Field(default=None, max_length=120)
+    endpoint: str | None = Field(default=None, max_length=2_000)
+    secret: str | None = Field(default=None, min_length=1, max_length=8_000)
+
+
+class ConstraintAppend(APIModel):
+    constraints: list[str] = Field(min_length=1, max_length=20)
+
+
+class ChannelInbound(APIModel):
+    channel: Literal["feishu", "wechat", "webhook"] = "webhook"
+    text: str = Field(min_length=1, max_length=40_000)
+    project_id: str | None = None
+    sender: str = Field(default="channel", max_length=160)

@@ -84,3 +84,30 @@ async def test_record_decision_is_idempotent(tmp_path: Path) -> None:
     first = parse(await handler(tools, "record_decision")(args))
     second = parse(await handler(tools, "record_decision")(dict(args)))
     assert first["id"] == second["id"]
+
+
+@pytest.mark.asyncio
+async def test_register_artifact_links_the_current_run_and_evidence(tmp_path: Path) -> None:
+    ledger = FileLedger(tmp_path / "data")
+    project = ledger.create_project(ProjectCreate(name="Kettle", objective="Validate"))
+    tools = build_ledger_tools(ledger, project.id, run_id="run_1")
+    evidence = parse(
+        await handler(tools, "record_evidence")(evidence_args("用户确认的约束"))
+    )
+    deliverable = ledger.workspace_for_project(project.id) / "report.md"
+    deliverable.write_text("# Report\n", encoding="utf-8")
+
+    artifact = parse(
+        await handler(tools, "register_artifact")(
+            {"path": "report.md", "source_ids": [evidence["id"]]}
+        )
+    )
+
+    assert artifact["run_id"] == "run_1"
+    assert artifact["source_ids"] == [evidence["id"]]
+    assert ledger.get_project(project.id).artifacts[0].id == artifact["id"]
+
+    with pytest.raises(ValueError, match="unknown artifact source ids"):
+        await handler(tools, "register_artifact")(
+            {"path": "report.md", "source_ids": ["ev_missing"]}
+        )

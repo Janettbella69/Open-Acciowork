@@ -81,7 +81,12 @@ class Settings(BaseSettings):
     search_api_key: SecretStr | None = None
     web_fetch_max_bytes: int = Field(default=2_000_000, ge=10_000, le=20_000_000)
     web_timeout_seconds: float = Field(default=20, ge=1, le=120)
-    permission_timeout_seconds: int = Field(default=300, ge=10, le=3_600)
+    permission_timeout_seconds: int = Field(default=28_800, ge=10, le=86_400)
+    media_endpoint: str | None = Field(default=None, max_length=2_000)
+    media_api_key: SecretStr | None = None
+    channel_webhook_url: str | None = Field(default=None, max_length=2_000)
+    feishu_encrypt_key: SecretStr | None = None
+    feishu_bot_open_id: str | None = Field(default=None, max_length=160)
     # A bad credential can make the SDK hang instead of failing fast (observed with
     # DeepSeek + an invalid token in the 2026-08-20 contract run); preflight must
     # always come back with an actionable diagnosis (FR-06).
@@ -90,6 +95,9 @@ class Settings(BaseSettings):
     # 成本保险丝只留 max_budget_usd。显式配置仍可设值（如 CI/合约测试的小额探针）。
     max_turns: int | None = Field(default=None, ge=1)
     max_budget_usd: float = Field(default=10, gt=0, le=1_000)
+    # Deep Research keeps the shared budget fuse and deliberate no-turn-cap policy,
+    # but unattended fan-out still needs a wall-clock circuit breaker.
+    deep_research_timeout_seconds: int = Field(default=1_800, ge=60, le=86_400)
 
     @field_validator(
         "claude_model",

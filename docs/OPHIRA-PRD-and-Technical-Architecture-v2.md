@@ -1,20 +1,20 @@
 # OPHIRA AI PRD 与技术架构 v2.2
 
-> 文档状态：Draft v2.2，可进入产品评审与技术方案评审
-> 研究基线：2026-08-20（v1.1 为 2026-08-05）
+> 文档状态：Draft v2.2；实现状态审计更新于 2026-09-02
+> 研究基线：2026-08-20（v1.1 为 2026-08-05）；实现状态以 §3.8 的 2026-09-02 审计为准
 > 产品方向：面向出海小B的 AI 全球商业执行系统（对标 Accio Work）
 > 架构基线：Claude Agent SDK 单主 Agent，保留 Claude Code 原生能力
 > 本文合并 PRD 与技术架构；产品需求、架构约束和验收标准共同构成范围基线。
 
 ## v2.1 → v2.2 主要修订（2026-08-23/24）
 
-用户拍板：**《Agent Harness 教材》为最终权威，凡与教材冲突的条款一律按教材修正**（只用一个 Agent；不设轮数上限）。全量逐条审计见 `textbook-audit-2026-08-24.md`，决策论证见 `design-decisions-2026-08-23.md`。
+用户拍板：**《Agent Harness 教材》为最终权威，凡与教材冲突的条款一律按教材修正**（一个主 Agent 对结果负责；普通模式只允许极少量 SDK 原生、一次性、只读支线；不设轮数上限）。全量逐条审计见 `textbook-audit-2026-08-24.md`，决策论证见 `design-decisions-2026-08-23.md`。
 
 | # | 修订 | 依据 |
 |---|---|---|
 | 1 | **不设轮数上限**：`max_turns` 默认 None，成本熔断 `max_budget_usd` 是唯一保险丝；Deep Research 子代理同步去掉 maxTurns（§4.4、§4.8、§4.10 包络原则） | 教材"一个循环"不变量：让模型自己决定何时结束 |
 | 2 | **沙箱内 Bash 自动批准**：恢复 SDK 原生默认 `autoAllowBashIfSandboxed=True`，另加 `failIfUnavailable=True`；hook 只拦逃逸沙箱；人把关只留账本写入/对外发送的 MCP ask 层（§4.10、FR-13、§6.1） | 教材"一台电脑"+第 09 章判据（动作副作用被沙箱围住）；消除 FM-01/FM-02 打断来源 |
-| 3 | **普通模式只读子代理提案否决**：普通模式永久单主 Agent；多 Agent 仅 Deep Research 等教材例外（§4.4、§6.1） | 用户拍板"只用一个 Agent"；教材第 04 章 |
+| 3 | **普通模式子代理终版口径**：始终由一个主 Agent 负责；只在上下文隔离确有价值时极少调用 SDK 原生一次性只读支线；不定义固定角色团队。代码级禁止支线写账本、提交自动化承诺或再派生（§4.4、§4.8、§6.1） | 2026-08-24 用户终版拍板"按原生能力来做"；教材第 04 章 |
 | 4 | **Green Path deny 探针移层**：Bash 不再产生权限请求，deny→continue 探针改为 marker Write（§6.2） | 修订 2 的连带修正 |
 | 5 | 每 run 变化的 project_id/trace_id 移至系统提示词末尾，保 prompt cache 前缀稳定 | 教材第 13 章 cache 判据 |
 | 6 | 评测代码归属口径（判定逻辑住 `evals/`、驱动脚本住 `backend/scripts/`）；数据反馈闭环立项（`P2-feedback-loop-spec.md`） | 教材第 12/13 章 |
@@ -24,10 +24,10 @@
 | # | 修订 | 依据 |
 |---|---|---|
 | 1 | **品类定位对齐**：Accio Work 官方定位＝"外贸人的 OpenClaw / 专为中小企业打造的跨境生意工作台"；新增常驻 Agent 平台品类基线（Claude Cowork / OpenClaw / Hermes Agent / Codex 四原型调研，§2.6） | 用户提供官方定位 + 四平台官方文档核实 |
-| 2 | **单 Agent 红线细化**：普通模式"只读临时子代理"放宽方案已成稿但**待拍板（2026-08-20 用户改为再考虑，暂维持普通模式禁 Agent 的现状）**；固定角色的多 Agent 团队任何模式仍禁止（§1.1、FR-01、§4.8） | Cowork/Codex/Claude Code 均原生具备；上下文经济学需要 |
+| 2 | **单 Agent 红线细化（历史中间态）**：2026-08-20 曾暂缓普通模式只读支线；该表述已被 2026-08-24 终版取代：普通模式可极少调用 SDK 原生一次性只读支线，固定角色团队仍禁止（§1.1、FR-01、§4.8） | Cowork/Codex/Claude Code 均原生具备；上下文经济学需要 |
 | 3 | **主动服务与渠道提级（用户拍板 IM 形态）**：IM 渠道按 Claude Tag 形态、心跳巡检、前瞻意图、通知收件箱、移动远程审批（FR-15/24/25/26、§4.16） | 品类五件套 table stakes；Accio Mobile Beta 实证 |
 | 4 | **记忆蒸馏提案化**：后台蒸馏 + 人审闸门 + 结构化溯源分级 + 容量上限（FR-14、§4.16） | OpenClaw Dreaming / Codex Memories / Hermes 容量上限 / Cursor 记忆反转教训 |
-| 5 | **GUI 三级能力阶梯与"截图即证据"**（FR-20；2026-08-21 拍板全具备、运行时按任务选） | 逆向实证：Claude Desktop 与 Codex 均三级全装（内嵌+接管+OS级），大厂无一"三选一" |
+| 5 | **GUI 三级能力阶梯与"截图即证据"**（FR-20；2026-08-21 拍板将三级全部纳入目标范围、运行时按任务选；实现状态见 2026-09-02 审计） | 逆向实证：Claude Desktop 与 Codex 均三级全装（内嵌+接管+OS级），大厂无一"三选一" |
 | 6 | **权限增补**：删除文件任何模式必须确认、Auto 自审档、once/session/persistent 粒度（§4.10） | Cowork 误删 11GB 事故铁律等品类实证 |
 | 7 | **产物补洞**：图像/视频生成 MCP（FR-27） | Accio/Codex 均有；跨境 Listing 素材刚需 |
 | 8 | **全量核对补丁**：办公格式产物（FR-16）、首批连接器矩阵（FR-21）、结构化追问表单（FR-28）、内容营销 Skill 族（§4.7） | 对 Accio Work 功能清单逐项核对后的残余项 |
@@ -55,7 +55,7 @@ OPHIRA 的核心产品场景是：让跨境小商家从任何一个模糊的全�
 
 "一个 Agent"仍是产品和架构的共同原则：常规任务不拆成研究、供应、资金、销售等固定角色，也不实现固定节点工作流。四个维度作为 Agent 可按需调用的商业分析 Skill 和证据标签存在，而不是用户每次都必须穿过的流程。
 
-v2.0 的核心新判断：**架构目标已基本代码就绪，当前最大风险不是设计而是工程状态**——关键实现停留在未提交的工作树上，且零次成功的真实端点运行。Phase 0 的剩余工作是"提交、打通、证明"，不是"重新设计"。
+2026-09-02 的实现判断：单主 Agent、账本、权限和多数控制面已有本地代码/测试切片，但真实 Provider、真实浏览器、真实渠道/连接器、真实媒体生成商和 Office 可视质量仍缺可采信的端到端证明。Phase 0 的剩余工作是“接通真实依赖并证明”，不能用单元测试数量替代。
 
 ### 1.1 不可妥协的架构红线（与 v1.1 一致）
 
@@ -65,7 +65,7 @@ v2.0 的核心新判断：**架构目标已基本代码就绪，当前最大风�
 | 不允许直连模型替代 SDK | 业务代码不得用 OpenAI SDK、Anthropic Client SDK 或裸 `/v1/messages` 实现核心 Agent；不得以"兼容性"为由回退 |
 | 不使用固定编排框架 | 不引入 LangGraph、LangChain、Dify 或自研状态机来决定下一步；由主 Agent 结合上下文自主选择工具和 Skill |
 | 保留 Claude Code 原生能力 | 使用 `claude_code` tools preset，保留 Read、Write、Edit、Bash、代码执行、Glob、Grep、WebSearch、WebFetch、Skill 等能力；权限控制不等于删除能力 |
-| 常规任务单主 Agent，禁角色型团队 | 一个主 Agent 对结果负全责；普通模式现状**不派子代理**（"只读临时子代理"放宽方案见 §4.8，待拍板）；固定角色的多 Agent 团队任何模式都不做；Deep Research 是大规模并行研究的显式重模式 |
+| 常规任务单主 Agent，禁角色型团队 | 一个主 Agent 对结果负全责；普通模式仅在上下文隔离确有价值时极少调用 SDK 原生一次性只读支线，且代码级禁止其写账本、提交自动化承诺或再派生；任何模式均无固定角色团队；Deep Research 是显式重模式 |
 | 领域能力用官方扩展点 | 外部系统和确定性动作封装为 MCP；方法论封装为文件型 Skill；复杂处理由原生 Bash/代码执行或 Skill 附带脚本完成 |
 | 国产模型只走 Anthropic 协议 | 通过每个厂商官方 Anthropic-compatible Base URL 和 Key 配置 Claude Agent SDK；项目内不实现 OpenAI 格式适配器 |
 | 证据与副作用可治理 | 事实必须带来源、时间和置信度；写文件、执行命令、登录态浏览器、外发消息等按风险分级并可由用户授权 |
@@ -76,9 +76,9 @@ v2.0 的核心新判断：**架构目标已基本代码就绪，当前最大风�
 
 ## 2. 研究范围与事实基线
 
-### 2.1 本地仓库现状（2026-08-20 实测）
+### 2.1 本地仓库历史基线（2026-08-20；已由 §3.8 的 2026-09-02 审计取代）
 
-权威仓库：`github.com/Janettbella69/Open-Acciowork`（2026-08-20 由 Ophira-ai 更名），本地克隆 `/Users/isabella/Open-Acciowork`（项目唯一目录，所有工作在此进行），`main` 分支与 `origin/main` 同步。技术栈：FastAPI 0.141 + React 19/Vite 7；`claude-agent-sdk==0.2.82`（硬钉，venv 实装一致）；Python 3.11。
+以下内容保留为 2026-08-20 的历史检查点，不代表当前实现状态；当前能力与缺口以 §3.8 的 2026-09-02 代码审计为准。权威仓库：`github.com/Janettbella69/Open-Acciowork`（2026-08-20 由 Ophira-ai 更名），本地克隆 `/Users/isabella/Open-Acciowork`。技术栈：FastAPI + React/Vite + Python 3.11。
 
 **已实现（大部分在未提交的工作树中）：**
 
@@ -101,7 +101,7 @@ v2.0 的核心新判断：**架构目标已基本代码就绪，当前最大风�
 | 定时任务前端 | 仍是 localStorage 本地草稿（UI 明示 "local draft only"）；后端 Scheduler 与 API client 函数齐备但是死代码 |
 | 设置页 | localStorage-only，**完全没有 Provider/Key UI**；`listProviders/saveProvider/preflightProvider` 等 client 函数无人调用 |
 | 测试缺口 | 无 E2E/Green Path 测试（run 生命周期测试全部用 FakeRuntime）；`providers.py`、`skills.py`、`preflight()` 零测试；无 Provider 合约测试套件 |
-| SDK 版本 | 钉 0.2.82，最新 0.2.142（15 天 60 个版本，变更集未审）；升级必须走合约测试，不盲升 |
+| SDK 版本 | 钉 0.2.82，最新 0.2.142（15 天 60 个版本，变更集未审）；升级必须走合约测试，不盲升。【2026-08-21 已升级钉 0.2.143，见 §2.3】 |
 | API 偏差 | 权限落点为 `POST /api/runs/{run_id}/permissions/{request_id}`（非 v1.1 的 `/api/permissions/{id}/resolve`）；记忆为 `POST /api/memory/{id}/decision`；`GET .../evidence`、`POST /api/skills/{id}/test`、connectors 端点未实现；SSE 用 `Last-Event-ID` header 而非 `?after=` |
 
 ### 2.2 竞品事实基线：Accio 与 Accio Work
@@ -248,7 +248,7 @@ Accio 同时也**抬高了 table stakes**：权限四态与审计日志、分层
 4. **证据优先**：事实带来源和时间；推断显式标记；过期信息不包装成实时结论。
 5. **产物优先**：重要结果落到项目工作区，成为可编辑、可下载、可继续处理的文件或结构化记录。
 6. **人在风险回路中**：内部读取和分析尽量顺滑；外发、采购、登录态写操作和危险命令必须可控。
-7. **一份项目真相**：主 Agent、定时任务以及 Deep Research 临时子 Agent 最终都写入同一项目证据与产物账本。
+7. **一份项目真相**：主 Agent、定时任务写入同一项目证据与产物账本；Deep Research 子代理只返回只读研究摘要，由主 Agent 去重、判断并落账。
 
 ### 3.5 核心使用场景
 
@@ -284,11 +284,11 @@ Accio 同时也**抬高了 table stakes**：权限四态与审计日志、分层
 
 #### 场景 F：持续监控
 
-用户说"每周一检查这 5 个竞品的价格和评论变化"。Agent 把自然语言意图转成可审阅的计划；用户确认后创建定时任务。每次运行复用同一 Skill 和项目上下文，新增带时间的证据，只有达到阈值才通知。（差异化注意：Accio 的定时任务在用户本机执行、关机即停；OPHIRA 后端 Scheduler 常驻，这是现成优势，要在产品叙事中显性化。）
+用户说"每周一检查这 5 个竞品的价格和评论变化"。Agent 把自然语言意图转成可审阅的计划；用户确认后创建定时任务。目标体验是每次运行复用同一 Skill 和项目上下文，新增带时间的证据，只有达到阈值才通知。当前 Scheduler 和 standing intent 控制面已存在，但尚无自主条件 watcher，不能把目标体验作为现成能力宣传。
 
 #### 场景 G：Deep Research 例外模式
 
-当问题需要大范围、多语种、多来源并行研究时，用户显式选择 Deep Research，或主 Agent 提出建议并获得确认。主 Agent 可以启动短生命周期、默认只读的研究子 Agent；只有主 Agent 汇总、去重、判断冲突并写入项目真相。普通选品、成本分析、写报告等任务不得为了"看起来高级"自动创建多个 Agent。
+当问题需要大范围、多语种、多来源并行研究时，用户显式选择 Deep Research，或主 Agent 提出建议并获得确认。该模式启动 3 个只读研究子 Agent，共享主 Run 预算、统一取消、受墙钟时限约束且不设轮数上限；只有主 Agent 汇总、去重、判断冲突并写入项目真相。普通选品、成本分析、写报告等任务不得为了"看起来高级"自动创建多个 Agent。
 
 ### 3.6 信息架构（维持 v1.1）
 
@@ -299,33 +299,27 @@ Accio 同时也**抬高了 table stakes**：权限四态与审计日志、分层
 - **证据抽屉**：来源、抓取时间、观察对象、引用位置、可信度和冲突。
 - **产物区**：报告、表格、文本、脚本和导出文件；支持版本与下载。
 - **项目记录**：目标、已确认约束、决策、开放问题和经批准的记忆。
-- **Skills**：已安装能力、适用场景、版本、来源、启停与测试。（后端已接通；"测试"入口未实现。）
-- **自动化**：真实连接后端定时任务，展示下次运行、最近结果、失败原因和通知策略。（后端已就绪，前端仍是本地草稿——P0 收尾项。）
-- **设置**：模型 Provider、Key、数据区域、MCP 连接器、浏览器/桌面桥、权限策略与隐私。（当前完全缺 Provider UI——P0 收尾项。）
+- **Skills**：已安装能力、适用场景、来源、启停与测试；当前有哈希快照但无历史包冻结/回滚。
+- **自动化**：已连接后端计划任务、standing intent 和通知收件箱；自主 watcher 与真实渠道投递仍缺。
+- **设置**：已有 Provider、Key、连接器与组织策略控制面；真实业务适配器、移动配对和桌面桥仍缺。
 
 ### 3.7 首发范围（v2.2 更名：抛弃 MVP/demo 概念，教材口径——做真产品，只是还没上线）
 
-#### P0：必须交付（△=代码已就绪待打通/验证，✗=未开始）
+#### P0：必须交付
 
-- △ Claude Agent SDK 单主 Agent 运行时和完整原生工具集（代码就绪，待真实端点验证）。
-- △ Anthropic 协议 Provider 配置、凭据隔离、SDK 预检和明确错误诊断（后端就绪；**设置页 Provider UI 未开始**）。
-- △ 对话、项目、会话续接、SSE 流、取消、失败恢复和运行记录（就绪）。
-- △ 项目级文件工作区，支持上传/引用 URL、读取、写入、编辑、下载产物（就绪）。
-- △ 平台无关的商业机会研究、供需匹配、商业测算和客户路径 Skills（4 个已建），以及证据、供应商和商业计算 MCP 第一版（v2.2 现存 21 工具，含 web/automation；市场情报=账本证据的 market-signal 标签视图）。
-- △ 来源、时间、置信度、事实/推断区分以及证据与结论关联（数据模型就绪；证据 UI 待做）。
-- △ 工作区写入、浏览器写操作、外发动作的分级权限（工作区写入就绪；沙箱内 Bash v2.2 起自动批准，不再走分级）。
-- △ Skill 的后端安装、发现、启停、版本快照和运行时调用（就绪，缺测试入口）。
-- △ 记忆提案—审核—生效机制（后端+MCP 工具就绪；审批 UI 待接）。
-- ✗ 后端定时任务与前端真实打通；失败和凭据失效可见。
-- △ 正常模式禁止子 Agent；Deep Research 开关及预算/只读约束（已实现为受控 Beta）。
-- ✗ **Green Path E2E 与 Provider 合约测试**（Phase 0 出口标准，零进展）。
+- Claude Agent SDK 单主 Agent 运行时、原生工具集、会话/SSE/取消/恢复、项目工作区及本地权限治理已有代码与自动化测试；尚无本次审计可采信的真实 Provider Green Path。
+- Provider Registry、密钥库、SDK 路径预检、设置界面和错误分类已实现本地闭环；真实厂商兼容性仍须逐一验证。
+- Skills、领域 MCP、证据/决策/Artifact 账本、Evidence Drawer、记忆提案与审批已有实现；Skill 历史包冻结和版本回滚仍缺。
+- Scheduler、自动化 MCP、通知收件箱和前端管理面已有实现切片；真实渠道投递、凭据失效闭环和自主条件 watcher 尚未完成。
+- 普通模式采用 2026-08-24 终版边界：一个主 Agent 负责，可极少调用 SDK 原生一次性只读支线，支线不得写账本或提交自动化承诺；Deep Research 为 3 个只读研究子代理，共享预算、统一取消、受墙钟时限约束且不设轮数上限。
+- **Green Path 与 Provider 合约仍不能以单元测试替代**；§3.8 的“已实现”仅指本地代码和自动化测试覆盖。
 
 #### P1：紧随其后（v2.1 重排）
 
-- IM 渠道（Claude Tag 形态，先飞书后微信，FR-24）与移动远程审批（FR-25）。
-- 主动巡检、前瞻意图与通知收件箱（FR-26、§4.16）；`ophira_automation` MCP 暴露给 Agent。
-- **GUI L1**：内嵌受控浏览器 + 操作截图入证据账本（FR-20 第一级，服务端可跑）；平台/店铺授权连接器。
-- 图像/视频生成 MCP（FR-27）；记忆蒸馏提案生成器（§4.16）。
+- 补齐飞书回复闭环和微信渠道；为移动控制面增加认证配对、推送与设备信任（FR-24/25）。
+- 为 standing intent 增加自主条件 watcher；补齐真实渠道投递（FR-26、§4.16）。
+- 对 GUI L1/L2 做真实浏览器集成验证并实现 L3；当前只有 L1/L2 后端安全与账本切片（FR-20）。
+- 为媒体 MCP 配置并认证真实生成商；补齐视频能力和成品质量验证（FR-27）。
 - 更多市场与平台 Skills、合规数据源、物流与汇率工具。
 - 供应商联系、Listing 发布等外部动作的预览—批准—执行闭环。
 - 检索 MCP 降级路径（针对不支持原生 WebSearch/WebFetch 的 Provider）。
@@ -333,8 +327,7 @@ Accio 同时也**抬高了 table stakes**：权限四态与审计日志、分层
 
 #### P2：观察项
 
-- **GUI L2**：接管用户真实 Chrome（复用登录态与设备指纹，Accio Relay 式，FR-20 第二级，覆盖需登录的 B2B 平台）。
-- **GUI L3 + 桌面版**：OS 级 computer use（Codex CUAService 式）与承载它的 Electron 桌面壳——桌面壳只做宿主，Python 后端作为本地 sidecar 复用，不重写内核（见 §4.x 桌面形态）。
+- **GUI L3 + 桌面版**：OS 级 computer use 与承载它的桌面壳；L1/L2 先完成真实浏览器验收，L3 当前未实现。
 - "从重复任务中提议新 Skill"（Hermes/OpenClaw 形态；提案制、强制人审 + 安全扫描，见 §4.7）。
 - 团队协作、评论、项目模板、Skill 私有仓库和组织策略。
 - 知识库（项目级参考资料索引，服务检索而非替代证据账本）。
@@ -348,38 +341,40 @@ Accio 同时也**抬高了 table stakes**：权限四态与审计日志、分层
 - 不用向量库自动写入所有对话来替代可审核的长期记忆。
 - 不在一个共享宿主目录里让不同用户的 Agent 执行 Bash。
 
-### 3.8 功能需求与验收标准
+### 3.8 功能需求与实现状态审计（2026-09-02）
+
+> 审计口径：“已实现”表示本地代码路径和相应自动化测试存在；“部分实现”表示已有可执行切片，但仍缺需求中的关键闭环；“未实现”表示没有可执行切片。该审计未执行真实模型、真实浏览器、真实 IM/移动推送、真实媒体生成商或 LibreOffice 可视 E2E，因此不得把本表解释为生产可用证明。
 
 | ID | 优先级 | 需求 | 可验收标准 | 现状 |
 |---|---:|---|---|---|
-| FR-01 | P0 | 单主 Agent | 一个主 Agent 会话对结果负全责；普通模式禁 `Agent` 工具（现状）；无固定角色团队与固定节点编排。"只读临时子代理"放宽为已成稿提案（§4.8），**待拍板** | △ 已实现（普通模式禁 Agent）；放宽提案挂起 |
-| FR-02 | P0 | SDK 唯一模型运行时 | 业务运行追踪可证明由 `ClaudeSDKClient`/`query()` 发起；项目代码不存在替代核心循环的模型 Client 调用 | △ 已实现 |
-| FR-03 | P0 | 原生能力完整 | 同一 Agent 可使用 Read、Write、Edit、Bash/代码、Glob、Grep、WebSearch/WebFetch 和 Skill；高风险调用受权限控制而非被架构移除 | △ presets 就绪，待真实端点验证 |
-| FR-04 | P0 | 自由规划与工具选择 | 同一目标允许不同工具序列；后端不维护业务步骤枚举或状态迁移图 | △ 已实现 |
-| FR-05 | P0 | Provider 配置 | 用户可保存和测试 Anthropic-compatible Provider；Key 只存密钥库；每次运行固定 Provider/模型配置快照 | △ 后端就绪；**UI 缺失** |
-| FR-06 | P0 | 鉴权预检 | 首个正式任务前用 SDK 做最小预检；OAuth 撤销、Key 无效、Base URL 错、模型不存在、额度不足分别返回可操作信息 | △ 就绪（8 类错误码）；预检零测试 |
-| FR-07 | P0 | 会话与运行 | 创建、流式接收、取消、恢复会话；刷新后仍能查看事件和最终产物；重复取消幂等 | △ 已实现 |
-| FR-08 | P0 | 项目工作区 | 项目隔离目录；路径越界和符号链接逃逸被拒绝 | △ 已实现（双层防御） |
-| FR-09 | P0 | 证据账本 | 关键事实关联 URL/文件、获取时间、原始摘录、证据类型和置信度；推断不能伪装成观测事实 | △ 模型+MCP 就绪；证据 UI 待做 |
-| FR-10 | P0 | 结论可追溯 | Go/Test/No-go、候选排序等结论回链证据和假设；删除/过期证据后标记受影响结论 | △ `Decision.invalidated_by_evidence_ids` 就绪；失效联动逻辑待做 |
-| FR-11 | P0 | MCP 领域工具 | 市场、供应商、客户/成交、商业计算、台账至少各一个真实可用 MCP 工具；结构化结果、来源和明确错误 | △ 6 服务 21 工具已建（市场域并入账本标签，v2.2） |
-| FR-12 | P0 | Skills | Skill 是运行时可发现的 `SKILL.md` 能力包；可被 Agent 按意图自主触发；一次运行锁定 Skill 版本 | △ 已实现（插件 + 内容哈希 + 快照） |
-| FR-13 | P0 | 权限 | 安全读取与沙箱内 Bash 自动批准（v2.2）；写文件和外部副作用按规则询问；**删除文件在任何模式下必须确认**；授权粒度支持本次/本会话/持久（带范围与有效期）；可选 Auto 自审档 | △ 部分实现；v2.1 增补三项、v2.2 修订 Bash 口径（§4.10） |
-| FR-14 | P0 | 记忆 | Agent 只能提交记忆提案；用户批准后进入稳定记忆；可搜索、纠正、撤回且后续运行可验证生效；后台蒸馏任务可从运行日记生成候选记忆但**只能进提案队列**（§4.16）；记忆带来源分级与容量上限 | △ 后端就绪；蒸馏管线与审批 UI 待做 |
-| FR-15 | P0 | 自动化与主动链路 | 用户确认后创建计划（服务端常驻执行，不依赖用户设备开机）；显示下次运行、时区、输入、权限上限、最近状态；凭据失效时暂停并通知；巡检结果**无变化即静默**（HEARTBEAT_OK 语义），有变化进通知收件箱并可投递渠道 | ✗ 后端 Scheduler 就绪；前端本地草稿；巡检/收件箱/投递未开始 |
-| FR-16 | P0 | 产物 | 创建并继续编辑 Markdown、CSV/JSON、图片说明或脚本等文件；P1 起支持办公格式产物——XLSX（带真实公式）、DOCX、PPTX（经原生代码执行生成，Accio/Cowork 同能力）；产物记录生成运行、版本、引用证据和下载地址 | △ 已实现（办公格式待做） |
-| FR-17 | P0 | 运行可观测性 | 事件带 `trace_id/run_id/session_id`；记录工具、时长、结果状态、授权和资源用量，不存储私有思维链 | △ 27 事件 + 脱敏就绪 |
-| FR-18 | P0 | 错误恢复 | 工具失败不丢失已生成证据与文件；从失败点继续或新建分支；区分模型、Provider、MCP、权限和网络错误 | △ 已实现 |
-| FR-19 | P0/Beta | Deep Research | 仅显式模式启用子 Agent；子 Agent 默认只读、有最大数量/轮次/预算/时限；只有主 Agent 写最终台账 | △ 已实现（3 只读子代理） |
-| FR-20 | P1 | GUI 操作（三级能力阶梯） | **2026-08-21 用户拍板：对齐 Claude Desktop/Codex 的成熟做法——三级全部具备，运行时按任务由低到高选择，不是三选一。** L1 内嵌受控浏览器（独立 profile、域白名单、敏感动作强制确认；服务端可跑，最先做）；L2 接管用户真实 Chrome（经 CDP，复用登录态与设备指纹，覆盖需登录的 B2B 平台/店铺后台，Accio Relay 式）；L3 OS 级 computer use（截图+坐标操作**任意桌面应用**，非浏览器场景的最后手段，Codex CUAService 式）。**三级共同要求**：每次操作留存截图与动作记录并写入证据账本（这是 OPHIRA 独有——四家竞品的 GUI 操作均不入证据链）。选择原则：能用 L1 不用 L2、能用 L2 不用 L3（成本与脆性随级递增）。**前置门槛（2026-08-21 已通过）**：截图判读须由支持视觉的 Provider 承担，能力由合约测试实测写入 profile（§4.9 纪律，绝不采信厂商声明）。**用户拍板的双 Provider 分工**：主 Agent = **DeepSeek**（Green Path 3 连过 + 合约 7 过 + L2 两轮 4/4 + 原生 WebSearch 实测可用 + 成本最低）；视觉判读 = **Kimi K3**（`api.moonshot.cn/anthropic`，`kimi-k3[1m]`，1M 上下文；视觉经原始端点与 SDK 生产路径双重实测读对埋入数字。合约 8 项全过：含**原生 WebSearch 实测可用**——PRD 早期记载的"Kimi 不支持"仅针对 WebFetch，WebSearch 实测 PASS，勿混淆）。DeepSeek 实测**不支持**图像，且其失败形态是 **HTTP 200 静默丢图**（同一图 input_tokens 101 vs Kimi 224）——**判定视觉能力只认"读对内容"，不认状态码，也不认模型自述**。L3 另需桌面版 + macOS 屏幕录制/辅助功能 TCC 授权 + 签名。 | ✗ |
-| FR-21 | P1 | 连接器管理 | 每个 MCP/连接器显示能力、数据范围、凭据状态、最近健康检查和可撤销授权；首批连接器矩阵：邮箱（Gmail/Outlook）、店铺后台（Amazon Seller Central、Shopify、阿里国际站/速卖通）、社媒（Instagram/TikTok）、微信（WeChat）与飞书（Feishu/Lark）——客户/供应商沟通记录、文档/多维表格读写与消息触达，外发消息走高风险授权；作为 IM 渠道的群内协作另见 FR-24 | ✗ |
-| FR-22 | P1 | 团队治理 | 项目角色、Skill 发布、Provider 使用、外部动作由组织策略约束，运行仍由一个主 Agent 执行 | ✗ |
-| FR-23 | P0（新增） | Web 能力降级 | Provider 不支持原生 WebSearch/WebFetch 时，Agent 仍可通过已认证的检索 MCP 完成公开信息获取；UI 明示当前 Provider 的 Web 能力等级 | ✗ |
-| FR-24 | P1（v2.1） | IM 渠道（Claude Tag 形态） | 主 Agent 以成员身份加入用户的飞书/微信等群；群内 @ 派活、回帖交付带证据的结论；权限卡片可在群内解决；渠道消息进入同一项目账本；禁止多人设 Agent 群聊 | ✗ |
-| FR-25 | P1（v2.1） | 移动远程审批 | 权限请求与关键通知抵达手机；用户远程查看参数摘要并批准/拒绝（复用现有权限 API）；权限等待支持挂起至小时级而非固定 300 秒超时；可远程发起新任务 | ✗ |
-| FR-26 | P1（v2.1） | 主动巡检与前瞻意图 | 用户可授权"盯着 X、发生 Y 才告诉我"的常驻意图，带冷却期/最大触发次数/过期时间的防唠叨约束；巡检受逐运行预算约束；结果进收件箱 | ✗ |
-| FR-27 | P1（v2.1） | 图像/视频生成 | 经生成模型 MCP 产出 Listing 主图草稿、A+ 素材、社媒图文；生成产物与来源素材登记为 Artifact 并关联证据 | ✗ |
-| FR-28 | P2（v2.1） | 结构化追问表单 | 除对话式追问外，Agent 可发起结构化表单/选项卡一次性收集关键约束（目标市场、预算、履约方式等），结果写入项目约束记录 | ✗ |
+| FR-01 | P0 | 单主 Agent | 一个主 Agent 对结果负责；普通模式只可极少调用 SDK 原生一次性只读支线；无固定角色团队；代码级禁止支线写账本、提交自动化承诺或再派生 | **已实现**（本地代码/测试） |
+| FR-02 | P0 | SDK 唯一模型运行时 | 业务运行由 `ClaudeSDKClient`/`query()` 发起；静态门禁禁止第二套模型循环 | **部分实现**：架构与静态测试已覆盖；无本次审计可采信的真实 Provider 全链路运行 |
+| FR-03 | P0 | 原生能力完整 | 同一主 Agent 可使用文件、命令、Web、Skill 与 MCP；风险由权限治理 | **部分实现**：配置和测试已覆盖；未做真实 Provider 工具全链路验证 |
+| FR-04 | P0 | 自由规划与工具选择 | 后端不维护固定业务步骤或角色状态机 | **已实现**（本地代码/测试） |
+| FR-05 | P0 | Provider 配置 | 保存/测试 Anthropic-compatible Provider；Key 进密钥库；Run 固化配置快照 | **部分实现**：Registry、Vault、设置 UI、快照与预检已接通；真实厂商未在本次审计验证 |
+| FR-06 | P0 | 鉴权预检 | 经 SDK 最小路径预检，并把认证、端点、模型、额度、协议、MCP、Skill 与运行时错误结构化 | **部分实现**：代码和模拟测试已覆盖；真实 Provider 合约未验证 |
+| FR-07 | P0 | 会话与运行 | 创建、流式接收、取消、恢复、回放；重复取消幂等 | **已实现**（本地代码/测试） |
+| FR-08 | P0 | 项目工作区 | 项目隔离目录；拒绝路径越界、敏感路径和符号链接逃逸 | **已实现**（本地代码/测试） |
+| FR-09 | P0 | 证据账本 | Evidence/Artifact 带来源、时间、类型、置信度与来源运行；UI 可审查 | **已实现**（本地代码/测试） |
+| FR-10 | P0 | 结论可追溯 | Decision 回链证据；证据失效时联动标记受影响结论 | **已实现**（本地代码/测试） |
+| FR-11 | P0 | MCP 领域工具 | 台账、供应商、客户、商业计算等工具返回结构化结果与明确错误 | **部分实现**：确定性工具与数据加工切片存在；供应商/客户等尚无真实业务数据适配器，不能宣称实时业务数据 |
+| FR-12 | P0 | Skills | `SKILL.md` 可发现、启停、测试并由 Run 固化版本 | **部分实现**：发现、启停、测试、内容哈希和 Run 快照已实现；没有可恢复的历史包冻结与版本回滚 |
+| FR-13 | P0 | 权限 | 路径/工具/副作用策略、once/run/persistent 授权、删除强制确认、Auto 模式和审计 | **已实现**（本地代码/测试） |
+| FR-14 | P0 | 记忆 | 仅提案可进入稳定记忆；审批、撤回、来源、容量与当前运行蒸馏受控 | **已实现**（本地代码/测试；不等同于真实模型质量验证） |
+| FR-15 | P0 | 自动化与主动链路 | 计划任务、错过运行/重叠治理、静默结果、通知收件箱和渠道投递 | **部分实现**：Scheduler、API/UI、自动化 MCP 和收件箱存在；真实渠道投递及凭据失效通知闭环未验证 |
+| FR-16 | P0 | 产物 | Artifact 记录版本、来源运行和证据；支持常用文本及 DOCX/XLSX/PPTX 导出 | **部分实现**：文件台账、下载和 Office 结构验证已实现；环境无 LibreOffice 可视 QA，未证明版式质量 |
+| FR-17 | P0 | 运行可观测性 | 事件带项目/Run/Trace/Session 关联；记录工具、授权、资源和错误且不暴露私有思维链 | **已实现**（本地代码/测试） |
+| FR-18 | P0 | 错误恢复 | 失败保留证据与产物，可重试/分支恢复，并分类 Provider/MCP/权限/网络错误 | **已实现**（本地代码/测试） |
+| FR-19 | P0/Beta | Deep Research | 显式启用恰好 3 个只读研究子代理；共享主 Run 预算、统一取消、墙钟时限；不设轮数上限；仅主 Agent 写最终台账 | **已实现**（本地代码/测试；未声称真实研究 E2E） |
+| FR-20 | P1 | GUI 操作（L1/L2/L3） | L1 独立 profile；L2 只接已启用且健康的 loopback Chrome CDP；域策略/SSRF/重定向防护；动作与截图进 Artifact/Evidence；L3 为 OS 级操作 | **部分实现**：L1/L2 后端安全和账本路径已实现并有测试，但未用真实浏览器验证；**L3 未实现** |
+| FR-21 | P1 | 连接器管理 | 管理能力、范围、凭据、健康状态与撤销；业务适配器按授权接入 | **部分实现**：仅有 catalog、vault、health、revoke 及 Chrome CDP 元数据；没有 Gmail/店铺/社媒等真实业务适配器 |
+| FR-22 | P1 | 组织治理 | 组织策略约束 Provider、Skill、浏览器、域和渠道，运行仍由一个主 Agent 负责 | **部分实现**：OrgPolicy 及 Provider/Skill/browser/channel 运行时门禁已有代码/测试；项目角色、组织管理面与完整多租户治理未完成 |
+| FR-23 | P0 | Web 能力降级 | 原生 Web 不可用时可走安全检索/抓取 MCP；能力等级显式呈现 | **部分实现**：Web MCP 有 URL/重定向/SSRF 防护与测试；真实搜索服务配置和 Provider 降级 E2E 未验证 |
+| FR-24 | P1 | IM 渠道 | 群内 @ 触发同一主 Agent Run，安全接收并回帖；支持权限与账本关联 | **部分实现**：飞书入站具备签名时效校验、解密、去重、challenge 和 mention 门禁；没有飞书回复闭环，也没有微信 |
+| FR-25 | P1 | 移动远程审批 | 手机远程查看/批准权限、接收推送并发起任务，具备认证配对和设备信任 | **部分实现**：只有复用现有 API 的响应式远程控制面；没有认证配对、设备绑定或推送 |
+| FR-26 | P1 | 主动巡检与前瞻意图 | standing intent 带冷却、次数、过期和预算；条件成立才通知 | **部分实现**：Intent 存储/API/MCP、防唠叨约束和手动/Agent 触发存在；没有自主条件 watcher |
+| FR-27 | P1 | 图像/视频生成 | 经认证生成商产生媒体，安全落盘为 Artifact，并与来源 Evidence/Run 关联 | **部分实现**：安全通用媒体接入、下载校验和台账关联已有代码/测试；未配置或验证真实生成商，不能宣称真实图像/视频生成 |
+| FR-28 | P2 | 结构化追问表单 | Agent 发起结构化问题/选项，用户答案回到同一 Run 并可沉淀约束 | **已实现**（本地代码/测试） |
 
 ### 3.9 非功能需求
 
@@ -404,7 +399,7 @@ Accio 同时也**抬高了 table stakes**：权限四态与审计日志、分层
 #### 兼容性
 
 - Provider 不是只填 Base URL 的字符串；每个 Provider/模型版本必须通过工具调用、流式、上下文、错误映射等兼容性认证（矩阵见 §4.9）。
-- SDK 与 Claude Code 版本升级要跑 Provider 合约测试；未通过的模型不进入生产可选列表。（当前 0.2.82→0.2.142 升级即适用。）
+- SDK 与 Claude Code 版本升级要跑 Provider 合约测试；未通过的模型不进入生产可选列表。（2026-08-21 的 0.2.82→0.2.143 升级即适用；后续升级同。）
 - 不支持图片或某种消息块的 Provider，能力在 UI 中明确降级；可用 OCR/MCP 转成文本，但不得静默切换 Provider。
 - 原生 WebSearch/WebFetch 依赖 Anthropic 服务端能力，第三方端点可能不支持（Kimi 已明确不支持 WebFetch）；能力矩阵必须实测记录，缺失时走 FR-23 降级。
 
@@ -540,7 +535,7 @@ flowchart LR
 
 ### 4.4 Claude Agent SDK 标准配置
 
-以下为**仓库已实现**的配置骨架（`sdk_adapter.py`，对齐 SDK 0.2.82；升级 0.2.142 前先跑合约测试）。与 v1.1 的"目标配置"相比，这已经是现实，并多出 `sandbox`、`thinking`、`max_budget_usd` 三项：
+以下为**仓库已实现**的配置骨架（`sdk_adapter.py`，对齐 SDK 0.2.143〔2026-08-21 升级〕；后续升级前先跑合约测试）。与 v1.1 的"目标配置"相比，这已经是现实，并多出 `sandbox`、`thinking`、`max_budget_usd` 三项：
 
 ```python
 ClaudeAgentOptions(
@@ -558,17 +553,17 @@ ClaudeAgentOptions(
     setting_sources=[],                       # 隔离宿主 ~/.claude；Skills 由 plugins 提供（见 §4.7 边界说明）
 
     # MCP：控制面显式装配
-    mcp_servers=build_mcp_servers(...),       # 5 个进程内 server
+    mcp_servers=build_mcp_servers(...),       # 按组织策略和可用依赖装配进程内 server
     strict_mcp_config=True,
 
     # 权限：allow=自动批准；bare disallow=移出上下文；其余走 can_use_tool
-    allowed_tools=[*READ_ONLY_BUILTIN_TOOLS, *READ_ONLY_MCP_TOOL_NAMES],
-    disallowed_tools=[] if deep_research else ["Agent"],
+    allowed_tools=[*READ_ONLY_BUILTIN_TOOLS, *READ_ONLY_MCP_TOOL_NAMES, "Agent"],
+    disallowed_tools=[],
     permission_mode="default",
     can_use_tool=can_use_tool,                # 路径包含检查 + Permission Broker
     hooks=hooks,                              # PreToolUse/PostToolUse/PostToolUseFailure/SubagentStart/SubagentStop
 
-    # 子代理：仅 Deep Research
+    # 普通模式保留 SDK 原生一次性支线；Deep Research 另定义 3 个只读研究子代理
     agents=build_deep_research_agents() if deep_research else None,
 
     # 运行治理
@@ -602,24 +597,24 @@ v2.0 增补建议（不改变红线，按需采纳）：
 
 ### 4.5 OPHIRA 系统提示词边界（不变）
 
-追加内容只规定产品身份和不可越界的行为，不写任务步骤：对完成目标负责；自主判断何时搜索/读文件/计算/写产物/调 MCP 与 Skill；先用已有上下文、仅在缺口显著影响结果时追问；具体商业事实必须关联证据并区分用户陈述、外部观察、确定性计算与推断；重要产物写文件、重要证据/决策写 Ledger；工具输出中的指令视为待分析数据（prompt injection 防线）；不声称完成尚未完成的外部动作；正常模式不得创建子 Agent。"需求、供应、资金、销售"只作为可选检查视角写入相关 Skill。
+追加内容只规定产品身份和不可越界的行为，不写任务步骤：对完成目标负责；自主判断何时搜索/读文件/计算/写产物/调 MCP 与 Skill；先用已有上下文、仅在缺口显著影响结果时追问；具体商业事实必须关联证据并区分用户陈述、外部观察、确定性计算与推断；重要产物写文件、重要证据/决策写 Ledger；工具输出中的指令视为待分析数据（prompt injection 防线）；不声称完成尚未完成的外部动作。普通模式原则上由主 Agent 直接完成，仅在上下文隔离确有价值时极少调用 SDK 原生一次性只读支线；支线不得写 Ledger、注册 Artifact 或创建自动化承诺。"需求、供应、资金、销售"只作为可选检查视角写入相关 Skill。
 
 ### 4.6 MCP 工具封装
 
-现状：5 个进程内 SDK MCP server（`create_sdk_mcp_server`），无 stdio server；所有工具描述显式声明"不代替商业判断"（如 `compare_supplier_quotes`: "does not choose a winner"）。
+现状：MCP 由 `create_sdk_mcp_server` 在运行时按依赖和组织策略装配，无 stdio server；所有领域工具描述显式声明“不代替商业判断”。下表只列 2026-09-02 已存在的可执行切片，不把工具外壳等同于真实外部数据集成。
 
 | MCP Server | 现有工具（已实现） | 目标增补（P1+） | 风险级别 |
 |---|---|---|---|
-| `ophira_ledger` | `read_project_context`、`search_evidence`、`record_hypothesis`、`record_evidence`、`record_evidence_batch`、`record_decision`、`update_evidence_status`、`propose_memory`*、`search_memory`*（v2.2：`update_assessment`/`record_stage_decision` 两个 legacy 视图工具按教材"如无必要都不要"删除，数据模型保留） | `register_artifact` 显性化、证据失效联动 | 读取低；写内部账本按项目策略 |
+| `ophira_ledger` | 项目上下文、证据查询/写入/失效、决策、Artifact 注册、记忆提案/搜索* | 历史版本查询与更细粒度审计 | 读取低；写内部账本按项目策略；支线 Agent 禁写 |
 | `ophira_market`（v2.2 并入 `ophira_ledger`：市场信号=账本证据的 market-signal/类型标签，记录用 `record_evidence`、检索用 `search_evidence(tag=…)`——教材"相同域合并"+用户拍板 MCP≈20） | —（已并入） | `fetch_listing_snapshot`、`compare_price_band`、`get_keyword_trend`（未来按需独立建域或走连接器） | 公开读取低；登录态读取需连接器授权 |
-| `ophira_supplier` | `compare_supplier_quotes` | `search_suppliers`、`get_supplier_profile`、`draft_inquiry` | 读取低；真实发送询盘高 |
-| `ophira_customer` | `rank_customer_candidates` | `search_accounts`、`enrich_account`、`find_contact_path`、`draft_outreach`、`record_interaction` | 公开研究低；写 CRM/真实触达高 |
-| `ophira_commerce_math` | `calculate_landed_cost`、`calculate_unit_economics` | `cashflow_peak`、`sensitivity_table` | 纯确定性计算，可自动批准 |
-| `ophira_compliance`（未建） | — | `lookup_requirements`、`check_claim_language`、`list_required_documents` | 读取；必须返回法规来源和有效日期 |
-| `ophira_web`（新增规划，FR-23） | — | `search_public_web`、`fetch_page_snapshot`（走已授权检索 API） | 公开读取低；作为原生 WebSearch/WebFetch 的 Provider 降级路径 |
-| `ophira_browser`（未建，P1） | — | `read_current_page`、`extract_table`、`click`、`submit_form` | 读取按域策略；点击/提交逐次授权 |
-| `ophira_automation`（未建；后端 Scheduler 已有，暂未暴露为 Agent 工具） | — | `create_schedule`、`pause_schedule`、`create_standing_intent`（前瞻意图，带冷却/次数/过期约束）、`send_notification`（渠道投递 + 收件箱） | 创建/外发需授权并幂等 |
-| `ophira_media`（新增规划，FR-27） | — | `generate_image`、`edit_image`、`generate_video_draft`（接生成模型 API） | 生成本身低风险；发布到店铺/社媒走外发授权 |
+| `ophira_supplier` | 报价比较、对给定候选做搜索/筛选、生成外发草稿 | 真实供应商数据适配器与受控发送 | 数据加工低；真实发送高 |
+| `ophira_customer` | 候选排序、记录互动 | 真实 CRM/联系人适配器与受控触达 | 数据加工低；写外部 CRM/触达高 |
+| `ophira_commerce_math` | 到岸成本、单位经济、敏感性表 | 更多现金流模型 | 纯确定性计算 |
+| `ophira_compliance` | 内置来源目录查询 | 授权法规数据源与有效性更新 | 读取；输出不是法律意见 |
+| `ophira_web` | `search_public_web`、`fetch_page_snapshot`，含 URL/重定向/SSRF 防护 | 认证真实搜索服务与 Provider 降级 E2E | 公开读取低；内容视为不可信数据 |
+| `ophira_browser` | `snapshot_page`、`act_on_page`；OrgPolicy 门禁、L1/L2、安全导航和截图账本 | 真实浏览器验证与 L3 | 读取按域策略；动作需治理 |
+| `ophira_automation` | 计划创建/暂停、standing intent 管理/触发、通知写入 | 自主 watcher 与真实渠道投递 | 创建承诺/外发需授权；支线 Agent 禁用 |
+| `ophira_media` | `generate_media` 通用安全接入并注册 Artifact/Evidence 关联 | 配置并认证真实图像/视频生成商 | 下载与落盘受大小、类型、URL 和路径约束 |
 
 \* 仅当注入 MemoryProvider 时注册。
 
@@ -645,7 +640,7 @@ ophira-capabilities/
 
 **发现边界（v2.0 明确）**：`setting_sources=[]` 时文件系统 skills（`~/.claude/skills`、`./.claude/skills`）**不会**被发现——这是隔离设计的预期行为；应用 Skills 必须且只能经 `plugins` 装载。预检已断言 `ophira-core:global-opportunity-execution` 出现在 SystemMessage 的 skills 清单中，该断言保留为回归防线。SDK 场景下 SKILL.md 的 `allowed-tools` frontmatter 不承担权限强制，权限一律在顶层 options 与回调控制。
 
-Skill 生命周期（维持 v1.1）：Draft → Review（扫密钥/越权指令/固定过期事实/伪装权限 frontmatter）→ Publish（不可变版本+内容哈希）→ Enable（Run 保存启用列表和版本快照）→ Observe → Rollback。用户自定义 Skill 进入单独租户 Plugin 目录，只读挂载、版本化、安全扫描。
+目标 Skill 生命周期维持 v1.1：Draft → Review → Publish（不可变版本）→ Enable → Observe → Rollback。**2026-09-02 实现边界**：当前已有发现、启停、测试、安全校验、内容哈希和 Run 快照；Run 快照记录身份/哈希，但没有保存可恢复的历史 Skill 包，因此尚不具备历史快照冻结或版本回滚。用户自定义 Skill 的版本化、只读挂载和回滚仍是目标能力。
 
 #### Skills 与 Plugins 的品类对照与 v2.1 口径
 
@@ -655,15 +650,11 @@ Skill 生命周期（维持 v1.1）：Draft → Review（扫密钥/越权指令/
 - **安全扫描是生死线**：ClawHub 市场被审计出 1184 个历史恶意 Skill（伪装加密钱包/YouTube 工具投毒）。OPHIRA Skill 生命周期的 Review 步骤必须包含自动化内容扫描（密钥、外传指令、危险命令、伪装权限 frontmatter），第三方 Skill 引入走信任分级，`dangerous` 判定不可 force 通过。
 - **渐进披露**：SDK 原生按需加载 SKILL.md 正文与 reference 文件（Hermes 的三级加载同理），Skill 数量增长不等比消耗上下文——这是扩到几十个 Skill 的前提，无需额外机制。
 
-### 4.8 单 Agent 与子代理边界（v2.1 修订）
+### 4.8 单 Agent 与子代理边界（2026-08-24 终版）
 
-三层口径，从松到严：
-
-- **普通模式（现状：不派子代理）**：一个主 Agent 对结果负全责，`disallowed_tools=["Agent"]`。**放宽提案（待拍板，2026-08-20 用户改为再考虑）**：允许按需派**只读临时研究子代理**——无人设、无固定角色；工具仅 Read/Glob/Grep/WebSearch/WebFetch + 只读 MCP，`disallowedTools=["Write","Edit","Bash","Agent","Task"]`，轮次与预算受限；结论、证据、产物仍只由主 Agent 写入账本。定性：这是上下文经济学工具（避免大量阅读塞爆主上下文），不是工作流——拆不拆、怎么拆由主 Agent 临场决定。Cowork/Codex/Claude Code 均默认具备此能力。
-- **Deep Research（显式重模式）**：多语种、大范围并行研究；现实现为 3 个只读子代理（`source-mapper`/`multilingual-researcher`/`conflict-verifier`，v2.2 起不设 maxTurns，预算由主 run 统一约束）；带总预算、统一取消与"预计额外资源"提示（UI 待补）。
-- **任何模式禁止**：固定角色多 Agent 团队（Accio 式 1 TL + N 人设群聊）、子代理写账本、子代理再派生子代理。
-
-仓库现状为普通模式 `disallowed_tools=["Agent"]` + `agents=None`（有测试断言），**与当前口径一致，维持不动**；若日后拍板放开，再注入只读临时子代理定义并同步修改 §6.1/§6.2 门槛断言。
+- **普通模式**：一个主 Agent 对结果负全责；保留 SDK 原生 `Agent` 工具，但只在上下文隔离确有价值时极少派一次性只读支线。`agents=None` 表示不自造角色定义；支线只带回摘要，不成为平行负责人或固定工作流。`can_use_tool` 与 hooks 在代码级拒绝支线写 Ledger、注册 Artifact、创建/修改 Schedule、standing intent 或通知等自动化承诺，并拒绝再派生。
+- **Deep Research（显式重模式）**：固定为 3 个只读研究子代理（`source-mapper`、`multilingual-researcher`、`conflict-verifier`）；共用主 Run 的 `max_budget_usd`，取消时统一中断，运行受墙钟时限保护，**不设 `max_turns`/maxTurns 轮数上限**。仅主 Agent 汇总并写最终台账。
+- **任何模式禁止**：固定角色多 Agent 团队、子代理写项目真相、子代理提交未来自动化承诺、子代理再派生。普通模式与 Deep Research 的差别是并行研究强度和显式资源包络，不是业务角色编排。
 
 ### 4.9 Provider 与国产模型接入（v2.0 全面更新）
 
@@ -721,7 +712,7 @@ Claude Agent SDK worker 只接收 Anthropic 协议环境配置。OPHIRA 不安�
 
 ### 4.10 权限、安全和沙箱
 
-权限矩阵维持 v1.1，一处 v2.2 修订（Read/Glob/Grep 项目内自动允许；Web 公开读取自动或域策略；只读 MCP 自动；Ledger 写入按项目策略；Write/Edit 限 Workspace；**沙箱内 Bash 走 SDK 原生 `autoAllowBashIfSandboxed` 自动批准（副作用被沙箱围住），逃逸沙箱永久拒绝**〔v2.2，2026-08-24 用户拍板"教材为最终权威"：恢复 SDK 原生默认，删除中间白名单层；人把关只留在账本写入/对外发送等业务动作的 MCP ask 层〕；浏览器读按域、写逐次；子 Agent 普通模式拒绝；危险命令/密钥读取/越界永久拒绝）。
+权限矩阵维持 v1.1，一处 v2.2 修订（Read/Glob/Grep 项目内自动允许；Web 公开读取自动或域策略；只读 MCP 自动；Ledger 写入按项目策略；Write/Edit 限 Workspace；**沙箱内 Bash 走 SDK 原生 `autoAllowBashIfSandboxed` 自动批准（副作用被沙箱围住），逃逸沙箱永久拒绝**〔v2.2，2026-08-24 用户拍板"教材为最终权威"：恢复 SDK 原生默认，删除中间白名单层；人把关只留在账本写入/对外发送等业务动作的 MCP ask 层〕；浏览器读按域、写逐次；普通模式支线只读且禁止账本写入/自动化承诺；危险命令、密钥读取和越界永久拒绝）。
 
 已实现的防御结构（保留为验收基线）：
 
@@ -754,7 +745,7 @@ Prompt Injection 防线维持 v1.1：外部内容一律标记为不可信数据�
 | Decision | question、outcome、decision_type（go/test/no_go/ranking/plan/other）、rationale、evidence_ids、assumptions、conditions、next_actions、status、review_at、invalidated_by_evidence_ids | 已实现（通用化完成，legacy StageDecision 兼容保留） |
 | Artifact | path、mime、version、run_id、source_ids、checksum | 已实现 |
 | ProviderProfile | endpoint、auth_env_name、model+档位映射、region、production_eligible、terms_checked_at、capabilities、compatibility_suite_version、last_verified_at、last_error_code | 已实现；不含明文 Key |
-| Connector | type、scope、secret_ref、health、last_checked_at | 未实现（P1） |
+| Connector | type、scope、secret_ref、enabled、health、last_checked_at、metadata | Catalog/Vault/health/revoke 已实现；仅 Chrome CDP 元数据被浏览器 L2 消费，尚无真实业务适配器 |
 | SkillVersion | namespace、name、version、hash、status | 已实现 |
 | PermissionDecision | tool、input_digest、scope、decision、actor、expires_at | 部分实现（scope/expiry 待扩展） |
 | MemoryProposal | content、scope、source_run、status、reviewer（+版本历史与回滚） | 已实现 |
@@ -774,35 +765,23 @@ v1.1 规划仍缺的事件：`artifact.updated`、`evidence.added`、`decision.r
 
 **云端 SaaS**：Control Plane 与 Agent Runner 分离；按租户隔离的短生命周期容器/微虚机；只读 Plugin、临时 Claude 配置目录、短期密钥；出网按 Provider/MCP 域名 allowlist；浏览器能力经本地 Bridge/Relay（不上传登录 Cookie）；**session transcript 用 SDK `session_store` 适配器外置**（更新：官方能力已可用）；多租户隔离遵循官方 hosting 指引三件套（`setting_sources=[]` + `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1` + 每租户 `CLAUDE_CONFIG_DIR`/`cwd`）。绝不让多租户 Agent 在 Control Plane 宿主上直接执行 Bash。
 
-### 4.14 现状与目标架构的差距（v2.0 重写）
+### 4.14 现状与目标架构的差距（2026-09-02 审计）
 
 | 状态 | 项 | 说明 |
 |---|---|---|
-| ✅ 已达成 | 运行时红线 | presets、单 Agent、Deep Research 隔离、`strict_mcp_config`、sandbox、checkpointing、`max_budget_usd`——v1.1 §4.14 的第 1/2/4/7/8/9/11 行全部完成 |
-| ✅ 已达成 | Provider 底座 | Registry + 密钥库 + 预检 + 8 类错误码 + 凭据白名单 + 每 Profile `CLAUDE_CONFIG_DIR` |
-| ✅ 已达成 | 能力底座 | ophira-core 插件 4 Skills + 5 MCP 14 工具 + SkillRegistry + Run 快照 |
-| ✅ 已达成 | 治理底座 | 双层路径防御、Bash 不缓存授权、权限超时 deny、记忆提案-审批-回滚、27 事件+脱敏 |
-| 🚧 待收口 | 前端三缺口 | 定时任务页（localStorage 草稿→接后端）、设置页 Provider UI（从零建）、记忆审批/证据抽屉 UI |
-| 🚧 待收口 | API 缺口 | evidence 查询、skill test、connectors、schedule PATCH |
-| ❌ 未开始 | **Green Path E2E** | Phase 0 出口标准（backlog P0-E2E-01）；当前所有 run 级测试用 FakeRuntime |
-| ❌ 未开始 | Provider 合约测试 | `compatibility_suite_version` 字段存在但套件为空；`providers.py`/`skills.py`/`preflight()` 零测试 |
-| ⚠️ 风险 | **未提交工作树** | 25 文件修改 + 3 个 untracked 关键路径（`providers.py`、`skills.py`、`ophira-capabilities/`）；第一动作是提交 |
-| ⚠️ 风险 | 零真实运行 | 历史 12/12 均 401（旧代码），新架构从未接触真实模型端点；预检代码"理论正确"但未证明 |
-| ⚠️ 风险 | SDK 版本差 | 0.2.82 vs 0.2.142；升级收益（session_store 等）与回归风险并存，必须走合约测试 |
+| ✅ 本地实现 | 运行时边界 | Claude SDK 单主 Agent；普通模式可极少调用原生只读支线；支线写账本/自动化承诺代码级拒绝；Deep Research 3 个只读子代理，共享预算、统一取消、墙钟时限且无轮数上限 |
+| ✅ 本地实现 | 治理与账本 | 路径/删除/授权策略、OrgPolicy、Evidence/Decision/Artifact 来源 Run 关联、失效联动、事件脱敏及审计均有自动化测试 |
+| 🚧 部分实现 | Provider | Registry、Vault、隔离环境、预检、设置 UI 和错误分类已实现；真实 Provider 兼容矩阵与 Green Path 未在本次审计验证 |
+| 🚧 部分实现 | Browser | L1/L2 后端、域策略、SSRF/重定向防护、截图证据与 Chrome Connector 门禁已实现；未做真实浏览器验证；L3 未实现 |
+| 🚧 部分实现 | Connectors/Channels | Connector catalog/vault/health/revoke 和飞书安全入站存在；没有真实业务连接器，飞书无回复闭环，微信未实现 |
+| 🚧 部分实现 | 主动与移动 | Scheduler、自动化 MCP、standing intent 数据模型/约束、Inbox、移动响应式控制面存在；无自主 watcher、认证配对和推送 |
+| 🚧 部分实现 | Media/Office | 媒体安全接入与台账关联、Office 文件结构验证存在；无已配置真实媒体生成商，也无 LibreOffice 可视 QA |
+| 🚧 部分实现 | Skills | 发现、启停、测试、安全校验、内容哈希和 Run 快照存在；无历史包冻结和版本回滚 |
+| ❌ 未证明 | 生产 E2E | 本地测试不能证明真实模型、真实浏览器、真实渠道、真实连接器或真实生成商可用；所有上线声明仍须独立验收 |
 
 ### 4.15 API 增量（对齐实际实现）
 
-已实现 30 个端点（projects/runs/SSE/providers/preflight/skills/agents/memory/schedules/artifacts/permissions）。与 v1.1 建议的落点差异照单接受，不再改回：权限=`POST /api/runs/{run_id}/permissions/{request_id}`；记忆=`POST /api/memory/{id}/decision`；SSE 续传=`Last-Event-ID` header。
-
-待补：
-
-```text
-GET    /api/projects/{project_id}/evidence
-POST   /api/skills/{skill_id}/test
-GET    /api/connectors
-POST   /api/connectors/{id}/health-check
-PATCH  /api/schedules/{id}
-```
+现有 API 已覆盖 projects/runs/SSE/providers/preflight/skills/agents/memory/schedules/artifacts/permissions/evidence/connectors/channels/intents/notifications/org policy 等本地控制面。端点数量不作为完成度指标；例如 connector API 存在并不意味着 Gmail、店铺或社媒适配器已经实现。与 v1.1 建议的落点差异照单接受：权限=`POST /api/runs/{run_id}/permissions/{request_id}`；记忆=`POST /api/memory/{id}/decision`；SSE 续传=`Last-Event-ID` header。
 
 `POST /runs` 的关键输入只有用户意图、附件/链接、项目、模式和可选 Provider；前端不得提交固定 workflow/stage；后端生成不可变的 Provider、Skill、MCP 和 Policy 快照（已实现）。
 
@@ -813,53 +792,52 @@ PATCH  /api/schedules/{id}
 - **来源分级（借 OpenClaw 五层信任模型）**：记忆与证据共用结构化溯源字段 `origin ∈ {owner, agent, untrusted, system}`——外部内容（网页/文件/邮件）一律 untrusted，**在候选生成之前就被结构性排除**出记忆蒸馏，防记忆投毒；该字段由系统写入，模型不可伪造。
 - **蒸馏管线（借 OpenClaw Dreaming / Codex Memories）**：定时后台任务读取运行日记与转录，蒸馏候选记忆——产物**只能进入 MemoryProposal 队列**，人审批准后生效；每条候选带来源运行与文件锚点；批准前后均可回滚（版本历史已实现）。
 - **容量与质量（借 Hermes）**：稳定记忆设字符上限（现有注入上限 8 条/4000 字符维持）；超限写入返回错误并要求先合并旧条目——用容量约束逼出蒸馏质量。
-- **任务作用域经验记忆（借 Cursor Automations 先例）**：每个 Schedule 可积累仅作用于该任务的运行经验（如上次抓取失败的选择器、阈值校准），不进入全局记忆、不需逐条人审——"给人的策略层要人审，给例行任务的经验层可积累"。
+- **任务作用域经验记忆（目标，尚未完整实现；借 Cursor Automations 先例）**：每个 Schedule 可积累仅作用于该任务的运行经验（如上次抓取失败的选择器、阈值校准），不进入全局记忆、不需逐条人审——"给人的策略层要人审，给例行任务的经验层可积累"。
 
 #### 主动服务：巡检 → 判断 → 触达 → 授权
 
-- **心跳巡检**：Schedule 的一种预设，复用项目上下文；**无变化即静默**（OpenClaw `HEARTBEAT_OK` 语义）——运行结论为"无事发生"时不打扰用户，只留运行痕迹。
-- **前瞻意图（standing intents）**：用户说"X 发生时告诉我"→ 带触发条件的待命意图，配防唠叨预算：冷却期 / 最大触发次数 / 过期时间（OpenClaw 实证默认 24h / 3 次 / 90 天可作起点）。
-- **通知收件箱 + 渠道投递**：巡检与定时任务结果进集中收件箱（未读标记，Codex 形态）；重要事件经 `send_notification` 投递到 IM 渠道/手机。
-- **移动远程审批**：权限请求推送至手机并远程解决（FR-25）；权限等待改为可挂起，避免常驻运行在人不在场时被超时 deny 杀死。
-- **IM 渠道（Claude Tag 形态，用户拍板）**：主 Agent 以成员身份进入用户的飞书/微信群，@ 提及派活、回帖交付、群内解决权限卡片；渠道只是控制面的入口适配器——消息进来仍是同一主 Agent 的 run，写同一账本。
+- **心跳巡检（部分实现）**：Schedule 可复用项目上下文并支持静默结果；完整凭据失效/渠道通知闭环仍待验证。
+- **前瞻意图（部分实现）**：standing intent 已有存储、API/MCP、冷却期、最大触发次数和过期时间；当前只能由人或 Agent 显式触发，**没有自主条件 watcher**。
+- **通知收件箱 + 渠道投递（部分实现）**：集中收件箱存在；尚未证明真实 IM/手机投递。
+- **移动远程审批（部分实现）**：已有复用权限/Run API 的响应式控制面；认证配对、设备绑定和推送未实现。
+- **IM 渠道（部分实现）**：飞书入站已处理签名时效、解密、重放去重、challenge 和 @ mention 门禁，并创建同一主 Agent Run；没有回复闭环，微信未实现。
 
 ---
 
-## 5. 分阶段落地（v2.1 更新）
+## 5. 分阶段落地（2026-09-02 更新）
 
-### Phase 0：恢复可信的 Agent Green Path —— **代码基本就绪，出口未过**
+### Phase 0：恢复可信的 Agent Green Path —— **本地切片较完整，真实出口未过**
 
 剩余工作按序：
 
-1. **P0-0（新增，立即）**：提交当前工作树——`providers.py`、`skills.py`、`ophira-capabilities/` 及 25 个修改文件入库；建立 §6.1 静态门禁 CI，防止成果丢失与回退。
-2. **P0-1**：配置第一个真实 Provider Profile（建议 DeepSeek 或 Kimi 开放平台按量付费 Key），跑通预检——这是新凭据隔离代码的第一次真实验证，历史 401 问题的对照实验。
-3. **P0-2**：Green Path E2E（backlog P0-E2E-01 固定 fixture：报价 CSV + 约束 Markdown + 综合任务）连续 3 次通过，产出可审查 run bundle；断言全程无子 Agent、无第二套模型 loop、观测到 Read/Web/Skill/MCP/Bash/Write/Edit 全链路、权限 ask/deny/continue、SSE 断线续传、会话恢复。
-4. **P0-3**：补 `providers.py`/`skills.py`/`preflight()` 单元测试；建立 Anthropic + 首批 1–2 家国产 Provider 的合约测试报告。
-5. **P0-4**：前端收口——定时任务页接后端（client 函数已备）、设置页 Provider UI（列表/编辑/预检/能力矩阵/错误修复动作，不回显 Key）。
+1. **P0-1**：用有合法资格的真实 Provider 跑预检和固定 Green Path，归档可审查 Run bundle；本地模拟测试不得替代此门槛。
+2. **P0-2**：验证文件/Web/Skill/MCP/Bash/Write/Edit、权限 ask/deny/continue、SSE 重连与会话恢复全链路；若普通模式出现支线，只允许 SDK 原生一次性只读支线并断言无账本写入/自动化承诺。
+3. **P0-3**：建立首批 Provider 合约报告，包含模型身份、工具、Web/视觉能力、错误映射、费用与会话续接；能力字段只写实测结果。
+4. **P0-4**：在真实浏览器上验证 L1/L2 的导航、重定向、Service Worker、域策略、截图与清理；L3 另行实现，不能借 L1/L2 后端代码宣称三级完成。
+5. **P0-5**：对 DOCX/XLSX/PPTX 增加 LibreOffice 渲染/目视 QA；为 Skill 增加可恢复历史包和版本回滚。
 
 完成门槛（不变）：同一主 Agent 在隔离样例项目中搜索网页、读文件、运行计算脚本、写/改产物、调用 Skill/MCP，并按要求请求授权；过程中没有普通 Client SDK 或工作流框架。
 
 ### Phase 1：通用 Opportunity-to-Action 垂直切片
 
-- Global opportunity execution Skill v1 打磨（已有骨架）；公开市场信号 MCP 扩展（`search_market_signals` 等读取工具）；证据抽屉与记忆审批 UI；事实/推断、时间、来源、置信度可视化。
+- Global opportunity execution Skill v1 打磨；公开市场信号与真实数据源适配；继续完善事实/推断、时间、来源、置信度可视化。
 - 端到端基准集覆盖"从需求找供给""从供给找市场/客户""验证一个机会""准备执行产物"多起点。
-- FR-23 检索 MCP 降级路径（Kimi 等无原生 WebFetch 的 Provider 依赖它）。
+- 对已有 FR-23 Web MCP 配置认证搜索服务，并验证 Provider 降级 E2E。
 
 ### Phase 2：从判断到供需与客户连接
 
-- 供应商搜索/对比、到岸成本/现金/敏感性、客户/渠道研究与 CRM 记录等 MCP 扩展；供应尽调、成本分析、询盘和 Listing 实验 Skills 深化（P1 目标 10–15 个场景族 Skill，见 §4.7）；图像/视频生成 MCP（FR-27，Listing 主图与 A+ 素材）；Artifact 版本与证据关联；外部动作预览—批准—执行基础能力。
+- 为供应商、客户、邮箱、店铺和 CRM 接入真实授权适配器；深化供应尽调、成本分析、询盘和 Listing Skills；给已有媒体安全接入配置真实生成商；补齐外部动作预览—批准—执行闭环。
 
 ### Phase 3：主动服务、渠道与连接器（v2.1 扩充）
 
-- 记忆审批体验完整化；记忆蒸馏提案生成器（§4.16）。
-- `ophira_automation` MCP 暴露给 Agent（自然语言→可审阅计划→用户确认→Schedule）；心跳巡检 + 前瞻意图 + 通知收件箱。
-- IM 渠道（Claude Tag 形态，先飞书后微信，FR-24）与移动远程审批（FR-25）。
-- 内嵌受控浏览器 + 截图入证据账本（FR-20 路线一）；授权平台连接器。
-- Skill Registry 用户自定义与回滚。
+- 为已有 standing intent 增加自主 watcher，并验证通知收件箱/真实渠道投递。
+- 补齐飞书回复和权限卡片，再实现微信；移动控制面增加认证配对、设备信任和推送。
+- 把已实现的 L1/L2 后端接入真实浏览器测试；实现 L3 所需桌面宿主与 OS 权限治理。
+- 为 Connector 接入真实业务适配器；为 Skill Registry 增加历史快照冻结与回滚。
 
-### Phase 4：Deep Research 正式化与团队治理
+### Phase 4：Deep Research 正式化与组织治理
 
-- Deep Research 预算面板、合并证据协议；团队权限、组织 Provider/Skill 策略、共享项目；云端隔离 Runner（`session_store` 外置转录）与本地 Bridge 生产化；IM 渠道观察项评估。
+- 对已有 3 子代理只读包络做真实运行验证并完善预算/时限 UI、合并证据协议；扩展组织 Provider/Skill/浏览器/渠道策略和共享项目。这里不引入固定角色 Agent 团队。
 
 阶段不是用户任务的固定工作流，只是产品建设顺序。
 
@@ -906,9 +884,9 @@ PATCH  /api/schedules/{id}
 
 | 风险/决策 | 默认建议 | 触发复审的条件 |
 |---|---|---|
-| **未提交工作树**（新增，最高优先） | 立即提交并打 tag；静态门禁入 CI | — |
-| **零真实运行验证**（新增） | Phase 0 出口=真实端点 Green Path 3 连过，不以单元测试代替 | — |
-| SDK 版本策略（新增） | 先在 0.2.82 上过 Green Path，再评估升级 0.2.142（跑合约测试，逐 Provider 认证） | SDK 安全公告或必需能力（如 session_store）出现 |
+| **缺少本次审计可采信的真实运行证明** | Phase 0 出口=真实端点 Green Path 3 连过，不以单元测试代替 | — |
+| 浏览器/渠道/媒体集成证明不足 | 分别在真实浏览器、真实飞书回复链路、真实生成商上验收；不得由模拟测试外推 | — |
+| SDK 版本策略（新增） | 已于 2026-08-21 升级钉 0.2.143；后续升级先跑合约测试、逐 Provider 认证 | SDK 安全公告或必需能力（如 session_store）出现 |
 | 首发业务范围 | 围绕"发现需求、组织供给、连接客户并走向成交"的通用闭环收敛，不用单个平台定义产品 | 用户研究证明某细分任务值得专门入口（仍作为 Skill/连接器） |
 | 市场数据许可 | 首发公开来源 + 用户文件 + 授权连接器，清楚标代理信号 | 宣传"实时销量/官方趋势"前必须取得数据许可 |
 | 本地还是 SaaS | 先修通本地隔离 runtime；控制面保持可云化 | 需要团队共享、集中计费或跨设备自动化 |
@@ -933,9 +911,9 @@ PATCH  /api/schedules/{id}
 | 100% 使用 Claude Agent SDK | §1.1、ADR-001、§4.4、§6.1（且已是仓库现状） |
 | 不允许普通 API/LangGraph/LangChain/Dify/手写循环 | §1.1、ADR-001、静态门禁 |
 | 保留 Bash、Edit、Write、执行代码、Skill 等原生能力 | ADR-002、§4.4（presets 已落地）、§6.2 |
-| 封装 MCP 工具 | §4.6（5 服务 14 工具现状 + 扩展规划） |
+| 封装 MCP 工具 | §4.6（按策略动态装配的现状与真实外部适配器缺口） |
 | 封装 Skill | §4.7（ophira-core 插件现状 + 生命周期 + 发现边界） |
-| 绝大部分单 Agent，仅 Deep Research 多 Agent | §3.5、FR-01/19、§4.8；现状普通模式禁 Agent；"只读临时子代理"放宽提案待拍板；角色型团队任何模式禁止 |
+| 单主 Agent；普通模式仅极少只读支线；Deep Research 受限并行 | §3.5、FR-01/19、§4.8；2026-08-24 终版允许 SDK 原生一次性只读支线，代码级禁止其写账本/自动化承诺；Deep Research 恰好 3 个只读研究子代理；任何模式无固定角色团队 |
 | 不写死工作流，由聪明 Agent 按需操作 | §3.4、ADR-003、§4.3、§6.2 |
 | 国产模型改 Base URL，使用 Anthropic 格式 | §4.9（8+ 家官方端点 2026-08-20 核实、商用红线、合约测试） |
 

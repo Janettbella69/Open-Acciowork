@@ -133,7 +133,10 @@ async def test_allow_run_never_whitelists_ask_user_question(tmp_path: Path) -> N
     await task
 
     # 下一组问题必须重新到人，不得静默放行。
-    assert "AskUserQuestion" not in permissions._run_allowed_tools.get(run.id, set())
+    assert all(
+        tool_name != "AskUserQuestion"
+        for tool_name, _scope in permissions._run_allowed_scopes.get(run.id, set())
+    )
 
 
 @pytest.mark.asyncio

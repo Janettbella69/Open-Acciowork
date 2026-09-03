@@ -1,12 +1,20 @@
 import { useT } from '../i18n'
 
-type WorkspaceNavItemId = 'agents' | 'plugins' | 'schedules' | 'mobile'
+type WorkspaceNavItemId = 'inbox' | 'agents' | 'plugins' | 'schedules' | 'mobile'
 
 type WorkspaceNavProps = {
   active?: WorkspaceNavItemId
 }
 
 function WorkspaceNavIcon({ name }: { name: WorkspaceNavItemId }) {
+  if (name === 'inbox') {
+    return (
+      <svg aria-hidden="true" viewBox="0 0 24 24">
+        <path d="M4.5 7.5h15v11h-15z" />
+        <path d="m4.5 7.5 7.5 6 7.5-6" />
+      </svg>
+    )
+  }
   if (name === 'plugins') {
     return (
       <svg aria-hidden="true" viewBox="0 0 24 24">
@@ -43,6 +51,7 @@ function WorkspaceNavIcon({ name }: { name: WorkspaceNavItemId }) {
 export default function WorkspaceNav({ active }: WorkspaceNavProps) {
   const t = useT()
   const items = [
+    { id: 'inbox' as const, href: '/app/inbox', label: 'Inbox' },
     { id: 'agents' as const, href: '/app/agents', label: 'Agents' },
     { id: 'plugins' as const, href: '/app/plugins', label: 'Plugins' },
     { id: 'schedules' as const, href: '/app/schedules', label: 'Scheduled tasks' },

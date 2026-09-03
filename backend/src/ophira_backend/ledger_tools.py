@@ -3,14 +3,17 @@ from __future__ import annotations
 import json
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from claude_agent_sdk import create_sdk_mcp_server, tool
 
 from .constants import (
+    BROWSER_MCP_SERVER_NAME,
     COMMERCE_MATH_MCP_SERVER_NAME,
+    COMPLIANCE_MCP_SERVER_NAME,
     CUSTOMER_MCP_SERVER_NAME,
     LEDGER_MCP_SERVER_NAME,
+    MEDIA_MCP_SERVER_NAME,
     SUPPLIER_MCP_SERVER_NAME,
     USER_SCOPE_ID,
     WEB_MCP_SERVER_NAME,
@@ -25,8 +28,11 @@ from .constants import (
     MemorySource,
 )
 from .memory import MemoryProvider, gather_approved
-from .models import Decision, Evidence, Hypothesis
+from .models import Decision, Evidence, Hypothesis, OrgPolicy, utc_now
 from .storage import FileLedger
+
+if TYPE_CHECKING:
+    from .connectors import ConnectorRegistry
 
 
 def _tool_result(value: Any, *, is_error: bool = False) -> dict[str, Any]:
@@ -81,6 +87,7 @@ def build_ledger_tools(
     project_id: str,
     memory: MemoryProvider | None = None,
     agent_id: str | None = None,
+    run_id: str | None = None,
 ):
     """Tool list for the ledger MCP server; exposed separately so tests can call
     handlers directly without going through a live SDK session."""
@@ -272,6 +279,7 @@ def build_ledger_tools(
             confidence=args["confidence"],
             supports_hypothesis_ids=args["supports_hypothesis_ids"],
             recorded_by=args["recorded_by"],
+            source_run_id=run_id,
         )
         result = evidence
 
@@ -371,7 +379,11 @@ def build_ledger_tools(
         },
     )
     async def record_decision(args: dict[str, Any]) -> dict[str, Any]:
-        decision = Decision(**args, status=DecisionStatus.ACTIVE)
+        decision = Decision(
+            **args,
+            status=DecisionStatus.ACTIVE,
+            source_run_id=run_id,
+        )
         result = decision
 
         def mutate(project) -> None:
@@ -407,6 +419,47 @@ def build_ledger_tools(
         ledger.update_project(project_id, mutate)
         return _tool_result(result)
 
+    @tool(
+        "register_artifact",
+        "Register a file already written inside this project's workspace as a durable "
+        "downloadable Artifact, linked to the evidence or source Artifact ids used to "
+        "create it. Call this after writing an important deliverable.",
+        {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "minLength": 1, "maxLength": 1000},
+                "source_ids": {
+                    "type": "array",
+                    "items": {"type": "string", "minLength": 1},
+                    "maxItems": 100,
+                },
+                "mime": {"type": ["string", "null"], "maxLength": 200},
+            },
+            "required": ["path", "source_ids"],
+            "additionalProperties": False,
+        },
+    )
+    async def register_artifact(args: dict[str, Any]) -> dict[str, Any]:
+        project = ledger.get_project(project_id)
+        known_sources = {
+            *(item.id for item in project.evidence),
+            *(item.id for item in project.artifacts),
+        }
+        unknown = set(args["source_ids"]) - known_sources
+        if unknown:
+            raise ValueError(
+                f"unknown artifact source ids: {sorted(unknown)}; call "
+                "read_project_context to list valid evidence and artifacts"
+            )
+        artifact = ledger.register_artifact(
+            project_id,
+            args["path"],
+            run_id=run_id,
+            source_ids=args["source_ids"],
+            mime=args.get("mime") or None,
+        )
+        return _tool_result(artifact)
+
     tools = [
         read_project_context,
         search_evidence,
@@ -414,6 +467,7 @@ def build_ledger_tools(
         record_evidence,
         record_evidence_batch,
         record_decision,
+        register_artifact,
         update_evidence_status,
     ]
 
@@ -492,11 +546,18 @@ def build_ledger_mcp_server(
     project_id: str,
     memory: MemoryProvider | None = None,
     agent_id: str | None = None,
+    run_id: str | None = None,
 ):
     return create_sdk_mcp_server(
         name=LEDGER_MCP_SERVER_NAME,
         version="1.0.0",
-        tools=build_ledger_tools(ledger, project_id, memory=memory, agent_id=agent_id),
+        tools=build_ledger_tools(
+            ledger,
+            project_id,
+            memory=memory,
+            agent_id=agent_id,
+            run_id=run_id,
+        ),
     )
 
 
@@ -563,14 +624,96 @@ def build_supplier_mcp_server():
             )
         return _tool_result({"quotes": normalized, "assumptions": ["No FX conversion applied"]})
 
+    @tool(
+        "search_suppliers",
+        "Filter and rank user-supplied supplier records. Does not query a live "
+        "marketplace unless a store connector is separately authorized.",
+        {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "minLength": 1, "maxLength": 200},
+                "suppliers": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 200,
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "name": {"type": "string", "minLength": 1},
+                            "market": {"type": "string", "minLength": 1},
+                            "moq": {"type": ["integer", "null"], "minimum": 1},
+                            "lead_days": {"type": ["integer", "null"], "minimum": 0},
+                            "source": {"type": "string", "minLength": 1},
+                            "notes": {"type": "string"},
+                        },
+                        "required": ["name", "market", "source"],
+                        "additionalProperties": False,
+                    },
+                },
+            },
+            "required": ["query", "suppliers"],
+            "additionalProperties": False,
+        },
+    )
+    async def search_suppliers(args: dict[str, Any]) -> dict[str, Any]:
+        needle = args["query"].casefold()
+        ranked = []
+        for supplier in args["suppliers"]:
+            haystack = " ".join(
+                str(supplier.get(key) or "")
+                for key in ("name", "market", "notes", "source")
+            ).casefold()
+            score = haystack.count(needle) + (1 if needle in haystack else 0)
+            ranked.append({**supplier, "match_score": score})
+        ranked.sort(key=lambda item: item["match_score"], reverse=True)
+        return _tool_result(
+            {
+                "query": args["query"],
+                "suppliers": ranked,
+                "disclaimer": "Ranks supplied records only; not a live B2B search.",
+            }
+        )
+
+    @tool(
+        "draft_outbound",
+        "Draft an inquiry or outreach message from explicit facts. Does not send. "
+        "Sending requires a separately approved connector action.",
+        {
+            "type": "object",
+            "properties": {
+                "kind": {"type": "string", "enum": ["inquiry", "outreach"]},
+                "recipient": {"type": "string", "minLength": 1, "maxLength": 200},
+                "facts": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 20,
+                    "items": {"type": "string", "minLength": 1, "maxLength": 500},
+                },
+                "language": {"type": "string", "minLength": 2, "maxLength": 16},
+            },
+            "required": ["kind", "recipient", "facts", "language"],
+            "additionalProperties": False,
+        },
+    )
+    async def draft_outbound(args: dict[str, Any]) -> dict[str, Any]:
+        bullets = "\n".join(f"- {fact}" for fact in args["facts"])
+        draft = (
+            f"To: {args['recipient']}\n"
+            f"Language: {args['language']}\n"
+            f"Kind: {args['kind']}\n\n"
+            f"{bullets}\n\n"
+            "This is a draft. It has not been sent."
+        )
+        return _tool_result({"draft": draft, "sent": False})
+
     return create_sdk_mcp_server(
         name=SUPPLIER_MCP_SERVER_NAME,
         version="1.0.0",
-        tools=[compare_supplier_quotes],
+        tools=[compare_supplier_quotes, search_suppliers, draft_outbound],
     )
 
 
-def build_customer_mcp_server():
+def build_customer_mcp_server(ledger: FileLedger | None = None, project_id: str | None = None):
     @tool(
         "rank_customer_candidates",
         "Apply explicit weights to sourced customer candidates; "
@@ -617,10 +760,46 @@ def build_customer_mcp_server():
         ranked.sort(key=lambda item: item["weighted_score"], reverse=True)
         return _tool_result({"candidates": ranked, "method": "explicit weighted score"})
 
+    @tool(
+        "record_interaction",
+        "Append a CRM-style interaction note to the project workspace. Does not "
+        "email or message anyone. Not a substitute for commercial judgement.",
+        {
+            "type": "object",
+            "properties": {
+                "party": {"type": "string", "minLength": 1, "maxLength": 200},
+                "channel": {"type": "string", "minLength": 1, "maxLength": 80},
+                "summary": {"type": "string", "minLength": 1, "maxLength": 2000},
+                "idempotency_key": {"type": "string", "minLength": 4, "maxLength": 80},
+            },
+            "required": ["party", "channel", "summary", "idempotency_key"],
+            "additionalProperties": False,
+        },
+    )
+    async def record_interaction(args: dict[str, Any]) -> dict[str, Any]:
+        if ledger is None or project_id is None:
+            return _tool_result({"error": "NO_PROJECT"}, is_error=True)
+        path = ledger.workspace_for_project(project_id) / "crm-interactions.jsonl"
+        existing = path.read_text("utf-8") if path.exists() else ""
+        if args["idempotency_key"] in existing:
+            return _tool_result({
+                "ok": True,
+                "deduplicated": True,
+                "idempotency_key": args["idempotency_key"],
+            })
+        record = {
+            **args,
+            "recorded_at": utc_now().isoformat(),
+            "sent": False,
+        }
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(record, ensure_ascii=False) + "\n")
+        return _tool_result({"ok": True, "path": "crm-interactions.jsonl", "record": record})
+
     return create_sdk_mcp_server(
         name=CUSTOMER_MCP_SERVER_NAME,
         version="1.0.0",
-        tools=[rank_customer_candidates],
+        tools=[rank_customer_candidates, record_interaction],
     )
 
 
@@ -732,10 +911,49 @@ def build_commerce_math_mcp_server():
             }
         )
 
+    @tool(
+        "sensitivity_table",
+        "Recompute unit economics across an explicit range of one input. "
+        "Deterministic; does not choose a commercial strategy.",
+        {
+            "type": "object",
+            "properties": {
+                "base": {
+                    "type": "object",
+                    "additionalProperties": True,
+                },
+                "variable": {"type": "string", "minLength": 1, "maxLength": 80},
+                "values": {
+                    "type": "array",
+                    "minItems": 2,
+                    "maxItems": 20,
+                    "items": {"type": "number"},
+                },
+            },
+            "required": ["base", "variable", "values"],
+            "additionalProperties": False,
+        },
+    )
+    async def sensitivity_table(args: dict[str, Any]) -> dict[str, Any]:
+        rows = []
+        for value in args["values"]:
+            scenario = dict(args["base"])
+            scenario[args["variable"]] = value
+            landed = _decimal(scenario.get("landed_unit_cost", 0), "landed_unit_cost")
+            price = _decimal(scenario.get("selling_price", 0), "selling_price")
+            contribution = price - landed
+            rows.append(
+                {
+                    args["variable"]: value,
+                    "contribution_per_unit": _money(contribution),
+                }
+            )
+        return _tool_result({"variable": args["variable"], "rows": rows})
+
     return create_sdk_mcp_server(
         name=COMMERCE_MATH_MCP_SERVER_NAME,
         version="1.0.0",
-        tools=[calculate_landed_cost, calculate_unit_economics],
+        tools=[calculate_landed_cost, calculate_unit_economics, sensitivity_table],
     )
 
 
@@ -745,6 +963,9 @@ def build_mcp_servers(
     memory: MemoryProvider | None = None,
     agent_id: str | None = None,
     settings: Any | None = None,
+    run_id: str | None = None,
+    policy: OrgPolicy | None = None,
+    connectors: ConnectorRegistry | None = None,
 ) -> dict[str, Any]:
     servers = {
         LEDGER_MCP_SERVER_NAME: build_ledger_mcp_server(
@@ -752,13 +973,34 @@ def build_mcp_servers(
             project_id,
             memory=memory,
             agent_id=agent_id,
+            run_id=run_id,
         ),
         SUPPLIER_MCP_SERVER_NAME: build_supplier_mcp_server(),
-        CUSTOMER_MCP_SERVER_NAME: build_customer_mcp_server(),
+        CUSTOMER_MCP_SERVER_NAME: build_customer_mcp_server(ledger, project_id),
         COMMERCE_MATH_MCP_SERVER_NAME: build_commerce_math_mcp_server(),
     }
     if settings is not None:
+        from .browser_tools import build_browser_mcp_server
+        from .compliance_tools import build_compliance_mcp_server
+        from .media_tools import build_media_mcp_server
         from .web_tools import build_web_mcp_server
 
         servers[WEB_MCP_SERVER_NAME] = build_web_mcp_server(settings)
+        servers[COMPLIANCE_MCP_SERVER_NAME] = build_compliance_mcp_server()
+        org_policy = policy or OrgPolicy()
+        if org_policy.browser_enabled:
+            servers[BROWSER_MCP_SERVER_NAME] = build_browser_mcp_server(
+                ledger,
+                project_id,
+                settings,
+                connectors=connectors,
+                policy=org_policy,
+                run_id=run_id,
+            )
+        servers[MEDIA_MCP_SERVER_NAME] = build_media_mcp_server(
+            ledger,
+            project_id,
+            settings,
+            run_id=run_id,
+        )
     return servers

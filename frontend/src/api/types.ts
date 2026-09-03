@@ -13,6 +13,8 @@ export type RunStatus =
   | 'failed'
   | 'cancelled'
 export type RunMode = 'standard' | 'deep_research'
+export type RunRetryStrategy = 'resume' | 'new_branch'
+export type ScheduleKind = 'task' | 'heartbeat'
 export type AgentTemplate = 'general' | 'research' | 'sourcing' | 'marketing' | 'docs' | 'opportunity'
 
 export type Hypothesis = {
@@ -132,6 +134,8 @@ export type RunRecord = {
   project_id: string
   prompt: string
   agent_id: string | null
+  schedule_id?: string | null
+  resume_session_id?: string | null
   mode: RunMode
   provider_profile_id: string | null
   provider_snapshot: Record<string, unknown> | null
@@ -281,15 +285,22 @@ export type SkillVersion = {
   path: string
 }
 
+export type SchedulePermissionRule = {
+  tool_name: string
+  scope: string
+}
+
 export type Schedule = {
   id: string
   project_id: string
   provider_profile_id: string | null
   mode: RunMode
+  kind: ScheduleKind
   prompt: string
   cron: string | null
   run_once_at: string | null
   timezone: string
+  permission_ceiling: SchedulePermissionRule[]
   enabled: boolean
   next_fire_at: string | null
   last_fire_at: string | null
@@ -297,12 +308,16 @@ export type Schedule = {
   created_at: string
 }
 
+export type MemoryKind = 'preference' | 'fact' | 'decision' | 'lesson'
+export type MemorySensitivity = 'normal' | 'sensitive'
+
 export type MemoryItem = {
   id: string
   scope: 'user' | 'project' | 'agent'
   scope_id: string
   text: string
-  kind: 'preference' | 'fact' | 'decision' | 'lesson'
+  kind: MemoryKind
+  sensitivity: MemorySensitivity
   status: 'proposed' | 'approved' | 'rejected' | 'disabled'
   version: number
   created_at: string
@@ -314,6 +329,10 @@ export type PendingPermission = {
   toolName: string
   toolInput: unknown
   actor: EventActor
+  destructive: boolean
+  persistable: boolean
+  scope: string
+  timeoutSeconds?: number
 }
 
 export type AskUserQuestionOption = {
@@ -328,4 +347,80 @@ export type AskUserQuestionItem = {
   multiSelect?: boolean
 }
 
+export type Notification = {
+  id: string
+  project_id: string | null
+  run_id: string | null
+  schedule_id: string | null
+  intent_id: string | null
+  severity: 'info' | 'warning' | 'error'
+  title: string
+  body: string
+  read: boolean
+  created_at: string
+}
+
+export type StandingIntent = {
+  id: string
+  project_id: string
+  intent: string
+  cooldown_hours: number
+  max_triggers: number
+  expires_at: string
+  triggered_count: number
+  last_triggered_at: string | null
+  enabled: boolean
+  created_at: string
+}
+
+export type OrgPolicy = {
+  permission_mode: 'default' | 'auto'
+  allowed_provider_ids: string[]
+  allowed_skill_ids: string[]
+  browser_enabled: boolean
+  computer_control_enabled: boolean
+  channel_delivery_enabled: boolean
+  domain_allowlist: string[]
+  updated_at: string
+}
+
+export type PermissionGrant = {
+  id: string
+  project_id: string | null
+  tool_name: string
+  path_prefix: string
+  decision: string
+  expires_at: string
+  created_at: string
+  revoked: boolean
+}
+
+export type PendingPermissionView = {
+  id: string
+  run_id: string
+  project_id: string | null
+  tool_name: string
+  tool_input: Record<string, unknown>
+  agent_id: string | null
+  timeout_seconds: number
+  created_at: string
+  destructive: boolean
+  persistable: boolean
+  scope: string
+}
+
+export type FeedbackKind = 'conclusion_wrong' | 'evidence_issue' | 'run_failure'
+
+export type FeedbackItem = {
+  id: string
+  project_id: string | null
+  run_id: string | null
+  evidence_id: string | null
+  kind: FeedbackKind
+  user_note: string
+  status: string
+  created_at: string
+}
+
+export type PermissionDecision = 'allow_once' | 'allow_run' | 'allow_persistent' | 'deny'
 export type PermissionAnswers = Record<string, string | string[]>

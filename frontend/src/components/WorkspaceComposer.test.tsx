@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react'
 import { useState } from 'react'
 import { vi } from 'vitest'
-import type { RunMode, RunRecord } from '../api/types'
+import type { ProviderProfile, RunRecord } from '../api/types'
 import { I18nContext } from '../i18n'
 import WorkspaceComposer from './WorkspaceComposer'
 
@@ -41,9 +41,12 @@ function baseProps() {
     connection: 'idle',
     historyLoading: false,
     isActive: false,
-    runMode: 'standard' as RunMode,
+    providers: [],
+    providerProfileId: null,
+    runMode: 'standard' as const,
     onChange: vi.fn(),
     onAttachedFilesChange: vi.fn(),
+    onProviderProfileChange: vi.fn(),
     onRunModeChange: vi.fn(),
     onSubmit: vi.fn(),
     onProjectRefresh: vi.fn(),
@@ -57,7 +60,7 @@ function baseProps() {
 function StatefulComposer() {
   const [value, setValue] = useState('')
   const [attachedFiles, setAttachedFiles] = useState<File[]>([])
-  const [runMode, setRunMode] = useState<RunMode>('standard')
+  const [runMode, setRunMode] = useState<'standard' | 'deep_research'>('standard')
   return (
     <WorkspaceComposer
       {...baseProps()}
@@ -221,6 +224,64 @@ describe('WorkspaceComposer', () => {
   })
 })
 
+describe('Run retry controls', () => {
+  it('offers distinct resume and new-branch actions for a failed run', () => {
+    const onRetry = vi.fn()
+    render(
+      <WorkspaceComposer
+        {...baseProps()}
+        run={{ ...completedRun, status: 'failed', error: 'Provider timed out' }}
+        onRetry={onRetry}
+      />,
+    )
+
+    expect(screen.getByText(/both choices reuse the saved project/i)).toBeInTheDocument()
+    const resume = screen.getByRole('button', { name: /resume session/i })
+    const branch = screen.getByRole('button', { name: /start new branch/i })
+    expect(resume).not.toBeDisabled()
+    expect(branch).not.toBeDisabled()
+
+    fireEvent.click(resume)
+    fireEvent.click(branch)
+    expect(onRetry).toHaveBeenNthCalledWith(1, 'resume')
+    expect(onRetry).toHaveBeenNthCalledWith(2, 'new_branch')
+  })
+
+  it('keeps new-branch recovery available when a cancelled run has no SDK session', () => {
+    render(
+      <WorkspaceComposer
+        {...baseProps()}
+        run={{
+          ...completedRun,
+          status: 'cancelled',
+          sdk_session_id: null,
+          error: null,
+        }}
+        retryError="Retry policy denied"
+        onRetry={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByRole('button', { name: /no recorded sdk session/i })).toBeDisabled()
+    expect(screen.getByRole('button', { name: /start new branch/i })).not.toBeDisabled()
+    expect(screen.getByRole('alert')).toHaveTextContent('Retry policy denied')
+  })
+
+  it('disables both choices while either retry request is in flight', () => {
+    render(
+      <WorkspaceComposer
+        {...baseProps()}
+        run={{ ...completedRun, status: 'failed' }}
+        retrying="new_branch"
+        onRetry={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByRole('button', { name: /resume session/i })).toBeDisabled()
+    expect(screen.getByRole('button', { name: /starting branch/i })).toBeDisabled()
+  })
+})
+
 describe('AskUserQuestion card', () => {
   const questionPermission = {
     id: 'perm_q1',
@@ -239,6 +300,9 @@ describe('AskUserQuestion card', () => {
       ],
     },
     actor: { type: 'agent' as const, name: 'sdk-permission', agent_id: null },
+    destructive: false,
+    persistable: false,
+    scope: '',
   }
 
   it('renders options as a choice card and submits selected answers', () => {
@@ -280,5 +344,123 @@ describe('AskUserQuestion card', () => {
     )
     fireEvent.click(screen.getByText('Skip — continue with what is known'))
     expect(onDecision).toHaveBeenCalledWith('perm_q1', 'deny')
+  })
+
+  it('never allows a malformed question payload through with empty answers', () => {
+    const onDecision = vi.fn()
+    render(
+      <WorkspaceComposer
+        {...baseProps()}
+        run={{ ...completedRun, status: 'running', finished_at: null }}
+        isActive
+        permissions={[{
+          ...questionPermission,
+          id: 'perm_bad',
+          toolInput: {
+            questions: [
+              ...(questionPermission.toolInput.questions),
+              { question: 'Malformed follow-up', options: [] },
+            ],
+          },
+        }]}
+        onDecision={onDecision}
+      />,
+    )
+
+    expect(screen.getByRole('alert')).toHaveTextContent(/could not be decoded/i)
+    expect(screen.getByRole('button', { name: /submit answers/i })).toBeDisabled()
+    fireEvent.click(screen.getByRole('button', { name: /skip/i }))
+    expect(onDecision).toHaveBeenCalledWith('perm_bad', 'deny')
+  })
+})
+
+describe('Permission safety and provider eligibility', () => {
+  it('shows the server scope, validity and redacted input while hiding persistent choices for destructive work', () => {
+    render(
+      <WorkspaceComposer
+        {...baseProps()}
+        run={{ ...completedRun, status: 'running', finished_at: null }}
+        isActive
+        permissions={[{
+          id: 'perm_delete',
+          toolName: 'Bash',
+          toolInput: { command: 'rm report.csv', api_token: 'super-secret' },
+          actor: { type: 'agent', name: 'sdk-permission', agent_id: null },
+          destructive: true,
+          persistable: true,
+          scope: 'path:/workspace/report.csv',
+          timeoutSeconds: 180,
+        }]}
+      />,
+    )
+
+    expect(screen.getByText('path:/workspace/report.csv')).toBeInTheDocument()
+    expect(screen.getByText('3 minutes')).toBeInTheDocument()
+    expect(screen.getByText(/\[REDACTED\]/)).toBeInTheDocument()
+    expect(screen.queryByText('super-secret')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /allow once/i })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /allow for run/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /allow persistent/i })).not.toBeInTheDocument()
+  })
+
+  it('only enables explicitly runnable provider profiles', () => {
+    const baseProvider: ProviderProfile = {
+      id: 'ready',
+      display_name: 'Ready provider',
+      base_url: null,
+      auth_env_name: 'ANTHROPIC_API_KEY',
+      model: 'ready-model',
+      region: 'us',
+      production_eligible: true,
+      enabled: true,
+      secret_configured: true,
+      last_verified_at: '2026-09-02T00:00:00Z',
+      last_error_code: null,
+      last_error_message: null,
+      capabilities: { tool_use: true, streaming: true, images: false, prompt_caching: false, extended_thinking: false, tool_search: false },
+    }
+    const providers = [
+      baseProvider,
+      { ...baseProvider, id: 'disabled', model: 'disabled-model', enabled: false },
+      { ...baseProvider, id: 'no-secret', model: 'no-secret-model', secret_configured: false },
+      { ...baseProvider, id: 'not-verified', model: 'not-verified-model', last_verified_at: null },
+      { ...baseProvider, id: 'not-prod', model: 'not-prod-model', production_eligible: false },
+      { ...baseProvider, id: 'environment', model: 'environment-model', region: 'environment', production_eligible: false },
+      { ...baseProvider, id: 'preflight-failed', model: 'failed-model', last_error_code: 'AUTH' },
+    ]
+    render(<WorkspaceComposer {...baseProps()} value="Run this task" providers={providers} providerProfileId="environment" />)
+
+    expect(screen.getByRole('button', { name: /^send$/i })).toBeDisabled()
+    fireEvent.click(screen.getByRole('button', { name: /open model selector/i }))
+    expect(screen.getByRole('button', { name: /ready-model/i })).not.toBeDisabled()
+    expect(screen.getByRole('button', { name: /disabled-model/i })).toBeDisabled()
+    expect(screen.getByRole('button', { name: /no-secret-model/i })).toBeDisabled()
+    expect(screen.getByRole('button', { name: /not-verified-model/i })).toBeDisabled()
+    expect(screen.getByRole('button', { name: /not-prod-model/i })).toBeDisabled()
+    expect(screen.getByRole('button', { name: /environment-model/i })).toBeDisabled()
+    expect(screen.getByRole('button', { name: /failed-model/i })).toBeDisabled()
+  })
+
+  it('does not offer run-wide approval when the backend marks a request non-persistable', () => {
+    render(
+      <WorkspaceComposer
+        {...baseProps()}
+        run={{ ...completedRun, status: 'running', finished_at: null }}
+        isActive
+        permissions={[{
+          id: 'perm_nonpersistent',
+          toolName: 'Bash',
+          toolInput: { command: 'pwd' },
+          actor: { type: 'agent', name: 'sdk-permission', agent_id: null },
+          destructive: false,
+          persistable: false,
+          scope: '',
+        }]}
+      />,
+    )
+
+    expect(screen.getByRole('button', { name: /allow once/i })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /allow for run/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /allow persistent/i })).not.toBeInTheDocument()
   })
 })

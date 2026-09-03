@@ -120,9 +120,39 @@ async def test_cancel_interrupts_runtime_and_reaches_terminal_state(tmp_path: Pa
         )
         run_id = started.json()["id"]
         await asyncio.wait_for(runtime.started.wait(), timeout=1)
+        partial = app.state.ledger.workspace_for_project(project_id) / "partial-report.md"
+        partial.write_text("recoverable work", encoding="utf-8")
 
         response = await client.post(f"/api/runs/{run_id}/cancel")
         assert response.status_code == 200
         assert response.json()["status"] == RunStatus.CANCELLED.value
         assert runtime.cancelled == [run_id]
-        assert app.state.ledger.list_events(run_id)[-1].type == "run.cancelled"
+        events = app.state.ledger.list_events(run_id)
+        assert events[-1].type == "run.cancelled"
+        artifact_events = [event for event in events if event.type == "artifact.registered"]
+        assert artifact_events
+        assert artifact_events[-1].data["path"] == "partial-report.md"
+        assert artifact_events[-1].sequence < events[-1].sequence
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/api/projects/project_any/files?filename=large.bin",
+        "/api/skills/install",
+    ],
+)
+async def test_binary_uploads_reject_declared_oversize_before_buffering(
+    tmp_path: Path,
+    path: str,
+) -> None:
+    app = create_app(Settings(data_dir=tmp_path), runtime=FakeRuntime())
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post(
+            path,
+            content=b"small",
+            headers={"content-length": str(100 * 1024 * 1024)},
+        )
+
+    assert response.status_code == 413

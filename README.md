@@ -50,6 +50,14 @@ cp backend/.env.example backend/.env
 .venv/bin/uvicorn ophira_backend.main:app --app-dir backend/src --reload
 ```
 
+To enable the Playwright browser ladder, install its optional dependency and
+managed Chromium binary once:
+
+```bash
+.venv/bin/pip install -e './backend[dev,browser]'
+.venv/bin/playwright install chromium
+```
+
 Set an Anthropic API key in `backend/.env`, or pair `ANTHROPIC_BASE_URL` with the
 provider credential and model for an Anthropic-compatible gateway. DeepSeek, Kimi,
 GLM, and Qwen examples are documented in [`docs/model-providers.md`](docs/model-providers.md).

@@ -7,15 +7,27 @@ import type {
   EvidenceStatus,
   EvidenceStatusChange,
   MemoryItem,
+  MemoryKind,
+  MemorySensitivity,
   OpportunityProject,
   ProtocolMetadata,
   ProviderPreflightResult,
   ProviderProfile,
   RunMode,
   RunRecord,
+  RunRetryStrategy,
   Schedule,
+  ScheduleKind,
+  SchedulePermissionRule,
   SkillTestResult,
   SkillVersion,
+  StandingIntent,
+  Notification,
+  OrgPolicy,
+  PermissionGrant,
+  PendingPermissionView,
+  FeedbackKind,
+  FeedbackItem,
 } from './types'
 
 const configuredBaseUrl = import.meta.env.VITE_OPHIRA_API_URL?.trim() ?? ''
@@ -47,8 +59,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   if (!response.ok) {
     let message = `Request failed (${response.status})`
     try {
-      const body = (await response.json()) as { detail?: string }
-      message = body.detail ?? message
+      const body = (await response.json()) as { detail?: unknown }
+      message = apiDetailMessage(body.detail) ?? message
     } catch {
       // Keep the status-based message when the response is not JSON.
     }
@@ -56,6 +68,21 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   }
   if (response.status === 204) return undefined as T
   return response.json() as Promise<T>
+}
+
+function apiDetailMessage(detail: unknown): string | null {
+  if (typeof detail === 'string' && detail.trim()) return detail
+  if (!Array.isArray(detail)) return null
+  const messages = detail.flatMap((item) => {
+    if (!item || typeof item !== 'object') return []
+    const issue = item as { loc?: unknown; msg?: unknown }
+    if (typeof issue.msg !== 'string' || !issue.msg.trim()) return []
+    const location = Array.isArray(issue.loc)
+      ? issue.loc.filter((part) => typeof part === 'string' || typeof part === 'number').join('.')
+      : ''
+    return [location ? `${location}: ${issue.msg}` : issue.msg]
+  })
+  return messages.length ? messages.join('; ') : null
 }
 
 let protocolPromise: Promise<ProtocolMetadata> | null = null
@@ -126,6 +153,13 @@ export function startRun(
       ...(providerProfileId ? { provider_profile_id: providerProfileId } : {}),
       ...(agentId ? { agent_id: agentId } : {}),
     }),
+  })
+}
+
+export function retryRun(runId: string, strategy: RunRetryStrategy): Promise<RunRecord> {
+  return request<RunRecord>(`/api/runs/${encodeURIComponent(runId)}/retry`, {
+    method: 'POST',
+    body: JSON.stringify({ strategy }),
   })
 }
 
@@ -228,6 +262,7 @@ export function patchSchedule(
     timezone: string
     missed_run_policy: 'catch_up' | 'skip'
     provider_profile_id: string | null
+    permission_ceiling: SchedulePermissionRule[] | null
     mode: RunMode
     enabled: boolean
   }>,
@@ -260,7 +295,9 @@ export function createSchedule(input: {
   run_once_at?: string
   timezone: string
   mode?: RunMode
+  kind: ScheduleKind
   provider_profile_id?: string | null
+  permission_ceiling: SchedulePermissionRule[]
 }): Promise<Schedule> {
   return request<Schedule>('/api/schedules', { method: 'POST', body: JSON.stringify(input) })
 }
@@ -291,6 +328,16 @@ export function decideMemory(
   })
 }
 
+export function correctMemory(
+  memoryId: string,
+  input: { text: string; kind?: MemoryKind; sensitivity?: MemorySensitivity },
+): Promise<MemoryItem> {
+  return request<MemoryItem>(`/api/memory/${encodeURIComponent(memoryId)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(input),
+  })
+}
+
 export function getRun(runId: string): Promise<RunRecord> {
   return request<RunRecord>(`/api/runs/${runId}`)
 }
@@ -302,7 +349,7 @@ export function cancelRun(runId: string): Promise<RunRecord> {
 export function resolvePermission(
   runId: string,
   requestId: string,
-  decision: 'allow_once' | 'allow_run' | 'deny',
+  decision: 'allow_once' | 'allow_run' | 'allow_persistent' | 'deny',
   answers?: Record<string, string | string[]>,
 ): Promise<void> {
   return request<void>(`/api/runs/${runId}/permissions/${requestId}`, {
@@ -312,6 +359,96 @@ export function resolvePermission(
       reason: decision === 'deny' ? 'Denied by the user.' : '',
       ...(answers ? { answers } : {}),
     }),
+  })
+}
+
+export function listNotifications(unread = false): Promise<Notification[]> {
+  return request<Notification[]>(`/api/notifications${unread ? '?unread=true' : ''}`)
+}
+
+export function markNotificationRead(id: string): Promise<Notification> {
+  return request<Notification>(`/api/notifications/${id}/read`, { method: 'POST' })
+}
+
+export function markAllNotificationsRead(): Promise<{ marked: number }> {
+  return request<{ marked: number }>('/api/notifications/read-all', { method: 'POST' })
+}
+
+export function listIntents(projectId?: string): Promise<StandingIntent[]> {
+  const suffix = projectId ? `?project_id=${encodeURIComponent(projectId)}` : ''
+  return request<StandingIntent[]>(`/api/intents${suffix}`)
+}
+
+export function createIntent(input: {
+  project_id: string
+  intent: string
+  cooldown_hours?: number
+  max_triggers?: number
+  expires_days?: number
+}): Promise<StandingIntent> {
+  return request<StandingIntent>('/api/intents', { method: 'POST', body: JSON.stringify(input) })
+}
+
+export function pauseIntent(id: string): Promise<StandingIntent> {
+  return request<StandingIntent>(`/api/intents/${id}/pause`, { method: 'POST' })
+}
+
+export function resumeIntent(id: string): Promise<StandingIntent> {
+  return request<StandingIntent>(`/api/intents/${id}/resume`, { method: 'POST' })
+}
+
+export function getOrgPolicy(): Promise<OrgPolicy> {
+  return request<OrgPolicy>('/api/org/policy')
+}
+
+export function saveOrgPolicy(policy: OrgPolicy): Promise<OrgPolicy> {
+  return request<OrgPolicy>('/api/org/policy', { method: 'PUT', body: JSON.stringify(policy) })
+}
+
+export function listPendingPermissions(): Promise<PendingPermissionView[]> {
+  return request<PendingPermissionView[]>('/api/permissions/pending')
+}
+
+export function listPermissionGrants(): Promise<PermissionGrant[]> {
+  return request<PermissionGrant[]>('/api/permissions/grants')
+}
+
+export function revokePermissionGrant(id: string): Promise<PermissionGrant> {
+  return request<PermissionGrant>(`/api/permissions/grants/${id}/revoke`, { method: 'POST' })
+}
+
+export function submitFeedback(input: {
+  project_id?: string | null
+  run_id?: string | null
+  kind: FeedbackKind
+  user_note: string
+}): Promise<FeedbackItem> {
+  return request<FeedbackItem>('/api/feedback', { method: 'POST', body: JSON.stringify(input) })
+}
+
+export function upsertConnector(id: string, input: {
+  type: string
+  display_name: string
+  scope?: string
+  secret_env?: string | null
+  endpoint?: string | null
+  secret?: string
+}): Promise<Connector> {
+  return request<Connector>(`/api/connectors/${encodeURIComponent(id)}`, {
+    method: 'PUT',
+    body: JSON.stringify(input),
+  })
+}
+
+export function revokeConnector(id: string): Promise<Connector> {
+  return request<Connector>(`/api/connectors/${encodeURIComponent(id)}/revoke`, { method: 'POST' })
+}
+
+export function installSkill(file: File): Promise<SkillVersion> {
+  return request<SkillVersion>('/api/skills/install', {
+    method: 'POST',
+    body: file,
+    headers: { 'Content-Type': file.type || 'application/zip' },
   })
 }
 

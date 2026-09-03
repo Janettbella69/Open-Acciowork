@@ -149,6 +149,7 @@ describe('TradeMind frontend', () => {
         })
       }
       if (url.endsWith('/api/agents') && !init?.method) return jsonResponse([])
+      if (url.endsWith('/api/providers') && !init?.method) return jsonResponse([])
       if (url.endsWith('/api/connectors') && !init?.method) return jsonResponse([])
       if (url.endsWith('/api/skills') && !init?.method) return jsonResponse([])
       if (url.endsWith('/api/projects') && !init?.method) return jsonResponse(storedProjects)
@@ -176,6 +177,7 @@ describe('TradeMind frontend', () => {
     expect(pageTitle('/app/agents')).toBe('TradeMind Agents - AI Global Commerce Workspace')
     expect(pageTitle('/app/plugins/connectors')).toBe('TradeMind Connectors - AI Global Commerce Workspace')
     expect(pageTitle('/app/connectors')).toBe('TradeMind Connectors - AI Global Commerce Workspace')
+    expect(pageTitle('/app/inbox')).toBe('TradeMind Inbox - AI Global Commerce Workspace')
     expect(pageTitle('/app/mobile')).toBe('TradeMind Mobile - AI Global Commerce Workspace')
     expect(pageTitle('/app/settings')).toBe('TradeMind Settings - AI Global Commerce Workspace')
   })

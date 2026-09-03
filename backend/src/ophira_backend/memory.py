@@ -6,7 +6,14 @@ import threading
 from pathlib import Path
 from typing import Literal, Protocol
 
-from .constants import MemoryKind, MemoryScope, MemorySensitivity, MemorySource, MemoryStatus
+from .constants import (
+    MemoryKind,
+    MemoryOrigin,
+    MemoryScope,
+    MemorySensitivity,
+    MemorySource,
+    MemoryStatus,
+)
 from .models import MemoryItem, utc_now
 
 MemoryDecisionValue = Literal["approve", "reject", "disable"]
@@ -55,6 +62,15 @@ class MemoryProvider(Protocol):
     ) -> list[MemoryItem]: ...
 
     def rollback(self, memory_id: str, version: int) -> MemoryItem: ...
+
+    def correct(
+        self,
+        memory_id: str,
+        *,
+        text: str,
+        kind: MemoryKind | None = None,
+        sensitivity: MemorySensitivity | None = None,
+    ) -> MemoryItem: ...
 
 
 def gather_approved(
@@ -178,6 +194,9 @@ class FileMemoryProvider:
         sensitivity: MemorySensitivity | None = None,
         confidence: float = 1.0,
         created_by: str = "system",
+        origin: MemoryOrigin | None = None,
+        source_run_id: str | None = None,
+        source_anchor: str = "",
     ) -> MemoryItem:
         item = MemoryItem(
             scope=scope,
@@ -185,6 +204,14 @@ class FileMemoryProvider:
             text=text,
             kind=kind,
             source=source,
+            origin=origin
+            or (
+                MemoryOrigin.OWNER
+                if source == MemorySource.USER
+                else MemoryOrigin.AGENT
+            ),
+            source_run_id=source_run_id,
+            source_anchor=source_anchor,
             confidence=confidence,
             sensitivity=sensitivity or MemorySensitivity.NORMAL,
             created_by=created_by,
@@ -238,12 +265,75 @@ class FileMemoryProvider:
             "disable": MemoryStatus.DISABLED,
         }
         target = status_by_decision[decision]
+        if target == MemoryStatus.APPROVED:
+            from .constants import APPROVED_MEMORY_CAP, APPROVED_MEMORY_CHARS
+
+            current = self.get(memory_id)
+            existing = self.list(scope=current.scope, scope_id=current.scope_id)
+            approved = [
+                item
+                for item in existing
+                if item.status == MemoryStatus.APPROVED and item.id != current.id
+            ]
+            chars = sum(len(item.text) for item in approved)
+            over_count = len(approved) >= APPROVED_MEMORY_CAP
+            over_chars = chars + len(current.text) > APPROVED_MEMORY_CHARS
+            if over_count or over_chars:
+                raise ValueError(
+                    f"稳定记忆已达上限（{APPROVED_MEMORY_CAP} 条 / {APPROVED_MEMORY_CHARS} 字），"
+                    "请先合并或停用旧条目。"
+                )
 
         def mutate(item: MemoryItem) -> MemoryItem:
             return item.model_copy(update={"status": target})
 
         action = f"decide.{decision}:{reason}" if reason else f"decide.{decision}"
         return self._update(memory_id, action, mutate)
+
+    def correct(
+        self,
+        memory_id: str,
+        *,
+        text: str,
+        kind: MemoryKind | None = None,
+        sensitivity: MemorySensitivity | None = None,
+    ) -> MemoryItem:
+        """Apply an explicit owner correction as a new approved version."""
+        normalized = " ".join(text.split())
+        if not normalized:
+            raise ValueError("memory correction cannot be empty")
+        current = self.get(memory_id)
+        existing = self.list(scope=current.scope, scope_id=current.scope_id)
+        approved = [
+            item
+            for item in existing
+            if item.status == MemoryStatus.APPROVED and item.id != current.id
+        ]
+        from .constants import APPROVED_MEMORY_CAP, APPROVED_MEMORY_CHARS
+
+        if len(approved) >= APPROVED_MEMORY_CAP or (
+            sum(len(item.text) for item in approved) + len(normalized)
+            > APPROVED_MEMORY_CHARS
+        ):
+            raise ValueError(
+                f"稳定记忆已达上限（{APPROVED_MEMORY_CAP} 条 / {APPROVED_MEMORY_CHARS} 字），"
+                "请先合并或停用旧条目。"
+            )
+
+        def mutate(item: MemoryItem) -> MemoryItem:
+            return item.model_copy(
+                update={
+                    "text": normalized,
+                    "kind": kind or item.kind,
+                    "sensitivity": sensitivity or item.sensitivity,
+                    "source": MemorySource.USER,
+                    "origin": MemoryOrigin.OWNER,
+                    "confidence": 1.0,
+                    "status": MemoryStatus.APPROVED,
+                }
+            )
+
+        return self._update(memory_id, "correct.owner", mutate)
 
     def list(
         self,

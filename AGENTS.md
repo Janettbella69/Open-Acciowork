@@ -6,7 +6,7 @@ These rules apply to every contributor and AI agent in this repository.
 
 - OPHIRA is a global-business system for small cross-border teams. A single Claude Agent SDK main Agent turns goals and source material into traceable decisions, editable artifacts, and next actions.
 - Normal runs must remain one main Agent. Demand, Supply, Capital, and Sales are optional Skill perspectives and evidence tags, not mandatory agents or workflow stages.
-- Only an explicitly selected Deep Research run may expose short-lived, read-only research subagents. The main Agent remains responsible for synthesis and is the only writer of project truth.
+- Normal runs may rarely use an SDK-native, one-off read-only branch subagent when an isolated research task would otherwise flood the main context; there are no fixed roles or parallel teams. Deep Research alone injects the three named research subagents. In every mode the main Agent remains responsible for synthesis and is the only writer of project truth or automation commitments.
 - Frontend and backend work must remain in their existing directories. Coordinate through documented API and event contracts rather than cross-editing ownership areas.
 
 ## Before changing code

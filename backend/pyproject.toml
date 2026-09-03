@@ -11,15 +11,24 @@ requires-python = ">=3.11"
 dependencies = [
   "claude-agent-sdk==0.2.143",
   "croniter>=2,<7",
+  "cryptography>=43,<51",
   "fastapi>=0.115,<1",
-  # Claude Agent SDK 0.2.82 uses the MCP 1.x low-level Server decorator API.
+  # Claude Agent SDK 0.2.143 uses the MCP 1.x low-level Server decorator API.
   "mcp>=1.23,<2",
   "pydantic-settings>=2.7,<3",
+  "pypdf>=5,<7",
+  "httpx>=0.28,<1",
+  "openpyxl>=3.1,<4",
+  "python-docx>=1.1,<2",
+  "python-pptx>=1,<2",
   "sse-starlette>=2.2,<4",
   "uvicorn[standard]>=0.34,<1",
 ]
 
 [project.optional-dependencies]
+browser = [
+  "playwright>=1.49,<2",
+]
 dev = [
   "httpx>=0.28,<1",
   "pytest>=8.3,<9",

@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from .constants import DecisionStatus, EvidenceKind, EvidenceStatus, RunMode
+from .ingest import ingest_to_markdown, needs_markdown_companion
 from .models import (
     AgentCreate,
     AgentProfile,
@@ -378,13 +379,27 @@ class FileLedger:
     ) -> Artifact:
         relative, path = self._next_upload_path(project_id, filename)
         path.write_bytes(content)
-        return self.register_artifact(
+        artifact = self.register_artifact(
             project_id,
             relative,
             run_id=run_id,
             source_ids=source_ids,
             mime=mime,
         )
+        if needs_markdown_companion(filename):
+            markdown, _backend = ingest_to_markdown(path, original_name=filename)
+            companion = f"{relative}.md"
+            companion_path = self._artifact_path(project_id, companion)
+            companion_path.parent.mkdir(parents=True, exist_ok=True)
+            companion_path.write_text(markdown, encoding="utf-8")
+            self.register_artifact(
+                project_id,
+                companion,
+                run_id=run_id,
+                source_ids=[artifact.id],
+                mime="text/markdown",
+            )
+        return artifact
 
     def register_artifact(
         self,

@@ -13,6 +13,7 @@
 .connectors-error { margin: 20px 0 0; border: 1px solid #edd2cd; border-radius: 12px; padding: 14px 16px; color: #963a2e; background: #fff4f2; }
 .connectors-list { display: grid; margin-top: 22px; gap: 12px; }
 .connectors-list > article { display: grid; min-height: 150px; grid-template-columns: 58px minmax(0, 1fr) auto; align-items: center; border: 1px solid #e0e1e2; border-radius: 18px; padding: 22px 24px; gap: 20px; background: #fff; }
+.connectors-list > article[data-enabled='false'] { background: #fafafa; }
 .connector-mark { display: grid; width: 54px; height: 54px; place-items: center; border-radius: 14px; color: #255342; background: #dfece6; font-family: var(--ophira-mono); font-size: var(--ophira-type-body); font-weight: 800; }
 .connector-copy { min-width: 0; }
 .connector-copy > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
@@ -21,10 +22,15 @@
 .connector-copy header > span { flex: 0 0 auto; border-radius: 999px; padding: 7px 10px; color: #6f7376; background: #efefef; font-size: var(--ophira-type-small); font-weight: 700; }
 .connector-copy header > span[data-health='ok'] { color: #236348; background: #e6f3ec; }
 .connector-copy header > span[data-health='no_credential'], .connector-copy header > span[data-health='unreachable'] { color: #8b4b34; background: #f8ebe6; }
+.connector-copy header > span[data-enabled='false'] { color: #6f7376; background: #e7e8e9; }
 .connector-copy dl { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin: 20px 0 0; gap: 18px; }
 .connector-copy dt { color: #8a8e91; font-size: var(--ophira-type-small); }
 .connector-copy dd { margin: 5px 0 0; overflow: hidden; font-family: var(--ophira-mono); font-size: var(--ophira-type-small); text-overflow: ellipsis; white-space: nowrap; }
-.connectors-list > article > button { min-height: 44px; border: 1px solid #d9dbdc; border-radius: 999px; padding: 0 16px; background: #fff; font-size: var(--ophira-type-small); font-weight: 720; }
+.connectors-list > article > button, .connector-actions button { min-height: 44px; border: 1px solid #d9dbdc; border-radius: 999px; padding: 0 16px; background: #fff; font-size: var(--ophira-type-small); font-weight: 720; }
+.connector-actions { display: grid; gap: 8px; }
+.connector-actions input { min-height: 40px; border: 1px solid #d9dbdc; border-radius: 10px; padding: 0 10px; }
+.connector-revoked-note { max-width: 260px; margin: 0; color: #74787b; font-size: var(--ophira-type-small); line-height: 1.45; }
+.visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
 .connectors-list > article > button:disabled { cursor: wait; opacity: 0.55; }
 .connectors-empty { display: grid; min-height: 320px; margin-top: 22px; place-content: center; border: 1px dashed #ced1d2; border-radius: 18px; padding: 32px; background: #fff; text-align: center; }
 .connectors-empty strong { font-size: var(--ophira-type-title); }

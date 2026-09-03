@@ -1,6 +1,6 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { MemoryItem, ProviderProfile } from '../api/types'
+import type { MemoryItem, OrgPolicy, PermissionGrant, ProviderProfile } from '../api/types'
 import { I18nContext } from '../i18n'
 import SettingsPage from './SettingsPage'
 
@@ -10,14 +10,24 @@ vi.mock('../api/client', () => ({
   preflightProvider: vi.fn(),
   listMemory: vi.fn(),
   decideMemory: vi.fn(),
+  correctMemory: vi.fn(),
+  getOrgPolicy: vi.fn(),
+  saveOrgPolicy: vi.fn(),
+  listPermissionGrants: vi.fn(),
+  revokePermissionGrant: vi.fn(),
   errorMessage: (error: unknown) => (error instanceof Error ? error.message : 'unknown error'),
 }))
 
 import {
+  correctMemory,
   decideMemory,
+  getOrgPolicy,
   listMemory,
+  listPermissionGrants,
   listProviders,
   preflightProvider,
+  revokePermissionGrant,
+  saveOrgPolicy,
   saveProvider,
 } from '../api/client'
 
@@ -50,10 +60,33 @@ const proposedMemory: MemoryItem = {
   scope_id: 'project_1',
   text: '用户偏好海运小批量补货',
   kind: 'preference',
+  sensitivity: 'normal',
   status: 'proposed',
   version: 1,
   created_at: '2026-08-20T10:00:00Z',
   updated_at: '2026-08-20T10:00:00Z',
+}
+
+const permissionGrant: PermissionGrant = {
+  id: 'grant_1',
+  project_id: 'project_1',
+  tool_name: 'Bash',
+  path_prefix: 'path:/workspace/reports',
+  decision: 'allow_persistent',
+  expires_at: '2026-09-20T10:00:00Z',
+  created_at: '2026-08-20T10:00:00Z',
+  revoked: false,
+}
+
+const orgPolicy: OrgPolicy = {
+  permission_mode: 'default',
+  allowed_provider_ids: [],
+  allowed_skill_ids: [],
+  browser_enabled: true,
+  computer_control_enabled: false,
+  channel_delivery_enabled: false,
+  domain_allowlist: [],
+  updated_at: '2026-09-02T00:00:00Z',
 }
 
 function stubLocalStorage() {
@@ -69,6 +102,7 @@ function stubLocalStorage() {
 }
 
 beforeEach(() => {
+  vi.clearAllMocks()
   vi.mocked(listProviders).mockResolvedValue([deepseekProfile])
   vi.mocked(listMemory).mockResolvedValue([proposedMemory])
   vi.mocked(saveProvider).mockImplementation(async (id, input) => ({
@@ -87,11 +121,22 @@ beforeEach(() => {
     discovered_skills: ['ophira-core:global-opportunity-execution'],
     checked_at: '2026-08-20T12:00:00Z',
   })
+  vi.mocked(getOrgPolicy).mockResolvedValue(orgPolicy)
+  vi.mocked(saveOrgPolicy).mockImplementation(async (policy) => policy)
+  vi.mocked(listPermissionGrants).mockResolvedValue([])
   vi.mocked(decideMemory).mockImplementation(async (id, decision) => ({
     ...proposedMemory,
     id,
     status: decision === 'approve' ? 'approved' : 'rejected',
   }))
+  vi.mocked(correctMemory).mockImplementation(async (id, input) => ({
+    ...proposedMemory,
+    id,
+    ...input,
+    status: 'approved',
+    version: proposedMemory.version + 1,
+  }))
+  vi.mocked(revokePermissionGrant).mockImplementation(async (id) => ({ ...permissionGrant, id, revoked: true }))
 })
 
 describe('SettingsPage · provider management', () => {
@@ -165,6 +210,105 @@ describe('SettingsPage · provider management', () => {
     })
     expect(screen.getByText(/no memory proposals are waiting/i)).toBeInTheDocument()
     expect(screen.getByText(/reviewed memories \(1\)/i)).toBeInTheDocument()
+  })
+
+  it('saves a user correction as a new approved memory version', async () => {
+    stubLocalStorage()
+    render(<SettingsPage />)
+
+    const item = (await screen.findByText(/海运小批量补货/)).closest('article')!
+    fireEvent.click(within(item).getByRole('button', { name: /^edit$/i }))
+    const editor = within(item).getByRole('form', { name: /edit memory/i })
+    fireEvent.change(within(editor).getByLabelText(/memory text/i), {
+      target: { value: '用户偏好空运小批量补货' },
+    })
+    fireEvent.change(within(editor).getByLabelText(/sensitivity/i), {
+      target: { value: 'sensitive' },
+    })
+    fireEvent.click(within(editor).getByRole('button', { name: /^save$/i }))
+
+    await waitFor(() => expect(correctMemory).toHaveBeenCalledWith('mem_1', {
+      text: '用户偏好空运小批量补货',
+      kind: 'preference',
+      sensitivity: 'sensitive',
+    }))
+    expect(await screen.findByText(/用户偏好空运小批量补货/)).toBeInTheDocument()
+    expect(screen.getByText(/reviewed memories \(1\)/i)).toBeInTheDocument()
+  })
+
+  it('allows a reviewed memory to enter and cancel the same editor', async () => {
+    stubLocalStorage()
+    vi.mocked(listMemory).mockResolvedValue([{ ...proposedMemory, status: 'approved' }])
+    render(<SettingsPage />)
+
+    fireEvent.click(await screen.findByText(/reviewed memories \(1\)/i))
+    const item = screen.getByText(/海运小批量补货/).closest('article')!
+    fireEvent.click(within(item).getByRole('button', { name: /^edit$/i }))
+    expect(within(item).getByRole('form', { name: /edit memory/i })).toBeInTheDocument()
+    fireEvent.click(within(item).getByRole('button', { name: /^cancel$/i }))
+    expect(within(item).queryByRole('form', { name: /edit memory/i })).not.toBeInTheDocument()
+    expect(correctMemory).not.toHaveBeenCalled()
+  })
+
+  it('keeps the memory editor open and reports a failed correction', async () => {
+    stubLocalStorage()
+    let rejectEdit!: (reason: unknown) => void
+    vi.mocked(correctMemory).mockImplementationOnce(() => new Promise((_resolve, reject) => { rejectEdit = reject }))
+    render(<SettingsPage />)
+
+    const item = (await screen.findByText(/海运小批量补货/)).closest('article')!
+    fireEvent.click(within(item).getByRole('button', { name: /^edit$/i }))
+    const editor = within(item).getByRole('form', { name: /edit memory/i })
+    const save = within(editor).getByRole('button', { name: /^save$/i })
+    fireEvent.click(save)
+    fireEvent.click(save)
+    await waitFor(() => expect(correctMemory).toHaveBeenCalledTimes(1))
+    expect(within(editor).getByRole('button', { name: /saving/i })).toBeDisabled()
+    expect(within(editor).getByRole('button', { name: /^cancel$/i })).toBeDisabled()
+
+    await act(async () => { rejectEdit(new Error('Correction failed')) })
+    expect(await screen.findByRole('alert')).toHaveTextContent('Correction failed')
+    expect(within(item).getByRole('form', { name: /edit memory/i })).toBeInTheDocument()
+    expect(within(item).getByRole('button', { name: /^save$/i })).not.toBeDisabled()
+  })
+})
+
+describe('SettingsPage · organization policy and grants', () => {
+  it('locks the policy controls while a save is in flight', async () => {
+    stubLocalStorage()
+    let resolveSave!: (value: OrgPolicy) => void
+    vi.mocked(saveOrgPolicy).mockImplementationOnce(() => new Promise((resolve) => { resolveSave = resolve }))
+    render(<SettingsPage />)
+
+    const mode = await screen.findByRole('combobox', { name: /organization permission mode/i })
+    const browser = screen.getByRole('switch', { name: /browser \(org policy\)/i })
+    fireEvent.change(mode, { target: { value: 'auto' } })
+
+    expect(mode).toBeDisabled()
+    expect(browser).toBeDisabled()
+    expect(screen.getByText(/saving organization policy/i)).toHaveAttribute('role', 'status')
+
+    await waitFor(() => expect(saveOrgPolicy).toHaveBeenCalledTimes(1))
+    await act(async () => { resolveSave({ ...orgPolicy, permission_mode: 'auto' }) })
+    await waitFor(() => expect(mode).not.toBeDisabled())
+    expect(mode).toHaveValue('auto')
+  })
+
+  it('keeps grants usable when policy loading fails and reports revoke errors', async () => {
+    stubLocalStorage()
+    vi.mocked(getOrgPolicy).mockRejectedValue(new Error('Policy unavailable'))
+    vi.mocked(listPermissionGrants).mockResolvedValue([permissionGrant])
+    vi.mocked(revokePermissionGrant).mockRejectedValue(new Error('Grant revoke failed'))
+    render(<SettingsPage />)
+
+    const toolName = await screen.findByText('Bash')
+    expect(screen.getByText(/scope: path:\/workspace\/reports/i)).toBeInTheDocument()
+    fireEvent.click(toolName)
+    expect(revokePermissionGrant).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByRole('button', { name: /revoke grant/i }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('Grant revoke failed')
+    expect(revokePermissionGrant).toHaveBeenCalledWith('grant_1')
   })
 })
 

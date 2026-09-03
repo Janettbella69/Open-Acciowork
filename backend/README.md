@@ -17,6 +17,35 @@ python3.11 -m venv .venv --clear
 .venv/bin/uvicorn ophira_backend.main:app --app-dir backend/src --reload
 ```
 
+Browser L1/L2 support is an explicit optional install because Playwright also
+needs a managed Chromium binary:
+
+```bash
+.venv/bin/pip install -e './backend[dev,browser]'
+.venv/bin/playwright install chromium
+```
+
+L1 stores its own persistent profile under `backend/data/browser-profiles/`; it
+never reuses a personal browser profile. L2 is available only after the
+`chrome_cdp` connector points to a loopback CDP endpoint, is enabled, and passes
+its health check. Browser URLs remain subject to the organization domain
+allowlist and public-network SSRF checks. Each Chromium request, including a
+server-side redirect hop, is paused and revalidated before it is sent; browser
+navigation fails closed if that guard cannot be installed. L2 also refuses a
+connected context with active Service Workers, bypasses workers for the
+OPHIRA-created page, and blocks new registrations without unregistering or
+otherwise modifying the user's existing workers or tabs.
+
+Register and verify the local Chrome bridge through the connector API (Chrome
+must already be listening on the chosen loopback port):
+
+```bash
+curl -X PUT http://127.0.0.1:8000/api/connectors/chrome_cdp \
+  -H 'content-type: application/json' \
+  -d '{"type":"chrome_cdp","display_name":"Local Chrome","scope":"browser:attach","endpoint":"http://127.0.0.1:9222"}'
+curl -X POST http://127.0.0.1:8000/api/connectors/chrome_cdp/health-check
+```
+
 Configure a model endpoint either via `backend/.env` (see `.env.example`; the values
 bootstrap an `environment` provider profile) or through the Settings page / Provider API,
 which stores profiles in `backend/data/providers/` and keys in the mode-0600 vault at

@@ -9,6 +9,7 @@ import {
   listProjectRuns,
   listProjects,
   resolvePermission,
+  retryRun as requestRunRetry,
   runEventUrl,
   startRun,
   uploadProjectFile,
@@ -19,6 +20,7 @@ import type {
   PendingPermission,
   RunRecord,
   RunMode,
+  RunRetryStrategy,
   RunStatus,
 } from './types'
 
@@ -42,6 +44,8 @@ export function useOpportunityRuntime() {
   const sawTextDeltaRef = useRef(false)
   const sawReasoningDeltaRef = useRef(false)
   const runRef = useRef<RunRecord | null>(null)
+  const permissionInFlightRef = useRef(new Set<string>())
+  const retryInFlightRef = useRef(false)
   const selectionRef = useRef(0)
   const [historyLoading, setHistoryLoading] = useState(false)
 
@@ -107,6 +111,12 @@ export function useOpportunityRuntime() {
           toolName: typeof event.data.tool_name === 'string' ? event.data.tool_name : 'Tool',
           toolInput: event.data.tool_input,
           actor: event.actor,
+          destructive: event.data.destructive === true,
+          persistable: event.data.persistable === true,
+          scope: typeof event.data.scope === 'string' ? event.data.scope : '',
+          timeoutSeconds: typeof event.data.timeout_seconds === 'number'
+            ? event.data.timeout_seconds
+            : undefined,
         },
       ])
     }
@@ -179,6 +189,7 @@ export function useOpportunityRuntime() {
     files: File[] = [],
     mode: RunMode = 'standard',
     agentId?: string | null,
+    providerProfileId?: string | null,
   ) => {
     selectionRef.current += 1
     closeStream()
@@ -196,7 +207,7 @@ export function useOpportunityRuntime() {
       setProject(nextProject)
       setProjects((current) => [nextProject, ...current])
       if (files.length) await Promise.all(files.map((file) => uploadProjectFile(nextProject.id, file)))
-      const nextRun = await startRun(nextProject.id, brief, null, mode, null, agentId)
+      const nextRun = await startRun(nextProject.id, brief, null, mode, providerProfileId, agentId)
       runRef.current = nextRun
       setRun(nextRun)
       await connectToRun(nextRun)
@@ -215,8 +226,9 @@ export function useOpportunityRuntime() {
     files: File[] = [],
     mode: RunMode = 'standard',
     agentId?: string | null,
+    providerProfileId?: string | null,
   ) => {
-    if (!project) return start(brief, files, mode, agentId)
+    if (!project) return start(brief, files, mode, agentId, providerProfileId)
 
     selectionRef.current += 1
     closeStream()
@@ -231,7 +243,7 @@ export function useOpportunityRuntime() {
     sawReasoningDeltaRef.current = false
     try {
       if (files.length) await Promise.all(files.map((file) => uploadProjectFile(project.id, file)))
-      const nextRun = await startRun(project.id, brief, run?.sdk_session_id, mode, null, agentId)
+      const nextRun = await startRun(project.id, brief, run?.sdk_session_id, mode, providerProfileId, agentId)
       runRef.current = nextRun
       setRun(nextRun)
       await connectToRun(nextRun)
@@ -256,16 +268,59 @@ export function useOpportunityRuntime() {
     }
   }, [run])
 
+  const retry = useCallback(async (strategy: RunRetryStrategy): Promise<RunRecord | null> => {
+    if (
+      !run
+      || !terminalStatuses.has(run.status)
+      || run.status === 'completed'
+      || retryInFlightRef.current
+    ) return null
+
+    retryInFlightRef.current = true
+    const sourceRunId = run.id
+    const selection = ++selectionRef.current
+    setStarting(true)
+    setError('')
+    try {
+      const nextRun = await requestRunRetry(sourceRunId, strategy)
+      if (selectionRef.current !== selection) return null
+      closeStream()
+      setEvents([])
+      setAssistantText('')
+      setReasoningSummary('')
+      setPermissions([])
+      setHistoryLoading(false)
+      sawTextDeltaRef.current = false
+      sawReasoningDeltaRef.current = false
+      runRef.current = nextRun
+      setRun(nextRun)
+      await connectToRun(nextRun)
+      return nextRun
+    } catch (retryError) {
+      if (selectionRef.current !== selection) return null
+      setConnection('closed')
+      setError(errorMessage(retryError))
+      throw retryError
+    } finally {
+      retryInFlightRef.current = false
+      if (selectionRef.current === selection) setStarting(false)
+    }
+  }, [closeStream, connectToRun, run])
+
   const decidePermission = useCallback(async (
     requestId: string,
-    decision: 'allow_once' | 'allow_run' | 'deny',
+    decision: 'allow_once' | 'allow_run' | 'allow_persistent' | 'deny',
     answers?: Record<string, string | string[]>,
   ) => {
-    if (!run) return
+    if (!run || permissionInFlightRef.current.has(requestId)) return
+    permissionInFlightRef.current.add(requestId)
     try {
       await resolvePermission(run.id, requestId, decision, answers)
+      setPermissions((current) => current.filter((item) => item.id !== requestId))
     } catch (permissionError) {
       setError(errorMessage(permissionError))
+    } finally {
+      permissionInFlightRef.current.delete(requestId)
     }
   }, [run])
 
@@ -281,6 +336,7 @@ export function useOpportunityRuntime() {
     setPermissions([])
     setConnection('idle')
     setError('')
+    setStarting(false)
     setHistoryLoading(true)
     sawTextDeltaRef.current = false
     sawReasoningDeltaRef.current = false
@@ -333,6 +389,7 @@ export function useOpportunityRuntime() {
     setPermissions([])
     setConnection('idle')
     setError('')
+    setStarting(false)
     setHistoryLoading(false)
   }, [closeStream])
 
@@ -366,6 +423,7 @@ export function useOpportunityRuntime() {
     isActive: run ? !terminalStatuses.has(run.status) : false,
     start,
     continueProject,
+    retry,
     cancel,
     decidePermission,
     selectProject,

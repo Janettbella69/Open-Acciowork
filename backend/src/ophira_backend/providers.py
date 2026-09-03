@@ -35,10 +35,10 @@ class ProviderConfigurationError(RuntimeError):
 class FileSecretVault:
     """Local key-vault port. The file is never served and is mode 0600."""
 
-    def __init__(self, root: Path) -> None:
+    def __init__(self, root: Path, filename: str = "provider-secrets.json") -> None:
         self.root = root.resolve()
         self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
-        self.path = self.root / "provider-secrets.json"
+        self.path = self.root / filename
         self._lock = threading.RLock()
         if self.path.exists():
             self._secure()
@@ -75,6 +75,18 @@ class FileSecretVault:
 
     def has(self, profile_id: str) -> bool:
         return self.get(profile_id) is not None
+
+    def delete(self, profile_id: str) -> None:
+        with self._lock:
+            values = self._read()
+            if profile_id not in values:
+                return
+            values.pop(profile_id)
+            temporary = self.path.with_suffix(".tmp")
+            temporary.write_text(json.dumps(values, ensure_ascii=False), encoding="utf-8")
+            temporary.chmod(0o600)
+            os.replace(temporary, self.path)
+            self._secure()
 
 
 class ProviderRegistry:

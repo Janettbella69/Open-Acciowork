@@ -6,10 +6,12 @@ import ConnectorsPage from './ConnectorsPage'
 vi.mock('../api/client', () => ({
   listConnectors: vi.fn(),
   checkConnectorHealth: vi.fn(),
+  upsertConnector: vi.fn(),
+  revokeConnector: vi.fn(),
   errorMessage: (error: unknown) => error instanceof Error ? error.message : 'unknown error',
 }))
 
-import { checkConnectorHealth, listConnectors } from '../api/client'
+import { checkConnectorHealth, listConnectors, revokeConnector } from '../api/client'
 
 const connector: Connector = {
   id: 'connector_shopify',
@@ -25,12 +27,14 @@ const connector: Connector = {
 }
 
 beforeEach(() => {
+  vi.clearAllMocks()
   vi.mocked(listConnectors).mockResolvedValue([connector])
   vi.mocked(checkConnectorHealth).mockResolvedValue({
     ...connector,
     health: 'ok',
     last_checked_at: '2026-08-21T08:00:00Z',
   })
+  vi.mocked(revokeConnector).mockResolvedValue({ ...connector, enabled: false, health: 'ok' })
 })
 
 describe('ConnectorsPage', () => {
@@ -39,10 +43,24 @@ describe('ConnectorsPage', () => {
 
     const card = (await screen.findByText('Shopify Store')).closest('article')!
     expect(screen.getByText('SHOPIFY_ACCESS_TOKEN')).toBeInTheDocument()
-    expect(screen.getByText('Not checked')).toBeInTheDocument()
+    expect(screen.getByText('Not verified')).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: /check connection/i }))
+    fireEvent.click(screen.getByRole('button', { name: /check configuration/i }))
     await waitFor(() => expect(checkConnectorHealth).toHaveBeenCalledWith('connector_shopify'))
-    expect(card.querySelector('[data-health="ok"]')).toHaveTextContent('Connected')
+    expect(card.querySelector('[data-health="ok"]')).toHaveTextContent('Configured · not verified')
+    expect(screen.queryByText('Connected')).not.toBeInTheDocument()
+  })
+
+  it('locks a revoked connector and never leaves it looking connected', async () => {
+    render(<ConnectorsPage />)
+
+    await screen.findByText('Shopify Store')
+    fireEvent.click(screen.getByRole('button', { name: 'Revoke' }))
+
+    await waitFor(() => expect(revokeConnector).toHaveBeenCalledWith('connector_shopify'))
+    expect(screen.getByText('Revoked')).toBeInTheDocument()
+    expect(screen.getByText(/cannot be restored here/i)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /check configuration/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /save secret/i })).not.toBeInTheDocument()
   })
 })

@@ -52,6 +52,15 @@
 .schedules-task-list article strong { font-size: var(--ophira-type-title); }
 .schedules-task-list article p { overflow: hidden; margin: 0; color: #6f7376; font-size: var(--ophira-type-body); text-overflow: ellipsis; white-space: nowrap; }
 .schedules-task-list article small { color: #74787b; font-size: var(--ophira-type-small); }
+.schedule-kind { border-radius: 999px; padding: 2px 7px; color: #626965; background: #ecefed; font-size: 10px; font-weight: 750; letter-spacing: 0.03em; text-transform: uppercase; }
+.schedule-kind[data-kind='heartbeat'] { color: #31594a; background: #e5f0e9; }
+.schedule-permission-ceiling { display: grid; width: fit-content; max-width: 100%; margin-top: 5px; grid-template-columns: auto minmax(0, 1fr); align-items: start; gap: 10px; border: 1px solid #e1e3e1; border-radius: 10px; padding: 9px 11px; background: #fafbf9; }
+.schedule-permission-ceiling > span { padding-top: 2px; color: #6d746c; font-size: 10px; font-weight: 750; letter-spacing: 0.04em; text-transform: uppercase; }
+.schedule-permission-ceiling > div { display: grid; gap: 3px; }
+.schedules-task-list .schedule-permission-ceiling strong { font-size: var(--ophira-type-small); }
+.schedule-permission-ceiling ul { display: grid; margin: 2px 0 0; padding: 0; gap: 3px; list-style: none; }
+.schedule-permission-ceiling li { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; }
+.schedule-permission-ceiling li code { color: #385143; background: #edf2ee; }
 .schedules-empty { display: grid; min-height: 300px; margin-top: 18px; place-content: center; border: 1px dashed #cfd2d4; border-radius: 18px; padding: 32px; text-align: center; }
 .schedules-empty strong { font-family: var(--ophira-product-font); font-size: var(--ophira-type-section); font-weight: 650; }
 .schedules-empty p { margin: 10px 0 0; color: #6f7376; font-size: var(--ophira-type-body); }
@@ -70,6 +79,17 @@
 .schedule-creator textarea { min-height: 130px; resize: vertical; line-height: 1.6; }
 .schedule-creator form > div { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .schedule-creator form > p { margin: 0; color: #74787b; font-size: var(--ophira-type-small); line-height: 1.5; }
+.schedule-creator form > .schedule-kind-note { border-radius: 10px; padding: 10px 12px; background: #f2f5f3; }
+.schedule-kind-note strong { color: #3f5549; }
+.schedule-permission-picker { display: grid; margin: 2px 0 0; border: 0; padding: 0; gap: 9px; }
+.schedule-permission-picker legend { padding: 0; color: #5f6367; font-size: var(--ophira-type-small); font-weight: 750; }
+.schedule-permission-picker > p { margin: 0 0 2px; color: #74787b; font-size: var(--ophira-type-small); line-height: 1.5; }
+.schedule-permission-picker > label { display: grid; grid-template-columns: 20px minmax(0, 1fr); align-items: start; border: 1px solid #d9dbdd; border-radius: 12px; padding: 13px 14px; gap: 11px; background: #fff; cursor: pointer; }
+.schedule-permission-picker > label[data-selected='true'] { border-color: #718177; background: #f4f8f4; box-shadow: inset 0 0 0 1px #718177; }
+.schedule-permission-picker input[type='radio'] { width: 18px; min-height: 18px; margin: 2px 0 0; padding: 0; accent-color: var(--ophira-green); }
+.schedule-permission-picker label > span { display: grid; gap: 4px; }
+.schedule-permission-picker label strong { color: #343834; font-size: var(--ophira-type-body); }
+.schedule-permission-picker label small { color: #6d716e; font-size: var(--ophira-type-small); font-weight: 400; line-height: 1.5; }
 .schedule-creator footer { display: flex; justify-content: flex-end; gap: 9px; border-top: 1px solid #e7e8e9; padding-top: 18px; }
 .schedule-creator footer button { min-height: 44px; border: 1px solid #d9dbdd; border-radius: 999px; padding: 0 17px; background: #fff; font-size: var(--ophira-type-body); font-weight: 700; }
 .schedule-creator footer button:last-child { color: #fff; background: var(--ophira-ink); }
@@ -96,6 +116,7 @@
   .schedules-library > section > div:last-child { grid-template-columns: 1fr; }
   .schedules-task-list > article { grid-template-columns: 42px minmax(0, 1fr); }
   .schedules-task-list article small { grid-column: 2; }
+  .schedule-permission-ceiling > div > small { grid-column: auto; }
   .schedule-creator form > div { grid-template-columns: 1fr; }
 }
 
@@ -106,7 +127,8 @@
 /* Backend-connected task list additions */
 .schedules-notice { margin: 12px 0 0; padding: 10px 14px; border-radius: 10px; background: rgba(22, 128, 61, 0.08); color: #166534; }
 .schedules-error { margin: 12px 0 0; padding: 10px 14px; border-radius: 10px; background: rgba(185, 28, 28, 0.08); color: #b91c1c; }
-.schedules-task-list article[data-enabled='false'] { opacity: 0.72; }
+.schedules-task-list article[data-enabled='false'] { background: #fafafa; }
+.schedules-task-list article[data-enabled='false'] > span { color: #777c80; background: #e9eaeb; }
 .schedules-task-list article code { font-size: 12px; background: rgba(15, 23, 42, 0.06); border-radius: 6px; padding: 1px 6px; }
 .schedules-run-error { color: #b91c1c; font-size: 13px; }
 .schedules-run-ok { color: #166534; font-size: 13px; }

@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from claude_agent_sdk import (
     AssistantMessage,
@@ -30,26 +30,35 @@ from claude_agent_sdk import (
 from .agent_core import MAX_MEMORY_ITEMS, assemble_default_prompt, assemble_system_prompt
 from .agents import build_deep_research_agents
 from .config import BACKEND_DIR, Settings
+from .connectors import ConnectorRegistry
 from .constants import (
     AUTOMATION_MCP_SERVER_NAME,
+    BROWSER_MCP_SERVER_NAME,
     CLARIFYING_TOOL,
     DELEGATION_TOOL,
+    DELETE_BUILTIN_TOOLS,
     ENVELOPE_APPROVED_MCP_TOOL_NAMES,
     READ_ONLY_BUILTIN_TOOLS,
     READ_ONLY_MCP_TOOL_NAMES,
+    SHELL_BUILTIN_TOOLS,
+    TOOL_ACT_ON_PAGE,
+    TOOL_SNAPSHOT_PAGE,
     USER_SCOPE_ID,
     WRITE_BUILTIN_TOOLS,
     EventType,
     MemoryScope,
     PermissionDecision,
+    PermissionModePolicy,
     ProviderErrorCode,
     RunMode,
 )
+from .destructive import is_destructive_delete
 from .events import EventPublisher, redact
 from .ledger_tools import build_mcp_servers
 from .memory import MemoryProvider, gather_approved
 from .models import EventActor, ProviderPreflightResult, RunRecord, utc_now
 from .permissions import PermissionBroker
+from .policy import OrgPolicyStore
 from .providers import (
     ProviderConfigurationError,
     ProviderRegistry,
@@ -93,6 +102,20 @@ def _contained(cwd: Path, fence: Path, candidate: str) -> bool:
     return True
 
 
+def _is_subagent_write_tool(tool_name: str) -> bool:
+    # snapshot_page registers Artifact/Evidence immediately, so it is a
+    # main-Agent write even though normal L1 reads are auto-approved for users.
+    if tool_name == TOOL_SNAPSHOT_PAGE:
+        return True
+    if tool_name in {
+        *WRITE_BUILTIN_TOOLS,
+        *DELETE_BUILTIN_TOOLS,
+        *SHELL_BUILTIN_TOOLS,
+    }:
+        return True
+    return tool_name.startswith("mcp__") and tool_name not in READ_ONLY_MCP_TOOL_NAMES
+
+
 class ClaudeAgentRuntime:
     """Adapter from Claude Agent SDK's native stream to OPHIRA's event contract."""
 
@@ -107,6 +130,8 @@ class ClaudeAgentRuntime:
         skills: SkillRegistry | None = None,
         intents=None,
         notifications=None,
+        connectors: ConnectorRegistry | None = None,
+        policy: OrgPolicyStore | None = None,
     ) -> None:
         self.settings = settings
         self.ledger = ledger
@@ -120,12 +145,45 @@ class ClaudeAgentRuntime:
         )
         self.intents = intents
         self.notifications = notifications
+        self.connectors = connectors
+        self.policy = policy or OrgPolicyStore(settings.data_dir / "org" / "policy.json")
         self._clients: dict[str, ClaudeSDKClient] = {}
         self._clients_lock = asyncio.Lock()
 
     async def run(self, run: RunRecord) -> None:
         self._require_provider(run)
         options = self._build_options(run)
+        if run.mode != RunMode.DEEP_RESEARCH:
+            await self._run_sdk_session(run, options)
+            return
+
+        task = asyncio.create_task(
+            self._run_sdk_session(run, options),
+            name=f"ophira:deep-research:{run.id}",
+        )
+        try:
+            done, _pending = await asyncio.wait(
+                {task}, timeout=self.settings.deep_research_timeout_seconds
+            )
+        except asyncio.CancelledError:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+            raise
+        if task in done:
+            await task
+            return
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+        raise AgentRunError(
+            "Deep Research exceeded its wall-clock limit "
+            f"({self.settings.deep_research_timeout_seconds}s) and was stopped."
+        )
+
+    async def _run_sdk_session(
+        self,
+        run: RunRecord,
+        options: ClaudeAgentOptions,
+    ) -> None:
         result_error: str | None = None
         async with ClaudeSDKClient(options=options) as client:
             async with self._clients_lock:
@@ -168,9 +226,9 @@ class ClaudeAgentRuntime:
                 "preset": "claude_code",
                 "append": "这是只读连通性预检。不得修改文件或执行外部副作用。",
             },
-            plugins=[{"type": "local", "path": str(self.settings.capability_plugin_dir)}],
+            plugins=self.skills.plugin_paths(),
             setting_sources=[],
-            skills="all",
+            skills=self._selected_skills(),
             mcp_servers={
                 server_name: create_sdk_mcp_server(
                     name=server_name,
@@ -341,15 +399,12 @@ class ClaudeAgentRuntime:
         async def can_use_tool(tool_name: str, tool_input: dict[str, Any], context):
             # §6.1 红线：账本写入与自动化承诺只属主 Agent。支线子代理（原生
             # general-purpose/Explore 等）做研究与计算，把发现带回主线落账。
-            if (
-                getattr(context, "agent_id", None)
-                and tool_name.startswith("mcp__ophira_")
-                and tool_name not in READ_ONLY_MCP_TOOL_NAMES
-            ):
+            subagent_id = getattr(context, "agent_id", None)
+            if subagent_id and _is_subagent_write_tool(tool_name):
                 return PermissionResultDeny(
                     message=(
-                        "子代理只读：账本写入与自动化承诺只属主 Agent（PRD §6.1）。"
-                        "请把结论带回主线，由主 Agent 记录。"
+                        "子代理只读：文件、Shell、账本与外部动作只属主 Agent（PRD §6.1）。"
+                        "请把研究结论带回主线，由主 Agent 执行动作或记录。"
                     )
                 )
             if tool_name in WRITE_BUILTIN_TOOLS:
@@ -373,14 +428,15 @@ class ClaudeAgentRuntime:
             if resolution.decision in {
                 PermissionDecision.ALLOW_ONCE,
                 PermissionDecision.ALLOW_RUN,
+                PermissionDecision.ALLOW_PERSISTENT,
             }:
                 if tool_name == CLARIFYING_TOOL:
-                    # 官方回传形态（docs/claude-agent-sdk/user-input.md）：
-                    # answers = {问题原文: 选中选项 label（多选为 label 列表）}。
+                    answers = resolution.answers or {}
+                    self._record_constraints(run.project_id, answers)
                     return PermissionResultAllow(
                         updated_input={
                             "questions": tool_input.get("questions", []),
-                            "answers": resolution.answers or {},
+                            "answers": answers,
                         }
                     )
                 return PermissionResultAllow()
@@ -408,12 +464,16 @@ class ClaudeAgentRuntime:
             budget_scale = profile.budget_scale
         elif agent and agent.model:
             model = agent.model
+        org_policy = self.policy.get()
         mcp_servers = build_mcp_servers(
             self.ledger,
             run.project_id,
             memory=self.memory,
             agent_id=run.agent_id,
             settings=self.settings,
+            run_id=run.id,
+            policy=org_policy,
+            connectors=self.connectors,
         )
         if self.intents is not None and self.notifications is not None:
             from .automation_tools import build_automation_mcp_server
@@ -430,7 +490,12 @@ class ClaudeAgentRuntime:
             tools={"type": "preset", "preset": "claude_code"},
             allowed_tools=[
                 *READ_ONLY_BUILTIN_TOOLS,
-                *READ_ONLY_MCP_TOOL_NAMES,
+                *[
+                    name
+                    for name in READ_ONLY_MCP_TOOL_NAMES
+                    if name != TOOL_SNAPSHOT_PAGE
+                    or BROWSER_MCP_SERVER_NAME in mcp_servers
+                ],
                 # Envelope-approved automation tools (§4.10): inbox delivery and
                 # throttled intent firing work unattended inside scheduled runs.
                 *ENVELOPE_APPROVED_MCP_TOOL_NAMES,
@@ -445,11 +510,15 @@ class ClaudeAgentRuntime:
                 "preset": "claude_code",
                 "append": self._system_append(run),
             },
-            plugins=[{"type": "local", "path": str(self.settings.capability_plugin_dir)}],
-            skills=self.skills.runtime_selection(),
+            plugins=self.skills.plugin_paths(),
+            skills=self._selected_skills(),
             mcp_servers=mcp_servers,
             strict_mcp_config=True,
-            permission_mode="default",
+            permission_mode=(
+                "auto"
+                if org_policy.permission_mode == PermissionModePolicy.AUTO
+                else "default"
+            ),
             can_use_tool=can_use_tool,
             hooks=hooks,
             include_partial_messages=True,
@@ -474,7 +543,21 @@ class ClaudeAgentRuntime:
             resume=run.resume_session_id,
         )
 
+    def _selected_skills(self) -> Literal["all"] | list[str]:
+        selection = self.skills.runtime_selection()
+        allowed = self.policy.get().allowed_skill_ids
+        if not allowed:
+            return selection
+        names = (
+            [item.id for item in self.skills.list() if item.enabled]
+            if selection == "all"
+            else list(selection)
+        )
+        return self.policy.filter_skill_ids(names)
+
     def _hook(self, run_id: str, workspace: Path):
+        run = self.ledger.get_run(run_id)
+
         async def handle(input_data: dict[str, Any], _tool_use_id, _context):
             event_name = input_data.get("hook_event_name", "")
             actor = self._hook_actor(input_data)
@@ -492,6 +575,16 @@ class ClaudeAgentRuntime:
                     actor=actor,
                     tool_use_id=tool_use_id,
                 )
+                if input_data.get("agent_id") and _is_subagent_write_tool(str(tool_name)):
+                    return {
+                        "hookSpecificOutput": {
+                            "hookEventName": "PreToolUse",
+                            "permissionDecision": "deny",
+                            "permissionDecisionReason": (
+                                "Subagents are read-only; return findings to the main Agent."
+                            ),
+                        }
+                    }
                 candidate_key = {
                     "Read": "file_path",
                     "Write": "file_path",
@@ -537,6 +630,17 @@ class ClaudeAgentRuntime:
                             }
                         }
                 if tool_name == "Bash":
+                    if run.schedule_id is not None:
+                        return {
+                            "hookSpecificOutput": {
+                                "hookEventName": "PreToolUse",
+                                "permissionDecision": "deny",
+                                "permissionDecisionReason": (
+                                    "Scheduled runs cannot use Bash; shell commands require "
+                                    "an attended run."
+                                ),
+                            }
+                        }
                     if tool_input.get("dangerouslyDisableSandbox"):
                         return {
                             "hookSpecificOutput": {
@@ -548,7 +652,42 @@ class ClaudeAgentRuntime:
                     # PRD §4.10 v2.2（2026-08-24 拍板：教材为最终权威）：沙箱内 Bash 走
                     # SDK 原生默认 autoAllowBashIfSandboxed 自动批准（副作用被沙箱围住，
                     # workspace 之外写不了、网络出不去）；hook 只拦逃逸沙箱这一条。
-                    # 账本写入/对外发送等业务动作的人把关在 MCP ask 层，与 Bash 无关。
+                    # 删除文件任何模式必须确认（Cowork 铁律）：把 rm/Delete 打回 ask。
+                    if is_destructive_delete(str(tool_name), tool_input):
+                        return {
+                            "hookSpecificOutput": {
+                                "hookEventName": "PreToolUse",
+                                "permissionDecision": "ask",
+                                "permissionDecisionReason": (
+                                    "Deleting files always requires explicit confirmation."
+                                ),
+                            }
+                        }
+                if is_destructive_delete(str(tool_name), tool_input):
+                    return {
+                        "hookSpecificOutput": {
+                            "hookEventName": "PreToolUse",
+                            "permissionDecision": "ask",
+                            "permissionDecisionReason": (
+                                "Deleting files always requires explicit confirmation."
+                            ),
+                        }
+                    }
+                connected_snapshot = (
+                    tool_name == TOOL_SNAPSHOT_PAGE
+                    and tool_input.get("use_connected_browser") is True
+                )
+                if tool_name == TOOL_ACT_ON_PAGE or connected_snapshot:
+                    return {
+                        "hookSpecificOutput": {
+                            "hookEventName": "PreToolUse",
+                            "permissionDecision": "ask",
+                            "permissionDecisionReason": (
+                                "Browser actions and connected-browser reads require "
+                                "confirmation for every invocation."
+                            ),
+                        }
+                    }
             elif event_name == "PostToolUse":
                 await self.events.publish(
                     run_id,
@@ -576,9 +715,9 @@ class ClaudeAgentRuntime:
                 )
             elif event_name == "SubagentStart":
                 await self.events.publish(
-                    run_id,
-                    EventType.SUBAGENT_STARTED,
-                    {
+                    run_id=run_id,
+                    event_type=EventType.SUBAGENT_STARTED,
+                    data={
                         "agent_id": input_data.get("agent_id"),
                         "agent_type": input_data.get("agent_type"),
                     },
@@ -798,6 +937,34 @@ class ClaudeAgentRuntime:
                     parent_id=message.parent_tool_use_id,
                     tool_use_id=block.id,
                 )
-    @staticmethod
-    def _query_prompt(run: RunRecord) -> str:
-        return run.prompt
+    def _record_constraints(
+        self, project_id: str, answers: dict[str, str | list[str]]
+    ) -> None:
+        lines: list[str] = []
+        for question, answer in answers.items():
+            value = (
+                "、".join(str(item) for item in answer)
+                if isinstance(answer, list)
+                else str(answer)
+            )
+            if value.strip():
+                lines.append(f"{question}: {value.strip()}")
+        if not lines:
+            return
+
+        def mutate(project) -> None:
+            for line in lines:
+                if line not in project.constraints:
+                    project.constraints.append(line)
+
+        self.ledger.update_project(project_id, mutate)
+
+    def _query_prompt(self, run: RunRecord) -> str:
+        try:
+            project = self.ledger.get_project(run.project_id)
+        except Exception:
+            return run.prompt
+        if not project.constraints:
+            return run.prompt
+        listed = "\n".join(f"- {item}" for item in project.constraints[-20:])
+        return f"{run.prompt}\n\n【已确认的项目约束】\n{listed}"

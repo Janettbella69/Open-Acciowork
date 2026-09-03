@@ -4,6 +4,7 @@ import pytest
 
 from ophira_backend.constants import (
     MemoryKind,
+    MemoryOrigin,
     MemoryScope,
     MemorySensitivity,
     MemorySource,
@@ -78,6 +79,34 @@ def test_rollback_restores_prior_version(tmp_path: Path) -> None:
     assert memory.search("中文") == []
     with pytest.raises(MemoryNotFoundError):
         memory.rollback(item.id, 99)
+
+
+def test_owner_correction_creates_an_approved_version_and_can_rollback(
+    tmp_path: Path,
+) -> None:
+    memory = FileMemoryProvider(tmp_path)
+    item = propose(memory, text="旧的推断", kind=MemoryKind.LESSON)
+
+    corrected = memory.correct(
+        item.id,
+        text="  用户确认的新事实  ",
+        kind=MemoryKind.FACT,
+        sensitivity=MemorySensitivity.SENSITIVE,
+    )
+
+    assert corrected.text == "用户确认的新事实"
+    assert corrected.kind == MemoryKind.FACT
+    assert corrected.sensitivity == MemorySensitivity.SENSITIVE
+    assert corrected.source == MemorySource.USER
+    assert corrected.origin == MemoryOrigin.OWNER
+    assert corrected.status == MemoryStatus.APPROVED
+    assert corrected.version == 2
+    assert memory.search("新事实")[0].id == item.id
+
+    rolled_back = memory.rollback(item.id, 1)
+    assert rolled_back.text == "旧的推断"
+    assert rolled_back.status == MemoryStatus.PROPOSED
+    assert rolled_back.version == 3
 
 
 def test_gather_approved_merges_scopes(tmp_path: Path) -> None:
