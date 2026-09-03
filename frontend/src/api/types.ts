@@ -16,6 +16,10 @@ export type RunMode = 'standard' | 'deep_research'
 export type RunRetryStrategy = 'resume' | 'new_branch'
 export type ScheduleKind = 'task' | 'heartbeat'
 export type AgentTemplate = 'general' | 'research' | 'sourcing' | 'marketing' | 'docs' | 'opportunity'
+export type PermissionModePolicy = 'default' | 'auto'
+export type MemoryScope = 'user' | 'project' | 'agent'
+export type MemoryStatus = 'proposed' | 'approved' | 'rejected' | 'disabled'
+export type MissedRunPolicy = 'catch_up' | 'skip'
 
 export type Hypothesis = {
   id: string
@@ -180,7 +184,19 @@ export type ProtocolMetadata = {
   dimensions: string[]
   project_stages: string[]
   permission_decisions: string[]
+  permission_modes: PermissionModePolicy[]
+  schedule_kinds: ScheduleKind[]
+  feedback_kinds: FeedbackKind[]
   agent_templates: AgentTemplate[]
+  memory_scopes: MemoryScope[]
+  memory_statuses: MemoryStatus[]
+  missed_run_policies: MissedRunPolicy[]
+  commercial_action_operations: CommercialActionOperation[]
+  commercial_action_statuses: CommercialActionStatus[]
+  commercial_review_decisions: CommercialReviewDecision[]
+  external_execution_statuses: ExternalExecutionStatus[]
+  presentation_schema_versions: PresentationSchemaVersion[]
+  presentation_components: PresentationComponent[]
 }
 
 export type AgentProfile = {
@@ -282,7 +298,6 @@ export type SkillVersion = {
   content_hash: string
   source: 'application' | 'tenant'
   enabled: boolean
-  path: string
 }
 
 export type SchedulePermissionRule = {
@@ -373,6 +388,37 @@ export type StandingIntent = {
   created_at: string
 }
 
+export type CommercialActionOperation =
+  | 'create_resource'
+  | 'update_resource'
+  | 'delete_resource'
+  | 'adjust_inventory'
+  | 'change_price'
+  | 'send_message'
+  | 'publish_content'
+  | 'commit_spend'
+
+export type CommercialActionStatus = 'staged' | 'approved' | 'rejected' | 'expired' | 'execution_requested'
+export type CommercialReviewDecision = 'approve' | 'reject'
+export type ExternalExecutionStatus = 'not_executed'
+export const UI_PRESENTATION_EVENT = 'ui.presentation' as const
+export const PRESENTATION_SCHEMA_VERSION = '1' as const
+export const PRESENTATION_COMPONENT = {
+  EVIDENCE_COMPARISON: 'evidence_comparison',
+  DECISION_BRIEF: 'decision_brief',
+  ARTIFACT_LIST: 'artifact_list',
+} as const
+export const presentationSchemaVersions = [PRESENTATION_SCHEMA_VERSION] as const
+export const presentationComponents = Object.values(PRESENTATION_COMPONENT)
+export type PresentationSchemaVersion = (typeof presentationSchemaVersions)[number]
+export type PresentationComponent = (typeof presentationComponents)[number]
+
+export type CommercialNumericLimit = {
+  field: string
+  minimum: number | null
+  maximum: number | null
+}
+
 export type OrgPolicy = {
   permission_mode: 'default' | 'auto'
   allowed_provider_ids: string[]
@@ -381,6 +427,12 @@ export type OrgPolicy = {
   computer_control_enabled: boolean
   channel_delivery_enabled: boolean
   domain_allowlist: string[]
+  commercial_actions_enabled: boolean
+  allowed_commercial_operations: CommercialActionOperation[]
+  allowed_commercial_connector_ids: string[]
+  commercial_max_changes_per_action: number
+  commercial_forbidden_fields: string[]
+  commercial_numeric_limits: CommercialNumericLimit[]
   updated_at: string
 }
 

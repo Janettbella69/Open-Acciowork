@@ -86,6 +86,12 @@ const orgPolicy: OrgPolicy = {
   computer_control_enabled: false,
   channel_delivery_enabled: false,
   domain_allowlist: [],
+  commercial_actions_enabled: false,
+  allowed_commercial_operations: [],
+  allowed_commercial_connector_ids: [],
+  commercial_max_changes_per_action: 20,
+  commercial_forbidden_fields: [],
+  commercial_numeric_limits: [],
   updated_at: '2026-09-02T00:00:00Z',
 }
 

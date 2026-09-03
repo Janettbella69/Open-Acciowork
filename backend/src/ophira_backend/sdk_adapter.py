@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
 from claude_agent_sdk import (
     AssistantMessage,
@@ -29,6 +29,7 @@ from claude_agent_sdk import (
 
 from .agent_core import MAX_MEMORY_ITEMS, assemble_default_prompt, assemble_system_prompt
 from .agents import build_deep_research_agents
+from .commercial_actions import CommercialActionService
 from .config import BACKEND_DIR, Settings
 from .connectors import ConnectorRegistry
 from .constants import (
@@ -38,10 +39,13 @@ from .constants import (
     DELEGATION_TOOL,
     DELETE_BUILTIN_TOOLS,
     ENVELOPE_APPROVED_MCP_TOOL_NAMES,
+    PRESENTATION_TOOL_NAMES,
     READ_ONLY_BUILTIN_TOOLS,
     READ_ONLY_MCP_TOOL_NAMES,
     SHELL_BUILTIN_TOOLS,
     TOOL_ACT_ON_PAGE,
+    TOOL_GET_PROJECT_CONTEXT,
+    TOOL_SEARCH_EVIDENCE,
     TOOL_SNAPSHOT_PAGE,
     USER_SCOPE_ID,
     WRITE_BUILTIN_TOOLS,
@@ -59,6 +63,7 @@ from .memory import MemoryProvider, gather_approved
 from .models import EventActor, ProviderPreflightResult, RunRecord, utc_now
 from .permissions import PermissionBroker
 from .policy import OrgPolicyStore
+from .presentation_tools import presentation_event_response
 from .providers import (
     ProviderConfigurationError,
     ProviderRegistry,
@@ -66,9 +71,14 @@ from .providers import (
     provider_error_message,
     successful_preflight,
 )
-from .skills import SkillRegistry
+from .skills import SkillRegistry, SkillRuntimeView
 from .storage import FileLedger
 from .templates import TEMPLATE_SPECS
+from .untrusted import (
+    UNTRUSTED_DATA_NOTICE,
+    UntrustedSource,
+    sanitize_untrusted_tool_output,
+)
 
 
 class AgentRunError(RuntimeError):
@@ -102,10 +112,50 @@ def _contained(cwd: Path, fence: Path, candidate: str) -> bool:
     return True
 
 
-def _is_subagent_write_tool(tool_name: str) -> bool:
+_UNTRUSTED_LEDGER_TOOL_NAMES = frozenset(
+    {TOOL_GET_PROJECT_CONTEXT, TOOL_SEARCH_EVIDENCE}
+)
+
+
+def _post_tool_untrusted_source(
+    tool_name: str,
+    tool_input: dict[str, Any],
+    workspace: Path,
+) -> UntrustedSource | None:
+    """Classify tool results at the last boundary before Claude consumes them."""
+    if tool_name == "WebSearch":
+        return UntrustedSource.WEB_SEARCH
+    if tool_name == "WebFetch":
+        return UntrustedSource.WEB_PAGE
+    if tool_name in _UNTRUSTED_LEDGER_TOOL_NAMES:
+        return UntrustedSource.PROJECT_LEDGER
+    if tool_name == "Bash":
+        # Bash can print raw uploads or ../project.json even when the command
+        # itself is sandboxed and otherwise safe.
+        return UntrustedSource.PROJECT_FILE
+    if tool_name in {"Read", "Grep"}:
+        candidate_key = "file_path" if tool_name == "Read" else "path"
+        candidate = tool_input.get(candidate_key)
+        if isinstance(candidate, str) and _contained(
+            workspace,
+            (BACKEND_DIR / "src").resolve(),
+            candidate,
+        ):
+            # Repository source is the intentionally trusted code-reading fence.
+            return None
+        # PreToolUse already restricts an explicit path to this project (or the
+        # source tree above). Missing Grep paths search cwd, which is the project
+        # workspace and therefore also data-plane content.
+        return UntrustedSource.PROJECT_FILE
+    return None
+
+
+def _is_subagent_restricted_tool(tool_name: str) -> bool:
     # snapshot_page registers Artifact/Evidence immediately, so it is a
     # main-Agent write even though normal L1 reads are auto-approved for users.
-    if tool_name == TOOL_SNAPSHOT_PAGE:
+    # Presentation tools are read-only, but final UI composition is likewise
+    # owned by the accountable main Agent rather than a research branch.
+    if tool_name == TOOL_SNAPSHOT_PAGE or tool_name in PRESENTATION_TOOL_NAMES:
         return True
     if tool_name in {
         *WRITE_BUILTIN_TOOLS,
@@ -132,6 +182,7 @@ class ClaudeAgentRuntime:
         notifications=None,
         connectors: ConnectorRegistry | None = None,
         policy: OrgPolicyStore | None = None,
+        commercial_actions: CommercialActionService | None = None,
     ) -> None:
         self.settings = settings
         self.ledger = ledger
@@ -147,37 +198,44 @@ class ClaudeAgentRuntime:
         self.notifications = notifications
         self.connectors = connectors
         self.policy = policy or OrgPolicyStore(settings.data_dir / "org" / "policy.json")
+        self.commercial_actions = commercial_actions or CommercialActionService(
+            settings.data_dir / "commercial-actions",
+            ledger=ledger,
+            policy=self.policy,
+        )
         self._clients: dict[str, ClaudeSDKClient] = {}
         self._clients_lock = asyncio.Lock()
 
     async def run(self, run: RunRecord) -> None:
         self._require_provider(run)
-        options = self._build_options(run)
-        if run.mode != RunMode.DEEP_RESEARCH:
-            await self._run_sdk_session(run, options)
-            return
+        snapshot = self._policy_skill_snapshot(run.skill_snapshot)
+        with self.skills.runtime_snapshot_lease(snapshot) as skill_view:
+            options = self._build_options(run, skill_view=skill_view)
+            if run.mode != RunMode.DEEP_RESEARCH:
+                await self._run_sdk_session(run, options)
+                return
 
-        task = asyncio.create_task(
-            self._run_sdk_session(run, options),
-            name=f"ophira:deep-research:{run.id}",
-        )
-        try:
-            done, _pending = await asyncio.wait(
-                {task}, timeout=self.settings.deep_research_timeout_seconds
+            task = asyncio.create_task(
+                self._run_sdk_session(run, options),
+                name=f"ophira:deep-research:{run.id}",
             )
-        except asyncio.CancelledError:
+            try:
+                done, _pending = await asyncio.wait(
+                    {task}, timeout=self.settings.deep_research_timeout_seconds
+                )
+            except asyncio.CancelledError:
+                task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
+                raise
+            if task in done:
+                await task
+                return
             task.cancel()
             await asyncio.gather(task, return_exceptions=True)
-            raise
-        if task in done:
-            await task
-            return
-        task.cancel()
-        await asyncio.gather(task, return_exceptions=True)
-        raise AgentRunError(
-            "Deep Research exceeded its wall-clock limit "
-            f"({self.settings.deep_research_timeout_seconds}s) and was stopped."
-        )
+            raise AgentRunError(
+                "Deep Research exceeded its wall-clock limit "
+                f"({self.settings.deep_research_timeout_seconds}s) and was stopped."
+            )
 
     async def _run_sdk_session(
         self,
@@ -218,6 +276,8 @@ class ClaudeAgentRuntime:
 
         server_name = "ophira_preflight"
         health_tool_name = f"mcp__{server_name}__health"
+        preflight_snapshot = self._policy_skill_snapshot(self.skills.snapshot())
+        skill_view = self.skills.materialize_snapshot(preflight_snapshot)
         options = ClaudeAgentOptions(
             cwd=preflight_dir,
             tools={"type": "preset", "preset": "claude_code"},
@@ -226,9 +286,9 @@ class ClaudeAgentRuntime:
                 "preset": "claude_code",
                 "append": "这是只读连通性预检。不得修改文件或执行外部副作用。",
             },
-            plugins=self.skills.plugin_paths(),
+            plugins=skill_view.plugin_paths,
             setting_sources=[],
-            skills=self._selected_skills(),
+            skills=skill_view.skill_ids,
             mcp_servers={
                 server_name: create_sdk_mcp_server(
                     name=server_name,
@@ -240,7 +300,10 @@ class ClaudeAgentRuntime:
             allowed_tools=[health_tool_name],
             disallowed_tools=["Agent", "Write", "Edit", "Bash"],
             permission_mode="dontAsk",
-            env=self.providers.build_worker_env(provider_profile_id),
+            env={
+                **self.providers.build_worker_env(provider_profile_id),
+                "OPHIRA_COMMERCIAL_APPROVAL_SECRET": "",
+            },
             model=profile.model,
             max_turns=4,
             max_budget_usd=min(self.settings.max_budget_usd, 0.25),
@@ -260,24 +323,28 @@ class ClaudeAgentRuntime:
 
         async def exercise_sdk() -> None:
             nonlocal sdk_session_id, discovered_skills, health_called, result_error
-            async with ClaudeSDKClient(options=options) as client:
-                await client.query(
-                    "调用 ophira_preflight health 工具，然后只回复 OPHIRA_PREFLIGHT_OK。"
-                )
-                async for message in client.receive_response():
-                    if isinstance(message, SystemMessage) and message.subtype == "init":
-                        sdk_session_id = message.data.get("session_id")
-                        discovered_skills = list(message.data.get("skills") or [])
-                    elif isinstance(message, AssistantMessage):
-                        health_called = health_called or any(
-                            isinstance(block, ToolUseBlock) and block.name == health_tool_name
-                            for block in message.content
-                        )
-                    elif isinstance(message, ResultMessage):
-                        sdk_session_id = message.session_id or sdk_session_id
-                        if message.is_error:
-                            details = message.errors or [message.result or message.subtype]
-                            result_error = "; ".join(details)
+            with self.skills.runtime_snapshot_lease(preflight_snapshot):
+                async with ClaudeSDKClient(options=options) as client:
+                    await client.query(
+                        "调用 ophira_preflight health 工具，然后只回复 OPHIRA_PREFLIGHT_OK。"
+                    )
+                    async for message in client.receive_response():
+                        if isinstance(message, SystemMessage) and message.subtype == "init":
+                            sdk_session_id = message.data.get("session_id")
+                            discovered_skills = list(message.data.get("skills") or [])
+                        elif isinstance(message, AssistantMessage):
+                            health_called = health_called or any(
+                                isinstance(block, ToolUseBlock)
+                                and block.name == health_tool_name
+                                for block in message.content
+                            )
+                        elif isinstance(message, ResultMessage):
+                            sdk_session_id = message.session_id or sdk_session_id
+                            if message.is_error:
+                                details = message.errors or [
+                                    message.result or message.subtype
+                                ]
+                                result_error = "; ".join(details)
 
         try:
             try:
@@ -350,8 +417,13 @@ class ClaudeAgentRuntime:
 
     def _provider_env(self, run: RunRecord) -> dict[str, str]:
         if run.provider_profile_id:
-            return self.providers.build_worker_env(run.provider_profile_id)
-        return self.settings.claude_sdk_env()
+            env = self.providers.build_worker_env(run.provider_profile_id)
+        else:
+            env = self.settings.claude_sdk_env()
+        # The model can use Bash inside its sandbox. Shadow the gateway credential
+        # so it cannot forge the human-only review/apply HTTP boundary.
+        env["OPHIRA_COMMERCIAL_APPROVAL_SECRET"] = ""
+        return env
 
     def _system_append(self, run: RunRecord) -> str:
         agent = self.ledger.get_agent(run.agent_id) if run.agent_id else None
@@ -391,7 +463,12 @@ class ClaudeAgentRuntime:
             run.project_id, run.trace_id, memories, mode_rules=mode_rules
         )
 
-    def _build_options(self, run: RunRecord) -> ClaudeAgentOptions:
+    def _build_options(
+        self,
+        run: RunRecord,
+        *,
+        skill_view: SkillRuntimeView | None = None,
+    ) -> ClaudeAgentOptions:
         agent = self.ledger.get_agent(run.agent_id) if run.agent_id else None
         workspace = self.ledger.workspace_for_project(run.project_id).resolve()
         deep_research = run.mode == RunMode.DEEP_RESEARCH
@@ -400,11 +477,12 @@ class ClaudeAgentRuntime:
             # §6.1 红线：账本写入与自动化承诺只属主 Agent。支线子代理（原生
             # general-purpose/Explore 等）做研究与计算，把发现带回主线落账。
             subagent_id = getattr(context, "agent_id", None)
-            if subagent_id and _is_subagent_write_tool(tool_name):
+            if subagent_id and _is_subagent_restricted_tool(tool_name):
                 return PermissionResultDeny(
                     message=(
-                        "子代理只读：文件、Shell、账本与外部动作只属主 Agent（PRD §6.1）。"
-                        "请把研究结论带回主线，由主 Agent 执行动作或记录。"
+                        "子代理只读：文件、Shell、账本、最终 UI 与外部动作只属主 "
+                        "Agent（PRD §6.1）。请把研究结论带回主线，由主 Agent 执行动作、"
+                        "记录或呈现。"
                     )
                 )
             if tool_name in WRITE_BUILTIN_TOOLS:
@@ -465,6 +543,12 @@ class ClaudeAgentRuntime:
         elif agent and agent.model:
             model = agent.model
         org_policy = self.policy.get()
+        if skill_view is None:
+            # Inspection/tests may build options without starting a session. A
+            # real run passes a leased view that remains pinned until SDK exit.
+            skill_view = self.skills.materialize_snapshot(
+                self._policy_skill_snapshot(run.skill_snapshot)
+            )
         mcp_servers = build_mcp_servers(
             self.ledger,
             run.project_id,
@@ -474,6 +558,7 @@ class ClaudeAgentRuntime:
             run_id=run.id,
             policy=org_policy,
             connectors=self.connectors,
+            commercial_actions=self.commercial_actions,
         )
         if self.intents is not None and self.notifications is not None:
             from .automation_tools import build_automation_mcp_server
@@ -510,8 +595,8 @@ class ClaudeAgentRuntime:
                 "preset": "claude_code",
                 "append": self._system_append(run),
             },
-            plugins=self.skills.plugin_paths(),
-            skills=self._selected_skills(),
+            plugins=skill_view.plugin_paths,
+            skills=skill_view.skill_ids,
             mcp_servers=mcp_servers,
             strict_mcp_config=True,
             permission_mode=(
@@ -543,17 +628,24 @@ class ClaudeAgentRuntime:
             resume=run.resume_session_id,
         )
 
-    def _selected_skills(self) -> Literal["all"] | list[str]:
-        selection = self.skills.runtime_selection()
+    def _policy_skill_snapshot(
+        self, snapshot: list[dict[str, Any]]
+    ) -> list[dict[str, object]]:
+        """Filter before Plugin materialization so disallowed Skills are not discoverable.
+
+        The SDK documents that direct slash-command dispatch bypasses the `skills`
+        allowlist. Omitting a disallowed package from the per-run Plugin root is the
+        filesystem enforcement boundary.
+        """
         allowed = self.policy.get().allowed_skill_ids
         if not allowed:
-            return selection
-        names = (
-            [item.id for item in self.skills.list() if item.enabled]
-            if selection == "all"
-            else list(selection)
+            return [dict(item) for item in snapshot]
+        allowed_ids = set(
+            self.policy.filter_skill_ids(
+                [str(item.get("id", "")) for item in snapshot]
+            )
         )
-        return self.policy.filter_skill_ids(names)
+        return [dict(item) for item in snapshot if item.get("id") in allowed_ids]
 
     def _hook(self, run_id: str, workspace: Path):
         run = self.ledger.get_run(run_id)
@@ -575,13 +667,16 @@ class ClaudeAgentRuntime:
                     actor=actor,
                     tool_use_id=tool_use_id,
                 )
-                if input_data.get("agent_id") and _is_subagent_write_tool(str(tool_name)):
+                if input_data.get("agent_id") and _is_subagent_restricted_tool(
+                    str(tool_name)
+                ):
                     return {
                         "hookSpecificOutput": {
                             "hookEventName": "PreToolUse",
                             "permissionDecision": "deny",
                             "permissionDecisionReason": (
-                                "Subagents are read-only; return findings to the main Agent."
+                                "Subagents are read-only and cannot own final UI; return "
+                                "findings to the main Agent."
                             ),
                         }
                     }
@@ -689,30 +784,104 @@ class ClaudeAgentRuntime:
                         }
                     }
             elif event_name == "PostToolUse":
+                tool_name = str(input_data.get("tool_name") or "")
+                tool_input = input_data.get("tool_input", {})
+                if not isinstance(tool_input, dict):
+                    tool_input = {}
+                tool_response = input_data.get("tool_response")
+                untrusted_source = _post_tool_untrusted_source(
+                    tool_name,
+                    tool_input,
+                    workspace,
+                )
+                hook_specific_output: dict[str, Any] | None = None
+                if untrusted_source is not None:
+                    sanitized = sanitize_untrusted_tool_output(
+                        tool_response,
+                        untrusted_source,
+                        parse_json_strings=(
+                            tool_name in _UNTRUSTED_LEDGER_TOOL_NAMES
+                        ),
+                    )
+                    tool_response = sanitized.value
+                    hook_specific_output = {
+                        "hookEventName": "PostToolUse",
+                        "additionalContext": UNTRUSTED_DATA_NOTICE,
+                    }
+                    if "tool_response" in input_data:
+                        # Claude Agent SDK 0.2.x accepts updatedToolOutput for
+                        # built-in and MCP tools. Replacing the output is the
+                        # enforcement boundary; additionalContext alone would
+                        # leave the raw data-plane injection visible to Claude.
+                        hook_specific_output["updatedToolOutput"] = tool_response
+                structured_response = None
+                if tool_name in PRESENTATION_TOOL_NAMES:
+                    structured_response = presentation_event_response(
+                        tool_response,
+                        run.project_id,
+                    )
+                    if structured_response is not None:
+                        tool_response = structured_response
                 await self.events.publish(
                     run_id,
                     EventType.TOOL_COMPLETED,
                     {
-                        "tool_name": input_data.get("tool_name"),
-                        "tool_input": input_data.get("tool_input", {}),
-                        "tool_response": input_data.get("tool_response"),
+                        "tool_name": tool_name,
+                        "tool_input": tool_input,
+                        "tool_response": tool_response,
                     },
                     actor=actor,
                     tool_use_id=tool_use_id,
                 )
+                if structured_response is not None:
+                    await self.events.publish(
+                        run_id,
+                        EventType.UI_PRESENTATION,
+                        structured_response,
+                        actor=actor,
+                        tool_use_id=tool_use_id,
+                    )
+                if hook_specific_output is not None:
+                    return {"hookSpecificOutput": hook_specific_output}
             elif event_name == "PostToolUseFailure":
+                tool_name = str(input_data.get("tool_name") or "")
+                tool_input = input_data.get("tool_input", {})
+                if not isinstance(tool_input, dict):
+                    tool_input = {}
+                error = input_data.get("error")
+                untrusted_source = _post_tool_untrusted_source(
+                    tool_name,
+                    tool_input,
+                    workspace,
+                )
+                if untrusted_source is not None:
+                    # A failed downloader/read/command can still echo arbitrary
+                    # remote or file content. Failure hooks cannot replace the
+                    # SDK's error result, so keep the durable/UI event clean and
+                    # explicitly tell the model to treat its copy as data.
+                    error = sanitize_untrusted_tool_output(
+                        error,
+                        untrusted_source,
+                    ).value
                 await self.events.publish(
                     run_id,
                     EventType.TOOL_FAILED,
                     {
-                        "tool_name": input_data.get("tool_name"),
-                        "tool_input": input_data.get("tool_input", {}),
-                        "error": input_data.get("error"),
+                        "tool_name": tool_name,
+                        "tool_input": tool_input,
+                        "error": error,
                         "is_interrupt": input_data.get("is_interrupt", False),
                     },
                     actor=actor,
                     tool_use_id=tool_use_id,
                 )
+                if untrusted_source is not None:
+                    return {
+                        "hookSpecificOutput": {
+                            "hookEventName": "PostToolUseFailure",
+                            "additionalContext": UNTRUSTED_DATA_NOTICE,
+                        }
+                    }
             elif event_name == "SubagentStart":
                 await self.events.publish(
                     run_id=run_id,

@@ -39,6 +39,11 @@ The product rail also opens Agents (`/app/agents`), a Plugins hub (`/app/plugins
 with Skills and Connectors sections, Scheduled tasks (`/app/schedules`), and Mobile
 pairing preparation (`/app/mobile`).
 
+Tenant Skills keep immutable, content-addressed package history with per-run snapshots,
+version inspection, reviewed rollback, bounded storage, and active-session-safe runtime
+leases. Workspace results can also render typed evidence, decision, and artifact cards
+whose factual fields are joined from the server ledger rather than authored by the model.
+
 ### Run locally
 
 Start the backend from the repository root:

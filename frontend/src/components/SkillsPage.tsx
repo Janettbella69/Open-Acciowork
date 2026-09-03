@@ -1,5 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
-import { errorMessage, installSkill, listSkills, setSkillEnabled, testSkill } from '../api/client'
+import {
+  errorMessage,
+  installSkill,
+  listSkills,
+  listSkillVersions,
+  rollbackSkill,
+  setSkillEnabled,
+  testSkill,
+} from '../api/client'
 import type { SkillTestResult, SkillVersion } from '../api/types'
 import { useT } from '../i18n'
 import './skills-page.css'
@@ -16,6 +24,10 @@ export default function SkillsPage() {
   const [updating, setUpdating] = useState('')
   const [testing, setTesting] = useState('')
   const [testResults, setTestResults] = useState<Record<string, SkillTestResult>>({})
+  const [historyOpen, setHistoryOpen] = useState('')
+  const [historyLoading, setHistoryLoading] = useState('')
+  const [versions, setVersions] = useState<Record<string, SkillVersion[]>>({})
+  const [rollingBack, setRollingBack] = useState('')
 
   useEffect(() => {
     let active = true
@@ -59,6 +71,40 @@ export default function SkillsPage() {
     }
   }
 
+  const loadHistory = async (skill: SkillVersion) => {
+    if (historyOpen === skill.id) {
+      setHistoryOpen('')
+      return
+    }
+    setHistoryOpen(skill.id)
+    setHistoryLoading(skill.id)
+    setError('')
+    try {
+      const items = await listSkillVersions(skill.id)
+      setVersions((current) => ({ ...current, [skill.id]: items }))
+    } catch (historyError) {
+      setError(errorMessage(historyError))
+      setHistoryOpen('')
+    } finally {
+      setHistoryLoading('')
+    }
+  }
+
+  const restoreVersion = async (skill: SkillVersion, contentHash: string) => {
+    setRollingBack(contentHash)
+    setError('')
+    try {
+      const updated = await rollbackSkill(skill.id, { content_hash: contentHash })
+      setSkills((current) => current.map((item) => item.id === updated.id ? updated : item))
+      const items = await listSkillVersions(skill.id)
+      setVersions((current) => ({ ...current, [skill.id]: items }))
+    } catch (rollbackError) {
+      setError(errorMessage(rollbackError))
+    } finally {
+      setRollingBack('')
+    }
+  }
+
   const featured = skills.find((skill) => skill.name === 'global-opportunity-execution')
 
   return (
@@ -85,7 +131,14 @@ export default function SkillsPage() {
                   if (!file) return
                   setError('')
                   void installSkill(file)
-                    .then((uploaded) => setSkills((current) => [uploaded, ...current.filter((item) => item.id !== uploaded.id)]))
+                    .then((uploaded) => {
+                      setSkills((current) => [uploaded, ...current.filter((item) => item.id !== uploaded.id)])
+                      setVersions((current) => {
+                        const next = { ...current }
+                        delete next[uploaded.id]
+                        return next
+                      })
+                    })
                     .catch((uploadError) => setError(errorMessage(uploadError)))
                 }}
               />
@@ -130,6 +183,17 @@ export default function SkillsPage() {
                     <footer>
                       <span>v{skill.version} · {skill.content_hash.slice(0, 8)}</span>
                       <span className="skill-card-buttons">
+                        {skill.source === 'tenant' && (
+                          <button
+                            type="button"
+                            aria-expanded={historyOpen === skill.id}
+                            aria-controls={`skill-history-${skill.id.replace(/[^A-Za-z0-9_-]/g, '-')}`}
+                            disabled={historyLoading === skill.id}
+                            onClick={() => void loadHistory(skill)}
+                          >
+                            {historyLoading === skill.id ? t('Loading…') : t('Versions')}
+                          </button>
+                        )}
                         <button type="button" disabled={testing === skill.id} onClick={() => void runSkillTest(skill)}>
                           {testing === skill.id ? t('Testing…') : t('Test')}
                         </button>
@@ -150,6 +214,43 @@ export default function SkillsPage() {
                           ))}
                         </ul>
                       </div>
+                    )}
+                    {historyOpen === skill.id && versions[skill.id] && (
+                      <section
+                        id={`skill-history-${skill.id.replace(/[^A-Za-z0-9_-]/g, '-')}`}
+                        className="skill-version-history"
+                        aria-label={t('Version history')}
+                      >
+                        <header>
+                          <strong>{t('Version history')}</strong>
+                          <span>{t('{n} immutable versions', { n: versions[skill.id].length })}</span>
+                        </header>
+                        <ol>
+                          {versions[skill.id].map((item) => {
+                            const current = item.content_hash === skill.content_hash
+                            return (
+                              <li key={item.content_hash} data-current={current}>
+                                <span>
+                                  <b>v{item.version}</b>
+                                  <code>{item.content_hash.slice(0, 12)}</code>
+                                </span>
+                                {current ? (
+                                  <em>{t('Current version')}</em>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    disabled={Boolean(rollingBack)}
+                                    onClick={() => void restoreVersion(skill, item.content_hash)}
+                                  >
+                                    {rollingBack === item.content_hash ? t('Restoring…') : t('Restore')}
+                                  </button>
+                                )}
+                              </li>
+                            )
+                          })}
+                        </ol>
+                        <p>{t('Restored packages are reviewed again; current enablement is preserved.')}</p>
+                      </section>
                     )}
                   </div>
                 </article>

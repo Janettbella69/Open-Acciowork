@@ -13,7 +13,6 @@ function skill(name: string, description: string, enabled = true): SkillVersion 
     content_hash: 'a'.repeat(64),
     source: 'application',
     enabled,
-    path: `/plugin/skills/${name}/SKILL.md`,
   }
 }
 
@@ -108,5 +107,47 @@ describe('SkillsPage', () => {
     expect(calls.some((url) => url.includes(
       `/api/skills/${encodeURIComponent('ophira-core:supplier-due-diligence')}/enable?enabled=false`,
     ))).toBe(true)
+  })
+
+  it('lists immutable tenant versions and restores by unambiguous content hash', async () => {
+    const tenant: SkillVersion = {
+      ...skill('tenant-research', 'Tenant workflow.', false),
+      id: 'ophira-tenant:tenant-research',
+      namespace: 'ophira-tenant',
+      source: 'tenant',
+      version: '2.0.0',
+      content_hash: 'b'.repeat(64),
+    }
+    const first = { ...tenant, version: '1.0.0', content_hash: 'a'.repeat(64) }
+    const second = { ...tenant }
+    vi.mocked(fetch).mockImplementation(async (input, init) => {
+      const url = String(input)
+      if (url.endsWith('/api/skills') && !init?.method) return jsonResponse([tenant])
+      if (url.endsWith(
+        `/api/skills/${encodeURIComponent(tenant.id)}/versions`,
+      ) && !init?.method) return jsonResponse([first, second])
+      if (url.endsWith(
+        `/api/skills/${encodeURIComponent(tenant.id)}/rollback`,
+      ) && init?.method === 'POST') return jsonResponse({ ...first, enabled: false })
+      throw new Error(`Unexpected request: ${init?.method ?? 'GET'} ${url}`)
+    })
+
+    render(<SkillsPage />)
+    const card = (await screen.findByRole('heading', { name: /tenant research/i })).closest('article')!
+    fireEvent.click(within(card).getByRole('button', { name: /^versions$/i }))
+
+    expect(await within(card).findByText(/2 immutable versions/i)).toBeInTheDocument()
+    expect(within(card).getByText(/current version/i)).toBeInTheDocument()
+    fireEvent.click(within(card).getByRole('button', { name: /^restore$/i }))
+
+    await waitFor(() => {
+      const restored = within(card).getByText('v1.0.0').closest('li')!
+      expect(within(restored).getByText(/current version/i)).toBeInTheDocument()
+    })
+    const rollbackCall = vi.mocked(fetch).mock.calls.find(([request]) => (
+      String(request).endsWith(`/api/skills/${encodeURIComponent(tenant.id)}/rollback`)
+    ))
+    expect(rollbackCall?.[1]?.method).toBe('POST')
+    expect(JSON.parse(String(rollbackCall?.[1]?.body))).toEqual({ content_hash: 'a'.repeat(64) })
   })
 })

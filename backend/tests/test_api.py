@@ -1,4 +1,7 @@
 import asyncio
+import io
+import json
+import zipfile
 from pathlib import Path
 
 import pytest
@@ -33,6 +36,21 @@ class BlockingRuntime(FakeRuntime):
         await asyncio.Event().wait()
 
 
+def _skill_archive(version: str, body: str) -> bytes:
+    payload = io.BytesIO()
+    with zipfile.ZipFile(payload, "w") as archive:
+        archive.writestr(
+            "tenant-research/SKILL.md",
+            "---\n"
+            "name: tenant-research\n"
+            "description: Immutable tenant research method\n"
+            f"version: {version}\n"
+            "---\n"
+            f"{body}\n",
+        )
+    return payload.getvalue()
+
+
 @pytest.mark.asyncio
 async def test_runtime_provider_status_never_returns_the_key(tmp_path: Path) -> None:
     app = create_app(
@@ -64,7 +82,16 @@ async def test_project_run_and_protocol_api(tmp_path: Path) -> None:
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         response = await client.get("/api/meta/protocol")
         assert response.status_code == 200
-        assert "tool.started" in response.json()["event_types"]
+        protocol = response.json()
+        assert "tool.started" in protocol["event_types"]
+        assert protocol["commercial_review_decisions"] == ["approve", "reject"]
+        assert protocol["external_execution_statuses"] == ["not_executed"]
+        assert protocol["presentation_schema_versions"] == ["1"]
+        assert protocol["presentation_components"] == [
+            "evidence_comparison",
+            "decision_brief",
+            "artifact_list",
+        ]
 
         response = await client.post(
             "/api/projects",
@@ -156,3 +183,127 @@ async def test_binary_uploads_reject_declared_oversize_before_buffering(
         )
 
     assert response.status_code == 413
+
+
+@pytest.mark.asyncio
+async def test_skill_history_and_rollback_are_available_through_the_api(
+    tmp_path: Path,
+) -> None:
+    app = create_app(Settings(data_dir=tmp_path), runtime=FakeRuntime())
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        first = await client.post(
+            "/api/skills/install",
+            content=_skill_archive("1.0.0", "Use the first reviewed method."),
+            headers={"content-type": "application/zip"},
+        )
+        second = await client.post(
+            "/api/skills/install",
+            content=_skill_archive("2.0.0", "Use the second reviewed method."),
+            headers={"content-type": "application/zip"},
+        )
+        assert first.status_code == second.status_code == 201
+        assert "path" not in first.json()
+        assert "path" not in second.json()
+        skill_id = second.json()["id"]
+
+        history = await client.get(f"/api/skills/{skill_id}/versions")
+        assert history.status_code == 200
+        assert {(item["version"], item["content_hash"]) for item in history.json()} == {
+            ("1.0.0", first.json()["content_hash"]),
+            ("2.0.0", second.json()["content_hash"]),
+        }
+
+        restored = await client.post(
+            f"/api/skills/{skill_id}/rollback",
+            json={"content_hash": first.json()["content_hash"]},
+        )
+        assert restored.status_code == 200
+        assert restored.json()["version"] == "1.0.0"
+        assert restored.json()["content_hash"] == first.json()["content_hash"]
+        assert restored.json()["enabled"] is False
+
+        invalid = await client.post(
+            f"/api/skills/{skill_id}/rollback",
+            json={
+                "version": "1.0.0",
+                "content_hash": first.json()["content_hash"],
+            },
+        )
+        assert invalid.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_skill_history_api_distinguishes_input_conflict_and_integrity_errors(
+    tmp_path: Path,
+) -> None:
+    app = create_app(Settings(data_dir=tmp_path), runtime=FakeRuntime())
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        invalid_id = await client.get("/api/skills/not-a-skill-id/versions")
+        missing = await client.get("/api/skills/ophira-tenant:missing/versions")
+        application_conflict = await client.post(
+            "/api/skills/ophira-core:customer-path/rollback",
+            json={"version": "1.0.0"},
+        )
+
+        assert invalid_id.status_code == 400
+        assert missing.status_code == 404
+        assert application_conflict.status_code == 409
+
+        installed = await client.post(
+            "/api/skills/install",
+            content=_skill_archive("1.0.0", "Reviewed package."),
+            headers={"content-type": "application/zip"},
+        )
+        assert installed.status_code == 201
+        internal = app.state.skills.get(installed.json()["id"])
+        skill_path = Path(internal.path)
+
+        def tamper_history() -> None:
+            skill_path.chmod(0o644)
+            skill_path.write_text(
+                skill_path.read_text(encoding="utf-8") + "\ntampered after publish\n",
+                encoding="utf-8",
+            )
+
+        await asyncio.to_thread(tamper_history)
+        corrupted = await client.get(
+            f"/api/skills/{installed.json()['id']}/versions"
+        )
+
+    assert corrupted.status_code == 500
+    assert corrupted.json()["detail"] == "Skill registry integrity validation failed"
+    assert "path" not in corrupted.text
+
+
+@pytest.mark.asyncio
+async def test_skill_install_hides_corrupted_registry_state_details(tmp_path: Path) -> None:
+    app = create_app(Settings(data_dir=tmp_path), runtime=FakeRuntime())
+    app.state.skills.registry_state_path.write_text("[]\n", encoding="utf-8")
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post(
+            "/api/skills/install",
+            content=_skill_archive("1.0.0", "Reviewed package."),
+            headers={"content-type": "application/zip"},
+        )
+        app.state.skills.registry_state_path.write_text(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "enabled": {"ophira-tenant:ghost": False},
+                    "current": {"ophira-tenant:ghost": "0" * 64},
+                }
+            ),
+            encoding="utf-8",
+        )
+        missing_history = await client.post(
+            "/api/skills/ophira-tenant:ghost/enable"
+        )
+        invalid_test = await client.post("/api/skills/not-an-id/test")
+
+    assert response.status_code == 500
+    assert response.json()["detail"] == "Skill registry integrity validation failed"
+    assert str(tmp_path) not in response.text
+    assert missing_history.status_code == 500
+    assert missing_history.json()["detail"] == "Skill registry integrity validation failed"
+    assert invalid_test.status_code == 400

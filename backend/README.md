@@ -46,6 +46,21 @@ curl -X PUT http://127.0.0.1:8000/api/connectors/chrome_cdp \
 curl -X POST http://127.0.0.1:8000/api/connectors/chrome_cdp/health-check
 ```
 
+High-consequence commerce writes use `stage -> review -> apply`. The Agent may
+only stage a structured proposal through the in-process `stage_commercial_action`
+MCP tool, which binds the current project, run, and initialized SDK session on the
+server. There is deliberately no public HTTP stage endpoint. Review and apply exist
+only on the HTTP control plane and never execute an external mutation without a
+future connector adapter. Project/action reads remain available through HTTP.
+Those two endpoints require `X-Ophira-Authenticated-User`. Local direct access
+does not authenticate that header: production ingress must discard both it and
+`X-Ophira-Approval-Secret`, authenticate a human, then inject the user identity and
+the server-side gateway secret configured as `OPHIRA_COMMERCIAL_APPROVAL_SECRET`.
+The secret is shadowed out of Agent worker environments. If it is not configured,
+review/apply return `503`; direct clients without the correct secret return `401`.
+This shared-secret ingress contract is not itself an end-user identity provider or
+a production human-approval UI.
+
 Configure a model endpoint either via `backend/.env` (see `.env.example`; the values
 bootstrap an `environment` provider profile) or through the Settings page / Provider API,
 which stores profiles in `backend/data/providers/` and keys in the mode-0600 vault at

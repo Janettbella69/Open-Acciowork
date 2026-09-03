@@ -13,7 +13,6 @@ function skill(namespace: string, name: string, enabled = true): SkillVersion {
     content_hash: 'a'.repeat(64),
     source: 'application',
     enabled,
-    path: `/plugins/${namespace}/skills/${name}/SKILL.md`,
   }
 }
 

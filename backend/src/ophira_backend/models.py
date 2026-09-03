@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import math
 import posixpath
 from datetime import UTC, datetime
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 from urllib.parse import urlsplit
 from uuid import uuid4
 
-from pydantic import BaseModel, ConfigDict, Field, HttpUrl, model_validator
+from pydantic import BaseModel, ConfigDict, Field, HttpUrl, JsonValue, model_validator
 
 from .constants import (
     CLARIFYING_TOOL,
@@ -14,11 +15,15 @@ from .constants import (
     SHELL_BUILTIN_TOOLS,
     TOOL_ACT_ON_PAGE,
     AgentTemplate,
+    CommercialActionOperation,
+    CommercialActionStatus,
+    CommercialReviewDecision,
     DecisionStatus,
     Dimension,
     EvidenceKind,
     EvidenceSourceType,
     EvidenceStatus,
+    ExternalExecutionStatus,
     FeedbackKind,
     MemoryKind,
     MemoryOrigin,
@@ -46,6 +51,39 @@ def utc_now() -> datetime:
 
 def new_id(prefix: str) -> str:
     return f"{prefix}_{uuid4().hex}"
+
+
+def json_values_equal(left: object, right: object) -> bool:
+    """Compare JSON values without Python's bool/int type coercion."""
+
+    if isinstance(left, bool) or isinstance(right, bool):
+        return isinstance(left, bool) and isinstance(right, bool) and left == right
+    if isinstance(left, (int, float)) and isinstance(right, (int, float)):
+        return left == right
+    if type(left) is not type(right):
+        return False
+    if isinstance(left, dict) and isinstance(right, dict):
+        return left.keys() == right.keys() and all(
+            json_values_equal(value, right[key]) for key, value in left.items()
+        )
+    if isinstance(left, list) and isinstance(right, list):
+        return len(left) == len(right) and all(
+            json_values_equal(left_value, right_value)
+            for left_value, right_value in zip(left, right, strict=True)
+        )
+    return left == right
+
+
+def json_value_is_finite(value: object) -> bool:
+    """Return false for non-finite numbers anywhere in a JSON value."""
+
+    if isinstance(value, float):
+        return math.isfinite(value)
+    if isinstance(value, list):
+        return all(json_value_is_finite(item) for item in value)
+    if isinstance(value, dict):
+        return all(json_value_is_finite(item) for item in value.values())
+    return True
 
 
 class APIModel(BaseModel):
@@ -401,16 +439,37 @@ class Connector(APIModel):
     created_at: datetime = Field(default_factory=utc_now)
 
 
-class SkillVersion(APIModel):
-    id: str
-    namespace: str
-    name: str
-    description: str
-    version: str
-    content_hash: str
+class SkillVersionResponse(APIModel):
+    """Public Skill metadata; filesystem locations stay server-internal."""
+
+    id: str = Field(min_length=3, max_length=165)
+    namespace: str = Field(min_length=1, max_length=100)
+    name: str = Field(min_length=1, max_length=64)
+    description: str = Field(min_length=1, max_length=4_000)
+    version: str = Field(min_length=1, max_length=100)
+    content_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
     source: Literal["application", "tenant"] = "application"
     enabled: bool = True
-    path: str
+
+
+class SkillVersion(SkillVersionResponse):
+    """Registry-internal Skill metadata including its reviewed package path."""
+
+    path: str = Field(min_length=1, max_length=4_096)
+
+
+class SkillRollbackRequest(APIModel):
+    version: str | None = Field(default=None, min_length=1, max_length=100)
+    content_hash: str | None = Field(
+        default=None,
+        pattern=r"^[0-9a-f]{64}$",
+    )
+
+    @model_validator(mode="after")
+    def selects_one_immutable_version(self) -> SkillRollbackRequest:
+        if (self.version is None) == (self.content_hash is None):
+            raise ValueError("specify exactly one of version or content_hash")
+        return self
 
 
 class MemoryItem(APIModel):
@@ -629,6 +688,214 @@ class ScheduleCreate(APIModel):
         return self
 
 
+CommercialFieldPath = Annotated[
+    str,
+    Field(
+        min_length=1,
+        max_length=519,
+        pattern=r"^[A-Za-z][A-Za-z0-9_-]{0,63}(?:\.[A-Za-z][A-Za-z0-9_-]{0,63}){0,7}$",
+    ),
+]
+
+CommercialConnectorId = Annotated[
+    str,
+    Field(min_length=1, max_length=160, pattern=r"^[A-Za-z0-9_-]+$"),
+]
+
+
+class CommercialActionTarget(APIModel):
+    connector_id: CommercialConnectorId
+    resource_type: str = Field(min_length=1, max_length=160, pattern=r"^[A-Za-z0-9_-]+$")
+    resource_key: str = Field(min_length=1, max_length=500)
+    # A real adapter must compare this opaque version/ETag immediately before commit.
+    # For create operations callers use an explicit sentinel such as "absent".
+    expected_version: str = Field(min_length=1, max_length=500)
+
+
+class CommercialFieldChange(APIModel):
+    field: CommercialFieldPath
+    before: JsonValue
+    after: JsonValue
+
+    @model_validator(mode="after")
+    def changes_value(self) -> CommercialFieldChange:
+        if not json_value_is_finite(self.before) or not json_value_is_finite(self.after):
+            raise ValueError("commercial field changes require finite JSON numbers")
+        if json_values_equal(self.before, self.after):
+            raise ValueError("commercial field change must modify the value")
+        return self
+
+
+class CommercialActionStage(APIModel):
+    source_run_id: str = Field(min_length=1, max_length=160)
+    source_session_id: str = Field(min_length=1, max_length=500)
+    operation: CommercialActionOperation
+    target: CommercialActionTarget
+    observed_state: dict[str, JsonValue] = Field(default_factory=dict, max_length=200)
+    changes: list[CommercialFieldChange] = Field(min_length=1, max_length=100)
+    reason: str = Field(min_length=1, max_length=4_000)
+    expires_in_seconds: int = Field(default=86_400, ge=60, le=7 * 86_400)
+
+    @model_validator(mode="after")
+    def unique_changed_fields(self) -> CommercialActionStage:
+        if not json_value_is_finite(self.observed_state):
+            raise ValueError("commercial observed state requires finite JSON numbers")
+        fields = [change.field for change in self.changes]
+        if len(fields) != len(set(fields)):
+            raise ValueError("commercial action cannot change the same field twice")
+        return self
+
+
+class CommercialActionReviewRequest(APIModel):
+    decision: CommercialReviewDecision
+    reason: str = Field(min_length=1, max_length=4_000)
+    valid_for_seconds: int | None = Field(default=None, ge=60, le=7 * 86_400)
+
+    @model_validator(mode="after")
+    def approval_has_expiry(self) -> CommercialActionReviewRequest:
+        if self.decision == CommercialReviewDecision.APPROVE:
+            if self.valid_for_seconds is None:
+                raise ValueError("approved commercial actions require valid_for_seconds")
+        elif self.valid_for_seconds is not None:
+            raise ValueError("rejected commercial actions cannot have an approval expiry")
+        return self
+
+
+class CommercialActionApplyRequest(APIModel):
+    source_run_id: str = Field(min_length=1, max_length=160)
+    source_session_id: str = Field(min_length=1, max_length=500)
+    reason: str = Field(min_length=1, max_length=4_000)
+
+
+class CommercialActionReview(APIModel):
+    decision: CommercialReviewDecision
+    actor_id: str = Field(min_length=1, max_length=160)
+    reason: str = Field(min_length=1, max_length=4_000)
+    decided_at: datetime
+    valid_until: datetime | None = None
+
+
+class CommercialActionAuditEntry(APIModel):
+    event: Literal[
+        "staged",
+        "approved",
+        "rejected",
+        "expired",
+        "execution_requested",
+        "apply_idempotent",
+    ]
+    actor_id: str = Field(min_length=1, max_length=160)
+    reason: str = Field(min_length=1, max_length=4_000)
+    recorded_at: datetime
+
+
+class CommercialNumericLimit(APIModel):
+    field: CommercialFieldPath
+    minimum: float | None = Field(default=None, allow_inf_nan=False)
+    maximum: float | None = Field(default=None, allow_inf_nan=False)
+
+    @model_validator(mode="after")
+    def valid_range(self) -> CommercialNumericLimit:
+        if self.minimum is None and self.maximum is None:
+            raise ValueError("commercial numeric limit requires a minimum or maximum")
+        if (
+            self.minimum is not None
+            and self.maximum is not None
+            and self.minimum > self.maximum
+        ):
+            raise ValueError("commercial numeric limit minimum exceeds maximum")
+        return self
+
+
+class CommercialExecutionRequest(APIModel):
+    id: str = Field(max_length=200, pattern=r"^execution_[A-Za-z0-9_-]{40,}$")
+    action_id: str = Field(min_length=1, max_length=200)
+    project_id: str = Field(min_length=1, max_length=200)
+    source_run_id: str = Field(min_length=1, max_length=160)
+    source_session_id: str = Field(min_length=1, max_length=500)
+    requested_by: str = Field(min_length=1, max_length=160)
+    request_reason: str = Field(min_length=1, max_length=4_000)
+    requested_at: datetime
+    projected_state: dict[str, JsonValue]
+    expected_target_version: str
+    project_revision_checked: int = Field(ge=1)
+    project_constraints_checked: list[str] = Field(default_factory=list)
+    org_policy_updated_at: datetime
+    external_status: ExternalExecutionStatus = ExternalExecutionStatus.NOT_EXECUTED
+    adapter_required: Literal[True] = True
+    adapter_preconditions: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def finite_projected_state(self) -> CommercialExecutionRequest:
+        if not json_value_is_finite(self.projected_state):
+            raise ValueError("commercial projected state requires finite JSON numbers")
+        return self
+
+
+class CommercialActionRecord(APIModel):
+    id: str = Field(max_length=200, pattern=r"^action_[A-Za-z0-9_-]{40,}$")
+    project_id: str = Field(min_length=1, max_length=200)
+    source_run_id: str = Field(min_length=1, max_length=160)
+    source_session_id: str = Field(min_length=1, max_length=500)
+    staged_by: str = Field(min_length=1, max_length=160)
+    operation: CommercialActionOperation
+    target: CommercialActionTarget
+    observed_state: dict[str, JsonValue]
+    changes: list[CommercialFieldChange]
+    reason: str
+    project_revision_at_stage: int = Field(ge=1)
+    status: CommercialActionStatus = CommercialActionStatus.STAGED
+    review: CommercialActionReview | None = None
+    execution_request: CommercialExecutionRequest | None = None
+    history: list[CommercialActionAuditEntry] = Field(default_factory=list)
+    created_at: datetime
+    expires_at: datetime
+    updated_at: datetime
+
+    @model_validator(mode="after")
+    def coherent_transition_state(self) -> CommercialActionRecord:
+        if not json_value_is_finite(self.observed_state):
+            raise ValueError("commercial observed state requires finite JSON numbers")
+        if self.expires_at <= self.created_at or self.updated_at < self.created_at:
+            raise ValueError("commercial action timestamps are inconsistent")
+        if self.status == CommercialActionStatus.STAGED:
+            if self.review is not None or self.execution_request is not None:
+                raise ValueError("staged commercial action cannot contain review or execution")
+        elif self.status == CommercialActionStatus.APPROVED:
+            if (
+                self.review is None
+                or self.review.decision != CommercialReviewDecision.APPROVE
+                or self.review.valid_until is None
+                or self.execution_request is not None
+            ):
+                raise ValueError("approved commercial action has inconsistent review state")
+        elif self.status == CommercialActionStatus.REJECTED:
+            if (
+                self.review is None
+                or self.review.decision != CommercialReviewDecision.REJECT
+                or self.execution_request is not None
+            ):
+                raise ValueError("rejected commercial action has inconsistent review state")
+        elif self.status == CommercialActionStatus.EXECUTION_REQUESTED:
+            if (
+                self.review is None
+                or self.review.decision != CommercialReviewDecision.APPROVE
+                or self.execution_request is None
+            ):
+                raise ValueError("execution request must derive from an approval")
+            execution = self.execution_request
+            if (
+                execution.action_id != self.id
+                or execution.project_id != self.project_id
+                or execution.source_run_id != self.source_run_id
+                or execution.source_session_id != self.source_session_id
+            ):
+                raise ValueError("execution request scope does not match its staged action")
+        elif self.execution_request is not None:
+            raise ValueError("expired commercial action cannot contain an execution request")
+        return self
+
+
 class OrgPolicy(APIModel):
     permission_mode: PermissionModePolicy = PermissionModePolicy.DEFAULT
     allowed_provider_ids: list[str] = Field(default_factory=list)
@@ -637,7 +904,37 @@ class OrgPolicy(APIModel):
     computer_control_enabled: bool = False
     channel_delivery_enabled: bool = False
     domain_allowlist: list[str] = Field(default_factory=list)
+    # High-consequence commerce commits are default-deny. Enabling the feature still
+    # requires explicit operation and connector allowlists.
+    commercial_actions_enabled: bool = False
+    allowed_commercial_operations: list[CommercialActionOperation] = Field(
+        default_factory=list, max_length=20
+    )
+    allowed_commercial_connector_ids: list[CommercialConnectorId] = Field(
+        default_factory=list, max_length=100
+    )
+    commercial_max_changes_per_action: int = Field(default=20, ge=1, le=100)
+    commercial_forbidden_fields: list[CommercialFieldPath] = Field(
+        default_factory=list, max_length=100
+    )
+    commercial_numeric_limits: list[CommercialNumericLimit] = Field(
+        default_factory=list, max_length=100
+    )
     updated_at: datetime = Field(default_factory=utc_now)
+
+    @model_validator(mode="after")
+    def unique_commercial_policy_entries(self) -> OrgPolicy:
+        operation_values = list(self.allowed_commercial_operations)
+        if len(operation_values) != len(set(operation_values)):
+            raise ValueError("commercial operation allowlist contains duplicates")
+        if len(self.allowed_commercial_connector_ids) != len(
+            set(self.allowed_commercial_connector_ids)
+        ):
+            raise ValueError("commercial connector allowlist contains duplicates")
+        limit_fields = [limit.field for limit in self.commercial_numeric_limits]
+        if len(limit_fields) != len(set(limit_fields)):
+            raise ValueError("commercial numeric limits contain duplicate fields")
+        return self
 
 
 class FeedbackItem(APIModel):

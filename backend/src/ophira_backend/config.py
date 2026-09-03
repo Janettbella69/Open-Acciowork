@@ -87,6 +87,13 @@ class Settings(BaseSettings):
     channel_webhook_url: str | None = Field(default=None, max_length=2_000)
     feishu_encrypt_key: SecretStr | None = None
     feishu_bot_open_id: str | None = Field(default=None, max_length=160)
+    # Shared only with the trusted authentication gateway. It is deliberately
+    # shadowed out of every Claude Agent SDK worker environment.
+    commercial_approval_secret: SecretStr | None = Field(
+        default=None,
+        min_length=32,
+        max_length=512,
+    )
     # A bad credential can make the SDK hang instead of failing fast (observed with
     # DeepSeek + an invalid token in the 2026-08-20 contract run); preflight must
     # always come back with an actionable diagnosis (FR-06).
@@ -110,6 +117,7 @@ class Settings(BaseSettings):
         "claude_default_opus_model",
         "claude_subagent_model",
         "claude_effort_level",
+        "commercial_approval_secret",
         mode="before",
     )
     @classmethod

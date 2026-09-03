@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'r
 import Markdown from 'react-markdown'
 import {
   dimensions,
+  UI_PRESENTATION_EVENT,
   type FeedbackKind,
   type OpportunityProject,
   type OphiraEvent,
@@ -19,6 +20,7 @@ import { providerIsRunnable, providerUnavailableReason } from '../providerEligib
 import Brand from './Brand'
 import EvidenceDrawer from './EvidenceDrawer'
 import { PermissionDetails, PermissionQuestionCard } from './PermissionRequest'
+import PresentationCards, { extractPresentations } from './PresentationCards'
 import WorkspaceNav from './WorkspaceNav'
 import './workspace-composer.css'
 
@@ -334,7 +336,10 @@ export default function WorkspaceComposer({
       || assessment.gaps.length
     ))
   ))
-  const traceEvents = events.filter((event) => !event.type.endsWith('.delta') && !event.type.startsWith('assistant.reasoning'))
+  const traceEvents = events.filter((event) => !event.type.endsWith('.delta')
+    && !event.type.startsWith('assistant.reasoning')
+    && event.type !== UI_PRESENTATION_EVENT)
+  const presentations = extractPresentations(events)
   const startedAt = run?.started_at ? new Date(run.started_at).getTime() : run ? new Date(run.created_at).getTime() : clock
   const finishedAt = run?.finished_at ? new Date(run.finished_at).getTime() : clock
   const elapsed = formatDuration(finishedAt - startedAt)
@@ -735,6 +740,8 @@ export default function WorkspaceComposer({
                   </div>
                 )}
 
+                {!historyLoading && <PresentationCards presentations={presentations} />}
+
                 {historyLoading ? (
                   <div className="conversation-agent-waiting" role="status">
                     <i aria-hidden="true" />
@@ -749,7 +756,7 @@ export default function WorkspaceComposer({
                     <strong>{t('Run failed')}</strong>
                     <p>{run.error || t('The backend ended this run without a response.')}</p>
                   </div>
-                ) : (
+                ) : presentations.length === 0 ? (
                   <div className="conversation-agent-waiting" role="status">
                     {isActive && <i aria-hidden="true" />}
                     <p>{isActive
@@ -758,7 +765,7 @@ export default function WorkspaceComposer({
                         ? t('This run was cancelled.')
                         : t('Send a message to continue from this project.')}</p>
                   </div>
-                )}
+                ) : null}
 
                 {run && onRetry && (run.status === 'failed' || run.status === 'cancelled') && (
                   <section className="conversation-retry" aria-label={t('Retry this run')}>

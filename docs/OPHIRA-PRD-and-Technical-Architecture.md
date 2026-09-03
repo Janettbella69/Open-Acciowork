@@ -630,7 +630,7 @@ market_mcp = create_sdk_mcp_server(
 
 #### 工具数量与发现
 
-第一版只暴露高质量的 15–25 个领域工具。工具增加到约 30–50 个以上时再评估 Tool Search。第三方 Anthropic 兼容代理未必支持 `tool_reference` 等能力，因此每个 Provider Profile 必须声明是否通过 Tool Search 合约测试；未认证时保持关闭或使用精简 MCP 集，不得因此改成手写路由。[Tool Search](https://code.claude.com/docs/en/agent-sdk/tool-search)
+当前常量表登记 34 个领域工具，SDK 仍完整注入。真实 Provider 的 `tool_reference` / Tool Search 合约尚未完成兼容验收，因此未认证时保持关闭；继续扩展工具前，先完成 Provider 兼容测试，再按结果启用 Tool Search 或使用精简 MCP 集，不得因此改成手写路由。[Tool Search](https://code.claude.com/docs/en/agent-sdk/tool-search)
 
 ### 4.7 Skill 封装
 

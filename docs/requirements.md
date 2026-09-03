@@ -15,7 +15,7 @@ Updated: 2026-09-02
 | Deep Research | Exactly three read-only research subagents; one shared Run budget; unified cancellation; wall-clock timeout; no turn-count limit; only the main Agent writes project truth. |
 | Runtime | Claude Agent SDK remains the only core model runtime; direct model clients and hand-written tool loops are prohibited. |
 | Status semantics | “Implemented” means local code and automated-test coverage only. It does not prove a real Provider, browser, connector, IM channel, mobile push, media generator, or Office-rendering E2E. |
-| Current major gaps | Browser L1/L2 lack real-browser validation and L3 is absent; connectors lack business adapters; Feishu is inbound-only and WeChat is absent; mobile lacks authenticated pairing/push; standing intents lack an autonomous watcher; media lacks a configured real generator; Office lacks LibreOffice visual QA; Skills lack frozen historical packages and rollback. |
+| Current major gaps | Browser L1/L2 lack real-browser validation and L3 is absent; connectors lack business adapters; the commercial gate stops truthfully at a `not_executed` request and still needs a production identity/project-approver model plus approval UI before any real adapter; Feishu is inbound-only and WeChat is absent; mobile lacks authenticated pairing/push; standing intents lack an autonomous watcher; media lacks a configured real generator; Office lacks LibreOffice visual QA; real Provider Skill invocation still lacks a current Green Path proof even though immutable history and rollback are implemented locally. |
 
 Historical rows were removed from this file so search results cannot present superseded
 fixed-role Agents or obsolete delivery claims as current requirements. Git history remains the

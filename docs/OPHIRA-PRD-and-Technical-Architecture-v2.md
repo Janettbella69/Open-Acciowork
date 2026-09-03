@@ -89,7 +89,7 @@ OPHIRA 的核心产品场景是：让跨境小商家从任何一个模糊的全�
 - Provider Registry + 文件密钥库（0600/0700 + 原子写）+ SDK 预检（真实 `query()` 路径，断言 Skill 发现与 MCP health 调用）+ 8 类错误码分类已实现（`providers.py`）。
 - 凭据隔离：`ANTHROPIC_API_KEY`/`ANTHROPIC_AUTH_TOKEN`/`CLAUDE_CODE_OAUTH_TOKEN` 先置空再注入所选 Profile 唯一凭据；每 Profile 独立 `CLAUDE_CONFIG_DIR`（0700）；`CLAUDE_CODE_DISABLE_AUTO_MEMORY=1`、`CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`。
 - 权限双层防御：`can_use_tool`（写入 workspace 包含检查 + 禁 unsandboxed Bash）+ `PreToolUse` hook（敏感路径黑名单 `.env`/`credentials`/`secrets` 等；**读写围栏分开（v2.2）：Read/Glob/Grep 围栏=项目目录（含账本原始 JSON，兜住 MCP 接口外的意料之外分析），Write/Edit 围栏=工作区**）；沙箱内 Bash 自动批准（v2.2，SDK 原生默认）、逃逸沙箱永久拒绝；权限超时自动 deny。
-- 记忆提案—审批—回滚 + MEMORY.md 受控同步（注入上限 8 条/4000 字符）；Scheduler 后端完整（croniter + 时区 + missed-run 策略）；27 种 SSE 事件、单调 sequence、`Last-Event-ID` 续传、全量脱敏。
+- 记忆提案—审批—回滚 + MEMORY.md 受控同步（注入上限 8 条/4000 字符）；Scheduler 后端完整（croniter + 时区 + missed-run 策略）；32 种 SSE 事件、单调 sequence、`Last-Event-ID` 续传、全量脱敏。
 - `RunRecord` 固化 provider/skill/policy 快照，`extra="forbid"`；`Decision` 已通用化，四维降级为可选 `dimension` 标签（v1.1 目标达成）。
 
 **仍缺 / 风险：**
@@ -299,7 +299,7 @@ Accio 同时也**抬高了 table stakes**：权限四态与审计日志、分层
 - **证据抽屉**：来源、抓取时间、观察对象、引用位置、可信度和冲突。
 - **产物区**：报告、表格、文本、脚本和导出文件；支持版本与下载。
 - **项目记录**：目标、已确认约束、决策、开放问题和经批准的记忆。
-- **Skills**：已安装能力、适用场景、来源、启停与测试；当前有哈希快照但无历史包冻结/回滚。
+- **Skills**：已安装能力、适用场景、来源、启停、测试、不可变版本历史与人工回滚；Run 使用内容哈希快照和只读运行时视图。
 - **自动化**：已连接后端计划任务、standing intent 和通知收件箱；自主 watcher 与真实渠道投递仍缺。
 - **设置**：已有 Provider、Key、连接器与组织策略控制面；真实业务适配器、移动配对和桌面桥仍缺。
 
@@ -309,7 +309,7 @@ Accio 同时也**抬高了 table stakes**：权限四态与审计日志、分层
 
 - Claude Agent SDK 单主 Agent 运行时、原生工具集、会话/SSE/取消/恢复、项目工作区及本地权限治理已有代码与自动化测试；尚无本次审计可采信的真实 Provider Green Path。
 - Provider Registry、密钥库、SDK 路径预检、设置界面和错误分类已实现本地闭环；真实厂商兼容性仍须逐一验证。
-- Skills、领域 MCP、证据/决策/Artifact 账本、Evidence Drawer、记忆提案与审批已有实现；Skill 历史包冻结和版本回滚仍缺。
+- Skills、领域 MCP、证据/决策/Artifact 账本、Evidence Drawer、记忆提案与审批已有实现；Skill 历史包冻结、配额、运行时租约和版本回滚已有本地代码/测试。
 - Scheduler、自动化 MCP、通知收件箱和前端管理面已有实现切片；真实渠道投递、凭据失效闭环和自主条件 watcher 尚未完成。
 - 普通模式采用 2026-08-24 终版边界：一个主 Agent 负责，可极少调用 SDK 原生一次性只读支线，支线不得写账本或提交自动化承诺；Deep Research 为 3 个只读研究子代理，共享预算、统一取消、受墙钟时限约束且不设轮数上限。
 - **Green Path 与 Provider 合约仍不能以单元测试替代**；§3.8 的“已实现”仅指本地代码和自动化测试覆盖。
@@ -358,7 +358,7 @@ Accio 同时也**抬高了 table stakes**：权限四态与审计日志、分层
 | FR-09 | P0 | 证据账本 | Evidence/Artifact 带来源、时间、类型、置信度与来源运行；UI 可审查 | **已实现**（本地代码/测试） |
 | FR-10 | P0 | 结论可追溯 | Decision 回链证据；证据失效时联动标记受影响结论 | **已实现**（本地代码/测试） |
 | FR-11 | P0 | MCP 领域工具 | 台账、供应商、客户、商业计算等工具返回结构化结果与明确错误 | **部分实现**：确定性工具与数据加工切片存在；供应商/客户等尚无真实业务数据适配器，不能宣称实时业务数据 |
-| FR-12 | P0 | Skills | `SKILL.md` 可发现、启停、测试并由 Run 固化版本 | **部分实现**：发现、启停、测试、内容哈希和 Run 快照已实现；没有可恢复的历史包冻结与版本回滚 |
+| FR-12 | P0 | Skills | `SKILL.md` 可发现、启停、测试并由 Run 固化版本 | **已实现**（本地代码/测试）：不可变内容寻址历史、存储配额、Run 快照、只读运行时物化、活跃会话租约与人工回滚均已接通；不等同于真实 Provider Skill 调用 E2E |
 | FR-13 | P0 | 权限 | 路径/工具/副作用策略、once/run/persistent 授权、删除强制确认、Auto 模式和审计 | **已实现**（本地代码/测试） |
 | FR-14 | P0 | 记忆 | 仅提案可进入稳定记忆；审批、撤回、来源、容量与当前运行蒸馏受控 | **已实现**（本地代码/测试；不等同于真实模型质量验证） |
 | FR-15 | P0 | 自动化与主动链路 | 计划任务、错过运行/重叠治理、静默结果、通知收件箱和渠道投递 | **部分实现**：Scheduler、API/UI、自动化 MCP 和收件箱存在；真实渠道投递及凭据失效通知闭环未验证 |
@@ -615,12 +615,14 @@ v2.0 增补建议（不改变红线，按需采纳）：
 | `ophira_browser` | `snapshot_page`、`act_on_page`；OrgPolicy 门禁、L1/L2、安全导航和截图账本 | 真实浏览器验证与 L3 | 读取按域策略；动作需治理 |
 | `ophira_automation` | 计划创建/暂停、standing intent 管理/触发、通知写入 | 自主 watcher 与真实渠道投递 | 创建承诺/外发需授权；支线 Agent 禁用 |
 | `ophira_media` | `generate_media` 通用安全接入并注册 Artifact/Evidence 关联 | 配置并认证真实图像/视频生成商 | 下载与落盘受大小、类型、URL 和路径约束 |
+| `ophira_presentation` | 证据比较、决策摘要和 Artifact 清单；模型只选已有 ID，服务端关联账本事实并签发 `ui.presentation` | 更多版本化 UI 组件 | 只读；外部文本统一清洗，客户端再做严格 schema/project/origin 校验 |
+| `ophira_commercial_actions` | 仅提供 `stage_commercial_action`；项目、Run 和 SDK session 由服务端注入 | 真实适配器、项目角色授权与审批 UI | 高后果；review/apply 只在 HTTP 人审面，当前 apply 仅生成 `not_executed` execution request |
 
 \* 仅当注入 MemoryProvider 时注册。
 
 工具设计规则（维持 v1.1 全部 8 条）：动词命名、一工具一动作、不返回"下一步该调什么"；严格 schema；读取结果必须含 `source_url/source_id`、`retrieved_at`、适用市场和数据新鲜度；确定性结果代码可复算；副作用带 `idempotency_key` 与预览；只接收密钥引用；结构化错误 + `isError`；输出限体积、大表走 Artifact 引用。
 
-工具数量与发现：第一版 15–25 个高质量领域工具；增至 30–50 个以上再评估 Tool Search；第三方端点未必支持 `tool_reference`，Provider Profile 必须声明是否通过 Tool Search 合约测试，未认证保持关闭。
+工具数量与发现：当前常量表登记 34 个领域工具，SDK 仍完整注入；真实 Provider 的 `tool_reference` / Tool Search 合约尚未完成兼容验收，因此未认证时保持关闭。继续扩展工具前，先完成 Provider 兼容测试，再按结果启用 Tool Search 或按领域精简注入集合。
 
 ### 4.7 Skill 封装
 
@@ -640,7 +642,7 @@ ophira-capabilities/
 
 **发现边界（v2.0 明确）**：`setting_sources=[]` 时文件系统 skills（`~/.claude/skills`、`./.claude/skills`）**不会**被发现——这是隔离设计的预期行为；应用 Skills 必须且只能经 `plugins` 装载。预检已断言 `ophira-core:global-opportunity-execution` 出现在 SystemMessage 的 skills 清单中，该断言保留为回归防线。SDK 场景下 SKILL.md 的 `allowed-tools` frontmatter 不承担权限强制，权限一律在顶层 options 与回调控制。
 
-目标 Skill 生命周期维持 v1.1：Draft → Review → Publish（不可变版本）→ Enable → Observe → Rollback。**2026-09-02 实现边界**：当前已有发现、启停、测试、安全校验、内容哈希和 Run 快照；Run 快照记录身份/哈希，但没有保存可恢复的历史 Skill 包，因此尚不具备历史快照冻结或版本回滚。用户自定义 Skill 的版本化、只读挂载和回滚仍是目标能力。
+Skill 生命周期维持 v1.1：Draft → Review → Publish（不可变版本）→ Enable → Observe → Rollback。**2026-09-02 实现边界**：当前已有发现、启停、确定性测试、安全校验、内容寻址的不可变历史、历史与运行时配额、原子 current pointer、Run 快照、只读运行时物化、跨进程活跃会话租约和人工回滚。回滚会重新审查目标包并保留当前启用状态；新版本发布后默认禁用。真实 Provider 是否能完整发现并调用这些 Skill 仍必须通过独立 Green Path 验收。
 
 #### Skills 与 Plugins 的品类对照与 v2.1 口径
 
@@ -755,7 +757,7 @@ Prompt Injection 防线维持 v1.1：外部内容一律标记为不可信数据�
 
 ### 4.12 事件协议与可观测性
 
-现状 27 种 SSE 事件（run 8 / assistant 5 / tool 5 / permission 3 / subagent+task 4 / 系统 5），单调 `sequence`，`Last-Event-ID` 续传，事件写入先于推送，全量 `redact()` 脱敏（canary 测试口径保留）。每条事件带 `event_id/occurred_at/project_id/run_id/trace_id/sdk_session_id/provider_profile_id`。
+现状 32 种 SSE 事件，具体名称由 `GET /api/meta/protocol` 提供；事件具有单调 `sequence`，支持 `Last-Event-ID` 续传，先持久化再推送，并全量通过 `redact()` 脱敏（canary 测试口径保留）。每条事件带 `id/timestamp/project_id/run_id/trace_id/sdk_session_id/provider_profile_id`。
 
 v1.1 规划仍缺的事件：`artifact.updated`、`evidence.added`、`decision.recorded`、`memory.proposed`、`provider.preflight.started/passed/failed` 细分、`schedule.skipped/completed/failed` 细分——随对应 UI 落地补齐。UI 不展示私有思维链；Provider 提供的公开 reasoning summary（现配置 `display:"summarized"`）按普通内容安全过滤并明确标识。指标管道可选接官方 OTel 导出。
 
@@ -774,9 +776,10 @@ v1.1 规划仍缺的事件：`artifact.updated`、`evidence.added`、`decision.r
 | 🚧 部分实现 | Provider | Registry、Vault、隔离环境、预检、设置 UI 和错误分类已实现；真实 Provider 兼容矩阵与 Green Path 未在本次审计验证 |
 | 🚧 部分实现 | Browser | L1/L2 后端、域策略、SSRF/重定向防护、截图证据与 Chrome Connector 门禁已实现；未做真实浏览器验证；L3 未实现 |
 | 🚧 部分实现 | Connectors/Channels | Connector catalog/vault/health/revoke 和飞书安全入站存在；没有真实业务连接器，飞书无回复闭环，微信未实现 |
+| 🚧 部分实现 | Commercial actions | 主 Agent 内 stage、HTTP 双头 review/apply、策略重检、跨进程原子审计和幂等 execution request 已实现；当前始终 `not_executed`，接真实适配器前仍缺生产身份/项目审批角色模型与审批 UI |
 | 🚧 部分实现 | 主动与移动 | Scheduler、自动化 MCP、standing intent 数据模型/约束、Inbox、移动响应式控制面存在；无自主 watcher、认证配对和推送 |
 | 🚧 部分实现 | Media/Office | 媒体安全接入与台账关联、Office 文件结构验证存在；无已配置真实媒体生成商，也无 LibreOffice 可视 QA |
-| 🚧 部分实现 | Skills | 发现、启停、测试、安全校验、内容哈希和 Run 快照存在；无历史包冻结和版本回滚 |
+| ✅ 本地实现 | Skills | 发现、启停、测试、安全校验、内容寻址历史、存储配额、Run 快照、只读运行时物化、活跃会话租约和人工回滚均有本地测试；真实 Provider Skill 调用 E2E 仍未证明 |
 | ❌ 未证明 | 生产 E2E | 本地测试不能证明真实模型、真实浏览器、真实渠道、真实连接器或真实生成商可用；所有上线声明仍须独立验收 |
 
 ### 4.15 API 增量（对齐实际实现）
@@ -814,7 +817,7 @@ v1.1 规划仍缺的事件：`artifact.updated`、`evidence.added`、`decision.r
 2. **P0-2**：验证文件/Web/Skill/MCP/Bash/Write/Edit、权限 ask/deny/continue、SSE 重连与会话恢复全链路；若普通模式出现支线，只允许 SDK 原生一次性只读支线并断言无账本写入/自动化承诺。
 3. **P0-3**：建立首批 Provider 合约报告，包含模型身份、工具、Web/视觉能力、错误映射、费用与会话续接；能力字段只写实测结果。
 4. **P0-4**：在真实浏览器上验证 L1/L2 的导航、重定向、Service Worker、域策略、截图与清理；L3 另行实现，不能借 L1/L2 后端代码宣称三级完成。
-5. **P0-5**：对 DOCX/XLSX/PPTX 增加 LibreOffice 渲染/目视 QA；为 Skill 增加可恢复历史包和版本回滚。
+5. **P0-5**：对 DOCX/XLSX/PPTX 增加 LibreOffice 渲染/目视 QA；在真实 Provider Green Path 中验收不可变 Skill 快照的发现、调用和回滚后重跑。
 
 完成门槛（不变）：同一主 Agent 在隔离样例项目中搜索网页、读文件、运行计算脚本、写/改产物、调用 Skill/MCP，并按要求请求授权；过程中没有普通 Client SDK 或工作流框架。
 
@@ -833,7 +836,7 @@ v1.1 规划仍缺的事件：`artifact.updated`、`evidence.added`、`decision.r
 - 为已有 standing intent 增加自主 watcher，并验证通知收件箱/真实渠道投递。
 - 补齐飞书回复和权限卡片，再实现微信；移动控制面增加认证配对、设备信任和推送。
 - 把已实现的 L1/L2 后端接入真实浏览器测试；实现 L3 所需桌面宿主与 OS 权限治理。
-- 为 Connector 接入真实业务适配器；为 Skill Registry 增加历史快照冻结与回滚。
+- 为 Connector 接入真实业务适配器；为 Skill Registry 增加生产级备份、恢复演练与更细粒度审计。
 
 ### Phase 4：Deep Research 正式化与组织治理
 

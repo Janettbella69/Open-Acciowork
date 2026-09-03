@@ -1,6 +1,11 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { AgentProfile, ProtocolMetadata } from '../api/types'
+import {
+  presentationComponents,
+  presentationSchemaVersions,
+  type AgentProfile,
+  type ProtocolMetadata,
+} from '../api/types'
 import AgentsPage from './AgentsPage'
 
 vi.mock('../api/client', () => ({
@@ -21,8 +26,20 @@ const protocol = {
   dimensions: [],
   project_stages: [],
   permission_decisions: [],
+  permission_modes: [],
+  schedule_kinds: [],
+  feedback_kinds: [],
   agent_templates: ['general', 'research', 'sourcing', 'marketing', 'docs', 'opportunity'],
-} as ProtocolMetadata
+  memory_scopes: [],
+  memory_statuses: [],
+  missed_run_policies: [],
+  commercial_action_operations: [],
+  commercial_action_statuses: [],
+  commercial_review_decisions: [],
+  external_execution_statuses: [],
+  presentation_schema_versions: [...presentationSchemaVersions],
+  presentation_components: [...presentationComponents],
+} satisfies ProtocolMetadata
 
 const personalAgent: AgentProfile = {
   id: 'agent_research',

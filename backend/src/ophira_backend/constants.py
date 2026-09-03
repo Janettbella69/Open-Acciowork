@@ -132,6 +132,7 @@ class EventType(StrEnum):
     RUN_RESULT = "run.result"
 
     ARTIFACT_REGISTERED = "artifact.registered"
+    UI_PRESENTATION = "ui.presentation"
     PROVIDER_PREFLIGHT = "provider.preflight"
 
     SCHEDULE_FIRED = "schedule.fired"
@@ -212,6 +213,38 @@ class MissedRunPolicy(StrEnum):
     SKIP = "skip"
 
 
+class CommercialActionOperation(StrEnum):
+    """High-consequence commerce mutations that must use the staged-action gate."""
+
+    CREATE_RESOURCE = "create_resource"
+    UPDATE_RESOURCE = "update_resource"
+    DELETE_RESOURCE = "delete_resource"
+    ADJUST_INVENTORY = "adjust_inventory"
+    CHANGE_PRICE = "change_price"
+    SEND_MESSAGE = "send_message"
+    PUBLISH_CONTENT = "publish_content"
+    COMMIT_SPEND = "commit_spend"
+
+
+class CommercialActionStatus(StrEnum):
+    STAGED = "staged"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+    EXPIRED = "expired"
+    EXECUTION_REQUESTED = "execution_requested"
+
+
+class CommercialReviewDecision(StrEnum):
+    APPROVE = "approve"
+    REJECT = "reject"
+
+
+class ExternalExecutionStatus(StrEnum):
+    """No adapter currently advances an action beyond this truthful state."""
+
+    NOT_EXECUTED = "not_executed"
+
+
 LEDGER_MCP_SERVER_NAME = "ophira_ledger"
 SUPPLIER_MCP_SERVER_NAME = "ophira_supplier"
 CUSTOMER_MCP_SERVER_NAME = "ophira_customer"
@@ -221,6 +254,8 @@ AUTOMATION_MCP_SERVER_NAME = "ophira_automation"
 COMPLIANCE_MCP_SERVER_NAME = "ophira_compliance"
 BROWSER_MCP_SERVER_NAME = "ophira_browser"
 MEDIA_MCP_SERVER_NAME = "ophira_media"
+PRESENTATION_MCP_SERVER_NAME = "ophira_presentation"
+COMMERCIAL_ACTION_MCP_SERVER_NAME = "ophira_commercial_actions"
 HEARTBEAT_OK = "HEARTBEAT_OK"
 PERSISTENT_GRANT_DAYS = 30
 APPROVED_MEMORY_CAP = 32
@@ -252,6 +287,14 @@ TOOL_LOOKUP_REQUIREMENTS = "mcp__ophira_compliance__lookup_requirements"
 TOOL_SNAPSHOT_PAGE = "mcp__ophira_browser__snapshot_page"
 TOOL_ACT_ON_PAGE = "mcp__ophira_browser__act_on_page"
 TOOL_GENERATE_MEDIA = "mcp__ophira_media__generate_media"
+TOOL_PRESENT_EVIDENCE_COMPARISON = (
+    "mcp__ophira_presentation__present_evidence_comparison"
+)
+TOOL_PRESENT_DECISION_BRIEF = "mcp__ophira_presentation__present_decision_brief"
+TOOL_PRESENT_ARTIFACTS = "mcp__ophira_presentation__present_artifacts"
+TOOL_STAGE_COMMERCIAL_ACTION = (
+    "mcp__ophira_commercial_actions__stage_commercial_action"
+)
 
 LEDGER_TOOL_NAMES = [
     TOOL_GET_PROJECT_CONTEXT,
@@ -288,6 +331,16 @@ BROWSER_TOOL_NAMES = [
 
 MEDIA_TOOL_NAMES = [
     TOOL_GENERATE_MEDIA,
+]
+
+PRESENTATION_TOOL_NAMES = [
+    TOOL_PRESENT_EVIDENCE_COMPARISON,
+    TOOL_PRESENT_DECISION_BRIEF,
+    TOOL_PRESENT_ARTIFACTS,
+]
+
+COMMERCIAL_ACTION_TOOL_NAMES = [
+    TOOL_STAGE_COMMERCIAL_ACTION,
 ]
 
 WEB_TOOL_NAMES = [
@@ -329,6 +382,8 @@ OPHIRA_TOOL_NAMES = [
     *AUTOMATION_TOOL_NAMES,
     *BROWSER_TOOL_NAMES,
     *MEDIA_TOOL_NAMES,
+    *PRESENTATION_TOOL_NAMES,
+    *COMMERCIAL_ACTION_TOOL_NAMES,
 ]
 
 READ_ONLY_MCP_TOOL_NAMES = [
@@ -343,6 +398,7 @@ READ_ONLY_MCP_TOOL_NAMES = [
     TOOL_SENSITIVITY_TABLE,
     TOOL_LOOKUP_REQUIREMENTS,
     TOOL_SNAPSHOT_PAGE,
+    *PRESENTATION_TOOL_NAMES,
     # FR-23 fallback retrieval: public read-only, same trust level as native Web tools.
     *WEB_TOOL_NAMES,
 ]

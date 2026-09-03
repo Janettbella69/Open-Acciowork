@@ -284,6 +284,20 @@ export function setSkillEnabled(skillId: string, enabled: boolean): Promise<Skil
   )
 }
 
+export function listSkillVersions(skillId: string): Promise<SkillVersion[]> {
+  return request<SkillVersion[]>(`/api/skills/${encodeURIComponent(skillId)}/versions`)
+}
+
+export function rollbackSkill(
+  skillId: string,
+  selection: { version?: string; content_hash?: string },
+): Promise<SkillVersion> {
+  return request<SkillVersion>(`/api/skills/${encodeURIComponent(skillId)}/rollback`, {
+    method: 'POST',
+    body: JSON.stringify(selection),
+  })
+}
+
 export function listSchedules(): Promise<Schedule[]> {
   return request<Schedule[]>('/api/schedules')
 }

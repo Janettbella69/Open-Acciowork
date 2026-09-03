@@ -22,9 +22,13 @@ from .connectors import ConnectorRegistry, ConnectorUnavailableError
 from .constants import BROWSER_MCP_SERVER_NAME, EvidenceKind, EvidenceSourceType
 from .models import Evidence, OrgPolicy
 from .storage import FileLedger
+from .untrusted import (
+    UNTRUSTED_DATA_NOTICE,
+    UntrustedSource,
+    sanitize_untrusted_payload,
+)
 from .web_tools import check_public_http_url
 
-_MAX_EXCERPT_CHARS = 4_000
 _BLOCK_SERVICE_WORKER_REGISTRATION = """
 (() => {
   const prototype = globalThis.ServiceWorkerContainer?.prototype;
@@ -532,7 +536,7 @@ async def _playwright_capture(
                     )
 
                 title = await page.title()
-                excerpt = (await page.inner_text("body"))[:_MAX_EXCERPT_CHARS]
+                excerpt = await page.inner_text("body")
                 await page.screenshot(path=str(screenshot), full_page=True)
                 if service_worker_detected:
                     return _service_worker_error(len(service_worker_detected))
@@ -656,6 +660,26 @@ def _record_capture(
     return {**capture, "artifact_id": artifact.id, "evidence_id": evidence.id}
 
 
+def _sanitize_capture(capture: dict[str, Any]) -> dict[str, Any]:
+    """Apply the shared external-data boundary before ledger or MCP exposure."""
+    external_fields = {
+        key: capture[key]
+        for key in ("title", "excerpt")
+        if isinstance(capture.get(key), str)
+    }
+    if not external_fields:
+        return capture
+    sanitized = sanitize_untrusted_payload(external_fields, UntrustedSource.BROWSER_PAGE)
+    result = {
+        **capture,
+        **sanitized.value,
+        "untrusted": True,
+        "truncated": bool(capture.get("truncated")) or sanitized.truncated,
+    }
+    result["note"] = UNTRUSTED_DATA_NOTICE
+    return {"note": UNTRUSTED_DATA_NOTICE, **result}
+
+
 def build_browser_tools(
     ledger: FileLedger,
     project_id: str,
@@ -707,6 +731,7 @@ def build_browser_tools(
             selector=args.get("selector"),
             value=args.get("value"),
         )
+        capture = _sanitize_capture(capture)
         if capture.get("screenshot_path"):
             try:
                 capture = _record_capture(ledger, project_id, run_id, capture)

@@ -90,6 +90,7 @@ def test_single_agent_options_gate_write_tools_and_pass_resume(tmp_path: Path) -
         "Start",
         agent_id=agent.id,
         resume_session_id="session-abc",
+        skill_snapshot=runtime.skills.snapshot(),
     )
 
     options = runtime._build_options(run)
@@ -103,9 +104,11 @@ def test_single_agent_options_gate_write_tools_and_pass_resume(tmp_path: Path) -
     assert options.disallowed_tools == []
     assert options.system_prompt["preset"] == "claude_code"
     assert "安全政策" in options.system_prompt["append"]
-    assert options.plugins[0]["path"].endswith("ophira-capabilities")
-    assert options.plugins[1]["path"].endswith("skills/tenant-plugin")
-    assert options.skills == "all"
+    assert len(options.plugins) == 1
+    assert "/skills/runtime/" in options.plugins[0]["path"]
+    assert options.plugins[0]["path"].endswith("ophira-core")
+    assert isinstance(options.skills, list)
+    assert len(options.skills) == 13
     assert options.enable_file_checkpointing is True
 
 

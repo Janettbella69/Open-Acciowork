@@ -266,6 +266,14 @@ async def test_subagent_ledger_writes_are_denied_code_level(tmp_path: Path) -> N
         ("Edit", {"file_path": "report.md", "old_string": "x", "new_string": "y"}),
         ("Delete", {"path": "report.md"}),
         ("Bash", {"command": "printf safe"}),
+        (
+            "mcp__ophira_presentation__present_evidence_comparison",
+            {"title": "Signals", "evidence_ids": ["ev_1"]},
+        ),
+        (
+            "mcp__ophira_commercial_actions__stage_commercial_action",
+            {"operation": "change_price"},
+        ),
         ("mcp__third_party__create_issue", {"title": "write"}),
     ):
         result = await options.can_use_tool(

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hmac
 import json
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -30,14 +31,27 @@ from .channels import (
     to_inbound,
     verify_feishu_signature,
 )
+from .commercial_actions import (
+    CommercialActionConflictError,
+    CommercialActionIntegrityError,
+    CommercialActionNotFoundError,
+    CommercialActionPolicyError,
+    CommercialActionScopeError,
+    CommercialActionService,
+    validate_human_actor,
+)
 from .config import Settings, get_settings
 from .connectors import ConnectorNotFoundError, ConnectorRegistry
 from .constants import (
     AgentTemplate,
+    CommercialActionOperation,
+    CommercialActionStatus,
+    CommercialReviewDecision,
     Dimension,
     EventType,
     EvidenceKind,
     EvidenceStatus,
+    ExternalExecutionStatus,
     FeedbackKind,
     MemoryScope,
     MemorySource,
@@ -60,6 +74,9 @@ from .models import (
     AgentProfile,
     AgentUpdate,
     Artifact,
+    CommercialActionApplyRequest,
+    CommercialActionRecord,
+    CommercialActionReviewRequest,
     Connector,
     ConnectorUpsert,
     ConstraintAppend,
@@ -89,23 +106,69 @@ from .models import (
     Schedule,
     ScheduleCreate,
     ScheduleUpdate,
+    SkillRollbackRequest,
     SkillTestResult,
     SkillVersion,
+    SkillVersionResponse,
     StandingIntent,
     StandingIntentCreate,
     utc_now,
 )
 from .permissions import PermissionBroker, PermissionNotFoundError
 from .policy import OrgPolicyStore, PolicyDeniedError
+from .presentation_tools import PRESENTATION_COMPONENTS, PRESENTATION_SCHEMA_VERSION
 from .providers import FileSecretVault, ProviderNotFoundError, ProviderRegistry
 from .runs import AgentRuntime, RunManager, RunRetryConflictError
 from .scheduler import ScheduleService, ScheduleValidationError, compute_next_fire, new_schedule
 from .sdk_adapter import ClaudeAgentRuntime
-from .skills import MAX_SKILL_ARCHIVE_BYTES, SkillNotFoundError, SkillRegistry
+from .skills import (
+    MAX_SKILL_ARCHIVE_BYTES,
+    SkillConflictError,
+    SkillIdentifierError,
+    SkillIntegrityError,
+    SkillNotFoundError,
+    SkillRegistry,
+)
 from .storage import FileLedger, LedgerNotFoundError
 from .templates import TEMPLATE_SPECS
 
 MAX_PROJECT_UPLOAD_BYTES = 50 * 1024 * 1024
+
+
+def _require_authenticated_user(
+    value: str | None,
+    provided_secret: str | None,
+    settings: Settings,
+) -> str:
+    """Resolve a user identity asserted by the trusted HTTP control plane.
+
+    These endpoints are intentionally absent from Agent/MCP tools. Deployments must
+    strip this header at ingress and set it only after user authentication.
+    """
+
+    configured_secret = settings.commercial_approval_secret
+    if configured_secret is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="commercial action approval gateway is not configured",
+        )
+    expected_secret = configured_secret.get_secret_value()
+    if provided_secret is None or not hmac.compare_digest(
+        provided_secret.encode("utf-8"), expected_secret.encode("utf-8")
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="trusted approval gateway authentication failed",
+        )
+    if value is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="authenticated user confirmation is required",
+        )
+    try:
+        return validate_human_actor(value)
+    except CommercialActionScopeError as exc:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
 
 
 async def _read_bounded_body(
@@ -148,6 +211,11 @@ def create_app(
     grants = PermissionGrantStore(settings.data_dir / "grants")
     policy = OrgPolicyStore(settings.data_dir / "org" / "policy.json")
     feedback = FeedbackStore(settings.data_dir / "feedback")
+    commercial_actions = CommercialActionService(
+        settings.data_dir / "commercial-actions",
+        ledger=ledger,
+        policy=policy,
+    )
     channel_replays = ChannelReplayGuard(settings.data_dir / "channels" / "replays.json")
     permissions = PermissionBroker(
         ledger,
@@ -176,6 +244,7 @@ def create_app(
         notifications=notifications,
         connectors=connectors,
         policy=policy,
+        commercial_actions=commercial_actions,
     )
     runs = RunManager(
         ledger,
@@ -214,6 +283,7 @@ def create_app(
     application.state.grants = grants
     application.state.policy = policy
     application.state.feedback = feedback
+    application.state.commercial_actions = commercial_actions
     application.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,
@@ -248,6 +318,18 @@ def create_app(
             "memory_scopes": [item.value for item in MemoryScope],
             "memory_statuses": [item.value for item in MemoryStatus],
             "missed_run_policies": [item.value for item in MissedRunPolicy],
+            "commercial_action_operations": [
+                item.value for item in CommercialActionOperation
+            ],
+            "commercial_action_statuses": [item.value for item in CommercialActionStatus],
+            "commercial_review_decisions": [
+                item.value for item in CommercialReviewDecision
+            ],
+            "external_execution_statuses": [
+                item.value for item in ExternalExecutionStatus
+            ],
+            "presentation_schema_versions": [PRESENTATION_SCHEMA_VERSION],
+            "presentation_components": list(PRESENTATION_COMPONENTS),
         }
 
     @application.post(
@@ -268,6 +350,112 @@ def create_app(
             return ledger.get_project(project_id)
         except (LedgerNotFoundError, ValueError) as exc:
             raise HTTPException(status_code=404, detail="Project not found") from exc
+
+    @application.get(
+        "/api/projects/{project_id}/commercial-actions",
+        response_model=list[CommercialActionRecord],
+    )
+    async def list_commercial_actions(project_id: str) -> list[CommercialActionRecord]:
+        try:
+            return commercial_actions.list(project_id)
+        except CommercialActionNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except CommercialActionIntegrityError as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    @application.get(
+        "/api/projects/{project_id}/commercial-actions/{action_id}",
+        response_model=CommercialActionRecord,
+    )
+    async def get_commercial_action(
+        project_id: str,
+        action_id: str,
+    ) -> CommercialActionRecord:
+        try:
+            return commercial_actions.get(project_id, action_id)
+        except CommercialActionNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except CommercialActionIntegrityError as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    @application.post(
+        "/api/projects/{project_id}/commercial-actions/{action_id}/review",
+        response_model=CommercialActionRecord,
+    )
+    async def review_commercial_action(
+        project_id: str,
+        action_id: str,
+        payload: CommercialActionReviewRequest,
+        authenticated_user: Annotated[
+            str | None,
+            Header(alias="X-Ophira-Authenticated-User"),
+        ] = None,
+        approval_secret: Annotated[
+            str | None,
+            Header(alias="X-Ophira-Approval-Secret"),
+        ] = None,
+    ) -> CommercialActionRecord:
+        actor = _require_authenticated_user(
+            authenticated_user,
+            approval_secret,
+            settings,
+        )
+        try:
+            return commercial_actions.review(
+                project_id,
+                action_id,
+                payload,
+                actor_id=actor,
+            )
+        except CommercialActionNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except CommercialActionScopeError as exc:
+            raise HTTPException(status_code=403, detail=str(exc)) from exc
+        except CommercialActionConflictError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except CommercialActionIntegrityError as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    @application.post(
+        "/api/projects/{project_id}/commercial-actions/{action_id}/apply",
+        response_model=CommercialActionRecord,
+        status_code=status.HTTP_202_ACCEPTED,
+    )
+    async def apply_commercial_action(
+        project_id: str,
+        action_id: str,
+        payload: CommercialActionApplyRequest,
+        authenticated_user: Annotated[
+            str | None,
+            Header(alias="X-Ophira-Authenticated-User"),
+        ] = None,
+        approval_secret: Annotated[
+            str | None,
+            Header(alias="X-Ophira-Approval-Secret"),
+        ] = None,
+    ) -> CommercialActionRecord:
+        actor = _require_authenticated_user(
+            authenticated_user,
+            approval_secret,
+            settings,
+        )
+        try:
+            return commercial_actions.apply(
+                project_id,
+                action_id,
+                payload,
+                actor_id=actor,
+            )
+        except CommercialActionNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except CommercialActionScopeError as exc:
+            raise HTTPException(status_code=403, detail=str(exc)) from exc
+        except CommercialActionPolicyError as exc:
+            raise HTTPException(status_code=403, detail=str(exc)) from exc
+        except CommercialActionConflictError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except CommercialActionIntegrityError as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
 
     @application.get("/api/projects/{project_id}/runs", response_model=list[RunRecord])
     async def list_project_runs(project_id: str) -> list[RunRecord]:
@@ -412,16 +600,25 @@ def create_app(
         except ProviderNotFoundError as exc:
             raise HTTPException(status_code=404, detail="Provider not found") from exc
 
-    @application.get("/api/skills", response_model=list[SkillVersion])
+    @application.get("/api/skills", response_model=list[SkillVersionResponse])
     async def list_skills() -> list[SkillVersion]:
         return skills.list()
 
-    @application.post("/api/skills/{skill_id:path}/enable", response_model=SkillVersion)
+    @application.post(
+        "/api/skills/{skill_id:path}/enable", response_model=SkillVersionResponse
+    )
     async def enable_skill(skill_id: str, enabled: bool = True) -> SkillVersion:
         try:
             return skills.set_enabled(skill_id, enabled)
+        except SkillIdentifierError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
         except SkillNotFoundError as exc:
             raise HTTPException(status_code=404, detail="Skill not found") from exc
+        except SkillIntegrityError as exc:
+            raise HTTPException(
+                status_code=500,
+                detail="Skill registry integrity validation failed",
+            ) from exc
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -429,12 +626,62 @@ def create_app(
     async def test_skill(skill_id: str) -> SkillTestResult:
         try:
             return skills.test(skill_id)
+        except SkillIdentifierError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
         except SkillNotFoundError as exc:
             raise HTTPException(status_code=404, detail="Skill not found") from exc
+        except SkillIntegrityError as exc:
+            raise HTTPException(
+                status_code=500,
+                detail="Skill registry integrity validation failed",
+            ) from exc
+
+    @application.get(
+        "/api/skills/{skill_id:path}/versions",
+        response_model=list[SkillVersionResponse],
+    )
+    async def list_skill_versions(skill_id: str) -> list[SkillVersion]:
+        try:
+            return skills.versions(skill_id)
+        except SkillIdentifierError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except SkillNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="Skill history not found") from exc
+        except (SkillIntegrityError, ValueError) as exc:
+            raise HTTPException(
+                status_code=500,
+                detail="Skill registry integrity validation failed",
+            ) from exc
+
+    @application.post(
+        "/api/skills/{skill_id:path}/rollback",
+        response_model=SkillVersionResponse,
+    )
+    async def rollback_skill(
+        skill_id: str,
+        payload: SkillRollbackRequest,
+    ) -> SkillVersion:
+        try:
+            return skills.rollback(
+                skill_id,
+                version=payload.version,
+                content_hash=payload.content_hash,
+            )
+        except SkillIdentifierError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except SkillNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="Skill version not found") from exc
+        except SkillConflictError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except (SkillIntegrityError, ValueError) as exc:
+            raise HTTPException(
+                status_code=500,
+                detail="Skill registry integrity validation failed",
+            ) from exc
 
     @application.post(
         "/api/skills/install",
-        response_model=SkillVersion,
+        response_model=SkillVersionResponse,
         status_code=status.HTTP_201_CREATED,
     )
     async def install_skill(request: Request) -> SkillVersion:
@@ -445,6 +692,13 @@ def create_app(
         )
         try:
             return skills.install_zip(content)
+        except SkillConflictError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except SkillIntegrityError as exc:
+            raise HTTPException(
+                status_code=500,
+                detail="Skill registry integrity validation failed",
+            ) from exc
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
