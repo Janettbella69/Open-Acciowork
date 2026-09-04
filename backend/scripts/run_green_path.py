@@ -25,6 +25,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT / "backend" / "src"))
 
 from ophira_backend.config import Settings  # noqa: E402
+from ophira_backend.constants import EvidenceSourceType  # noqa: E402
 from ophira_backend.greenpath import (  # noqa: E402
     GREEN_PATH_PROMPT,
     RESUME_PROMPT,
@@ -71,7 +72,16 @@ async def run_round(client, ledger, provider_id: str, round_no: int, report_dir:
     run_id = run_payload["id"]
     events = ledger.list_events(run_id)
     verdict = verify_events(events, expect_deny=True)
-    project_missing = verify_project_state(ledger.get_project(project_id))
+    verified_web_receipt_ids = {
+        receipt.id
+        for receipt in ledger.list_tool_receipts(project_id, run_id=run_id)
+        if receipt.source_type == EvidenceSourceType.WEB
+    }
+    project_missing = verify_project_state(
+        ledger.get_project(project_id),
+        run_id=run_id,
+        verified_web_receipt_ids=verified_web_receipt_ids,
+    )
 
     max_sequence = max((event.sequence for event in events), default=0)
     checkpoint = max_sequence // 2

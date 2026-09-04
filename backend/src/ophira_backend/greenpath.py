@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from collections.abc import Collection
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -19,7 +20,7 @@ from typing import Any
 
 import httpx
 
-from .constants import EventType
+from .constants import EventType, EvidenceSourceType
 from .events import redact
 from .models import EventEnvelope, OpportunityProject
 
@@ -244,23 +245,60 @@ def verify_events(
     return verdict
 
 
-def verify_project_state(project: OpportunityProject) -> list[str]:
-    """Ledger-side checks that events alone cannot prove."""
+def verify_project_state(
+    project: OpportunityProject,
+    *,
+    run_id: str | None = None,
+    verified_web_receipt_ids: Collection[str] = (),
+) -> list[str]:
+    """Ledger-side checks that events alone cannot prove.
+
+    Native WebSearch can produce an aggregate ``ophira-search://`` receipt rather
+    than pretending one result URL represents the full search response. The gate
+    therefore requires a durable, integrity-checked Web receipt from this run and
+    accepts either canonical URL or aggregate-search hydration.
+    """
+
     missing: list[str] = []
+    verified_ids = frozenset(verified_web_receipt_ids)
     report_versions = [
-        artifact for artifact in project.artifacts if artifact.name == "greenpath-report.md"
+        artifact
+        for artifact in project.artifacts
+        if artifact.name == "greenpath-report.md" and artifact.run_id == run_id
     ]
     if not report_versions:
         missing.append("artifact:greenpath-report.md")
-    if not any(evidence.source_url for evidence in project.evidence):
-        missing.append("evidence:with_source_url")
-    if not any(evidence.source_path for evidence in project.evidence):
+    web_evidence = [
+        evidence
+        for evidence in project.evidence
+        if evidence.source_type == EvidenceSourceType.WEB
+        and evidence.receipt_id in verified_ids
+        and run_id is not None
+        and evidence.source_run_id == run_id
+        and bool(evidence.source_url or evidence.source_path)
+    ]
+    if not web_evidence:
+        missing.append("evidence:with_verified_web_receipt")
+    file_evidence = [
+        evidence
+        for evidence in project.evidence
+        if evidence.source_type == EvidenceSourceType.FILE
+        and run_id is not None
+        and evidence.source_run_id == run_id
+        and bool(evidence.source_path)
+    ]
+    if not file_evidence:
         missing.append("evidence:with_source_path")
-    if not project.decisions:
+    run_decisions = [
+        decision for decision in project.decisions if decision.source_run_id == run_id
+    ]
+    if not run_decisions:
         missing.append("decision:recorded")
     else:
-        decision = project.decisions[-1]
-        if not decision.evidence_ids:
+        linked_ids = set(run_decisions[-1].evidence_ids)
+        if not any(evidence.id in linked_ids for evidence in web_evidence) or not any(
+            evidence.id in linked_ids for evidence in file_evidence
+        ):
             missing.append("decision:evidence_links")
     return missing
 

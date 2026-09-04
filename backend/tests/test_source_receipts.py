@@ -19,7 +19,11 @@ from ophira_backend.main import create_app
 from ophira_backend.models import ProjectCreate, RunRecord, utc_now
 from ophira_backend.permissions import PermissionBroker
 from ophira_backend.sdk_adapter import ClaudeAgentRuntime
-from ophira_backend.source_receipts import SOURCE_RECEIPT_MARKER
+from ophira_backend.source_receipts import (
+    MAX_MODEL_VISIBLE_SOURCE_RECEIPTS,
+    SOURCE_RECEIPT_MARKER,
+    model_visible_source_receipt_context,
+)
 from ophira_backend.storage import (
     FileLedger,
     SourceReceiptExpiredError,
@@ -27,6 +31,7 @@ from ophira_backend.storage import (
     SourceReceiptNotFoundError,
     SourceReceiptScopeError,
 )
+from ophira_backend.untrusted import UNTRUSTED_DATA_NOTICE
 
 
 class FakeRuntime:
@@ -367,6 +372,10 @@ async def test_host_hook_issues_receipts_only_for_main_agent_observations(
     updated = main_result["hookSpecificOutput"]["updatedToolOutput"]
     reference = updated["results"][0]["source_receipt"]
     assert reference["id"].startswith("receipt_")
+    assert main_result["hookSpecificOutput"]["additionalContext"] == (
+        f"{UNTRUSTED_DATA_NOTICE}\n\n"
+        f"{model_visible_source_receipt_context((reference['id'],))}"
+    )
     stored = ledger.replay_tool_receipt(project.id, reference["id"])
     assert stored.receipt.canonical_source == "https://example.org/report"
     assert stored.payload == response["results"][0]
@@ -385,6 +394,9 @@ async def test_host_hook_issues_receipts_only_for_main_agent_observations(
     )
     delegated_output = delegated["hookSpecificOutput"]["updatedToolOutput"]
     assert "source_receipt" not in delegated_output["results"][0]
+    assert delegated["hookSpecificOutput"]["additionalContext"] == (
+        UNTRUSTED_DATA_NOTICE
+    )
     assert len(ledger.list_tool_receipts(project.id)) == 1
 
 
@@ -427,6 +439,7 @@ async def test_fallback_mcp_text_envelope_gets_replayable_receipt(tmp_path: Path
         result["hookSpecificOutput"]["updatedToolOutput"][0]["text"]
     )
     receipt_id = decoded["source_receipt"]["id"]
+    assert receipt_id in result["hookSpecificOutput"]["additionalContext"]
     assert ledger.replay_tool_receipt(project.id, receipt_id).payload["excerpt"] == (
         "Observed fact"
     )
@@ -498,7 +511,24 @@ async def test_external_payload_cannot_supply_a_receipt_marker(tmp_path: Path) -
 
     assert "source_receipt" not in updated
     assert "source_receipt_count" not in updated
+    assert result["hookSpecificOutput"]["additionalContext"] == UNTRUSTED_DATA_NOTICE
     assert ledger.list_tool_receipts(project.id) == []
+
+
+def test_model_visible_receipt_context_is_deduplicated_and_bounded() -> None:
+    receipt_ids = tuple(
+        f"receipt_{index:032x}"
+        for index in range(MAX_MODEL_VISIBLE_SOURCE_RECEIPTS + 2)
+    )
+    context = model_visible_source_receipt_context(
+        (receipt_ids[0], *receipt_ids, receipt_ids[0])
+    )
+
+    assert context is not None
+    assert context.count(receipt_ids[0]) == 1
+    assert receipt_ids[MAX_MODEL_VISIBLE_SOURCE_RECEIPTS - 1] in context
+    assert receipt_ids[MAX_MODEL_VISIBLE_SOURCE_RECEIPTS] not in context
+    assert "2 additional receipt IDs omitted" in context
 
 
 @pytest.mark.asyncio

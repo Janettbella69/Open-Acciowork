@@ -47,9 +47,10 @@ PYTHONPATH=backend/src .venv/bin/python backend/scripts/run_l2.py --task b-produ
 OPHIRA_CONTRACT_PROVIDER=deepseek PYTHONPATH=backend/src .venv/bin/pytest backend/tests/contract -v
 ```
 
-报告统一落 `evals/reports/`（已含 Green Path 3 连过 bundle、2026-09-04 基于
-Claude Agent SDK 0.2.143 的 DeepSeek 真端点合约复测报告及
-2026-09-03 的真实 browser L1/L2 acceptance 报告）。Browser 报告仅证明浏览器接入、
+报告统一落 `evals/reports/`。当前真实 DeepSeek Green Path 3 连过 bundle 为
+`greenpath-20260904T082202Z/`；同日基于 Claude Agent SDK 0.2.143 的真端点合约
+复测为 `provider-contract-deepseek-20260904.{json,md}`，另有 2026-09-03 的真实
+browser L1/L2 acceptance 报告。Browser 报告仅证明浏览器接入、
 安全门和 Evidence/Artifact/receipt 持久化，不等同于真实 Provider 行为评测或 GUI L3。
 Snapshot schema、case 范围和“离线不等于真实 E2E”的边界见
 [`snapshots/README.md`](snapshots/README.md)。

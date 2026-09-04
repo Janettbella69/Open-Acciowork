@@ -1,0 +1,75 @@
+{
+  "generated_at": "2026-09-04T08:23:46.845638+00:00",
+  "run": {
+    "id": "run_8d90032e4bfa4a58ba97492f61c55287",
+    "trace_id": "trace_9e15a84aae884d618df8fa0be0e750a9",
+    "project_id": "project_11e3f9a56fea42948e01a4d435afb9b7",
+    "status": "completed",
+    "mode": "standard",
+    "provider_profile_id": "deepseek",
+    "sdk_session_id": "b51fa336-aad4-4ece-becc-a2567c49d1fb",
+    "error": null,
+    "error_code": null,
+    "created_at": "2026-09-04T08:22:02.578370Z",
+    "finished_at": "2026-09-04T08:23:22.210555Z"
+  },
+  "verdict": {
+    "tool_coverage": {
+      "read": true,
+      "web": true,
+      "skill": true,
+      "mcp": true,
+      "bash": true,
+      "write": true,
+      "edit": true
+    },
+    "web_degraded": false,
+    "subagent_events": 0,
+    "permission_requests": 6,
+    "permission_flow_ok": true,
+    "deny_then_continue_ok": true,
+    "sequence_contiguous": true,
+    "run_completed": true,
+    "result_is_error": false,
+    "served_models": [
+      "deepseek-v4-pro"
+    ],
+    "total_cost_usd": 0.6367459999999999,
+    "num_turns": 14,
+    "missing": []
+  },
+  "project_missing": [],
+  "event_count": 5796,
+  "event_type_counts": {
+    "run.created": 1,
+    "run.started": 1,
+    "sdk.system": 1736,
+    "assistant.message.started": 12,
+    "assistant.reasoning_summary.delta": 1723,
+    "assistant.reasoning_summary.completed": 12,
+    "assistant.text.delta": 745,
+    "assistant.message.completed": 12,
+    "tool.input.delta": 1492,
+    "tool.planned": 12,
+    "tool.started": 12,
+    "tool.completed": 11,
+    "run.status": 12,
+    "permission.requested": 6,
+    "permission.resolved": 6,
+    "run.result": 1,
+    "run.completed": 1,
+    "artifact.registered": 1
+  },
+  "notes": {
+    "sse_replay_ok": true,
+    "sse_checkpoint": 2898,
+    "sse_replayed_count": 2898,
+    "resume_run_id": "run_d5bd152e46c24c21ab6c6f1ec7f28176",
+    "resume_ok": true,
+    "resume_error": null,
+    "policy_denied": [
+      "Write"
+    ],
+    "policy_allowed_count": 5
+  }
+}

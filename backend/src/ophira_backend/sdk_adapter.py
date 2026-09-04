@@ -80,7 +80,10 @@ from .providers import (
     successful_preflight,
 )
 from .skills import SkillRegistry, SkillRuntimeView
-from .source_receipts import attach_source_receipts
+from .source_receipts import (
+    attach_source_receipts,
+    model_visible_source_receipt_context,
+)
 from .storage import FileLedger
 from .untrusted import (
     UNTRUSTED_DATA_NOTICE,
@@ -903,7 +906,7 @@ class ClaudeAgentRuntime:
                         "hookEventName": "PostToolUse",
                         "additionalContext": UNTRUSTED_DATA_NOTICE,
                     }
-                tool_response = attach_source_receipts(
+                receipt_attachment = attach_source_receipts(
                     self.ledger,
                     run_id,
                     tool_name,
@@ -911,6 +914,19 @@ class ClaudeAgentRuntime:
                     tool_response,
                     delegated=bool(input_data.get("agent_id")),
                 )
+                tool_response = receipt_attachment.tool_response
+                receipt_context = model_visible_source_receipt_context(
+                    receipt_attachment.receipt_ids
+                )
+                if hook_specific_output is not None and receipt_context is not None:
+                    # Built-in renderers can keep host-added structured fields in
+                    # transcript metadata without placing them in Claude's visible
+                    # tool-result text. additionalContext is the documented
+                    # model-visible channel, so mirror only the IDs minted by this
+                    # exact hook invocation. External payload text never enters it.
+                    hook_specific_output["additionalContext"] = (
+                        f"{UNTRUSTED_DATA_NOTICE}\n\n{receipt_context}"
+                    )
                 if hook_specific_output is not None and "tool_response" in input_data:
                     # Claude Agent SDK 0.2.x accepts updatedToolOutput for
                     # built-in and MCP tools. Replacing the output is the

@@ -97,8 +97,12 @@ npm run build
   2026-09-04 with Claude Agent SDK 0.2.143: text streaming, served-model identity,
   file tools, Bash, MCP, Plugin Skill discovery, and native WebSearch passed. Vision
   remains unavailable and invalid credentials still rely on the bounded preflight
-  timeout instead of an SDK fast failure. This contract run does not replace a current
-  Green Path proof of actual Skill invocation or a real commercial connector E2E.
+  timeout instead of an SDK fast failure.
+- The archived real-endpoint bundle `evals/reports/greenpath-20260904T082202Z/`
+  passed three consecutive DeepSeek Green Path rounds with actual Plugin Skill invocation,
+  Read/Web/MCP/Bash/Write/Edit coverage, same-run source-receipt Evidence, permission
+  deny-then-continue, SSE replay, and session resume. It does not prove a real commercial
+  connector side effect or production multi-tenancy.
 - Real Chromium L1 and Chrome-CDP L2 smoke acceptance passed on 2026-09-03; the
   archived reports are `evals/reports/browser-l1-20260903T093547Z.json` and
   `evals/reports/browser-l2-20260903T093647Z.json`. They prove browser capture and
@@ -111,7 +115,7 @@ npm run build
   external E2Es. The trusted gateway is a single-deployment-tenant principal boundary,
   not production multi-tenancy; `/api/auth/status` remains `multi_tenant: false`.
 - The executable offline Snapshot gate currently contains 61 cases. It does not replace
-  the still-required real Provider + real connector Opportunity-to-Action E2E.
+  the still-required real commercial-connector Opportunity-to-Action E2E.
 
 真端点验收（花钱，环境变量门控）：Green Path 3 连过与 Provider 合约测试见
 [`backend/README.md`](backend/README.md)；评测体系与报告见 [`evals/README.md`](evals/README.md)。

@@ -32,6 +32,7 @@ from ophira_backend.models import Evidence, ProjectCreate, ProviderProfileUpsert
 from ophira_backend.permissions import PermissionBroker
 from ophira_backend.providers import ProviderRegistry
 from ophira_backend.sdk_adapter import AgentRunError, ClaudeAgentRuntime
+from ophira_backend.source_receipts import model_visible_source_receipt_context
 from ophira_backend.storage import FileLedger
 from ophira_backend.untrusted import REMOVED_BOUNDARY, UNTRUSTED_DATA_NOTICE
 
@@ -313,8 +314,15 @@ async def test_native_web_output_is_replaced_before_model_and_event_ledger(
 
     specific = result["hookSpecificOutput"]
     assert specific["hookEventName"] == "PostToolUse"
-    assert specific["additionalContext"] == UNTRUSTED_DATA_NOTICE
     updated = specific["updatedToolOutput"]
+    if tool_name == "WebSearch" and "source_receipt" in updated:
+        receipt_id = updated["source_receipt"]["id"]
+        assert specific["additionalContext"] == (
+            f"{UNTRUSTED_DATA_NOTICE}\n\n"
+            f"{model_visible_source_receipt_context((receipt_id,))}"
+        )
+    else:
+        assert specific["additionalContext"] == UNTRUSTED_DATA_NOTICE
     assert type(updated) is type(tool_response)
     serialized = json.dumps(updated, ensure_ascii=False)
     assert fact in serialized

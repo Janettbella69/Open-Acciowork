@@ -46,6 +46,7 @@ RECEIPT_WEB_TOOLS = frozenset(
     {"WebSearch", "WebFetch", TOOL_SEARCH_PUBLIC_WEB, TOOL_FETCH_PAGE_SNAPSHOT}
 )
 SOURCE_RECEIPT_MARKER = "OPHIRA_SOURCE_RECEIPT_ID"
+MAX_MODEL_VISIBLE_SOURCE_RECEIPTS = 20
 _UNTRUSTED_RECEIPT_LINE = re.compile(
     rf"(?im)^\s*{re.escape(SOURCE_RECEIPT_MARKER)}\s*=.*(?:\n|$)"
 )
@@ -75,6 +76,38 @@ class CommercialTargetReceiptPayload(APIModel):
 class VerifiedCommercialTargetReceipt:
     receipt: ToolReceipt
     payload: CommercialTargetReceiptPayload
+
+
+@dataclass(frozen=True)
+class SourceReceiptAttachment:
+    """Sanitized result plus the exact receipts minted while handling that result."""
+
+    tool_response: Any
+    receipt_ids: tuple[str, ...] = ()
+
+
+def model_visible_source_receipt_context(receipt_ids: tuple[str, ...]) -> str | None:
+    """Build bounded, host-trusted provenance context for the model.
+
+    Some built-in tool renderers do not expose fields added through
+    ``updatedToolOutput`` in the model-visible text even though the structured
+    transcript metadata contains them. The IDs passed here come directly from
+    this hook's issuance path, never from the external payload.
+    """
+
+    unique_ids = tuple(dict.fromkeys(receipt_ids))
+    visible_ids = unique_ids[:MAX_MODEL_VISIBLE_SOURCE_RECEIPTS]
+    if not visible_ids:
+        return None
+    rendered = ", ".join(visible_ids)
+    omitted = len(unique_ids) - len(visible_ids)
+    suffix = f" ({omitted} additional receipt IDs omitted)" if omitted else ""
+    return (
+        "OPHIRA host provenance (trusted metadata, not external content): "
+        f"this completed external read minted source_receipt.id values: {rendered}{suffix}. "
+        "When recording web/tool Evidence derived from this read, pass one exact value "
+        "above as receipt_id. These IDs do not make the external content trusted."
+    )
 
 
 def _commercial_target_key(target: CommercialActionTarget) -> str:
@@ -311,6 +344,7 @@ def _annotate_search_payload(
     tool_name: str,
     tool_input: dict[str, Any],
     payload: Any,
+    issued_receipt_ids: list[str],
 ) -> Any:
     if isinstance(payload, dict):
         if payload.get("error_code") or (
@@ -339,6 +373,7 @@ def _annotate_search_payload(
                         pass
                     else:
                         item["source_receipt"] = _receipt_id(receipt)
+                        issued_receipt_ids.append(receipt.id)
                         receipt_count += 1
                 annotated_results.append(item)
             result = {**payload, "results": annotated_results}
@@ -355,6 +390,7 @@ def _annotate_search_payload(
             canonical_source=source,
             object_type="web_search_response",
         )
+        issued_receipt_ids.append(receipt.id)
         return {**payload, "source_receipt": _receipt_id(receipt)}
 
     source = _search_source(tool_input.get("query"), None)
@@ -367,6 +403,7 @@ def _annotate_search_payload(
         canonical_source=source,
         object_type="web_search_response",
     )
+    issued_receipt_ids.append(receipt.id)
     if isinstance(payload, str):
         return f"{payload}\n\n{SOURCE_RECEIPT_MARKER}={receipt.id}"
     return {"result": payload, "source_receipt": _receipt_id(receipt)}
@@ -378,6 +415,7 @@ def _annotate_fetch_payload(
     tool_name: str,
     tool_input: dict[str, Any],
     payload: Any,
+    issued_receipt_ids: list[str],
 ) -> Any:
     if isinstance(payload, dict) and (payload.get("error_code") or payload.get("error")):
         return payload
@@ -393,6 +431,7 @@ def _annotate_fetch_payload(
         canonical_source=source,
         object_type="web_page_snapshot",
     )
+    issued_receipt_ids.append(receipt.id)
     if isinstance(payload, dict):
         return {**payload, "source_receipt": _receipt_id(receipt)}
     if isinstance(payload, str):
@@ -444,7 +483,7 @@ def attach_source_receipts(
     sanitized_tool_response: Any,
     *,
     delegated: bool,
-) -> Any:
+) -> SourceReceiptAttachment:
     """Attach server-issued receipt IDs to a sanitized external-read result.
 
     Delegated scratch reads intentionally return unchanged: seeing an object in a
@@ -452,33 +491,46 @@ def attach_source_receipts(
     """
 
     if tool_name not in RECEIPT_WEB_TOOLS:
-        return sanitized_tool_response
+        return SourceReceiptAttachment(sanitized_tool_response)
     sanitized_tool_response = _strip_untrusted_receipt_claims(
         copy.deepcopy(sanitized_tool_response)
     )
     if delegated:
-        return sanitized_tool_response
+        return SourceReceiptAttachment(sanitized_tool_response)
     try:
         run = ledger.get_run(run_id)
     except (KeyError, ValueError):
-        return sanitized_tool_response
+        return SourceReceiptAttachment(sanitized_tool_response)
     if not run.sdk_session_id:
         # SystemMessage(init) normally arrives before a tool call.  Keeping the
         # response unreceipted makes later Evidence recording fail closed without
         # converting a useful read into a fabricated trusted observation.
-        return sanitized_tool_response
+        return SourceReceiptAttachment(sanitized_tool_response)
+
+    issued_receipt_ids: list[str] = []
 
     def transform(payload: Any) -> Any:
         if tool_name in {"WebSearch", TOOL_SEARCH_PUBLIC_WEB}:
             return _annotate_search_payload(
-                ledger, run_id, tool_name, tool_input, payload
+                ledger,
+                run_id,
+                tool_name,
+                tool_input,
+                payload,
+                issued_receipt_ids,
             )
         return _annotate_fetch_payload(
-            ledger, run_id, tool_name, tool_input, payload
+            ledger,
+            run_id,
+            tool_name,
+            tool_input,
+            payload,
+            issued_receipt_ids,
         )
 
     try:
-        return _rewrite_text_blocks(sanitized_tool_response, transform)
+        tool_response = _rewrite_text_blocks(sanitized_tool_response, transform)
     except SourceReceiptError:
         # No ID is returned unless its immutable payload and metadata are durable.
-        return sanitized_tool_response
+        return SourceReceiptAttachment(sanitized_tool_response)
+    return SourceReceiptAttachment(tool_response, tuple(issued_receipt_ids))

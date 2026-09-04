@@ -143,7 +143,14 @@ Successful main-Agent web reads and browser captures also create an immutable
 server-issued source receipt under `backend/data/receipts/`. New `web`/`tool`
 Evidence must cite the receipt ID returned by that same run and initialized SDK
 session; canonical source, retrieval time, payload hash, and object version are
-hydrated and checked by the server. Delegated scratch reads do not mint receipts.
+hydrated and checked by the server. Because built-in SDK tool renderers can retain
+host-added fields only in transcript metadata, the `PostToolUse` hook also mirrors only
+the receipt IDs minted by that exact hook invocation through the model-visible
+`additionalContext` channel. Receipt claims embedded in external payloads are stripped,
+and delegated scratch reads receive neither receipts nor trusted receipt context.
+Aggregate native-search responses retain an honest `ophira-search://` canonical source;
+the Green Path verifier accepts it only when the Evidence points to an integrity-checked
+Web receipt issued by the same Run.
 Receipts can be listed and replayed read-only at
 `GET /api/projects/{project_id}/source-receipts` and
 `GET /api/projects/{project_id}/source-receipts/{receipt_id}`. Authenticated receipts

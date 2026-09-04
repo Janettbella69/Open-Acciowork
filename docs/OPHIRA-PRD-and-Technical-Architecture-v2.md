@@ -55,7 +55,7 @@ OPHIRA 的核心产品场景是：让跨境小商家从任何一个模糊的全�
 
 "一个 Agent"仍是产品和架构的共同原则：常规任务不拆成研究、供应、资金、销售等固定角色，也不实现固定节点工作流。四个维度作为 Agent 可按需调用的商业分析 Skill 和证据标签存在，而不是用户每次都必须穿过的流程。
 
-截至 2026-09-03，单主 Agent、账本、可信网关 principal/项目权限和多数控制面已有本地代码/测试；Browser L1/L2 已分别通过真实 Chromium 与 Chrome-CDP smoke acceptance，standing-intent watcher、飞书回复及 durable identity mapping、首个商业 `send_message` adapter 和记忆生命周期治理也已完成本地闭环。仍未证明的是“真实 Provider + 真实商业 connector”的整条闭环、真实飞书租户、真实媒体生成商和 Office 可视质量；全局 store 尚未物理分租户，`multi_tenant=false`。Phase 0 的剩余工作仍是接通这些真实依赖并证明，不能用单元测试数量替代。
+截至 2026-09-04，单主 Agent、账本、可信网关 principal/项目权限和多数控制面已有本地代码/测试；DeepSeek 真端点 Provider 合约七项核心用例通过，随后固定 Green Path 连续 3 轮通过，实证同一主 Agent 的原生工具、Plugin Skill、MCP、权限、账本、SSE 与会话恢复链路；Browser L1/L2 也已分别通过真实 Chromium 与 Chrome-CDP smoke acceptance。仍未证明的是“真实 Provider + 真实商业 connector 副作用”的整条闭环、真实飞书租户、真实媒体生成商和 Office 可视质量；全局 store 尚未物理分租户，`multi_tenant=false`。Phase 0 的剩余工作是接通这些尚缺的真实依赖并证明，不能用单元测试数量替代。
 
 ### 1.1 不可妥协的架构红线（与 v1.1 一致）
 
@@ -307,12 +307,12 @@ Accio 同时也**抬高了 table stakes**：权限四态与审计日志、分层
 
 #### P0：必须交付
 
-- Claude Agent SDK 单主 Agent 运行时、原生工具集、会话/SSE/取消/恢复、项目工作区及本地权限治理已有代码与自动化测试；尚无本次审计可采信的真实 Provider Green Path。
-- Provider Registry、密钥库、SDK 路径预检、设置界面和错误分类已实现本地闭环；真实厂商兼容性仍须逐一验证。
+- Claude Agent SDK 单主 Agent 运行时、原生工具集、会话/SSE/取消/恢复、项目工作区及本地权限治理已有代码与自动化测试；2026-09-04 DeepSeek 真端点固定 Green Path 已连续 3 轮通过并归档。
+- Provider Registry、密钥库、SDK 路径预检、设置界面和错误分类已实现本地闭环；DeepSeek 当前合约矩阵已实测，其他厂商兼容性仍须逐一验证。
 - Skills、领域 MCP、证据/决策/Artifact 账本、Evidence Drawer、记忆提案与审批已有实现；Skill 历史包冻结、配额、运行时租约和版本回滚已有本地代码/测试。
 - Scheduler、自动化 MCP、通知收件箱和前端管理面已有实现切片；真实渠道投递、凭据失效闭环和自主条件 watcher 尚未完成。
 - 普通模式采用 2026-08-24 终版边界：一个主 Agent 负责，可极少调用 SDK 原生一次性只读支线，支线不得写账本或提交自动化承诺；Deep Research 为 3 个只读研究子代理，共享预算、统一取消、受墙钟时限约束且不设轮数上限。
-- **Green Path 与 Provider 合约仍不能以单元测试替代**；§3.8 的“已实现”仅指本地代码和自动化测试覆盖。
+- **Green Path 与 Provider 合约不能以单元测试替代**；当前 DeepSeek 证明只覆盖归档报告所列范围，§3.8 其余“已实现”仍仅指本地代码和自动化测试覆盖。
 
 #### P1：紧随其后（v2.1 重排）
 
@@ -341,24 +341,24 @@ Accio 同时也**抬高了 table stakes**：权限四态与审计日志、分层
 - 不用向量库自动写入所有对话来替代可审核的长期记忆。
 - 不在一个共享宿主目录里让不同用户的 Agent 执行 Bash。
 
-### 3.8 功能需求与实现状态审计（2026-09-03 增量复核）
+### 3.8 功能需求与实现状态审计（2026-09-04 增量复核）
 
-> 审计口径：“已实现”表示本地代码路径和相应自动化测试存在；“部分实现”表示已有可执行切片，但仍缺需求中的关键闭环；“未实现”表示没有可执行切片。2026-09-03 已执行真实 Chromium L1 与 Chrome-CDP L2 smoke acceptance；该证明只覆盖浏览器捕获及截图/Evidence/Artifact/source receipt 持久化。本轮没有执行真实 Provider、真实 Feishu/Lark 租户、真实商业 test account、真实媒体生成商或 LibreOffice 可视 E2E，因此不得把本表解释为生产可用证明。
+> 审计口径：“已实现”表示本地代码路径和相应自动化测试存在；“部分实现”表示已有可执行切片，但仍缺需求中的关键闭环；“未实现”表示没有可执行切片。2026-09-03 已执行真实 Chromium L1 与 Chrome-CDP L2 smoke acceptance；2026-09-04 已执行 DeepSeek 真端点合约矩阵与固定 Green Path 3 连过。前者只覆盖浏览器捕获及截图/Evidence/Artifact/source receipt 持久化，后者只覆盖归档 bundle 所列 Agent/Provider 链路。本轮没有执行真实 Feishu/Lark 租户、真实商业 test account、真实媒体生成商或 LibreOffice 可视 E2E，因此不得把本表解释为生产可用证明。
 
 | ID | 优先级 | 需求 | 可验收标准 | 现状 |
 |---|---:|---|---|---|
 | FR-01 | P0 | 单主 Agent | 一个主 Agent 对结果负责；普通模式只可极少调用 SDK 原生一次性只读支线；无固定角色团队；代码级禁止支线写账本、提交自动化承诺或再派生 | **已实现**（本地代码/测试） |
-| FR-02 | P0 | SDK 唯一模型运行时 | 业务运行由 `ClaudeSDKClient`/`query()` 发起；静态门禁禁止第二套模型循环 | **部分实现**：架构与静态测试已覆盖；无本次审计可采信的真实 Provider 全链路运行 |
-| FR-03 | P0 | 原生能力完整 | 同一主 Agent 可使用文件、命令、Web、Skill 与 MCP；风险由权限治理 | **部分实现**：配置和测试已覆盖；未做真实 Provider 工具全链路验证 |
+| FR-02 | P0 | SDK 唯一模型运行时 | 业务运行由 `ClaudeSDKClient`/`query()` 发起；静态门禁禁止第二套模型循环 | **已实现并有当前真端点证明**：静态门禁覆盖；2026-09-04 DeepSeek Green Path 连续 3 轮由 SDK 主 Agent 完成 |
+| FR-03 | P0 | 原生能力完整 | 同一主 Agent 可使用文件、命令、Web、Skill 与 MCP；风险由权限治理 | **已实现并有当前真端点证明**：3 轮均覆盖 Read/Web/Skill/MCP/Bash/Write/Edit、权限拒绝后继续，且无支线 Agent 事件 |
 | FR-04 | P0 | 自由规划与工具选择 | 后端不维护固定业务步骤或角色状态机 | **已实现**（本地代码/测试） |
-| FR-05 | P0 | Provider 配置 | 保存/测试 Anthropic-compatible Provider；Key 进密钥库；Run 固化配置快照 | **部分实现**：Registry、Vault、设置 UI、快照与预检已接通；真实厂商未在本次审计验证 |
-| FR-06 | P0 | 鉴权预检 | 经 SDK 最小路径预检，并把认证、端点、模型、额度、协议、MCP、Skill 与运行时错误结构化 | **部分实现**：代码和模拟测试已覆盖；真实 Provider 合约未验证 |
+| FR-05 | P0 | Provider 配置 | 保存/测试 Anthropic-compatible Provider；Key 进密钥库；Run 固化配置快照 | **部分实现**：Registry、Vault、设置 UI、快照与预检已接通；DeepSeek 已完成当前真端点合约与 Green Path，其他厂商仍待逐一验证 |
+| FR-06 | P0 | 鉴权预检 | 经 SDK 最小路径预检，并把认证、端点、模型、额度、协议、MCP、Skill 与运行时错误结构化 | **部分实现**：代码和模拟测试已覆盖；DeepSeek 真端点核心合约通过，vision 与无效凭据快速失败仍明确降级，其他厂商未验证 |
 | FR-07 | P0 | 会话与运行 | 创建、流式接收、取消、恢复、回放；重复取消幂等 | **已实现**（本地代码/测试） |
 | FR-08 | P0 | 项目工作区 | 项目隔离目录；拒绝路径越界、敏感路径和符号链接逃逸 | **已实现**（本地代码/测试） |
 | FR-09 | P0 | 证据账本 | Evidence/Artifact 带来源、时间、类型、置信度与来源运行；UI 可审查 | **已实现**（本地代码/测试）：主 Agent Web/Browser 读取由 host 签发可回放 source receipt，外部 Evidence 的来源、时间、hash、版本和 Run/SDK session scope 由服务端补全并校验 |
 | FR-10 | P0 | 结论可追溯 | Decision 回链证据；证据失效时联动标记受影响结论 | **已实现**（本地代码/测试） |
 | FR-11 | P0 | MCP 领域工具 | 台账、供应商、客户、商业计算等工具返回结构化结果与明确错误 | **部分实现**：确定性工具与数据加工切片存在；供应商/客户等尚无真实业务数据适配器，不能宣称实时业务数据 |
-| FR-12 | P0 | Skills | `SKILL.md` 可发现、启停、测试并由 Run 固化版本 | **已实现**（本地代码/测试）：不可变内容寻址历史、存储配额、Run 快照、只读运行时物化、活跃会话租约与人工回滚均已接通；不等同于真实 Provider Skill 调用 E2E |
+| FR-12 | P0 | Skills | `SKILL.md` 可发现、启停、测试并由 Run 固化版本 | **已实现并有当前调用证明**：不可变内容寻址历史、存储配额、Run 快照、只读运行时物化、活跃会话租约与人工回滚均已接通；2026-09-04 DeepSeek Green Path 连续 3 轮实际调用 Plugin Skill，回滚后的真端点重跑仍待专项验收 |
 | FR-13 | P0 | 权限 | 路径/工具/副作用策略、once/run/persistent 授权、删除强制确认、Auto 模式和审计 | **已实现**（本地代码/测试） |
 | FR-14 | P0 | 记忆 | 仅提案可进入稳定记忆；审批、撤回、来源、容量与当前运行蒸馏受控 | **已实现**（本地代码/测试）：除人审/版本外，已有绝对 expiry/TTL、过期召回排除、确定性 request-signal retrieval、授权 JSON 导出、tombstone-first 硬删除与启动恢复；不等同于真实模型召回质量或基础设施备份擦除 |
 | FR-15 | P0 | 自动化与主动链路 | 计划任务、错过运行/重叠治理、静默结果、通知收件箱和渠道投递 | **部分实现**：Scheduler、API/UI、自动化 MCP、standing watcher、收件箱和飞书 Run-bound 回复投递均有本地闭环；真实 Provider/数据源长期运行、真实飞书租户投递及移动推送未验证 |
@@ -642,7 +642,7 @@ ophira-capabilities/
 
 **发现边界（v2.0 明确）**：`setting_sources=[]` 时文件系统 skills（`~/.claude/skills`、`./.claude/skills`）**不会**被发现——这是隔离设计的预期行为；应用 Skills 必须且只能经 `plugins` 装载。预检已断言 `ophira-core:global-opportunity-execution` 出现在 SystemMessage 的 skills 清单中，该断言保留为回归防线。SDK 场景下 SKILL.md 的 `allowed-tools` frontmatter 不承担权限强制，权限一律在顶层 options 与回调控制。
 
-Skill 生命周期维持 v1.1：Draft → Review → Publish（不可变版本）→ Enable → Observe → Rollback。**2026-09-02 实现边界**：当前已有发现、启停、确定性测试、安全校验、内容寻址的不可变历史、历史与运行时配额、原子 current pointer、Run 快照、只读运行时物化、跨进程活跃会话租约和人工回滚。回滚会重新审查目标包并保留当前启用状态；新版本发布后默认禁用。真实 Provider 是否能完整发现并调用这些 Skill 仍必须通过独立 Green Path 验收。
+Skill 生命周期维持 v1.1：Draft → Review → Publish（不可变版本）→ Enable → Observe → Rollback。**2026-09-04 实现边界**：当前已有发现、启停、确定性测试、安全校验、内容寻址的不可变历史、历史与运行时配额、原子 current pointer、Run 快照、只读运行时物化、跨进程活跃会话租约和人工回滚。回滚会重新审查目标包并保留当前启用状态；新版本发布后默认禁用。DeepSeek 固定 Green Path 已连续 3 轮证明真实 Provider 能发现并调用当前 Plugin Skill；回滚后的真端点重跑仍待专项验收。
 
 #### Skills 与 Plugins 的品类对照与 v2.1 口径
 
@@ -767,20 +767,20 @@ v1.1 规划仍缺的事件：`artifact.updated`、`evidence.added`、`decision.r
 
 **云端 SaaS**：Control Plane 与 Agent Runner 分离；按租户隔离的短生命周期容器/微虚机；只读 Plugin、临时 Claude 配置目录、短期密钥；出网按 Provider/MCP 域名 allowlist；浏览器能力经本地 Bridge/Relay（不上传登录 Cookie）；**session transcript 用 SDK `session_store` 适配器外置**（更新：官方能力已可用）；多租户隔离遵循官方 hosting 指引三件套（`setting_sources=[]` + `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1` + 每租户 `CLAUDE_CONFIG_DIR`/`cwd`）。绝不让多租户 Agent 在 Control Plane 宿主上直接执行 Bash。
 
-### 4.14 现状与目标架构的差距（2026-09-03 增量复核）
+### 4.14 现状与目标架构的差距（2026-09-04 增量复核）
 
 | 状态 | 项 | 说明 |
 |---|---|---|
 | ✅ 本地实现 | 运行时边界 | Claude SDK 单主 Agent；普通模式可极少调用原生只读支线；支线写账本/自动化承诺代码级拒绝；Deep Research 3 个只读子代理，共享预算、统一取消、墙钟时限且无轮数上限 |
 | ✅ 本地实现 | 治理与账本 | 路径/删除/授权策略、OrgPolicy、Evidence/Decision/Artifact 来源 Run 关联、失效联动、事件脱敏及审计均有自动化测试 |
-| 🚧 部分实现 | Provider | Registry、Vault、隔离环境、预检、设置 UI 和错误分类已实现；真实 Provider 兼容矩阵与 Green Path 未在本次审计验证 |
+| 🚧 部分实现 | Provider | Registry、Vault、隔离环境、预检、设置 UI 和错误分类已实现；2026-09-04 DeepSeek 真端点核心合约与 Green Path 3 连过，vision/无效凭据快速失败仍降级，其他厂商尚未逐一验证 |
 | 🚧 部分实现 | Browser | L1/L2 后端、域策略、SSRF/重定向防护、截图证据与 Chrome Connector 门禁已实现；2026-09-03 真实 Chromium/Chrome-CDP smoke acceptance 均通过；攻击边界仍主要靠确定性测试，L3 未实现 |
 | 🚧 部分实现 | Connectors/Channels | Connector catalog/vault/health/revoke、首个 HTTPS JSON `send_message` adapter、飞书安全入站、Run-bound 回复和 durable identity mapping 已本地实现；真实商业 test account 与真实飞书租户 E2E 均未完成，微信未实现 |
 | 🚧 部分实现 | Commercial actions | Host read receipt → server-hydrated stage → 独立 reviewer → apply/cancel、可信网关 tenant/principal/project role、策略版本/外部版本重检、跨进程原子审计、稳定幂等键和 execution receipt 已实现；匹配的 `send_message` 可走 HTTPS JSON adapter，重试/并发/双击/成功后本地落账失败恢复均有离线测试。仍未在授权 sandbox/test account 对真实第三方 endpoint 完成 E2E，其他商业 operation/connector 仍诚实停在 `not_executed` |
 | 🚧 部分实现 | 主动与移动 | Scheduler、自动化 MCP、standing intent 自主 watcher/恢复/预算/静默未命中、Inbox 和移动响应式控制面存在；真实 Provider/数据源长时质量、认证配对和推送未验证/未实现 |
 | 🚧 部分实现 | Media/Office | 媒体安全接入与台账关联、Office 文件结构验证存在；无已配置真实媒体生成商，也无 LibreOffice 可视 QA |
-| ✅ 本地实现 | Skills | 发现、启停、测试、安全校验、内容寻址历史、存储配额、Run 快照、只读运行时物化、活跃会话租约和人工回滚均有本地测试；真实 Provider Skill 调用 E2E 仍未证明 |
-| ❌ 未证明 | 生产 E2E | Browser L1/L2 仅完成真实 smoke acceptance；仍未证明真实 Provider + 真实商业 connector 全链、真实飞书租户、真实生成商或生产多租户可用，所有上线声明仍须独立验收 |
+| ✅ 实现并有调用证明 | Skills | 发现、启停、测试、安全校验、内容寻址历史、存储配额、Run 快照、只读运行时物化、活跃会话租约和人工回滚均有本地测试；2026-09-04 DeepSeek Green Path 连续 3 轮实际调用当前 Plugin Skill，回滚后真端点重跑仍待验收 |
+| ❌ 未证明 | 生产 E2E | Browser L1/L2 与 DeepSeek Agent Green Path 已分别完成真实验收；仍未证明真实商业 connector 副作用全链、真实飞书租户、真实生成商或生产多租户可用，所有上线声明仍须独立验收 |
 
 ### 4.15 API 增量（对齐实际实现）
 
@@ -807,17 +807,17 @@ v1.1 规划仍缺的事件：`artifact.updated`、`evidence.added`、`decision.r
 
 ---
 
-## 5. 分阶段落地（2026-09-03 更新）
+## 5. 分阶段落地（2026-09-04 更新）
 
-### Phase 0：恢复可信的 Agent Green Path —— **本地切片较完整，真实出口未过**
+### Phase 0：恢复可信的 Agent Green Path —— **DeepSeek 出口已过，外部生产依赖仍待验收**
 
-剩余工作按序：
+进度与剩余工作按序：
 
-1. **P0-1**：用有合法资格的真实 Provider 跑预检和固定 Green Path，归档可审查 Run bundle；本地模拟测试不得替代此门槛。
-2. **P0-2**：验证文件/Web/Skill/MCP/Bash/Write/Edit、权限 ask/deny/continue、SSE 重连与会话恢复全链路；若普通模式出现支线，只允许 SDK 原生一次性只读支线并断言无账本写入/自动化承诺。
-3. **P0-3**：建立首批 Provider 合约报告，包含模型身份、工具、Web/视觉能力、错误映射、费用与会话续接；能力字段只写实测结果。
+1. **P0-1（已完成：DeepSeek）**：有合法资格的真实 Provider 已跑固定 Green Path，3 连过 bundle 归档于 `evals/reports/greenpath-20260904T082202Z/`；其他 Provider 仍按上架节奏独立验收。
+2. **P0-2（已完成：当前固定链路）**：3 轮均验证文件/Web/Skill/MCP/Bash/Write/Edit、权限 ask/deny/continue、SSE 重连与会话恢复；普通模式无支线 Agent 事件。
+3. **P0-3（已完成：DeepSeek 首批报告）**：`provider-contract-deepseek-20260904.{json,md}` 记录模型身份、工具、Web/视觉能力、错误行为、费用与会话能力；七项核心通过，vision 和无效凭据快速失败明确降级。
 4. **P0-4**：L1/L2 真实浏览器 smoke acceptance 已通过；下一步把重定向、Service Worker、域策略与清理等确定性攻击用例扩展为真实回归。L3 另行实现，不能借 L1/L2 的结果宣称三级完成。
-5. **P0-5**：对 DOCX/XLSX/PPTX 增加 LibreOffice 渲染/目视 QA；在真实 Provider Green Path 中验收不可变 Skill 快照的发现、调用和回滚后重跑。
+5. **P0-5**：对 DOCX/XLSX/PPTX 增加 LibreOffice 渲染/目视 QA；当前不可变 Skill 快照的发现与调用已有真实 Provider 证明，回滚后重跑仍待专项验收。
 
 完成门槛（不变）：同一主 Agent 在隔离样例项目中搜索网页、读文件、运行计算脚本、写/改产物、调用 Skill/MCP，并按要求请求授权；过程中没有普通 Client SDK 或工作流框架。
 
@@ -861,6 +861,8 @@ v1.1 规划仍缺的事件：`artifact.updated`、`evidence.added`、`decision.r
 
 临时工作区跨境任务验证同一主 Agent：读报价 CSV → WebSearch/WebFetch 留 URL → 自主触发 Skill → 商业计算 MCP → Bash/代码处理数据（沙箱内自动批准，v2.2）→ Write 报告 → Edit 修改 → 写 Evidence/Artifact → marker Write 权限拒绝探针（deny→优雅继续）→ 会话恢复续改 → 子代理若出现则仅为只读研究型且未写账本。连续 3 次通过。
 
+**当前证明（2026-09-04）**：`evals/reports/greenpath-20260904T082202Z/` 在 DeepSeek `deepseek-v4-pro` 上连续 3 轮通过；每轮 `missing=[]`、`project_missing=[]`、SSE replay 与 resume 均通过、无支线 Agent 事件。该证明包含实际 Plugin Skill 调用和同 Run、完整性校验后的 Web source receipt Evidence，但不包含真实商业 connector 副作用。
+
 ### 6.3 Provider 门槛（更新）
 
 - 每个上架 Profile 有官方 endpoint 来源、条款审查日期和合约测试报告；`production_eligible` 与协议兼容分开判定。
@@ -887,7 +889,7 @@ v1.1 规划仍缺的事件：`artifact.updated`、`evidence.added`、`decision.r
 
 | 风险/决策 | 默认建议 | 触发复审的条件 |
 |---|---|---|
-| **缺少本次审计可采信的真实运行证明** | Phase 0 出口=真实端点 Green Path 3 连过，不以单元测试代替 | — |
+| **真实商业副作用全链仍无可采信证明** | DeepSeek Agent Green Path 已 3 连过；下一出口是授权 test account 上的真实 connector preview→review→apply→execution receipt，不以模拟测试代替 | — |
 | 浏览器/渠道/媒体集成证明不足 | Browser L1/L2 smoke 已实测，但攻击/恢复矩阵仍需扩展；飞书回复链路和生成商仍须分别在真实租户/服务上验收，不得由模拟测试外推 | — |
 | SDK 版本策略（新增） | 已于 2026-08-21 升级钉 0.2.143；后续升级先跑合约测试、逐 Provider 认证 | SDK 安全公告或必需能力（如 session_store）出现 |
 | 首发业务范围 | 围绕"发现需求、组织供给、连接客户并走向成交"的通用闭环收敛，不用单个平台定义产品 | 用户研究证明某细分任务值得专门入口（仍作为 Skill/连接器） |

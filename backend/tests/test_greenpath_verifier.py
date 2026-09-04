@@ -138,17 +138,20 @@ def test_project_state_requires_report_evidence_and_decision() -> None:
     empty = make_project()
     missing = verify_project_state(empty)
     assert "artifact:greenpath-report.md" in missing
-    assert "evidence:with_source_url" in missing
+    assert "evidence:with_verified_web_receipt" in missing
     assert "decision:recorded" in missing
 
+    receipt_id = "receipt_" + "a" * 32
     evidence_url = Evidence(
         kind="community_signal",
         claim="EU stats exist",
         source_title="Eurostat",
-        source_url="https://example.org/stats",
+        source_path="ophira-search://native/query-digest",
         source_type="web",
+        receipt_id=receipt_id,
         confidence=0.4,
         recorded_by="greenpath-agent",
+        source_run_id="run_x",
     )
     evidence_file = Evidence(
         kind="user_statement",
@@ -158,13 +161,15 @@ def test_project_state_requires_report_evidence_and_decision() -> None:
         source_path="uploads/constraints.md",
         confidence=0.9,
         recorded_by="greenpath-agent",
+        source_run_id="run_x",
     )
     decision = Decision(
         question="值得测试吗",
         outcome="小规模测试",
         decision_type="test",
-        evidence_ids=[evidence_url.id],
+        evidence_ids=[evidence_url.id, evidence_file.id],
         made_by="greenpath-agent",
+        source_run_id="run_x",
     )
     artifact = Artifact(
         project_id="project_x",
@@ -173,13 +178,37 @@ def test_project_state_requires_report_evidence_and_decision() -> None:
         checksum="0" * 64,
         size_bytes=10,
         download_url="/x",
+        run_id="run_x",
     )
     full = make_project(
         evidence=[evidence_url, evidence_file],
         decisions=[decision],
         artifacts=[artifact],
     )
-    assert verify_project_state(full) == []
+    assert verify_project_state(
+        full,
+        run_id="run_x",
+        verified_web_receipt_ids={receipt_id},
+    ) == []
+
+    assert "evidence:with_verified_web_receipt" in verify_project_state(
+        full,
+        run_id="run_x",
+        verified_web_receipt_ids={"receipt_" + "b" * 32},
+    )
+
+    unlinked = full.model_copy(
+        update={
+            "decisions": [
+                decision.model_copy(update={"evidence_ids": [evidence_url.id]})
+            ]
+        }
+    )
+    assert "decision:evidence_links" in verify_project_state(
+        unlinked,
+        run_id="run_x",
+        verified_web_receipt_ids={receipt_id},
+    )
 
 
 def test_required_coverage_can_be_narrowed_for_l2_tasks() -> None:
