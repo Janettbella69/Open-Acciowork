@@ -13,6 +13,8 @@ import {
   type RunMode,
   type RunRecord,
   type RunRetryStrategy,
+  type RunTelemetry,
+  type TelemetryMetric,
 } from '../api/types'
 import { builtInSkills } from '../data/skillCatalog'
 import { useLanguage, useT, type Translate } from '../i18n'
@@ -20,7 +22,7 @@ import { providerIsRunnable, providerUnavailableReason } from '../providerEligib
 import Brand from './Brand'
 import EvidenceDrawer from './EvidenceDrawer'
 import { PermissionDetails, PermissionQuestionCard } from './PermissionRequest'
-import PresentationCards, { extractPresentations } from './PresentationCards'
+import PresentationCards, { extractPresentationFrames } from './PresentationCards'
 import WorkspaceNav from './WorkspaceNav'
 import './workspace-composer.css'
 
@@ -33,6 +35,7 @@ type WorkspaceComposerProps = {
   projects: OpportunityProject[]
   project: OpportunityProject | null
   run: RunRecord | null
+  telemetry?: RunTelemetry | null
   events: OphiraEvent[]
   assistantText: string
   reasoningSummary: string
@@ -205,6 +208,16 @@ function formatDuration(milliseconds: number): string {
   return `${minutes}m ${remainder}s`
 }
 
+function telemetryMetricText(
+  metric: TelemetryMetric<number>,
+  kind: 'duration' | 'count' | 'cost',
+): string {
+  if (metric.availability !== 'observed' || metric.value === null) return '—'
+  if (kind === 'duration') return formatDuration(metric.value)
+  if (kind === 'cost') return `$${metric.value.toFixed(metric.value < 0.01 ? 4 : 2)}`
+  return metric.value.toLocaleString()
+}
+
 function processIcon(kind: string): string {
   if (kind === 'reasoning') return '◇'
   if (kind === 'tool') return '▣'
@@ -287,6 +300,7 @@ export default function WorkspaceComposer({
   projects,
   project,
   run,
+  telemetry = null,
   events,
   assistantText,
   reasoningSummary,
@@ -339,7 +353,7 @@ export default function WorkspaceComposer({
   const traceEvents = events.filter((event) => !event.type.endsWith('.delta')
     && !event.type.startsWith('assistant.reasoning')
     && event.type !== UI_PRESENTATION_EVENT)
-  const presentations = extractPresentations(events)
+  const presentations = extractPresentationFrames(events)
   const startedAt = run?.started_at ? new Date(run.started_at).getTime() : run ? new Date(run.created_at).getTime() : clock
   const finishedAt = run?.finished_at ? new Date(run.finished_at).getTime() : clock
   const elapsed = formatDuration(finishedAt - startedAt)
@@ -688,6 +702,41 @@ export default function WorkspaceComposer({
                           <span>{historyLoading ? t('Restoring') : t(label(run?.status ?? 'Saved'))}</span>
                           <small>{t(processSteps === 1 ? '{n} event' : '{n} events', { n: processSteps })} · {t(label(connection))}</small>
                         </header>
+                        {telemetry && (
+                          <dl className="conversation-run-telemetry" aria-label={t('Run telemetry')}>
+                            <div>
+                              <dt>{t('Task time')}</dt>
+                              <dd title={telemetry.latency.total_task_duration_ms.unavailable_reason ?? undefined}>
+                                {telemetryMetricText(telemetry.latency.total_task_duration_ms, 'duration')}
+                              </dd>
+                            </div>
+                            <div>
+                              <dt>{t('First text')}</dt>
+                              <dd title={telemetry.latency.ttft_ms.unavailable_reason ?? undefined}>
+                                {telemetryMetricText(telemetry.latency.ttft_ms, 'duration')}
+                              </dd>
+                            </div>
+                            <div>
+                              <dt>{t('First useful card')}</dt>
+                              <dd title={telemetry.latency.first_useful_typed_card_ms.unavailable_reason ?? undefined}>
+                                {telemetryMetricText(telemetry.latency.first_useful_typed_card_ms, 'duration')}
+                              </dd>
+                            </div>
+                            <div>
+                              <dt>{t('Turns')}</dt>
+                              <dd title={telemetry.outcome.turn_count.unavailable_reason ?? undefined}>
+                                {telemetryMetricText(telemetry.outcome.turn_count, 'count')}
+                              </dd>
+                            </div>
+                            <div>
+                              <dt>{t('Observed cost')}</dt>
+                              <dd title={telemetry.cost.estimated_cost_usd.unavailable_reason ?? undefined}>
+                                {telemetryMetricText(telemetry.cost.estimated_cost_usd, 'cost')}
+                              </dd>
+                            </div>
+                            <small>{t('Unavailable metrics are shown as a dash.')}</small>
+                          </dl>
+                        )}
                         {(reasoningSummary || traceEvents.length > 0) && (
                           <ol>
                             {reasoningSummary && (

@@ -193,6 +193,7 @@ export default function Workspace() {
       projects={runtime.projects}
       project={runtime.project}
       run={runtime.run}
+      telemetry={runtime.telemetry}
       events={runtime.events}
       assistantText={runtime.assistantText}
       reasoningSummary={runtime.reasoningSummary}

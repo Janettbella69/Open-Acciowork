@@ -16,6 +16,7 @@ import type {
   RunMode,
   RunRecord,
   RunRetryStrategy,
+  RunTelemetry,
   Schedule,
   ScheduleKind,
   SchedulePermissionRule,
@@ -28,6 +29,8 @@ import type {
   PendingPermissionView,
   FeedbackKind,
   FeedbackItem,
+  CommercialActionRecord,
+  CommercialReviewDecision,
 } from './types'
 
 const configuredBaseUrl = import.meta.env.VITE_OPHIRA_API_URL?.trim() ?? ''
@@ -356,6 +359,10 @@ export function getRun(runId: string): Promise<RunRecord> {
   return request<RunRecord>(`/api/runs/${runId}`)
 }
 
+export function getRunTelemetry(runId: string): Promise<RunTelemetry> {
+  return request<RunTelemetry>(`/api/runs/${encodeURIComponent(runId)}/telemetry`)
+}
+
 export function cancelRun(runId: string): Promise<RunRecord> {
   return request<RunRecord>(`/api/runs/${runId}/cancel`, { method: 'POST' })
 }
@@ -438,6 +445,56 @@ export function submitFeedback(input: {
   user_note: string
 }): Promise<FeedbackItem> {
   return request<FeedbackItem>('/api/feedback', { method: 'POST', body: JSON.stringify(input) })
+}
+
+export function getCommercialAction(
+  projectId: string,
+  actionId: string,
+): Promise<CommercialActionRecord> {
+  return request<CommercialActionRecord>(
+    `/api/projects/${encodeURIComponent(projectId)}/commercial-actions/${encodeURIComponent(actionId)}`,
+  )
+}
+
+export function reviewCommercialAction(
+  projectId: string,
+  actionId: string,
+  decision: CommercialReviewDecision,
+  reason: string,
+): Promise<CommercialActionRecord> {
+  return request<CommercialActionRecord>(
+    `/api/projects/${encodeURIComponent(projectId)}/commercial-actions/${encodeURIComponent(actionId)}/review`,
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        decision,
+        reason,
+        ...(decision === 'approve' ? { valid_for_seconds: 3_600 } : {}),
+      }),
+    },
+  )
+}
+
+export function applyCommercialAction(
+  projectId: string,
+  actionId: string,
+  reason: string,
+): Promise<CommercialActionRecord> {
+  return request<CommercialActionRecord>(
+    `/api/projects/${encodeURIComponent(projectId)}/commercial-actions/${encodeURIComponent(actionId)}/apply`,
+    { method: 'POST', body: JSON.stringify({ reason }) },
+  )
+}
+
+export function cancelCommercialAction(
+  projectId: string,
+  actionId: string,
+  reason: string,
+): Promise<CommercialActionRecord> {
+  return request<CommercialActionRecord>(
+    `/api/projects/${encodeURIComponent(projectId)}/commercial-actions/${encodeURIComponent(actionId)}/cancel`,
+    { method: 'POST', body: JSON.stringify({ reason }) },
+  )
 }
 
 export function upsertConnector(id: string, input: {

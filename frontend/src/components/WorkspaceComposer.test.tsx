@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react'
 import { useState } from 'react'
 import { vi } from 'vitest'
-import type { ProviderProfile, RunRecord } from '../api/types'
+import type { ProviderProfile, RunRecord, RunTelemetry, TelemetryMetric } from '../api/types'
 import { I18nContext } from '../i18n'
 import WorkspaceComposer from './WorkspaceComposer'
 
@@ -57,6 +57,90 @@ function baseProps() {
   }
 }
 
+function telemetryMetric<T>(value: T): TelemetryMetric<T> {
+  return {
+    value,
+    availability: 'observed',
+    unit: 'test',
+    source: 'event_ledger',
+    source_event_sequences: [],
+    scope: null,
+    unavailable_reason: null,
+  }
+}
+
+const runTelemetry: RunTelemetry = {
+  schema_version: '1',
+  run_id: completedRun.id,
+  project_id: completedRun.project_id,
+  trace_id: completedRun.trace_id,
+  computed_through_sequence: 12,
+  event_log_complete_and_unambiguous: telemetryMetric(true),
+  prompt_prefix_hash: telemetryMetric('a'.repeat(64)),
+  latency: {
+    run_queue_duration_ms: telemetryMetric(25),
+    total_task_duration_ms: telemetryMetric(60_000),
+    sdk_duration_ms: telemetryMetric(59_000),
+    sdk_api_duration_ms: telemetryMetric(58_000),
+    ttft_ms: telemetryMetric(1_200),
+    first_visible_text_ms: telemetryMetric(1_200),
+    first_progress_ms: telemetryMetric(800),
+    first_useful_typed_card_ms: telemetryMetric(2_500),
+    first_useful_typed_card_component: telemetryMetric('supplier_comparison'),
+  },
+  tools: {
+    timings: [{
+      tool_use_id: 'tool_use_1',
+      tool_name: telemetryMetric('search_public_web'),
+      lifecycle_status: 'completed',
+      planned_event_sequences: [2],
+      started_event_sequences: [3],
+      terminal_event_sequences: [4],
+      queue_duration_ms: telemetryMetric(25),
+      run_duration_ms: telemetryMetric(300),
+      quality_warnings: [],
+    }],
+    unattributed_event_sequences: [],
+    queue_durations: {
+      observed_count: 1,
+      unavailable_count: 0,
+      observed_total_ms: telemetryMetric(25),
+      observed_max_ms: telemetryMetric(25),
+    },
+    run_durations: {
+      observed_count: 1,
+      unavailable_count: 0,
+      observed_total_ms: telemetryMetric(300),
+      observed_max_ms: telemetryMetric(300),
+    },
+  },
+  tokens: {
+    input_tokens: telemetryMetric(100),
+    output_tokens: telemetryMetric(50),
+    cache_read_input_tokens: telemetryMetric(80),
+    cache_creation_input_tokens: telemetryMetric(20),
+    cache_hit: telemetryMetric(true),
+  },
+  cost: {
+    estimated_cost_usd: telemetryMetric(0.012),
+    cost_basis: telemetryMetric('sdk_result'),
+  },
+  provider: {
+    provider_profile_id: telemetryMetric('provider_a'),
+    provider_display_name: telemetryMetric('Provider A'),
+    configured_model: telemetryMetric('configured-model'),
+    observed_models: telemetryMetric(['served-model']),
+  },
+  outcome: {
+    run_status: 'completed',
+    completed: telemetryMetric(true),
+    result_subtype: telemetryMetric('success'),
+    result_is_error: telemetryMetric(false),
+    turn_count: telemetryMetric(4),
+  },
+  quality_warnings: [],
+}
+
 function StatefulComposer() {
   const [value, setValue] = useState('')
   const [attachedFiles, setAttachedFiles] = useState<File[]>([])
@@ -75,6 +159,23 @@ function StatefulComposer() {
 }
 
 describe('WorkspaceComposer', () => {
+  it('shows server-replayed latency, turn, and cost telemetry for a terminal run', () => {
+    render(
+      <WorkspaceComposer
+        {...baseProps()}
+        run={completedRun}
+        telemetry={runTelemetry}
+      />,
+    )
+
+    const metrics = screen.getByLabelText('Run telemetry')
+    expect(metrics).toHaveTextContent('Task time1m 0s')
+    expect(metrics).toHaveTextContent('First text1s')
+    expect(metrics).toHaveTextContent('First useful card2s')
+    expect(metrics).toHaveTextContent('Turns4')
+    expect(metrics).toHaveTextContent('Observed cost$0.01')
+  })
+
   it('starts the workspace from one primary conversation box', () => {
     const props = baseProps()
     render(<WorkspaceComposer {...props} />)

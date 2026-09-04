@@ -1,11 +1,36 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { createSchedule, retryRun, startRun } from './client'
+import {
+  applyCommercialAction,
+  cancelCommercialAction,
+  createSchedule,
+  getCommercialAction,
+  getRunTelemetry,
+  retryRun,
+  reviewCommercialAction,
+  startRun,
+} from './client'
 
 afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-describe('API validation errors', () => {
+describe('API client', () => {
+  it('reads run telemetry from the encoded durable-run endpoint', async () => {
+    const payload = { schema_version: '1', run_id: 'run/1' }
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => payload,
+    } as Response))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(getRunTelemetry('run/1')).resolves.toBe(payload)
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/runs/run%2F1/telemetry',
+      expect.objectContaining({ headers: expect.any(Object) }),
+    )
+  })
+
   it('turns FastAPI detail arrays into actionable field messages', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => ({
       ok: false,
@@ -71,5 +96,55 @@ describe('API validation errors', () => {
         permission_ceiling: permissionCeiling,
       }),
     }))
+  })
+
+  it('uses the human control-plane commercial action endpoints and bounded approval', async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ id: 'action_1' }),
+    } as Response))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await getCommercialAction('project/1', 'action/1')
+    await reviewCommercialAction('project/1', 'action/1', 'approve', 'Reviewed target')
+    await reviewCommercialAction('project/1', 'action/1', 'reject', 'Wrong target')
+    await applyCommercialAction('project/1', 'action/1', 'Commit reviewed diff')
+    await cancelCommercialAction('project/1', 'action/1', 'Withdraw proposal')
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      '/api/projects/project%2F1/commercial-actions/action%2F1',
+      expect.objectContaining({ headers: expect.any(Object) }),
+    )
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      '/api/projects/project%2F1/commercial-actions/action%2F1/review',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({
+          decision: 'approve',
+          reason: 'Reviewed target',
+          valid_for_seconds: 3_600,
+        }),
+      }),
+    )
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
+      '/api/projects/project%2F1/commercial-actions/action%2F1/review',
+      expect.objectContaining({
+        body: JSON.stringify({ decision: 'reject', reason: 'Wrong target' }),
+      }),
+    )
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      4,
+      '/api/projects/project%2F1/commercial-actions/action%2F1/apply',
+      expect.objectContaining({ body: JSON.stringify({ reason: 'Commit reviewed diff' }) }),
+    )
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      5,
+      '/api/projects/project%2F1/commercial-actions/action%2F1/cancel',
+      expect.objectContaining({ body: JSON.stringify({ reason: 'Withdraw proposal' }) }),
+    )
   })
 })

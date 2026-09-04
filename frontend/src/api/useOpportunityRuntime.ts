@@ -6,6 +6,7 @@ import {
   getProject,
   getProtocol,
   getRun,
+  getRunTelemetry,
   listProjectRuns,
   listProjects,
   resolvePermission,
@@ -22,6 +23,7 @@ import type {
   RunMode,
   RunRetryStrategy,
   RunStatus,
+  RunTelemetry,
 } from './types'
 
 type ConnectionState = 'idle' | 'connecting' | 'live' | 'reconnecting' | 'closed'
@@ -32,6 +34,7 @@ export function useOpportunityRuntime() {
   const [projects, setProjects] = useState<OpportunityProject[]>([])
   const [project, setProject] = useState<OpportunityProject | null>(null)
   const [run, setRun] = useState<RunRecord | null>(null)
+  const [telemetry, setTelemetry] = useState<RunTelemetry | null>(null)
   const [events, setEvents] = useState<OphiraEvent[]>([])
   const [assistantText, setAssistantText] = useState('')
   const [reasoningSummary, setReasoningSummary] = useState('')
@@ -394,6 +397,24 @@ export function useOpportunityRuntime() {
   }, [closeStream])
 
   useEffect(() => {
+    if (!run || !terminalStatuses.has(run.status)) {
+      setTelemetry(null)
+      return
+    }
+    let active = true
+    void getRunTelemetry(run.id)
+      .then((result) => {
+        if (active) setTelemetry(result)
+      })
+      .catch(() => {
+        if (active) setTelemetry(null)
+      })
+    return () => {
+      active = false
+    }
+  }, [run])
+
+  useEffect(() => {
     let active = true
     void Promise.all([getProtocol(), listProjects()])
       .then(([, storedProjects]) => {
@@ -412,6 +433,7 @@ export function useOpportunityRuntime() {
     projects,
     project,
     run,
+    telemetry,
     events,
     assistantText,
     reasoningSummary,

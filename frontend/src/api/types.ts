@@ -153,6 +153,91 @@ export type RunRecord = {
   finished_at: string | null
 }
 
+export type TelemetryMetric<T> = {
+  value: T | null
+  availability: 'observed' | 'unavailable'
+  unit: string
+  source: string
+  source_event_sequences: number[]
+  scope: string | null
+  unavailable_reason: string | null
+}
+
+export type ToolTiming = {
+  tool_use_id: string
+  tool_name: TelemetryMetric<string>
+  lifecycle_status: 'planned' | 'running' | 'completed' | 'failed' | 'ambiguous'
+  planned_event_sequences: number[]
+  started_event_sequences: number[]
+  terminal_event_sequences: number[]
+  queue_duration_ms: TelemetryMetric<number>
+  run_duration_ms: TelemetryMetric<number>
+  quality_warnings: string[]
+}
+
+export type DurationAggregate = {
+  observed_count: number
+  unavailable_count: number
+  observed_total_ms: TelemetryMetric<number>
+  observed_max_ms: TelemetryMetric<number>
+}
+
+export type RunTelemetry = {
+  schema_version: '1'
+  run_id: string
+  project_id: string
+  trace_id: string
+  computed_through_sequence: number
+  event_log_complete_and_unambiguous: TelemetryMetric<boolean>
+  prompt_prefix_hash: TelemetryMetric<string>
+  latency: {
+    run_queue_duration_ms: TelemetryMetric<number>
+    total_task_duration_ms: TelemetryMetric<number>
+    sdk_duration_ms: TelemetryMetric<number>
+    sdk_api_duration_ms: TelemetryMetric<number>
+    ttft_ms: TelemetryMetric<number>
+    first_visible_text_ms: TelemetryMetric<number>
+    first_progress_ms: TelemetryMetric<number>
+    first_useful_typed_card_ms: TelemetryMetric<number>
+    first_useful_typed_card_component: TelemetryMetric<string>
+  }
+  tools: {
+    timings: ToolTiming[]
+    unattributed_event_sequences: number[]
+    queue_durations: DurationAggregate
+    run_durations: DurationAggregate
+  }
+  tokens: {
+    input_tokens: TelemetryMetric<number>
+    output_tokens: TelemetryMetric<number>
+    cache_read_input_tokens: TelemetryMetric<number>
+    cache_creation_input_tokens: TelemetryMetric<number>
+    cache_hit: TelemetryMetric<boolean>
+  }
+  cost: {
+    estimated_cost_usd: TelemetryMetric<number>
+    cost_basis: TelemetryMetric<string>
+  }
+  provider: {
+    provider_profile_id: TelemetryMetric<string>
+    provider_display_name: TelemetryMetric<string>
+    configured_model: TelemetryMetric<string>
+    observed_models: TelemetryMetric<string[]>
+  }
+  outcome: {
+    run_status: RunStatus
+    completed: TelemetryMetric<boolean>
+    result_subtype: TelemetryMetric<string>
+    result_is_error: TelemetryMetric<boolean>
+    turn_count: TelemetryMetric<number>
+  }
+  quality_warnings: Array<{
+    code: string
+    detail: string
+    event_sequences: number[]
+  }>
+}
+
 export type EventActor = {
   type: string
   name: string
@@ -195,6 +280,7 @@ export type ProtocolMetadata = {
   commercial_action_statuses: CommercialActionStatus[]
   commercial_review_decisions: CommercialReviewDecision[]
   external_execution_statuses: ExternalExecutionStatus[]
+  presentation_frame_types: PresentationFrameType[]
   presentation_schema_versions: PresentationSchemaVersion[]
   presentation_components: PresentationComponent[]
 }
@@ -398,14 +484,87 @@ export type CommercialActionOperation =
   | 'publish_content'
   | 'commit_spend'
 
-export type CommercialActionStatus = 'staged' | 'approved' | 'rejected' | 'expired' | 'execution_requested'
+export type CommercialActionStatus =
+  | 'staged'
+  | 'approved'
+  | 'rejected'
+  | 'cancelled'
+  | 'expired'
+  | 'execution_requested'
+  | 'applied'
+  | 'execution_failed'
 export type CommercialReviewDecision = 'approve' | 'reject'
-export type ExternalExecutionStatus = 'not_executed'
+export type ExternalExecutionStatus =
+  | 'not_executed'
+  | 'attempting'
+  | 'retryable_failed'
+  | 'succeeded'
+  | 'terminal_failed'
+
+export type CommercialActionRecord = {
+  id: string
+  project_id: string
+  source_run_id: string
+  source_session_id: string
+  staged_by: string
+  identity_binding: 'local_only' | 'authenticated_principal'
+  idempotency_key: string | null
+  source_receipt_id: string | null
+  source_connector_config_hash: string | null
+  operation: CommercialActionOperation
+  target: {
+    connector_id: string
+    resource_type: string
+    resource_key: string
+    expected_version: string
+  }
+  observed_state: Record<string, unknown>
+  changes: Array<{ field: string; before: unknown; after: unknown }>
+  reason: string
+  project_revision_at_stage: number
+  staged_policy_updated_at: string | null
+  status: CommercialActionStatus
+  review: null | {
+    decision: CommercialReviewDecision
+    actor_id: string
+    reason: string
+    decided_at: string
+    valid_until: string | null
+    policy_updated_at: string | null
+  }
+  execution_request: null | {
+    id: string
+    external_status: ExternalExecutionStatus
+    adapter_required: true
+    adapter_type: string | null
+    attempt_count: number
+    retry_not_before: string | null
+    last_error_code: string | null
+    last_error_message: string | null
+    receipt: null | {
+      id: string
+      remote_action_id: string
+      remote_version: string | null
+      http_status: number
+      response_hash: string
+      adapter_attempts: number
+      issued_at: string
+    }
+  }
+  created_at: string
+  expires_at: string
+  updated_at: string
+}
+
+export type PresentationFrameType = 'partial' | 'final' | 'discarded'
 export const UI_PRESENTATION_EVENT = 'ui.presentation' as const
 export const PRESENTATION_SCHEMA_VERSION = '1' as const
 export const PRESENTATION_COMPONENT = {
   EVIDENCE_COMPARISON: 'evidence_comparison',
+  SUPPLIER_COMPARISON: 'supplier_comparison',
+  UNIT_ECONOMICS: 'unit_economics',
   DECISION_BRIEF: 'decision_brief',
+  COMMERCIAL_ACTION_DIFF: 'commercial_action_diff',
   ARTIFACT_LIST: 'artifact_list',
 } as const
 export const presentationSchemaVersions = [PRESENTATION_SCHEMA_VERSION] as const

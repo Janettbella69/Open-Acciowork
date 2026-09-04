@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   presentationComponents,
+  type PresentationFrameType,
   presentationSchemaVersions,
   type AgentProfile,
   type ProtocolMetadata,
@@ -37,6 +38,7 @@ const protocol = {
   commercial_action_statuses: [],
   commercial_review_decisions: [],
   external_execution_statuses: [],
+  presentation_frame_types: ['partial', 'final', 'discarded'] satisfies PresentationFrameType[],
   presentation_schema_versions: [...presentationSchemaVersions],
   presentation_components: [...presentationComponents],
 } satisfies ProtocolMetadata
