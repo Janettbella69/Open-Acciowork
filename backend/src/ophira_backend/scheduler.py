@@ -7,10 +7,19 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from croniter import croniter
 
+from .auth import AuthorizationError, ProjectAccessStore, ProjectPermission
 from .automation import NotificationStore
 from .constants import HEARTBEAT_OK, TERMINAL_RUN_STATUSES, EventType, MissedRunPolicy, ScheduleKind
 from .events import EventPublisher, redact
-from .models import EventActor, RunRecord, Schedule, ScheduleCreate, utc_now
+from .models import (
+    EventActor,
+    PrincipalBinding,
+    PrincipalContext,
+    RunRecord,
+    Schedule,
+    ScheduleCreate,
+    utc_now,
+)
 from .policy import PolicyDeniedError
 from .providers import ProviderConfigurationError, ProviderNotFoundError
 from .runs import RunManager
@@ -47,8 +56,22 @@ def compute_next_fire(
     return local_next.astimezone(UTC)
 
 
-def new_schedule(payload: ScheduleCreate) -> Schedule:
-    schedule = Schedule(**payload.model_dump())
+def new_schedule(
+    payload: ScheduleCreate,
+    *,
+    principal: PrincipalContext | PrincipalBinding | None = None,
+) -> Schedule:
+    principal_binding = (
+        principal
+        if isinstance(principal, PrincipalBinding)
+        else PrincipalBinding.from_context(principal)
+        if principal is not None
+        else None
+    )
+    schedule = Schedule(
+        **payload.model_dump(),
+        principal_binding=principal_binding,
+    )
     next_at = compute_next_fire(
         schedule.cron,
         schedule.run_once_at,
@@ -80,12 +103,14 @@ class ScheduleService:
         events: EventPublisher,
         interval_seconds: float = 30,
         notifications: NotificationStore | None = None,
+        access: ProjectAccessStore | None = None,
     ) -> None:
         self.ledger = ledger
         self.runs = runs
         self.events = events
         self.interval_seconds = interval_seconds
         self.notifications = notifications
+        self.access = access
         self._task: asyncio.Task[None] | None = None
 
     async def start(self) -> None:
@@ -172,6 +197,24 @@ class ScheduleService:
 
     async def _start_run(self, schedule: Schedule) -> RunRecord:
         try:
+            binding = schedule.principal_binding
+            project = self.ledger.get_project(schedule.project_id)
+            if project.identity_binding == "authenticated_principal":
+                if binding is None or self.access is None:
+                    raise AuthorizationError(
+                        "authenticated schedule has no durable principal authority"
+                    )
+                self.access.authorize_bound(
+                    schedule.project_id,
+                    tenant_id=binding.tenant_id,
+                    principal_id=binding.principal_id,
+                    role=binding.role,
+                    permission=ProjectPermission.RUN_CREATE,
+                )
+            elif binding is not None:
+                raise AuthorizationError(
+                    "local-only schedules cannot claim authenticated authority"
+                )
             return await self.runs.create_and_start(
                 schedule.project_id,
                 wrap_schedule_prompt(schedule),
@@ -179,8 +222,14 @@ class ScheduleService:
                 schedule_id=schedule.id,
                 mode=schedule.mode,
                 provider_profile_id=schedule.provider_profile_id,
+                principal=binding,
             )
-        except (PolicyDeniedError, ProviderConfigurationError, ProviderNotFoundError) as exc:
+        except (
+            AuthorizationError,
+            PolicyDeniedError,
+            ProviderConfigurationError,
+            ProviderNotFoundError,
+        ) as exc:
             self._pause_unstartable(schedule, exc)
             raise
 

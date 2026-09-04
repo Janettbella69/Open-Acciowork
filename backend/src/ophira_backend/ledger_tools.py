@@ -4,6 +4,7 @@ import json
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
 from typing import TYPE_CHECKING, Any
+from urllib.parse import urlsplit
 
 from claude_agent_sdk import create_sdk_mcp_server, tool
 
@@ -31,7 +32,14 @@ from .constants import (
 )
 from .memory import MemoryProvider, gather_approved
 from .models import Decision, Evidence, Hypothesis, OrgPolicy, utc_now
-from .storage import FileLedger
+from .storage import (
+    FileLedger,
+    LedgerNotFoundError,
+    SourceReceiptExpiredError,
+    SourceReceiptIntegrityError,
+    SourceReceiptNotFoundError,
+    SourceReceiptScopeError,
+)
 from .untrusted import (
     UNTRUSTED_DATA_NOTICE,
     UntrustedSource,
@@ -152,6 +160,65 @@ def build_ledger_tools(
         )
 
     @tool(
+        "read_source_receipt",
+        "Replay one server-issued source receipt already returned by an external read. "
+        "The receipt must belong to this exact project, run, and initialized SDK session "
+        "and must still be fresh. The payload remains untrusted data.",
+        {
+            "type": "object",
+            "properties": {
+                "receipt_id": {
+                    "type": "string",
+                    "minLength": 20,
+                    "maxLength": 200,
+                    "pattern": r"^receipt_[A-Za-z0-9_-]+$",
+                }
+            },
+            "required": ["receipt_id"],
+            "additionalProperties": False,
+        },
+    )
+    async def read_source_receipt(args: dict[str, Any]) -> dict[str, Any]:
+        if run_id is None:
+            return _tool_result(
+                {"error": "source receipt replay requires a server-bound run"},
+                is_error=True,
+            )
+        try:
+            run = ledger.get_run(run_id)
+            if run.project_id != project_id or not run.sdk_session_id:
+                raise SourceReceiptScopeError(
+                    "source receipt replay requires an initialized SDK session"
+                )
+            replay = ledger.verify_tool_receipt(
+                project_id,
+                args["receipt_id"],
+                run_id=run.id,
+                session_id=run.sdk_session_id,
+            )
+        except SourceReceiptNotFoundError:
+            code = "SOURCE_RECEIPT_NOT_FOUND"
+            message = "Unknown source receipt id for this project."
+        except SourceReceiptExpiredError:
+            code = "SOURCE_RECEIPT_EXPIRED"
+            message = "The source receipt is expired; retrieve the source again."
+        except SourceReceiptScopeError:
+            code = "SOURCE_RECEIPT_SCOPE_MISMATCH"
+            message = "The source receipt does not belong to this run/session."
+        except SourceReceiptIntegrityError:
+            code = "SOURCE_RECEIPT_INTEGRITY_FAILED"
+            message = "The stored source receipt failed integrity verification."
+        except (LedgerNotFoundError, ValueError, KeyError):
+            code = "SOURCE_RECEIPT_SCOPE_MISMATCH"
+            message = "The source receipt run/session is unavailable."
+        else:
+            return _project_data_result(replay.model_dump(mode="json"))
+        return _tool_result(
+            {"error": {"code": code, "message": message}},
+            is_error=True,
+        )
+
+    @tool(
         "update_evidence_status",
         "Mark project evidence active, stale, or removed. Decisions citing stale or "
         "removed evidence are flagged needs_review automatically (FR-10).",
@@ -252,6 +319,12 @@ def build_ledger_tools(
                 "enum": [item.value for item in EvidenceSourceType],
             },
             "source_path": {"type": ["string", "null"]},
+            "receipt_id": {
+                "type": ["string", "null"],
+                "minLength": 20,
+                "maxLength": 200,
+                "pattern": r"^receipt_[A-Za-z0-9_-]+$",
+            },
             "observed_at": {"type": ["string", "null"], "format": "date-time"},
             "excerpt": {"type": ["string", "null"], "maxLength": 8000},
             "location": {"type": ["string", "null"]},
@@ -268,7 +341,6 @@ def build_ledger_tools(
         "required": [
             "kind",
             "claim",
-            "source_title",
             "source_type",
             "confidence",
             "supports_hypothesis_ids",
@@ -278,23 +350,101 @@ def build_ledger_tools(
     }
 
     def record_one_evidence(args: dict[str, Any]) -> Evidence:
-        observed_at = args.get("observed_at")
+        source_type = EvidenceSourceType(args["source_type"])
+        receipt_id = args.get("receipt_id") or None
+        external_source = source_type in {
+            EvidenceSourceType.WEB,
+            EvidenceSourceType.TOOL,
+        }
+        bound_run = None
+        receipt = None
+        if external_source or receipt_id is not None:
+            if not receipt_id:
+                raise ValueError(
+                    "external web/tool evidence requires a server-issued receipt_id "
+                    "from the current read"
+                )
+            if run_id is None:
+                raise ValueError(
+                    "source receipt validation requires a server-bound run"
+                )
+            try:
+                bound_run = ledger.get_run(run_id)
+                if bound_run.project_id != project_id or not bound_run.sdk_session_id:
+                    raise SourceReceiptScopeError("run/session scope is unavailable")
+                replay = ledger.verify_tool_receipt(
+                    project_id,
+                    receipt_id,
+                    run_id=bound_run.id,
+                    session_id=bound_run.sdk_session_id,
+                )
+            except SourceReceiptNotFoundError as exc:
+                raise ValueError("unknown source receipt id") from exc
+            except SourceReceiptExpiredError as exc:
+                raise ValueError(
+                    "source receipt has expired; retrieve the source again"
+                ) from exc
+            except SourceReceiptScopeError as exc:
+                raise ValueError(
+                    "source receipt is not valid for this project/run/session"
+                ) from exc
+            except SourceReceiptIntegrityError as exc:
+                raise ValueError("source receipt failed integrity verification") from exc
+            except (LedgerNotFoundError, ValueError) as exc:
+                raise ValueError(
+                    "source receipt run/session is not valid for this project"
+                ) from exc
+            receipt = replay.receipt
+            if receipt.source_type != source_type:
+                raise ValueError("source receipt type does not match evidence source_type")
+
+        if receipt is not None:
+            canonical_parts = urlsplit(receipt.canonical_source)
+            source_url = (
+                receipt.canonical_source
+                if canonical_parts.scheme in {"http", "https"}
+                else None
+            )
+            source_path = None if source_url else receipt.canonical_source
+            title = receipt.object_metadata.get("title")
+            source_title = (
+                title.strip()
+                if isinstance(title, str) and title.strip()
+                else receipt.object_type.replace("_", " ")
+            )
+            observed_at = receipt.object_metadata.get("observed_at")
+            if not isinstance(observed_at, str):
+                observed_at = None
+            retrieved_at = receipt.retrieved_at
+            recorded_by = bound_run.agent_id if bound_run and bound_run.agent_id else "main-agent"
+        else:
+            source_title = args.get("source_title")
+            if not isinstance(source_title, str) or not source_title.strip():
+                raise ValueError("non-external evidence requires source_title")
+            source_url = args.get("source_url") or None
+            source_path = args.get("source_path")
+            observed_at = args.get("observed_at")
+            retrieved_at = utc_now()
+            recorded_by = args["recorded_by"]
+
         evidence = Evidence(
             dimension=Dimension(args["dimension"]) if args.get("dimension") else None,
             tags=args.get("tags", []),
             kind=EvidenceKind(args["kind"]),
             claim=args["claim"],
-            source_title=args["source_title"],
-            source_url=args.get("source_url") or None,
-            source_type=EvidenceSourceType(args["source_type"]),
-            source_path=args.get("source_path"),
+            source_title=source_title,
+            source_url=source_url,
+            source_type=source_type,
+            source_path=source_path,
+            receipt_id=receipt_id,
+            retrieved_at=retrieved_at,
             observed_at=datetime.fromisoformat(observed_at) if observed_at else None,
             excerpt=args.get("excerpt"),
             location=args.get("location"),
             freshness_note=args.get("freshness_note"),
             confidence=args["confidence"],
             supports_hypothesis_ids=args["supports_hypothesis_ids"],
-            recorded_by=args["recorded_by"],
+            recorded_by=recorded_by,
             source_run_id=run_id,
         )
         result = evidence
@@ -313,8 +463,14 @@ def build_ledger_tools(
                     item
                     for item in project.evidence
                     if item.claim.strip().casefold() == evidence.claim.strip().casefold()
-                    and str(item.source_url or item.source_path or "")
-                    == str(evidence.source_url or evidence.source_path or "")
+                    and (
+                        item.receipt_id
+                        or str(item.source_url or item.source_path or "")
+                    )
+                    == (
+                        evidence.receipt_id
+                        or str(evidence.source_url or evidence.source_path or "")
+                    )
                 ),
                 None,
             )
@@ -332,7 +488,9 @@ def build_ledger_tools(
     @tool(
         "record_evidence",
         "Record sourced evidence with retrieval time, source location, "
-        "evidence type, and confidence.",
+        "evidence type, and confidence. New web/tool evidence must cite the "
+        "source_receipt.id returned by the current run's external read; source "
+        "metadata is then hydrated by the server.",
         evidence_schema,
     )
     async def record_evidence(args: dict[str, Any]) -> dict[str, Any]:
@@ -479,6 +637,7 @@ def build_ledger_tools(
     tools = [
         read_project_context,
         search_evidence,
+        read_source_receipt,
         record_hypothesis,
         record_evidence,
         record_evidence_batch,
@@ -510,6 +669,7 @@ def build_ledger_tools(
         async def propose_memory(args: dict[str, Any]) -> dict[str, Any]:
             scope = MemoryScope.AGENT if agent_id else MemoryScope.PROJECT
             scope_id = agent_id or project_id
+            bound_run = ledger.get_run(run_id) if run_id is not None else None
             item = memory.propose(
                 scope=scope,
                 scope_id=scope_id,
@@ -523,6 +683,7 @@ def build_ledger_tools(
                 ),
                 confidence=args.get("confidence", 1.0),
                 created_by=agent_id or "agent",
+                principal=bound_run,
             )
             return _tool_result(item)
 
@@ -549,6 +710,7 @@ def build_ledger_tools(
                     pairs,
                     query=args.get("query") or None,
                     limit=args.get("limit", 8),
+                    identity=(ledger.get_run(run_id) if run_id is not None else None),
                 )
             )
 
@@ -1053,7 +1215,11 @@ def build_mcp_servers(
         SUPPLIER_MCP_SERVER_NAME: build_supplier_mcp_server(),
         CUSTOMER_MCP_SERVER_NAME: build_customer_mcp_server(ledger, project_id),
         COMMERCE_MATH_MCP_SERVER_NAME: build_commerce_math_mcp_server(),
-        PRESENTATION_MCP_SERVER_NAME: build_presentation_mcp_server(ledger, project_id),
+        PRESENTATION_MCP_SERVER_NAME: build_presentation_mcp_server(
+            ledger,
+            project_id,
+            commercial_actions=commercial_actions,
+        ),
     }
     if commercial_actions is not None and run_id is not None:
         from .commercial_action_tools import build_commercial_action_mcp_server

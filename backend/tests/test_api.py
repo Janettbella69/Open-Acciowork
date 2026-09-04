@@ -85,11 +85,20 @@ async def test_project_run_and_protocol_api(tmp_path: Path) -> None:
         protocol = response.json()
         assert "tool.started" in protocol["event_types"]
         assert protocol["commercial_review_decisions"] == ["approve", "reject"]
-        assert protocol["external_execution_statuses"] == ["not_executed"]
+        assert protocol["external_execution_statuses"] == [
+            "not_executed",
+            "attempting",
+            "retryable_failed",
+            "succeeded",
+            "terminal_failed",
+        ]
         assert protocol["presentation_schema_versions"] == ["1"]
         assert protocol["presentation_components"] == [
             "evidence_comparison",
+            "supplier_comparison",
+            "unit_economics",
             "decision_brief",
+            "commercial_action_diff",
             "artifact_list",
         ]
 

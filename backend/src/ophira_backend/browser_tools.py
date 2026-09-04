@@ -9,6 +9,7 @@ sourced Evidence item immediately.
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 from datetime import UTC, datetime
 from pathlib import Path
@@ -16,18 +17,31 @@ from typing import Any
 from urllib.parse import urlsplit
 from uuid import uuid4
 
+import httpx
 from claude_agent_sdk import create_sdk_mcp_server, tool
 
 from .connectors import ConnectorRegistry, ConnectorUnavailableError
 from .constants import BROWSER_MCP_SERVER_NAME, EvidenceKind, EvidenceSourceType
 from .models import Evidence, OrgPolicy
-from .storage import FileLedger
+from .storage import FileLedger, SourceReceiptScopeError
 from .untrusted import (
     UNTRUSTED_DATA_NOTICE,
     UntrustedSource,
     sanitize_untrusted_payload,
 )
-from .web_tools import check_public_http_url
+from .web_tools import check_public_http_url, send_pinned_public_request
+
+_BROWSER_RESPONSE_MAX_BYTES = 20_000_000
+_HOP_BY_HOP_HEADERS = {
+    "connection",
+    "keep-alive",
+    "proxy-authenticate",
+    "proxy-authorization",
+    "te",
+    "trailer",
+    "transfer-encoding",
+    "upgrade",
+}
 
 _BLOCK_SERVICE_WORKER_REGISTRATION = """
 (() => {
@@ -40,6 +54,28 @@ _BLOCK_SERVICE_WORKER_REGISTRATION = """
       new DOMException("Service workers are disabled for this OPHIRA page", "SecurityError")
     ),
   });
+
+  const denyNetworkConstructor = (name) => {
+    if (!(name in globalThis)) return;
+    Object.defineProperty(globalThis, name, {
+      configurable: false,
+      writable: false,
+      value: class {
+        constructor() {
+          throw new DOMException(
+            `${name} is disabled for this OPHIRA page`,
+            "SecurityError",
+          );
+        }
+      },
+    });
+  };
+  for (const name of [
+    "WebSocket",
+    "WebTransport",
+    "RTCPeerConnection",
+    "webkitRTCPeerConnection",
+  ]) denyNetworkConstructor(name);
 })();
 """
 
@@ -127,12 +163,118 @@ async def _check_browser_target(url: str, policy: OrgPolicy) -> str | None:
     return await asyncio.to_thread(check_browser_target, url, policy)
 
 
+def _forward_browser_headers(raw_headers: Any) -> dict[str, str]:
+    """Copy end-to-end browser headers; transport-owned headers are regenerated."""
+    if not isinstance(raw_headers, dict):
+        return {}
+    forwarded: dict[str, str] = {}
+    for raw_name, raw_value in raw_headers.items():
+        name = str(raw_name)
+        value = str(raw_value)
+        normalized = name.casefold()
+        if (
+            normalized in _HOP_BY_HOP_HEADERS
+            or normalized in {"host", "content-length"}
+            or normalized.startswith(":")
+            or "\r" in value
+            or "\n" in value
+        ):
+            continue
+        forwarded[name] = value
+    return forwarded
+
+
+async def _fetch_pinned_browser_resource(
+    request: dict[str, Any],
+    *,
+    policy: OrgPolicy,
+    timeout_seconds: float,
+    max_response_bytes: int = _BROWSER_RESPONSE_MAX_BYTES,
+    transport: httpx.AsyncBaseTransport | None = None,
+) -> tuple[dict[str, Any] | None, str | None]:
+    """Fetch a paused Chromium request through OPHIRA's DNS-pinned transport.
+
+    Chromium never connects to the target for requests handled this way. Each
+    request (including a browser-followed redirect) is resolved once, validated,
+    sent to that numeric address, and fulfilled back into the original page URL.
+    """
+    request_url = str(request.get("url") or "")
+    if not policy.browser_enabled:
+        return None, "组织策略已禁用浏览器能力"
+    if not domain_allowed(request_url, policy.domain_allowlist):
+        return None, "目标域名不在组织 browser domain allowlist 中"
+
+    method = str(request.get("method") or "GET").upper()
+    post_data = request.get("postData")
+    if post_data is None:
+        if request.get("hasPostData"):
+            return None, "浏览器请求体不可用，已拒绝不完整转发"
+        body = None
+    elif isinstance(post_data, str):
+        body = post_data.encode("utf-8")
+    else:
+        return None, "浏览器请求体格式无法安全转发"
+    headers = _forward_browser_headers(request.get("headers"))
+
+    async with httpx.AsyncClient(
+        transport=transport,
+        timeout=timeout_seconds,
+        follow_redirects=False,
+        trust_env=False,
+        limits=httpx.Limits(max_keepalive_connections=0),
+    ) as client:
+        try:
+            response, reason = await send_pinned_public_request(
+                client,
+                method,
+                request_url,
+                headers=headers,
+                content=body,
+                stream=True,
+            )
+        except httpx.HTTPError as exc:
+            return None, f"浏览器目标请求失败：{type(exc).__name__}"
+        if response is None:
+            return None, reason or "浏览器目标安全校验失败"
+        try:
+            if response.is_stream_consumed:
+                response_body = bytearray(response.content)
+            else:
+                response_body = bytearray()
+                async for chunk in response.aiter_raw():
+                    if len(response_body) + len(chunk) > max_response_bytes:
+                        return None, "浏览器目标响应超过安全大小限制"
+                    response_body.extend(chunk)
+            if len(response_body) > max_response_bytes:
+                return None, "浏览器目标响应超过安全大小限制"
+            response_headers = [
+                {"name": name, "value": value}
+                for name, value in response.headers.multi_items()
+                if name.casefold() not in _HOP_BY_HOP_HEADERS | {"content-length"}
+            ]
+            response_headers.append(
+                {"name": "Content-Length", "value": str(len(response_body))}
+            )
+            return (
+                {
+                    "responseCode": response.status_code,
+                    "responsePhrase": response.reason_phrase,
+                    "responseHeaders": response_headers,
+                    "body": base64.b64encode(response_body).decode("ascii"),
+                },
+                None,
+            )
+        finally:
+            await response.aclose()
+
+
 async def _install_request_guard(
     context: Any,
     *,
     policy: OrgPolicy,
     baseline_pages: set[Any],
     blocked: list[dict[str, str]],
+    guarded_pages: set[Any] | None = None,
 ):
     """Install a context route while leaving pre-existing user tabs untouched."""
 
@@ -153,6 +295,11 @@ async def _install_request_guard(
         if request_page in baseline_pages:
             await route.fallback()
             return
+        if guarded_pages is not None and request_page not in guarded_pages:
+            reason = "不允许未安装连接级安全转发的新窗口请求"
+            blocked.append({"url": request.url, "reason": reason})
+            await route.abort("blockedbyclient")
+            return
         reason = await _check_browser_target(request.url, policy)
         if reason:
             blocked.append({"url": request.url, "reason": reason})
@@ -171,13 +318,14 @@ async def _install_cdp_request_guard(
     *,
     policy: OrgPolicy,
     blocked: list[dict[str, str]],
+    timeout_seconds: float = 30.0,
 ) -> tuple[Any, set[asyncio.Task[None]], Any]:
-    """Pause requests before send, including every server redirect hop.
+    """Relay requests through the pinned host transport before Chromium can send.
 
     Playwright's high-level ``page.route`` only sees the first URL in a server
-    redirect chain. Chromium's Fetch domain explicitly reports subsequent
-    redirect requests, so this page-scoped guard closes that gap without
-    changing or closing the user's browser/context.
+    redirect chain. Chromium's Fetch domain reports every subsequent request;
+    OPHIRA performs the actual connection to a validated numeric address and
+    fulfills the response while the browser remains paused at request stage.
     """
     session = await context.new_cdp_session(page)
     pending: set[asyncio.Task[None]] = set()
@@ -187,19 +335,27 @@ async def _install_cdp_request_guard(
         request = params.get("request") or {}
         request_url = str(request.get("url") or "")
         try:
-            reason = await _check_browser_target(request_url, policy)
+            fulfilled, reason = await _fetch_pinned_browser_resource(
+                request,
+                policy=policy,
+                timeout_seconds=timeout_seconds,
+            )
         except Exception as exc:
+            fulfilled = None
             reason = f"请求目标安全校验失败：{type(exc).__name__}"
 
         try:
-            if reason:
+            if reason or fulfilled is None:
                 blocked.append({"url": request_url, "reason": reason})
                 await session.send(
                     "Fetch.failRequest",
                     {"requestId": request_id, "errorReason": "BlockedByClient"},
                 )
             else:
-                await session.send("Fetch.continueRequest", {"requestId": request_id})
+                await session.send(
+                    "Fetch.fulfillRequest",
+                    {"requestId": request_id, **fulfilled},
+                )
         except Exception:
             # If Chromium cannot accept the continue/fail decision, close only
             # this OPHIRA page so detaching the session cannot resume an
@@ -217,9 +373,17 @@ async def _install_cdp_request_guard(
         # This target-scoped CDP setting forces this OPHIRA page onto the
         # network path where Fetch.requestPaused can validate it.
         await session.send("Network.setBypassServiceWorker", {"bypass": True})
+        await session.send("Network.setCacheDisabled", {"cacheDisabled": True})
         await session.send(
             "Fetch.enable",
-            {"patterns": [{"urlPattern": "*", "requestStage": "Request"}]},
+            {
+                "patterns": [
+                    {"urlPattern": "http://*/*", "requestStage": "Request"},
+                    {"urlPattern": "https://*/*", "requestStage": "Request"},
+                    {"urlPattern": "ws://*/*", "requestStage": "Request"},
+                    {"urlPattern": "wss://*/*", "requestStage": "Request"},
+                ]
+            },
         )
     except Exception:
         try:
@@ -249,6 +413,10 @@ async def _remove_cdp_request_guard(
         pass
     try:
         await session.send("Network.setBypassServiceWorker", {"bypass": False})
+    except Exception:
+        pass
+    try:
+        await session.send("Network.setCacheDisabled", {"cacheDisabled": False})
     except Exception:
         pass
     try:
@@ -448,14 +616,15 @@ async def _playwright_capture(
                     if service_worker_detected:
                         return _service_worker_error(len(service_worker_detected))
                 baseline_pages = set(context.pages)
+                page = await context.new_page()
+                owned_pages.add(page)
                 guard = await _install_request_guard(
                     context,
                     policy=policy,
                     baseline_pages=baseline_pages,
                     blocked=blocked,
+                    guarded_pages={page},
                 )
-                page = await context.new_page()
-                owned_pages.add(page)
 
                 def track_popup(popup: Any) -> None:
                     owned_pages.add(popup)
@@ -471,6 +640,7 @@ async def _playwright_capture(
                             page,
                             policy=policy,
                             blocked=blocked,
+                            timeout_seconds=timeout_seconds,
                         )
                     )
                 except Exception as exc:
@@ -632,6 +802,31 @@ def _record_capture(
     successful = bool(capture.get("ok"))
     activity = f"浏览器动作 {action}" if action else "浏览器页面快照"
     status = "完成" if successful else "失败"
+    if run_id is None or not final_url:
+        raise SourceReceiptScopeError(
+            "browser evidence requires a server-bound run and canonical source"
+        )
+    source_run = ledger.get_run(run_id)
+    if source_run.project_id != project_id or not source_run.sdk_session_id:
+        raise SourceReceiptScopeError(
+            "browser evidence requires this project's initialized SDK session"
+        )
+    receipt = ledger.issue_tool_receipt(
+        project_id,
+        run_id,
+        tool=("act_on_page" if action else "snapshot_page"),
+        source_type=EvidenceSourceType.TOOL,
+        canonical_source=final_url,
+        payload=capture,
+        object_type="browser_page_capture",
+        object_key=final_url,
+        object_metadata={
+            "title": str(capture.get("title") or f"OPHIRA {activity}截图"),
+            "browser_level": str(capture.get("browser_level") or "unknown"),
+            "observed_at": str(capture.get("retrieved_at") or datetime.now(UTC).isoformat()),
+            "screenshot_path": relative_path,
+        },
+    )
     evidence = Evidence(
         kind=EvidenceKind.OBSERVED_FACT,
         claim=f"{activity}{status}；截图记录于 {relative_path}",
@@ -639,8 +834,14 @@ def _record_capture(
         source_url=final_url or None,
         source_type=EvidenceSourceType.TOOL,
         source_path=relative_path,
+        receipt_id=receipt.id,
         source_run_id=run_id,
-        observed_at=datetime.now(UTC),
+        retrieved_at=receipt.retrieved_at,
+        observed_at=(
+            datetime.fromisoformat(str(capture["retrieved_at"]))
+            if capture.get("retrieved_at")
+            else datetime.now(UTC)
+        ),
         excerpt=capture.get("excerpt"),
         location=f"run:{run_id}" if run_id else "browser-tool",
         freshness_note="浏览器页面内容属于外部不可信数据；截图仅证明当时观察到的页面状态。",

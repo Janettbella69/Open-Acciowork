@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 import posixpath
+import re
 from datetime import UTC, datetime
 from typing import Annotated, Any, Literal
 from urllib.parse import urlsplit
@@ -34,6 +35,7 @@ from .constants import (
     MissedRunPolicy,
     PermissionDecision,
     PermissionModePolicy,
+    PrincipalRole,
     ProjectStage,
     ProviderErrorCode,
     RunMode,
@@ -41,6 +43,7 @@ from .constants import (
     RunStatus,
     ScheduleKind,
     StageDecisionValue,
+    StandingIntentWatcherStatus,
     ValidationStatus,
 )
 
@@ -90,6 +93,78 @@ class APIModel(BaseModel):
     model_config = ConfigDict(extra="forbid", use_enum_values=False)
 
 
+class PrincipalContext(APIModel):
+    """Immutable identity proven by one trusted-gateway request assertion."""
+
+    model_config = ConfigDict(extra="forbid", use_enum_values=False, frozen=True)
+
+    tenant_id: str = Field(
+        min_length=1,
+        max_length=160,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9._:@+\-]{0,159}$",
+    )
+    principal_id: str = Field(
+        min_length=1,
+        max_length=160,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9._:@+\-]{0,159}$",
+    )
+    role: PrincipalRole
+    session_id: str = Field(
+        min_length=16,
+        max_length=500,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9._:@+\-/]{15,499}$",
+    )
+    assertion_issued_at: datetime
+    assertion_expires_at: datetime
+    assertion_nonce: str = Field(
+        min_length=20,
+        max_length=160,
+        pattern=r"^[A-Za-z0-9_-]{20,160}$",
+    )
+    assertion_version: Literal["trusted_gateway_v1"] = "trusted_gateway_v1"
+
+    @model_validator(mode="after")
+    def coherent_assertion_window(self) -> PrincipalContext:
+        timestamps = (self.assertion_issued_at, self.assertion_expires_at)
+        if any(value.tzinfo is None or value.utcoffset() is None for value in timestamps):
+            raise ValueError("principal assertion timestamps must be timezone-aware")
+        if self.assertion_expires_at <= self.assertion_issued_at:
+            raise ValueError("principal assertion expiry must follow issuance")
+        return self
+
+
+class PrincipalBinding(APIModel):
+    """Durable authorization origin for host-managed unattended work."""
+
+    model_config = ConfigDict(extra="forbid", use_enum_values=False, frozen=True)
+
+    tenant_id: str = Field(
+        min_length=1,
+        max_length=160,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9._:@+\-]{0,159}$",
+    )
+    principal_id: str = Field(
+        min_length=1,
+        max_length=160,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9._:@+\-]{0,159}$",
+    )
+    role: PrincipalRole
+    session_id: str = Field(
+        min_length=16,
+        max_length=500,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9._:@+\-/]{15,499}$",
+    )
+
+    @classmethod
+    def from_context(cls, principal: PrincipalContext) -> PrincipalBinding:
+        return cls(
+            tenant_id=principal.tenant_id,
+            principal_id=principal.principal_id,
+            role=principal.role,
+            session_id=principal.session_id,
+        )
+
+
 class ProjectCreate(APIModel):
     name: str = Field(min_length=1, max_length=160)
     objective: str = Field(min_length=1, max_length=4_000)
@@ -120,6 +195,15 @@ class Evidence(APIModel):
     source_url: HttpUrl | None = None
     source_type: EvidenceSourceType = EvidenceSourceType.WEB
     source_path: str | None = None
+    # External web/tool observations are accepted from the Agent only through a
+    # server-issued receipt.  This remains optional on the persistence model so
+    # historical project snapshots continue to load; the ledger MCP enforces it
+    # for new external observations.
+    receipt_id: str | None = Field(
+        default=None,
+        max_length=200,
+        pattern=r"^receipt_[A-Za-z0-9_-]{20,}$",
+    )
     retrieved_at: datetime = Field(default_factory=utc_now)
     observed_at: datetime | None = None
     excerpt: str | None = Field(default=None, max_length=8_000)
@@ -131,6 +215,86 @@ class Evidence(APIModel):
     recorded_by: str
     source_run_id: str | None = None
     recorded_at: datetime = Field(default_factory=utc_now)
+
+
+class ToolReceipt(APIModel):
+    """Host-issued provenance for one sanitized external tool observation.
+
+    Historical/local-only records deliberately retain empty identity fields;
+    authenticated records inherit tenant/principal/role from the durable Run.
+    Project, run, and initialized SDK session remain mandatory and are verified
+    by :class:`FileLedger`.
+    """
+
+    id: str = Field(
+        default_factory=lambda: new_id("receipt"),
+        max_length=200,
+        pattern=r"^receipt_[A-Za-z0-9_-]{20,}$",
+    )
+    project_id: str = Field(min_length=1, max_length=200)
+    run_id: str = Field(min_length=1, max_length=160)
+    session_id: str = Field(min_length=1, max_length=500)
+    tenant_id: str | None = Field(default=None, min_length=1, max_length=200)
+    principal_id: str | None = Field(default=None, min_length=1, max_length=200)
+    principal_role: PrincipalRole | None = None
+    principal_session_id: str | None = Field(default=None, min_length=16, max_length=500)
+    identity_binding: Literal[
+        "project_run_session_only",
+        "authenticated_principal",
+    ] = "project_run_session_only"
+    issuer: Literal["ophira_host"] = "ophira_host"
+    tool: str = Field(min_length=1, max_length=300)
+    source_type: EvidenceSourceType
+    canonical_source: str = Field(min_length=1, max_length=2_000)
+    retrieved_at: datetime
+    content_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    object_type: str = Field(
+        min_length=1,
+        max_length=160,
+        pattern=r"^[A-Za-z][A-Za-z0-9_.-]{0,159}$",
+    )
+    object_key: str = Field(min_length=1, max_length=2_000)
+    object_version: str = Field(min_length=1, max_length=500)
+    object_metadata: dict[str, JsonValue] = Field(default_factory=dict, max_length=50)
+    sanitized_payload_ref: str = Field(
+        min_length=1,
+        max_length=1_000,
+        pattern=r"^receipts/[A-Za-z0-9_-]+/receipt_[A-Za-z0-9_-]+/payload\.json$",
+    )
+    expires_at: datetime
+    created_at: datetime = Field(default_factory=utc_now)
+
+    @model_validator(mode="after")
+    def coherent_receipt_scope(self) -> ToolReceipt:
+        timestamps = (self.retrieved_at, self.expires_at, self.created_at)
+        if any(value.tzinfo is None or value.utcoffset() is None for value in timestamps):
+            raise ValueError("tool receipt timestamps must be timezone-aware")
+        if self.expires_at <= self.retrieved_at or self.created_at < self.retrieved_at:
+            raise ValueError("tool receipt timestamps are inconsistent")
+        identity_values = (
+            self.tenant_id,
+            self.principal_id,
+            self.principal_role,
+            self.principal_session_id,
+        )
+        authenticated = all(value is not None for value in identity_values)
+        if any(value is not None for value in identity_values) and not authenticated:
+            raise ValueError("receipt principal identity must be bound together")
+        expected_binding = (
+            "authenticated_principal" if authenticated else "project_run_session_only"
+        )
+        if self.identity_binding != expected_binding:
+            raise ValueError("tool receipt identity binding is inconsistent")
+        if not json_value_is_finite(self.object_metadata):
+            raise ValueError("tool receipt metadata requires finite JSON numbers")
+        return self
+
+
+class ToolReceiptReplay(APIModel):
+    receipt: ToolReceipt
+    payload: JsonValue
+    integrity_verified: Literal[True] = True
+    expired: bool
 
 
 class DimensionAssessment(APIModel):
@@ -199,6 +363,11 @@ class OpportunityProject(APIModel):
     product_brief: str = ""
     target_markets: list[str] = Field(default_factory=list)
     constraints: list[str] = Field(default_factory=list)
+    tenant_id: str | None = Field(default=None, min_length=1, max_length=160)
+    owner_principal_id: str | None = Field(default=None, min_length=1, max_length=160)
+    owner_role: PrincipalRole | None = None
+    owner_session_id: str | None = Field(default=None, min_length=16, max_length=500)
+    identity_binding: Literal["local_only", "authenticated_principal"] = "local_only"
     stage: ProjectStage = ProjectStage.DISCOVERY
     hypotheses: list[Hypothesis] = Field(default_factory=list)
     evidence: list[Evidence] = Field(default_factory=list)
@@ -210,6 +379,69 @@ class OpportunityProject(APIModel):
     revision: int = 1
     created_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=utc_now)
+
+    @model_validator(mode="after")
+    def coherent_project_identity(self) -> OpportunityProject:
+        values = (
+            self.tenant_id,
+            self.owner_principal_id,
+            self.owner_role,
+            self.owner_session_id,
+        )
+        authenticated = self.identity_binding == "authenticated_principal"
+        if authenticated != all(value is not None for value in values):
+            raise ValueError("project identity binding is incomplete")
+        if not authenticated and any(value is not None for value in values):
+            raise ValueError("local-only project cannot claim an authenticated identity")
+        if authenticated and self.owner_role != PrincipalRole.OWNER:
+            raise ValueError("authenticated project owner role must be owner")
+        return self
+
+
+class ContextRevisionManifest(APIModel):
+    """Version vector for the model-visible application context of one run."""
+
+    schema_version: Literal[1] = 1
+    project_id: str = Field(min_length=1, max_length=200)
+    project_revision: int = Field(ge=1)
+    project_section_hashes: dict[str, str] = Field(default_factory=dict, max_length=20)
+    agent_id: str | None = Field(default=None, max_length=160)
+    agent_revision: int | None = Field(default=None, ge=1)
+    agent_core_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    memory_revision: str = Field(pattern=r"^[0-9a-f]{64}$")
+    skill_snapshot_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    compact_epoch: int = Field(default=0, ge=0)
+    manifest_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+    @model_validator(mode="after")
+    def valid_project_section_hashes(self) -> ContextRevisionManifest:
+        if any(
+            not name
+            or len(name) > 100
+            or not re.fullmatch(r"[a-z][a-z0-9_]*", name)
+            or not re.fullmatch(r"[0-9a-f]{64}", digest)
+            for name, digest in self.project_section_hashes.items()
+        ):
+            raise ValueError("project section hashes must be named lowercase SHA-256 values")
+        return self
+
+
+class ContextRefreshRecord(APIModel):
+    """Durable receipt for the context envelope sent at the start of a run."""
+
+    mode: Literal["full", "delta", "reference"]
+    base_run_id: str | None = Field(default=None, max_length=160)
+    fallback_reason: str | None = Field(default=None, max_length=200)
+    changed_domains: list[str] = Field(default_factory=list, max_length=20)
+    changed_project_sections: list[str] = Field(default_factory=list, max_length=20)
+    manifest: ContextRevisionManifest
+    payload_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    # SHA-256 of the exact UTF-8 bytes appended to the SDK's stable system
+    # prompt for this run.  Optional only for pre-migration run snapshots.
+    prompt_prefix_hash: str | None = Field(
+        default=None,
+        pattern=r"^[0-9a-f]{64}$",
+    )
 
 
 class EvidenceStatusUpdate(APIModel):
@@ -224,7 +456,7 @@ class EvidenceStatusChange(APIModel):
 class RunCreate(APIModel):
     prompt: str = Field(min_length=1, max_length=40_000)
     agent_id: str | None = None
-    resume_session_id: str | None = None
+    resume_session_id: str | None = Field(default=None, min_length=1, max_length=500)
     mode: RunMode = RunMode.STANDARD
     provider_profile_id: str | None = None
 
@@ -238,20 +470,52 @@ class RunRecord(APIModel):
     trace_id: str = Field(default_factory=lambda: new_id("trace"))
     project_id: str
     prompt: str
+    tenant_id: str | None = Field(default=None, min_length=1, max_length=160)
+    principal_id: str | None = Field(default=None, min_length=1, max_length=160)
+    principal_role: PrincipalRole | None = None
+    principal_session_id: str | None = Field(default=None, min_length=16, max_length=500)
+    identity_binding: Literal["local_only", "authenticated_principal"] = "local_only"
     agent_id: str | None = None
     schedule_id: str | None = None
-    resume_session_id: str | None = None
+    standing_intent_id: str | None = None
+    automation_claim_id: str | None = None
+    resume_session_id: str | None = Field(default=None, min_length=1, max_length=500)
+    # Resumption is resolved server-side to a durable run. A caller-supplied SDK
+    # session ID is a locator, never an authority boundary.
+    resume_source_run_id: str | None = Field(default=None, min_length=1, max_length=160)
     mode: RunMode = RunMode.STANDARD
     provider_profile_id: str | None = None
     provider_snapshot: dict[str, Any] | None = None
     skill_snapshot: list[dict[str, Any]] = Field(default_factory=list)
+    # Per-run spend fuse in the operator's configured provider-cost units. The
+    # SDK adapter applies the profile's budget_scale before setting max_budget_usd.
+    max_budget_usd: float | None = Field(default=None, gt=0, le=1_000)
     status: RunStatus = RunStatus.QUEUED
     sdk_session_id: str | None = None
+    context_refresh: ContextRefreshRecord | None = None
+    # Count only confirmed SDK compact_boundary messages. The manifest records
+    # the value at injection; a later mismatch forces a full refresh on resume.
+    session_compaction_epoch: int = Field(default=0, ge=0)
     error: str | None = None
     error_code: ProviderErrorCode | None = None
     created_at: datetime = Field(default_factory=utc_now)
     started_at: datetime | None = None
     finished_at: datetime | None = None
+
+    @model_validator(mode="after")
+    def coherent_run_identity(self) -> RunRecord:
+        values = (
+            self.tenant_id,
+            self.principal_id,
+            self.principal_role,
+            self.principal_session_id,
+        )
+        authenticated = self.identity_binding == "authenticated_principal"
+        if authenticated != all(value is not None for value in values):
+            raise ValueError("run identity binding is incomplete")
+        if not authenticated and any(value is not None for value in values):
+            raise ValueError("local-only run cannot claim an authenticated identity")
+        return self
 
 
 class EventActor(APIModel):
@@ -476,6 +740,11 @@ class MemoryItem(APIModel):
     id: str = Field(default_factory=lambda: new_id("mem"))
     scope: MemoryScope
     scope_id: str
+    tenant_id: str | None = Field(default=None, min_length=1, max_length=160)
+    principal_id: str | None = Field(default=None, min_length=1, max_length=160)
+    principal_role: PrincipalRole | None = None
+    principal_session_id: str | None = Field(default=None, min_length=16, max_length=500)
+    identity_binding: Literal["local_only", "authenticated_principal"] = "local_only"
     text: str = Field(min_length=1, max_length=4_000)
     kind: MemoryKind
     source: MemorySource
@@ -489,6 +758,27 @@ class MemoryItem(APIModel):
     created_by: str = Field(default="system", max_length=160)
     created_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=utc_now)
+    expires_at: datetime | None = None
+
+    @model_validator(mode="after")
+    def coherent_memory_identity(self) -> MemoryItem:
+        values = (
+            self.tenant_id,
+            self.principal_id,
+            self.principal_role,
+            self.principal_session_id,
+        )
+        authenticated = self.identity_binding == "authenticated_principal"
+        if authenticated != all(value is not None for value in values):
+            raise ValueError("memory identity binding is incomplete")
+        if not authenticated and any(value is not None for value in values):
+            raise ValueError("local-only memory cannot claim an authenticated identity")
+        if self.expires_at is not None:
+            if self.expires_at.tzinfo is None or self.expires_at.utcoffset() is None:
+                raise ValueError("memory expiry must be timezone-aware")
+            if self.expires_at <= self.created_at:
+                raise ValueError("memory expiry must follow creation")
+        return self
 
 
 class MemoryCreate(APIModel):
@@ -497,6 +787,18 @@ class MemoryCreate(APIModel):
     text: str = Field(min_length=1, max_length=4_000)
     kind: MemoryKind
     sensitivity: MemorySensitivity = MemorySensitivity.NORMAL
+    expires_at: datetime | None = None
+    ttl_seconds: int | None = Field(default=None, ge=1, le=315_576_000)
+
+    @model_validator(mode="after")
+    def has_one_expiry_source(self) -> MemoryCreate:
+        if self.expires_at is not None and self.ttl_seconds is not None:
+            raise ValueError("specify expires_at or ttl_seconds, not both")
+        if self.expires_at is not None and (
+            self.expires_at.tzinfo is None or self.expires_at.utcoffset() is None
+        ):
+            raise ValueError("memory expiry must be timezone-aware")
+        return self
 
 
 class MemoryDecision(APIModel):
@@ -512,6 +814,154 @@ class MemoryCorrection(APIModel):
 
 class MemoryRollback(APIModel):
     version: int = Field(ge=1)
+
+
+class MemoryExpiryUpdate(APIModel):
+    expires_at: datetime | None = None
+    ttl_seconds: int | None = Field(default=None, ge=1, le=315_576_000)
+    clear_expiry: bool = False
+
+    @model_validator(mode="after")
+    def selects_one_expiry_action(self) -> MemoryExpiryUpdate:
+        selected = sum(
+            (
+                self.expires_at is not None,
+                self.ttl_seconds is not None,
+                self.clear_expiry,
+            )
+        )
+        if selected != 1:
+            raise ValueError("set expires_at, set ttl_seconds, or clear_expiry")
+        if self.expires_at is not None and (
+            self.expires_at.tzinfo is None or self.expires_at.utcoffset() is None
+        ):
+            raise ValueError("memory expiry must be timezone-aware")
+        return self
+
+
+class MemoryDelete(APIModel):
+    reason: str = Field(min_length=1, max_length=2_000)
+
+    @model_validator(mode="after")
+    def normalizes_reason(self) -> MemoryDelete:
+        self.reason = " ".join(self.reason.split())
+        if not self.reason:
+            raise ValueError("memory deletion reason cannot be empty")
+        return self
+
+
+class MemoryTombstone(APIModel):
+    """Minimal durable deletion audit; deleted memory text is never retained."""
+
+    schema_version: Literal[1] = 1
+    memory_id: str = Field(pattern=r"^mem_[A-Za-z0-9_-]+$")
+    scope: MemoryScope
+    scope_id: str = Field(min_length=1, max_length=160)
+    tenant_id: str | None = Field(default=None, min_length=1, max_length=160)
+    principal_id: str | None = Field(default=None, min_length=1, max_length=160)
+    identity_binding: Literal["local_only", "authenticated_principal"]
+    last_version: int = Field(ge=1)
+    last_status: MemoryStatus
+    source: MemorySource
+    origin: MemoryOrigin
+    sensitivity: MemorySensitivity
+    source_run_id: str | None = None
+    content_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    deleted_by: str = Field(min_length=1, max_length=160)
+    reason: str = Field(min_length=1, max_length=2_000)
+    deleted_at: datetime = Field(default_factory=utc_now)
+
+    @model_validator(mode="after")
+    def coherent_deleted_identity(self) -> MemoryTombstone:
+        authenticated = self.identity_binding == "authenticated_principal"
+        if authenticated != (self.tenant_id is not None and self.principal_id is not None):
+            raise ValueError("memory tombstone identity binding is incomplete")
+        if not authenticated and (self.tenant_id is not None or self.principal_id is not None):
+            raise ValueError("local-only tombstone cannot claim an authenticated identity")
+        if self.deleted_at.tzinfo is None or self.deleted_at.utcoffset() is None:
+            raise ValueError("memory deletion time must be timezone-aware")
+        return self
+
+
+class MemoryPublicItem(APIModel):
+    """Authorized memory view without the principal-session credential binding."""
+
+    id: str
+    scope: MemoryScope
+    scope_id: str
+    identity_binding: Literal["local_only", "authenticated_principal"]
+    tenant_id: str | None = None
+    principal_id: str | None = None
+    text: str
+    kind: MemoryKind
+    source: MemorySource
+    origin: MemoryOrigin
+    source_run_id: str | None = None
+    source_anchor: str
+    confidence: float
+    sensitivity: MemorySensitivity
+    status: MemoryStatus
+    version: int
+    created_by: str
+    created_at: datetime
+    updated_at: datetime
+    expires_at: datetime | None = None
+    expired: bool
+
+
+class MemoryExportResponse(APIModel):
+    schema_version: Literal["memory-export-v1"] = "memory-export-v1"
+    exported_at: datetime
+    exported_by: str
+    count: int = Field(ge=0)
+    items: list[MemoryPublicItem]
+    tombstone_count: int = Field(ge=0)
+    tombstones: list[MemoryTombstone]
+
+
+class MemoryRetrievalRequest(APIModel):
+    query: str = Field(min_length=1, max_length=2_000)
+    project_id: str | None = Field(default=None, min_length=1, max_length=200)
+    agent_id: str | None = Field(default=None, min_length=1, max_length=160)
+    include_user_scope: bool = True
+    limit: int = Field(default=8, ge=1, le=20)
+
+    @model_validator(mode="after")
+    def has_query_and_scope(self) -> MemoryRetrievalRequest:
+        self.query = " ".join(self.query.split())
+        if not self.query:
+            raise ValueError("memory retrieval query cannot be empty")
+        if not self.include_user_scope and self.project_id is None and self.agent_id is None:
+            raise ValueError("memory retrieval requires at least one scope")
+        return self
+
+
+class MemoryRetrievalHit(APIModel):
+    rank: int = Field(ge=1)
+    exact_query_match: bool
+    matched_terms: list[str]
+    term_occurrences: int = Field(ge=1)
+    item: MemoryPublicItem
+
+
+class MemoryRetrievalMetadata(APIModel):
+    algorithm: Literal["unicode_nfkc_casefold_all_terms_substring_v1"] = (
+        "unicode_nfkc_casefold_all_terms_substring_v1"
+    )
+    query: str
+    normalized_query: str
+    terms: list[str]
+    requested_scope_pairs: list[str]
+    evaluated_at: datetime
+    authorized_approved_candidates: int = Field(ge=0)
+    excluded_expired: int = Field(ge=0)
+    matched: int = Field(ge=0)
+    returned: int = Field(ge=0)
+
+
+class MemoryRetrievalResponse(APIModel):
+    metadata: MemoryRetrievalMetadata
+    hits: list[MemoryRetrievalHit]
 
 
 class Notification(APIModel):
@@ -534,23 +984,124 @@ class StandingIntent(APIModel):
 
     id: str = Field(default_factory=lambda: new_id("intent"))
     project_id: str
+    principal_binding: PrincipalBinding | None = None
+    agent_id: str | None = Field(default=None, max_length=160)
+    provider_profile_id: str | None = Field(default=None, max_length=160)
     intent: str = Field(min_length=1, max_length=2_000)
     cooldown_hours: float = Field(default=24, ge=0, le=24 * 30)
     max_triggers: int = Field(default=3, ge=1, le=100)
     expires_at: datetime
     triggered_count: int = 0
     last_triggered_at: datetime | None = None
+    check_interval_minutes: int = Field(default=1_440, ge=15, le=7 * 24 * 60)
+    check_timeout_seconds: int = Field(default=1_800, ge=60, le=7_200)
+    per_check_budget_usd: float = Field(default=0.5, gt=0, le=100)
+    total_budget_usd: float = Field(default=15, gt=0, le=10_000)
+    # This is a conservative sum of the hard caps assigned to runs that actually
+    # started. It is intentionally not presented as an authoritative provider bill.
+    budget_committed_usd: float = Field(default=0, ge=0, le=10_000)
+    # A short-lived reservation closes the crash window between claiming an intent
+    # and durably creating its run. It becomes committed when the run is attached.
+    budget_reserved_usd: float = Field(default=0, ge=0, le=100)
+    check_count: int = Field(default=0, ge=0)
+    next_check_at: datetime | None = None
+    last_check_at: datetime | None = None
+    last_check_run_id: str | None = Field(default=None, max_length=160)
+    active_check_run_id: str | None = Field(default=None, max_length=160)
+    active_claim_id: str | None = Field(default=None, max_length=200)
+    active_claim_owner: str | None = Field(default=None, max_length=200)
+    check_lease_expires_at: datetime | None = None
+    consecutive_failures: int = Field(default=0, ge=0)
+    last_check_error: str | None = Field(default=None, max_length=1_000)
+    last_check_error_at: datetime | None = None
+    watcher_status: StandingIntentWatcherStatus = StandingIntentWatcherStatus.IDLE
     enabled: bool = True
     created_by: str = Field(default="user", max_length=160)
+    authorization_source: Literal["user_api", "user_approved_agent"] | None = None
+    authorized_at: datetime | None = None
     created_at: datetime = Field(default_factory=utc_now)
+
+    @model_validator(mode="after")
+    def coherent_watcher_envelope(self) -> StandingIntent:
+        timestamps = [
+            self.expires_at,
+            self.created_at,
+            self.last_triggered_at,
+            self.next_check_at,
+            self.last_check_at,
+            self.check_lease_expires_at,
+            self.last_check_error_at,
+            self.authorized_at,
+        ]
+        if any(
+            value is not None and (value.tzinfo is None or value.utcoffset() is None)
+            for value in timestamps
+        ):
+            raise ValueError("standing intent timestamps must be timezone-aware")
+        if self.expires_at <= self.created_at:
+            raise ValueError("standing intent must expire after it is created")
+        if self.total_budget_usd < self.per_check_budget_usd:
+            raise ValueError("total budget must cover at least one check")
+        if (
+            self.budget_committed_usd
+            + self.budget_reserved_usd
+            > self.total_budget_usd + 1e-9
+        ):
+            raise ValueError("standing intent budget commitments exceed the total budget")
+        active_values = (
+            self.active_claim_id,
+            self.active_claim_owner,
+            self.check_lease_expires_at,
+        )
+        if any(value is not None for value in active_values) and not all(
+            value is not None for value in active_values
+        ):
+            raise ValueError("standing intent claim metadata is incomplete")
+        if self.active_check_run_id is not None and self.active_claim_id is None:
+            raise ValueError("standing intent run requires an active claim")
+        if self.budget_reserved_usd > 0 and self.active_claim_id is None:
+            raise ValueError("standing intent reservation requires an active claim")
+        return self
 
 
 class StandingIntentCreate(APIModel):
     project_id: str = Field(min_length=1, max_length=160)
+    agent_id: str | None = Field(default=None, max_length=160)
+    provider_profile_id: str | None = Field(default=None, max_length=160)
     intent: str = Field(min_length=1, max_length=2_000)
     cooldown_hours: float = Field(default=24, ge=0, le=24 * 30)
     max_triggers: int = Field(default=3, ge=1, le=100)
     expires_days: int = Field(default=90, ge=1, le=365)
+    check_interval_minutes: int = Field(default=1_440, ge=15, le=7 * 24 * 60)
+    check_timeout_seconds: int = Field(default=1_800, ge=60, le=7_200)
+    per_check_budget_usd: float = Field(default=0.5, gt=0, le=100)
+    total_budget_usd: float = Field(default=15, gt=0, le=10_000)
+
+    @model_validator(mode="after")
+    def total_budget_covers_one_check(self) -> StandingIntentCreate:
+        if self.total_budget_usd < self.per_check_budget_usd:
+            raise ValueError("total budget must cover at least one check")
+        return self
+
+
+class StandingIntentCheckResponse(APIModel):
+    outcome: Literal[
+        "started",
+        "busy",
+        "paused",
+        "backoff",
+        "completed",
+        "disabled",
+        "unauthorized",
+        "expired",
+        "trigger_exhausted",
+        "cooldown",
+        "budget_exhausted",
+        "claim_expired",
+        "not_due",
+    ]
+    intent: StandingIntent
+    run: RunRecord | None = None
 
 
 class SchedulePermissionRule(APIModel):
@@ -628,6 +1179,7 @@ class SchedulePermissionRule(APIModel):
 class Schedule(APIModel):
     id: str = Field(default_factory=lambda: new_id("schedule"))
     project_id: str
+    principal_binding: PrincipalBinding | None = None
     agent_id: str | None = None
     provider_profile_id: str | None = None
     mode: RunMode = RunMode.STANDARD
@@ -746,6 +1298,33 @@ class CommercialActionStage(APIModel):
         return self
 
 
+class CommercialActionReceiptStage(APIModel):
+    """Server-scoped staging request hydrated from a trusted target receipt.
+
+    The Agent may choose the proposed changes and explain why, but it cannot
+    nominate the operation, connector, resource, external version, or observed
+    state.  Those fields are recovered from ``receipt_id`` by trusted host code.
+    """
+
+    source_run_id: str = Field(min_length=1, max_length=160)
+    source_session_id: str = Field(min_length=1, max_length=500)
+    receipt_id: str = Field(
+        min_length=20,
+        max_length=200,
+        pattern=r"^receipt_[A-Za-z0-9_-]{20,}$",
+    )
+    changes: list[CommercialFieldChange] = Field(min_length=1, max_length=100)
+    reason: str = Field(min_length=1, max_length=4_000)
+    expires_in_seconds: int = Field(default=86_400, ge=60, le=7 * 86_400)
+
+    @model_validator(mode="after")
+    def unique_changed_fields(self) -> CommercialActionReceiptStage:
+        fields = [change.field for change in self.changes]
+        if len(fields) != len(set(fields)):
+            raise ValueError("commercial action cannot change the same field twice")
+        return self
+
+
 class CommercialActionReviewRequest(APIModel):
     decision: CommercialReviewDecision
     reason: str = Field(min_length=1, max_length=4_000)
@@ -767,12 +1346,44 @@ class CommercialActionApplyRequest(APIModel):
     reason: str = Field(min_length=1, max_length=4_000)
 
 
+class CommercialActionApplyControlRequest(APIModel):
+    """Human control-plane input; source lineage is hydrated by the server."""
+
+    reason: str = Field(min_length=1, max_length=4_000)
+
+
+class CommercialActionCancelRequest(APIModel):
+    """Authenticated human request to withdraw an unexecuted proposal."""
+
+    reason: str = Field(min_length=1, max_length=4_000)
+
+
 class CommercialActionReview(APIModel):
     decision: CommercialReviewDecision
     actor_id: str = Field(min_length=1, max_length=160)
+    tenant_id: str | None = Field(default=None, min_length=1, max_length=160)
+    actor_role: PrincipalRole | None = None
+    actor_session_id: str | None = Field(default=None, min_length=16, max_length=500)
     reason: str = Field(min_length=1, max_length=4_000)
     decided_at: datetime
     valid_until: datetime | None = None
+    # Policy version evaluated for this human decision. Optional only so
+    # historical snapshots created before policy-bound review remain readable.
+    policy_updated_at: datetime | None = None
+
+    @model_validator(mode="after")
+    def coherent_reviewer_identity(self) -> CommercialActionReview:
+        values = (self.tenant_id, self.actor_role, self.actor_session_id)
+        if any(value is not None for value in values) and not all(
+            value is not None for value in values
+        ):
+            raise ValueError("commercial reviewer identity is incomplete")
+        if self.policy_updated_at is not None and (
+            self.policy_updated_at.tzinfo is None
+            or self.policy_updated_at.utcoffset() is None
+        ):
+            raise ValueError("commercial review policy time must be timezone-aware")
+        return self
 
 
 class CommercialActionAuditEntry(APIModel):
@@ -780,8 +1391,13 @@ class CommercialActionAuditEntry(APIModel):
         "staged",
         "approved",
         "rejected",
+        "cancelled",
         "expired",
         "execution_requested",
+        "execution_started",
+        "execution_retryable_failed",
+        "execution_failed",
+        "applied",
         "apply_idempotent",
     ]
     actor_id: str = Field(min_length=1, max_length=160)
@@ -807,6 +1423,37 @@ class CommercialNumericLimit(APIModel):
         return self
 
 
+class CommercialExecutionReceipt(APIModel):
+    """Server-issued proof of a successful idempotent external commit.
+
+    The response payload is deliberately represented only by a canonical hash;
+    remote bodies may contain untrusted or sensitive fields and are never copied
+    into the project ledger.
+    """
+
+    id: str = Field(
+        max_length=200,
+        pattern=r"^external_receipt_[A-Za-z0-9_-]{40,}$",
+    )
+    action_id: str = Field(min_length=1, max_length=200)
+    execution_id: str = Field(min_length=1, max_length=200)
+    connector_id: CommercialConnectorId
+    operation: CommercialActionOperation
+    idempotency_key: str = Field(min_length=40, max_length=200)
+    remote_action_id: str = Field(min_length=1, max_length=500)
+    remote_version: str | None = Field(default=None, min_length=1, max_length=500)
+    http_status: int = Field(ge=200, le=299)
+    response_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    adapter_attempts: int = Field(ge=1, le=100)
+    issued_at: datetime
+
+    @model_validator(mode="after")
+    def timezone_aware_issue_time(self) -> CommercialExecutionReceipt:
+        if self.issued_at.tzinfo is None or self.issued_at.utcoffset() is None:
+            raise ValueError("commercial execution receipt time must be timezone-aware")
+        return self
+
+
 class CommercialExecutionRequest(APIModel):
     id: str = Field(max_length=200, pattern=r"^execution_[A-Za-z0-9_-]{40,}$")
     action_id: str = Field(min_length=1, max_length=200)
@@ -814,6 +1461,9 @@ class CommercialExecutionRequest(APIModel):
     source_run_id: str = Field(min_length=1, max_length=160)
     source_session_id: str = Field(min_length=1, max_length=500)
     requested_by: str = Field(min_length=1, max_length=160)
+    requested_tenant_id: str | None = Field(default=None, min_length=1, max_length=160)
+    requested_role: PrincipalRole | None = None
+    requested_session_id: str | None = Field(default=None, min_length=16, max_length=500)
     request_reason: str = Field(min_length=1, max_length=4_000)
     requested_at: datetime
     projected_state: dict[str, JsonValue]
@@ -823,12 +1473,78 @@ class CommercialExecutionRequest(APIModel):
     org_policy_updated_at: datetime
     external_status: ExternalExecutionStatus = ExternalExecutionStatus.NOT_EXECUTED
     adapter_required: Literal[True] = True
+    adapter_type: str | None = Field(default=None, max_length=80)
+    # New requests copy the preview's server-issued stable key. Keeping this
+    # optional lets historical snapshots reload; the service deterministically
+    # falls back to the execution ID for those records.
+    idempotency_key: str | None = Field(default=None, min_length=40, max_length=200)
+    attempt_count: int = Field(default=0, ge=0, le=10_000)
+    attempt_started_at: datetime | None = None
+    attempt_lease_until: datetime | None = None
+    retry_not_before: datetime | None = None
+    last_error_code: str | None = Field(default=None, max_length=120)
+    last_error_message: str | None = Field(default=None, max_length=1_000)
+    receipt: CommercialExecutionReceipt | None = None
     adapter_preconditions: list[str] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def finite_projected_state(self) -> CommercialExecutionRequest:
         if not json_value_is_finite(self.projected_state):
             raise ValueError("commercial projected state requires finite JSON numbers")
+        identity_values = (
+            self.requested_tenant_id,
+            self.requested_role,
+            self.requested_session_id,
+        )
+        if any(value is not None for value in identity_values) and not all(
+            value is not None for value in identity_values
+        ):
+            raise ValueError("commercial execution requester identity is incomplete")
+        timestamps = (
+            self.requested_at,
+            self.attempt_started_at,
+            self.attempt_lease_until,
+            self.retry_not_before,
+        )
+        if any(
+            value is not None and (value.tzinfo is None or value.utcoffset() is None)
+            for value in timestamps
+        ):
+            raise ValueError("commercial execution timestamps must be timezone-aware")
+        if self.external_status == ExternalExecutionStatus.NOT_EXECUTED:
+            if self.receipt is not None:
+                raise ValueError("an unexecuted request cannot contain a receipt")
+        elif self.external_status == ExternalExecutionStatus.ATTEMPTING:
+            if (
+                self.attempt_count < 1
+                or self.attempt_started_at is None
+                or self.attempt_lease_until is None
+            ):
+                raise ValueError("an active execution requires an attempt lease")
+            if self.receipt is not None:
+                raise ValueError("an active execution cannot contain a receipt")
+        elif self.external_status == ExternalExecutionStatus.RETRYABLE_FAILED:
+            if self.attempt_count < 1 or self.retry_not_before is None:
+                raise ValueError("a retryable execution failure requires a retry time")
+            if self.receipt is not None:
+                raise ValueError("a retryable failure cannot contain a receipt")
+        elif self.external_status == ExternalExecutionStatus.SUCCEEDED:
+            if self.receipt is None:
+                raise ValueError("a successful execution requires a server receipt")
+            if self.last_error_code is not None or self.last_error_message is not None:
+                raise ValueError("a successful execution cannot retain an error")
+        elif self.external_status == ExternalExecutionStatus.TERMINAL_FAILED:
+            if not self.last_error_code or not self.last_error_message:
+                raise ValueError("a terminal execution failure requires an error")
+            if self.receipt is not None:
+                raise ValueError("a terminal failure cannot contain a receipt")
+        if self.receipt is not None:
+            if (
+                self.receipt.action_id != self.action_id
+                or self.receipt.execution_id != self.id
+                or self.receipt.idempotency_key != (self.idempotency_key or self.id)
+            ):
+                raise ValueError("commercial execution receipt scope does not match")
         return self
 
 
@@ -838,12 +1554,38 @@ class CommercialActionRecord(APIModel):
     source_run_id: str = Field(min_length=1, max_length=160)
     source_session_id: str = Field(min_length=1, max_length=500)
     staged_by: str = Field(min_length=1, max_length=160)
+    tenant_id: str | None = Field(default=None, min_length=1, max_length=160)
+    staged_role: PrincipalRole | None = None
+    staged_principal_session_id: str | None = Field(
+        default=None,
+        min_length=16,
+        max_length=500,
+    )
+    identity_binding: Literal["local_only", "authenticated_principal"] = "local_only"
+    # Issued with the immutable preview, before human review. Historical
+    # snapshots may omit it; those retain their execution ID as the fallback.
+    idempotency_key: str | None = Field(default=None, min_length=40, max_length=200)
+    # New production actions are hydrated from this server-issued connector
+    # observation.  ``None`` is retained only for historical/local-only records.
+    source_receipt_id: str | None = Field(
+        default=None,
+        min_length=20,
+        max_length=200,
+        pattern=r"^receipt_[A-Za-z0-9_-]{20,}$",
+    )
+    source_connector_config_hash: str | None = Field(
+        default=None,
+        pattern=r"^[0-9a-f]{64}$",
+    )
     operation: CommercialActionOperation
     target: CommercialActionTarget
     observed_state: dict[str, JsonValue]
     changes: list[CommercialFieldChange]
     reason: str
     project_revision_at_stage: int = Field(ge=1)
+    # Version of the organization policy visible when the immutable preview was
+    # staged. Optional only for historical snapshots.
+    staged_policy_updated_at: datetime | None = None
     status: CommercialActionStatus = CommercialActionStatus.STAGED
     review: CommercialActionReview | None = None
     execution_request: CommercialExecutionRequest | None = None
@@ -856,8 +1598,47 @@ class CommercialActionRecord(APIModel):
     def coherent_transition_state(self) -> CommercialActionRecord:
         if not json_value_is_finite(self.observed_state):
             raise ValueError("commercial observed state requires finite JSON numbers")
+        if (self.source_receipt_id is None) != (
+            self.source_connector_config_hash is None
+        ):
+            raise ValueError("commercial source receipt binding is incomplete")
+        identity_values = (
+            self.tenant_id,
+            self.staged_role,
+            self.staged_principal_session_id,
+        )
+        authenticated = self.identity_binding == "authenticated_principal"
+        if authenticated != all(value is not None for value in identity_values):
+            raise ValueError("commercial action identity binding is incomplete")
+        if not authenticated and any(value is not None for value in identity_values):
+            raise ValueError("local-only action cannot claim an authenticated identity")
+        if authenticated and self.staged_by in {"agent", "main-agent", "system"}:
+            raise ValueError("authenticated commercial action requires a human staging identity")
         if self.expires_at <= self.created_at or self.updated_at < self.created_at:
             raise ValueError("commercial action timestamps are inconsistent")
+        if self.staged_policy_updated_at is not None and (
+            self.staged_policy_updated_at.tzinfo is None
+            or self.staged_policy_updated_at.utcoffset() is None
+        ):
+            raise ValueError("commercial staged policy time must be timezone-aware")
+        execution = self.execution_request
+        if execution is not None:
+            if (
+                execution.action_id != self.id
+                or execution.project_id != self.project_id
+                or execution.source_run_id != self.source_run_id
+                or execution.source_session_id != self.source_session_id
+            ):
+                raise ValueError("execution request scope does not match its staged action")
+            if self.idempotency_key is not None and (
+                execution.idempotency_key != self.idempotency_key
+            ):
+                raise ValueError("execution idempotency key does not match its preview")
+            if execution.receipt is not None and (
+                execution.receipt.connector_id != self.target.connector_id
+                or execution.receipt.operation != self.operation
+            ):
+                raise ValueError("execution receipt target does not match its staged action")
         if self.status == CommercialActionStatus.STAGED:
             if self.review is not None or self.execution_request is not None:
                 raise ValueError("staged commercial action cannot contain review or execution")
@@ -876,6 +1657,20 @@ class CommercialActionRecord(APIModel):
                 or self.execution_request is not None
             ):
                 raise ValueError("rejected commercial action has inconsistent review state")
+        elif self.status == CommercialActionStatus.CANCELLED:
+            if self.review is not None and (
+                self.review.decision != CommercialReviewDecision.APPROVE
+                or self.review.valid_until is None
+            ):
+                raise ValueError("cancelled commercial action has inconsistent review state")
+            if self.execution_request is not None and (
+                self.review is None
+                or self.execution_request.external_status
+                != ExternalExecutionStatus.NOT_EXECUTED
+            ):
+                raise ValueError(
+                    "cancelled commercial action has an unsafe external execution state"
+                )
         elif self.status == CommercialActionStatus.EXECUTION_REQUESTED:
             if (
                 self.review is None
@@ -884,13 +1679,29 @@ class CommercialActionRecord(APIModel):
             ):
                 raise ValueError("execution request must derive from an approval")
             execution = self.execution_request
+            if execution.external_status in {
+                ExternalExecutionStatus.SUCCEEDED,
+                ExternalExecutionStatus.TERMINAL_FAILED,
+            }:
+                raise ValueError("final external state requires a final action status")
+        elif self.status == CommercialActionStatus.APPLIED:
             if (
-                execution.action_id != self.id
-                or execution.project_id != self.project_id
-                or execution.source_run_id != self.source_run_id
-                or execution.source_session_id != self.source_session_id
+                self.review is None
+                or self.review.decision != CommercialReviewDecision.APPROVE
+                or self.execution_request is None
+                or self.execution_request.external_status
+                != ExternalExecutionStatus.SUCCEEDED
             ):
-                raise ValueError("execution request scope does not match its staged action")
+                raise ValueError("applied commercial action requires a successful receipt")
+        elif self.status == CommercialActionStatus.EXECUTION_FAILED:
+            if (
+                self.review is None
+                or self.review.decision != CommercialReviewDecision.APPROVE
+                or self.execution_request is None
+                or self.execution_request.external_status
+                != ExternalExecutionStatus.TERMINAL_FAILED
+            ):
+                raise ValueError("failed commercial action requires a terminal failure")
         elif self.execution_request is not None:
             raise ValueError("expired commercial action cannot contain an execution request")
         return self
@@ -942,10 +1753,30 @@ class FeedbackItem(APIModel):
     project_id: str | None = None
     run_id: str | None = None
     evidence_id: str | None = None
+    tenant_id: str | None = Field(default=None, min_length=1, max_length=160)
+    principal_id: str | None = Field(default=None, min_length=1, max_length=160)
+    principal_role: PrincipalRole | None = None
+    principal_session_id: str | None = Field(default=None, min_length=16, max_length=500)
+    identity_binding: Literal["local_only", "authenticated_principal"] = "local_only"
     kind: FeedbackKind
     user_note: str = Field(min_length=1, max_length=4_000)
     status: Literal["open", "reviewed", "folded_into_skill", "rejected"] = "open"
     created_at: datetime = Field(default_factory=utc_now)
+
+    @model_validator(mode="after")
+    def coherent_feedback_identity(self) -> FeedbackItem:
+        values = (
+            self.tenant_id,
+            self.principal_id,
+            self.principal_role,
+            self.principal_session_id,
+        )
+        authenticated = self.identity_binding == "authenticated_principal"
+        if authenticated != all(value is not None for value in values):
+            raise ValueError("feedback identity binding is incomplete")
+        if not authenticated and any(value is not None for value in values):
+            raise ValueError("local-only feedback cannot claim authenticated identity")
+        return self
 
 
 class FeedbackCreate(APIModel):

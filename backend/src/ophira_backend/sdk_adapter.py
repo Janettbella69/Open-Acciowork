@@ -27,7 +27,7 @@ from claude_agent_sdk import (
     tool,
 )
 
-from .agent_core import MAX_MEMORY_ITEMS, assemble_default_prompt, assemble_system_prompt
+from .agent_core import MAX_MEMORY_ITEMS
 from .agents import build_deep_research_agents
 from .commercial_actions import CommercialActionService
 from .config import BACKEND_DIR, Settings
@@ -44,26 +44,34 @@ from .constants import (
     READ_ONLY_MCP_TOOL_NAMES,
     SHELL_BUILTIN_TOOLS,
     TOOL_ACT_ON_PAGE,
+    TOOL_FETCH_PAGE_SNAPSHOT,
     TOOL_GET_PROJECT_CONTEXT,
+    TOOL_LIST_STANDING_INTENTS,
+    TOOL_READ_SOURCE_RECEIPT,
     TOOL_SEARCH_EVIDENCE,
+    TOOL_SEARCH_PUBLIC_WEB,
     TOOL_SNAPSHOT_PAGE,
-    USER_SCOPE_ID,
+    TOOL_TRIGGER_STANDING_INTENT,
     WRITE_BUILTIN_TOOLS,
     EventType,
-    MemoryScope,
     PermissionDecision,
     PermissionModePolicy,
+    PresentationFrameType,
     ProviderErrorCode,
     RunMode,
+)
+from .context_protocol import (
+    PreparedRunContext,
+    prepare_run_context,
 )
 from .destructive import is_destructive_delete
 from .events import EventPublisher, redact
 from .ledger_tools import build_mcp_servers
-from .memory import MemoryProvider, gather_approved
+from .memory import MemoryProvider
 from .models import EventActor, ProviderPreflightResult, RunRecord, utc_now
 from .permissions import PermissionBroker
 from .policy import OrgPolicyStore
-from .presentation_tools import presentation_event_response
+from .presentation_tools import presentation_event_response, presentation_frame_event
 from .providers import (
     ProviderConfigurationError,
     ProviderRegistry,
@@ -72,8 +80,8 @@ from .providers import (
     successful_preflight,
 )
 from .skills import SkillRegistry, SkillRuntimeView
+from .source_receipts import attach_source_receipts
 from .storage import FileLedger
-from .templates import TEMPLATE_SPECS
 from .untrusted import (
     UNTRUSTED_DATA_NOTICE,
     UntrustedSource,
@@ -83,6 +91,22 @@ from .untrusted import (
 
 class AgentRunError(RuntimeError):
     pass
+
+
+_CONTROL_PLANE_SECRET_ENV_NAMES = (
+    "OPHIRA_CHANNEL_WEBHOOK_URL",
+    "OPHIRA_COMMERCIAL_APPROVAL_SECRET",
+    "OPHIRA_TRUSTED_GATEWAY_AUTH_SECRET",
+    "OPHIRA_FEISHU_APP_ID",
+    "OPHIRA_FEISHU_APP_SECRET",
+    "OPHIRA_FEISHU_ENCRYPT_KEY",
+)
+
+
+def _control_plane_secret_shadows() -> dict[str, str]:
+    """Override host env values before the SDK worker process is created."""
+
+    return {name: "" for name in _CONTROL_PLANE_SECRET_ENV_NAMES}
 
 
 def _path_within(root: Path, candidate: str | None) -> bool:
@@ -113,7 +137,10 @@ def _contained(cwd: Path, fence: Path, candidate: str) -> bool:
 
 
 _UNTRUSTED_LEDGER_TOOL_NAMES = frozenset(
-    {TOOL_GET_PROJECT_CONTEXT, TOOL_SEARCH_EVIDENCE}
+    {TOOL_GET_PROJECT_CONTEXT, TOOL_SEARCH_EVIDENCE, TOOL_READ_SOURCE_RECEIPT}
+)
+_UNTRUSTED_JSON_TOOL_NAMES = frozenset(
+    {*_UNTRUSTED_LEDGER_TOOL_NAMES, TOOL_SEARCH_PUBLIC_WEB, TOOL_FETCH_PAGE_SNAPSHOT}
 )
 
 
@@ -126,6 +153,10 @@ def _post_tool_untrusted_source(
     if tool_name == "WebSearch":
         return UntrustedSource.WEB_SEARCH
     if tool_name == "WebFetch":
+        return UntrustedSource.WEB_PAGE
+    if tool_name == TOOL_SEARCH_PUBLIC_WEB:
+        return UntrustedSource.WEB_SEARCH
+    if tool_name == TOOL_FETCH_PAGE_SNAPSHOT:
         return UntrustedSource.WEB_PAGE
     if tool_name in _UNTRUSTED_LEDGER_TOOL_NAMES:
         return UntrustedSource.PROJECT_LEDGER
@@ -164,6 +195,17 @@ def _is_subagent_restricted_tool(tool_name: str) -> bool:
     }:
         return True
     return tool_name.startswith("mcp__") and tool_name not in READ_ONLY_MCP_TOOL_NAMES
+
+
+_STANDING_INTENT_ALLOWED_TOOLS = frozenset(
+    {
+        *READ_ONLY_BUILTIN_TOOLS,
+        *READ_ONLY_MCP_TOOL_NAMES,
+        TOOL_LIST_STANDING_INTENTS,
+        TOOL_TRIGGER_STANDING_INTENT,
+        "Skill",
+    }
+)
 
 
 class ClaudeAgentRuntime:
@@ -205,37 +247,42 @@ class ClaudeAgentRuntime:
         )
         self._clients: dict[str, ClaudeSDKClient] = {}
         self._clients_lock = asyncio.Lock()
+        self._prepared_contexts: dict[str, PreparedRunContext] = {}
 
     async def run(self, run: RunRecord) -> None:
         self._require_provider(run)
         snapshot = self._policy_skill_snapshot(run.skill_snapshot)
-        with self.skills.runtime_snapshot_lease(snapshot) as skill_view:
-            options = self._build_options(run, skill_view=skill_view)
-            if run.mode != RunMode.DEEP_RESEARCH:
-                await self._run_sdk_session(run, options)
-                return
+        self._prepare_context(run, snapshot)
+        try:
+            with self.skills.runtime_snapshot_lease(snapshot) as skill_view:
+                options = self._build_options(run, skill_view=skill_view)
+                if run.mode != RunMode.DEEP_RESEARCH:
+                    await self._run_sdk_session(run, options)
+                    return
 
-            task = asyncio.create_task(
-                self._run_sdk_session(run, options),
-                name=f"ophira:deep-research:{run.id}",
-            )
-            try:
-                done, _pending = await asyncio.wait(
-                    {task}, timeout=self.settings.deep_research_timeout_seconds
+                task = asyncio.create_task(
+                    self._run_sdk_session(run, options),
+                    name=f"ophira:deep-research:{run.id}",
                 )
-            except asyncio.CancelledError:
+                try:
+                    done, _pending = await asyncio.wait(
+                        {task}, timeout=self.settings.deep_research_timeout_seconds
+                    )
+                except asyncio.CancelledError:
+                    task.cancel()
+                    await asyncio.gather(task, return_exceptions=True)
+                    raise
+                if task in done:
+                    await task
+                    return
                 task.cancel()
                 await asyncio.gather(task, return_exceptions=True)
-                raise
-            if task in done:
-                await task
-                return
-            task.cancel()
-            await asyncio.gather(task, return_exceptions=True)
-            raise AgentRunError(
-                "Deep Research exceeded its wall-clock limit "
-                f"({self.settings.deep_research_timeout_seconds}s) and was stopped."
-            )
+                raise AgentRunError(
+                    "Deep Research exceeded its wall-clock limit "
+                    f"({self.settings.deep_research_timeout_seconds}s) and was stopped."
+                )
+        finally:
+            self._prepared_contexts.pop(run.id, None)
 
     async def _run_sdk_session(
         self,
@@ -302,7 +349,7 @@ class ClaudeAgentRuntime:
             permission_mode="dontAsk",
             env={
                 **self.providers.build_worker_env(provider_profile_id),
-                "OPHIRA_COMMERCIAL_APPROVAL_SECRET": "",
+                **_control_plane_secret_shadows(),
             },
             model=profile.model,
             max_turns=4,
@@ -420,48 +467,38 @@ class ClaudeAgentRuntime:
             env = self.providers.build_worker_env(run.provider_profile_id)
         else:
             env = self.settings.claude_sdk_env()
-        # The model can use Bash inside its sandbox. Shadow the gateway credential
-        # so it cannot forge the human-only review/apply HTTP boundary.
-        env["OPHIRA_COMMERCIAL_APPROVAL_SECRET"] = ""
+        # The model can use Bash inside its sandbox. Shadow human-gateway and
+        # outbound-channel credentials inherited from the host process.
+        env.update(_control_plane_secret_shadows())
+        if self.connectors is not None:
+            for connector in self.connectors.list():
+                if connector.secret_env:
+                    env[connector.secret_env] = ""
         return env
 
     def _system_append(self, run: RunRecord) -> str:
-        agent = self.ledger.get_agent(run.agent_id) if run.agent_id else None
-        spec = TEMPLATE_SPECS[agent.template] if agent else None
-        memories = []
-        if self.memory is not None:
-            memories = gather_approved(
-                self.memory,
-                [
-                    (MemoryScope.USER, USER_SCOPE_ID),
-                    (MemoryScope.PROJECT, run.project_id),
-                ],
-                limit=MAX_MEMORY_ITEMS,
+        prepared = self._prepared_contexts.get(run.id)
+        if prepared is None:
+            prepared = self._prepare_context(
+                run,
+                self._policy_skill_snapshot(run.skill_snapshot),
             )
-        mode_rules = (
-            "Deep Research 已由用户显式开启。临时子 Agent 只能做只读来源研究；"
-            "你负责汇总、去重、处理冲突，并且只有你能写最终项目真相。"
-            if run.mode == RunMode.DEEP_RESEARCH
-            else (
-                "主线由你一以贯之地干完，不把主线工作交给别人。"
-                "只有当一个独立支线任务会产生大量脏上下文（例如翻几十个网页或文件）时，"
-                "才值得派一个一次性子代理去做并只取回摘要——前辈经验是九成五的任务用不到它。"
-                "不要把修复你自己刚做的事交给子代理（它没有你的上下文），"
-                "账本记录永远由你本人完成。"
-            )
+        return prepared.system_prompt_append
+
+    def _prepare_context(
+        self,
+        run: RunRecord,
+        effective_skill_snapshot: list[dict[str, object]],
+    ) -> PreparedRunContext:
+        prepared = prepare_run_context(
+            self.ledger,
+            self.memory,
+            run,
+            effective_skill_snapshot,
+            memory_limit=MAX_MEMORY_ITEMS,
         )
-        # 运行模式是固定文案，进稳定前缀；每 run 变的 trace_id 由 assemble 收尾。
-        if agent and spec:
-            return assemble_system_prompt(
-                agent,
-                self.ledger.agent_core_dir(agent.id),
-                spec,
-                memories,
-                mode_rules=mode_rules,
-            )
-        return assemble_default_prompt(
-            run.project_id, run.trace_id, memories, mode_rules=mode_rules
-        )
+        self._prepared_contexts[run.id] = prepared
+        return prepared
 
     def _build_options(
         self,
@@ -570,7 +607,9 @@ class ClaudeAgentRuntime:
                 run.project_id,
                 run_id=run.id,
                 schedule_id=run.schedule_id,
+                bound_intent_id=run.standing_intent_id,
             )
+        unattended_intent = run.standing_intent_id is not None
         return ClaudeAgentOptions(
             tools={"type": "preset", "preset": "claude_code"},
             allowed_tools=[
@@ -583,11 +622,15 @@ class ClaudeAgentRuntime:
                 ],
                 # Envelope-approved automation tools (§4.10): inbox delivery and
                 # throttled intent firing work unattended inside scheduled runs.
-                *ENVELOPE_APPROVED_MCP_TOOL_NAMES,
+                *(
+                    [TOOL_LIST_STANDING_INTENTS, TOOL_TRIGGER_STANDING_INTENT]
+                    if unattended_intent
+                    else ENVELOPE_APPROVED_MCP_TOOL_NAMES
+                ),
                 # 2026-08-24 拍板"按原生能力来做"：支线子代理开放，派遣动作
                 # 自动放行（无副作用）；子代理内部的工具调用仍逐项过权限，
                 # 账本写入在 can_use_tool 对子代理代码级拒绝。
-                DELEGATION_TOOL,
+                *([] if unattended_intent else [DELEGATION_TOOL]),
             ],
             disallowed_tools=[],
             system_prompt={
@@ -611,7 +654,12 @@ class ClaudeAgentRuntime:
             agents=build_deep_research_agents() if deep_research else None,
             model=model,
             max_turns=self.settings.max_turns,
-            max_budget_usd=self.settings.max_budget_usd * budget_scale,
+            max_budget_usd=(
+                min(self.settings.max_budget_usd, run.max_budget_usd)
+                if run.max_budget_usd is not None
+                else self.settings.max_budget_usd
+            )
+            * budget_scale,
             cwd=workspace,
             env=self._provider_env(run),
             setting_sources=[],
@@ -650,13 +698,16 @@ class ClaudeAgentRuntime:
     def _hook(self, run_id: str, workspace: Path):
         run = self.ledger.get_run(run_id)
 
-        async def handle(input_data: dict[str, Any], _tool_use_id, _context):
+        async def handle(input_data: dict[str, Any], callback_tool_use_id, _context):
             event_name = input_data.get("hook_event_name", "")
             actor = self._hook_actor(input_data)
-            tool_use_id = input_data.get("tool_use_id")
+            raw_tool_use_id = input_data.get("tool_use_id") or callback_tool_use_id
+            tool_use_id = raw_tool_use_id if isinstance(raw_tool_use_id, str) else None
             if event_name == "PreToolUse":
                 tool_name = input_data.get("tool_name")
                 tool_input = input_data.get("tool_input", {})
+                if not isinstance(tool_input, dict):
+                    tool_input = {}
                 await self.events.publish(
                     run_id,
                     EventType.TOOL_STARTED,
@@ -667,6 +718,32 @@ class ClaudeAgentRuntime:
                     actor=actor,
                     tool_use_id=tool_use_id,
                 )
+                if run.standing_intent_id is not None:
+                    if str(tool_name) not in _STANDING_INTENT_ALLOWED_TOOLS:
+                        return {
+                            "hookSpecificOutput": {
+                                "hookEventName": "PreToolUse",
+                                "permissionDecision": "deny",
+                                "permissionDecisionReason": (
+                                    "Standing-intent checks are unattended read-only "
+                                    "evaluations; only their bound trigger tool may write "
+                                    "the inbox."
+                                ),
+                            }
+                        }
+                    if (
+                        tool_name == TOOL_TRIGGER_STANDING_INTENT
+                        and tool_input.get("intent_id") != run.standing_intent_id
+                    ):
+                        return {
+                            "hookSpecificOutput": {
+                                "hookEventName": "PreToolUse",
+                                "permissionDecision": "deny",
+                                "permissionDecisionReason": (
+                                    "This evaluation can trigger only its bound standing intent."
+                                ),
+                            }
+                        }
                 if input_data.get("agent_id") and _is_subagent_restricted_tool(
                     str(tool_name)
                 ):
@@ -680,6 +757,24 @@ class ClaudeAgentRuntime:
                             ),
                         }
                     }
+                if tool_name in PRESENTATION_TOOL_NAMES:
+                    project = self.ledger.get_project(run.project_id)
+                    partial = presentation_frame_event(
+                        tool_name=str(tool_name),
+                        tool_input=tool_input,
+                        project_id=run.project_id,
+                        project_revision=project.revision,
+                        tool_use_id=tool_use_id,
+                        frame_type=PresentationFrameType.PARTIAL,
+                    )
+                    if partial is not None:
+                        await self.events.publish(
+                            run_id,
+                            EventType.UI_PRESENTATION,
+                            partial,
+                            actor=actor,
+                            tool_use_id=tool_use_id,
+                        )
                 candidate_key = {
                     "Read": "file_path",
                     "Write": "file_path",
@@ -800,7 +895,7 @@ class ClaudeAgentRuntime:
                         tool_response,
                         untrusted_source,
                         parse_json_strings=(
-                            tool_name in _UNTRUSTED_LEDGER_TOOL_NAMES
+                            tool_name in _UNTRUSTED_JSON_TOOL_NAMES
                         ),
                     )
                     tool_response = sanitized.value
@@ -808,13 +903,22 @@ class ClaudeAgentRuntime:
                         "hookEventName": "PostToolUse",
                         "additionalContext": UNTRUSTED_DATA_NOTICE,
                     }
-                    if "tool_response" in input_data:
-                        # Claude Agent SDK 0.2.x accepts updatedToolOutput for
-                        # built-in and MCP tools. Replacing the output is the
-                        # enforcement boundary; additionalContext alone would
-                        # leave the raw data-plane injection visible to Claude.
-                        hook_specific_output["updatedToolOutput"] = tool_response
+                tool_response = attach_source_receipts(
+                    self.ledger,
+                    run_id,
+                    tool_name,
+                    tool_input,
+                    tool_response,
+                    delegated=bool(input_data.get("agent_id")),
+                )
+                if hook_specific_output is not None and "tool_response" in input_data:
+                    # Claude Agent SDK 0.2.x accepts updatedToolOutput for
+                    # built-in and MCP tools. Replacing the output is the
+                    # enforcement boundary; additionalContext alone would
+                    # leave the raw data-plane injection visible to Claude.
+                    hook_specific_output["updatedToolOutput"] = tool_response
                 structured_response = None
+                presentation_frame = None
                 if tool_name in PRESENTATION_TOOL_NAMES:
                     structured_response = presentation_event_response(
                         tool_response,
@@ -822,6 +926,26 @@ class ClaudeAgentRuntime:
                     )
                     if structured_response is not None:
                         tool_response = structured_response
+                        presentation = structured_response["presentation"]
+                        presentation_frame = presentation_frame_event(
+                            tool_name=tool_name,
+                            tool_input=tool_input,
+                            project_id=run.project_id,
+                            project_revision=presentation["project_revision"],
+                            tool_use_id=tool_use_id,
+                            frame_type=PresentationFrameType.FINAL,
+                            presentation_response=structured_response,
+                        )
+                    else:
+                        project = self.ledger.get_project(run.project_id)
+                        presentation_frame = presentation_frame_event(
+                            tool_name=tool_name,
+                            tool_input=tool_input,
+                            project_id=run.project_id,
+                            project_revision=project.revision,
+                            tool_use_id=tool_use_id,
+                            frame_type=PresentationFrameType.DISCARDED,
+                        )
                 await self.events.publish(
                     run_id,
                     EventType.TOOL_COMPLETED,
@@ -833,11 +957,11 @@ class ClaudeAgentRuntime:
                     actor=actor,
                     tool_use_id=tool_use_id,
                 )
-                if structured_response is not None:
+                if presentation_frame is not None and not input_data.get("agent_id"):
                     await self.events.publish(
                         run_id,
                         EventType.UI_PRESENTATION,
-                        structured_response,
+                        presentation_frame,
                         actor=actor,
                         tool_use_id=tool_use_id,
                     )
@@ -875,6 +999,24 @@ class ClaudeAgentRuntime:
                     actor=actor,
                     tool_use_id=tool_use_id,
                 )
+                if tool_name in PRESENTATION_TOOL_NAMES and not input_data.get("agent_id"):
+                    project = self.ledger.get_project(run.project_id)
+                    discarded = presentation_frame_event(
+                        tool_name=tool_name,
+                        tool_input=tool_input,
+                        project_id=run.project_id,
+                        project_revision=project.revision,
+                        tool_use_id=tool_use_id,
+                        frame_type=PresentationFrameType.DISCARDED,
+                    )
+                    if discarded is not None:
+                        await self.events.publish(
+                            run_id,
+                            EventType.UI_PRESENTATION,
+                            discarded,
+                            actor=actor,
+                            tool_use_id=tool_use_id,
+                        )
                 if untrusted_source is not None:
                     return {
                         "hookSpecificOutput": {
@@ -1129,11 +1271,10 @@ class ClaudeAgentRuntime:
         self.ledger.update_project(project_id, mutate)
 
     def _query_prompt(self, run: RunRecord) -> str:
-        try:
-            project = self.ledger.get_project(run.project_id)
-        except Exception:
-            return run.prompt
-        if not project.constraints:
-            return run.prompt
-        listed = "\n".join(f"- {item}" for item in project.constraints[-20:])
-        return f"{run.prompt}\n\n【已确认的项目约束】\n{listed}"
+        prepared = self._prepared_contexts.get(run.id)
+        if prepared is None:
+            prepared = self._prepare_context(
+                run,
+                self._policy_skill_snapshot(run.skill_snapshot),
+            )
+        return f"{run.prompt}\n\n{prepared.envelope}"

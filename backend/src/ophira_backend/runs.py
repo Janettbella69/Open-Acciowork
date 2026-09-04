@@ -5,6 +5,7 @@ import hashlib
 from collections.abc import Callable
 from typing import Protocol
 
+from .channel_delivery import ChannelDeliveryService, FeishuReplyTarget
 from .constants import (
     HEARTBEAT_OK,
     TERMINAL_RUN_STATUSES,
@@ -18,7 +19,7 @@ from .constants import (
 from .distill import distill_run
 from .events import EventPublisher, redact
 from .memory import FileMemoryProvider
-from .models import EventActor, RunRecord, utc_now
+from .models import EventActor, PrincipalBinding, PrincipalContext, RunRecord, utc_now
 from .permissions import PermissionBroker
 from .policy import OrgPolicyStore, PolicyDeniedError
 from .providers import ProviderConfigurationError, ProviderRegistry, classify_provider_error
@@ -36,6 +37,10 @@ class RunRetryConflictError(RuntimeError):
     """The persisted source run cannot support the requested retry strategy."""
 
 
+class RunResumeConflictError(RuntimeError):
+    """A client-supplied session locator is not a safe resumable lineage."""
+
+
 class RunManager:
     def __init__(
         self,
@@ -49,6 +54,7 @@ class RunManager:
         memory: FileMemoryProvider | None = None,
         policy: OrgPolicyStore | None = None,
         settings=None,
+        channel_delivery: ChannelDeliveryService | None = None,
     ) -> None:
         self.ledger = ledger
         self.events = events
@@ -60,6 +66,7 @@ class RunManager:
         self.memory = memory
         self.policy = policy
         self.settings = settings
+        self.channel_delivery = channel_delivery
         self._tasks: dict[str, asyncio.Task[None]] = {}
 
     async def create_and_start(
@@ -69,12 +76,17 @@ class RunManager:
         *,
         agent_id: str | None = None,
         schedule_id: str | None = None,
+        standing_intent_id: str | None = None,
+        automation_claim_id: str | None = None,
         resume_session_id: str | None = None,
         mode: RunMode = RunMode.STANDARD,
         provider_profile_id: str | None = None,
         provider_snapshot: dict[str, object] | None = None,
         skill_snapshot: list[dict[str, object]] | None = None,
+        max_budget_usd: float | None = None,
         resolve_default_provider: bool = True,
+        channel_reply_target: FeishuReplyTarget | None = None,
+        principal: PrincipalContext | PrincipalBinding | None = None,
     ) -> RunRecord:
         if resolve_default_provider and provider_profile_id is None and self.providers is not None:
             provider_profile_id = self.providers.default_profile_id()
@@ -106,16 +118,31 @@ class RunManager:
                 provider_snapshot = self.providers.snapshot(provider_profile_id)
         if skill_snapshot is None and self.skills:
             skill_snapshot = self.skills.snapshot()
+        resume_source = self._resolve_resume_source(
+            resume_session_id,
+            project_id=project_id,
+            agent_id=agent_id,
+            provider_profile_id=provider_profile_id,
+            principal=principal,
+        )
         run = self.ledger.create_run(
             project_id,
             prompt,
             agent_id=agent_id,
             schedule_id=schedule_id,
+            standing_intent_id=standing_intent_id,
+            automation_claim_id=automation_claim_id,
             resume_session_id=resume_session_id,
+            resume_source_run_id=resume_source.id if resume_source else None,
+            session_compaction_epoch=(
+                resume_source.session_compaction_epoch if resume_source else 0
+            ),
             mode=mode,
             provider_profile_id=provider_profile_id,
             provider_snapshot=provider_snapshot,
             skill_snapshot=skill_snapshot,
+            max_budget_usd=max_budget_usd,
+            principal=principal,
         )
         await self.events.publish(
             run.id,
@@ -126,13 +153,99 @@ class RunManager:
                 "mode": run.mode,
                 "provider_profile_id": run.provider_profile_id,
                 "skill_snapshot": run.skill_snapshot,
+                "standing_intent_id": run.standing_intent_id,
+                "max_budget_usd": run.max_budget_usd,
+                "resume_source_run_id": run.resume_source_run_id,
             },
             actor=EventActor(type="system", name="run-manager"),
         )
+        if channel_reply_target is not None:
+            try:
+                if self.channel_delivery is None:
+                    raise RuntimeError("channel delivery service unavailable")
+                self.channel_delivery.bind_run(run, channel_reply_target)
+            except Exception as exc:
+                safe_error = (
+                    "Verified channel reply target could not be persisted; "
+                    "the Agent run was not started."
+                )
+                self.ledger.update_run(
+                    run.id,
+                    status=RunStatus.FAILED,
+                    error=safe_error,
+                    finished_at=utc_now(),
+                )
+                await self.events.publish(
+                    run.id,
+                    EventType.RUN_FAILED,
+                    {"status": RunStatus.FAILED, "error": safe_error},
+                    actor=EventActor(type="system", name="run-manager"),
+                )
+                raise RuntimeError(safe_error) from exc
         task = asyncio.create_task(self._execute(run.id), name=f"ophira:{run.id}")
         self._tasks[run.id] = task
         task.add_done_callback(lambda _task: self._tasks.pop(run.id, None))
         return run
+
+    def _resolve_resume_source(
+        self,
+        session_id: str | None,
+        *,
+        project_id: str,
+        agent_id: str | None,
+        provider_profile_id: str | None,
+        principal: PrincipalContext | PrincipalBinding | None,
+    ) -> RunRecord | None:
+        if session_id is None:
+            return None
+        bound = self.ledger.runs_for_sdk_session(session_id)
+        if not bound:
+            raise RunResumeConflictError(
+                "Unknown SDK session. Start a new conversation instead of resuming it."
+            )
+        if any(run.project_id != project_id for run in bound):
+            raise RunResumeConflictError(
+                "SDK sessions cannot be resumed across project boundaries."
+            )
+        if principal is None:
+            if any(run.identity_binding != "local_only" for run in bound):
+                raise RunResumeConflictError(
+                    "Authenticated SDK sessions require their bound principal."
+                )
+        elif any(
+            run.identity_binding != "authenticated_principal"
+            or run.tenant_id != principal.tenant_id
+            or run.principal_id != principal.principal_id
+            or run.principal_role != principal.role
+            or run.principal_session_id != principal.session_id
+            for run in bound
+        ):
+            raise RunResumeConflictError(
+                "SDK sessions cannot be resumed across principal boundaries."
+            )
+        active_claims = [
+            run
+            for run in self.ledger.runs_claiming_sdk_session(session_id)
+            if run.status not in TERMINAL_RUN_STATUSES
+        ]
+        if active_claims:
+            raise RunResumeConflictError(
+                "This SDK session already has an active run and cannot be resumed concurrently."
+            )
+        source = bound[0]
+        if source.status not in TERMINAL_RUN_STATUSES:
+            raise RunResumeConflictError("Only a terminal run session can be resumed.")
+        if source.agent_id != agent_id:
+            raise RunResumeConflictError(
+                "A resumed SDK session must keep the same Agent. Start a new conversation "
+                "to switch Agents."
+            )
+        if source.provider_profile_id != provider_profile_id:
+            raise RunResumeConflictError(
+                "A resumed SDK session must keep the same Provider. Start a new conversation "
+                "to switch Providers."
+            )
+        return source
 
     async def _execute(self, run_id: str) -> None:
         run = self.ledger.update_run(
@@ -178,6 +291,7 @@ class RunManager:
             await self._capture_artifacts(run_id)
             self._write_diary(run_id, RunStatus.FAILED, safe_error)
             self._notify_schedule_failure(run_id, safe_error, error_code)
+            await self._finalize_channel_reply(run_id)
             return
         self.ledger.update_run(
             run_id,
@@ -194,6 +308,18 @@ class RunManager:
         self._write_diary(run_id, RunStatus.COMPLETED, "")
         self._distill_memory(run_id)
         await self._notify_heartbeat_if_changed(run_id)
+        await self._finalize_channel_reply(run_id)
+
+    async def _finalize_channel_reply(self, run_id: str) -> None:
+        """Best-effort delivery never changes the already durable Run outcome."""
+
+        if self.channel_delivery is None:
+            return
+        try:
+            await self.channel_delivery.finalize_run(run_id)
+        except Exception:
+            # The delivery obligation is durable and the recovery worker retries it.
+            return
 
     async def _capture_artifacts(self, run_id: str) -> None:
         try:
@@ -226,6 +352,8 @@ class RunManager:
             ]
             if run.schedule_id:
                 lines.append(f"- 来源：定时任务 {run.schedule_id}")
+            if run.standing_intent_id:
+                lines.append(f"- 来源：前瞻意图 {run.standing_intent_id}")
             if note:
                 lines.append(f"- 备注：{note[:300]}")
             with path.open("a", encoding="utf-8") as handle:
@@ -331,8 +459,18 @@ class RunManager:
             # Inbox delivery must never break the run lifecycle.
             return
 
-    async def retry(self, run_id: str, strategy: RunRetryStrategy) -> RunRecord:
+    async def retry(
+        self,
+        run_id: str,
+        strategy: RunRetryStrategy,
+        *,
+        principal: PrincipalContext | PrincipalBinding | None = None,
+    ) -> RunRecord:
         source = self.ledger.get_run(run_id)
+        if source.standing_intent_id is not None:
+            raise RunRetryConflictError(
+                "Standing-intent checks must be re-dispatched through their watcher budget."
+            )
         if source.status not in {RunStatus.FAILED, RunStatus.CANCELLED}:
             raise RunRetryConflictError("Only failed or cancelled runs can be retried.")
         if strategy == RunRetryStrategy.RESUME and not source.sdk_session_id:
@@ -352,6 +490,7 @@ class RunManager:
             provider_snapshot=source.provider_snapshot,
             skill_snapshot=source.skill_snapshot,
             resolve_default_provider=False,
+            principal=principal,
         )
 
     async def cancel(self, run_id: str) -> RunRecord:

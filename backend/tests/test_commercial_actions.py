@@ -17,7 +17,7 @@ from ophira_backend.commercial_actions import (
 )
 from ophira_backend.config import Settings
 from ophira_backend.constants import CommercialActionOperation, CommercialActionStatus
-from ophira_backend.main import _require_authenticated_user, create_app
+from ophira_backend.main import create_app
 from ophira_backend.models import (
     CommercialActionApplyRequest,
     CommercialActionReviewRequest,
@@ -39,21 +39,8 @@ class FakeRuntime:
         return None
 
 
-APPROVAL_SECRET = "test-commercial-approval-gateway-secret"
-
-
-def settings_with_gateway(data_dir: Path) -> Settings:
-    return Settings(
-        data_dir=data_dir,
-        commercial_approval_secret=APPROVAL_SECRET,
-    )
-
-
-def approval_headers(actor_id: str = "owner@example.com") -> dict[str, str]:
-    return {
-        "X-Ophira-Authenticated-User": actor_id,
-        "X-Ophira-Approval-Secret": APPROVAL_SECRET,
-    }
+def local_settings(data_dir: Path) -> Settings:
+    return Settings(data_dir=data_dir)
 
 
 def apply_from_process(
@@ -152,7 +139,6 @@ async def stage_and_approve(
     action = stage_action(app, project_id, run_id, session_id)
     reviewed = await client.post(
         f"/api/projects/{project_id}/commercial-actions/{action.id}/review",
-        headers=approval_headers(),
         json={
             "decision": "approve",
             "reason": "Discount is within the approved launch plan",
@@ -165,7 +151,7 @@ async def stage_and_approve(
 
 @pytest.mark.asyncio
 async def test_full_lifecycle_is_human_gated_idempotent_and_truthful(tmp_path: Path) -> None:
-    app = create_app(settings_with_gateway(tmp_path), runtime=FakeRuntime())
+    app = create_app(local_settings(tmp_path), runtime=FakeRuntime())
     project_id, run_id, session_id = create_source(app.state.ledger)
     allow_price_actions(app)
 
@@ -188,40 +174,8 @@ async def test_full_lifecycle_is_human_gated_idempotent_and_truthful(tmp_path: P
         assert action["review"] is None
         assert action["execution_request"] is None
 
-        no_identity = await client.post(
-            f"/api/projects/{project_id}/commercial-actions/{action['id']}/review",
-            headers={"X-Ophira-Approval-Secret": APPROVAL_SECRET},
-            json={"decision": "approve", "reason": "Approved", "valid_for_seconds": 900},
-        )
-        assert no_identity.status_code == 401
-        untrusted_direct_header = await client.post(
-            f"/api/projects/{project_id}/commercial-actions/{action['id']}/review",
-            headers={"X-Ophira-Authenticated-User": "owner@example.com"},
-            json={"decision": "approve", "reason": "Approved", "valid_for_seconds": 900},
-        )
-        wrong_gateway_secret = await client.post(
-            f"/api/projects/{project_id}/commercial-actions/{action['id']}/review",
-            headers={
-                "X-Ophira-Authenticated-User": "owner@example.com",
-                "X-Ophira-Approval-Secret": "not-the-configured-gateway-secret",
-            },
-            json={"decision": "approve", "reason": "Approved", "valid_for_seconds": 900},
-        )
-        assert (
-            untrusted_direct_header.status_code
-            == wrong_gateway_secret.status_code
-            == 401
-        )
-        agent_identity = await client.post(
-            f"/api/projects/{project_id}/commercial-actions/{action['id']}/review",
-            headers=approval_headers("agent_price-bot"),
-            json={"decision": "approve", "reason": "Approved", "valid_for_seconds": 900},
-        )
-        assert agent_identity.status_code == 403
-
         approved = await client.post(
             f"/api/projects/{project_id}/commercial-actions/{action['id']}/review",
-            headers=approval_headers(),
             json={
                 "decision": "approve",
                 "reason": "Launch discount confirmed in the control plane",
@@ -230,32 +184,24 @@ async def test_full_lifecycle_is_human_gated_idempotent_and_truthful(tmp_path: P
         )
         assert approved.status_code == 200
         assert approved.json()["status"] == "approved"
-        assert approved.json()["review"]["actor_id"] == "owner@example.com"
+        # local_only is one loopback operator. Legacy unsigned identity/approval
+        # headers are ignored and can never select a reviewer identity.
+        assert approved.json()["review"]["actor_id"] == "local-operator"
         assert approved.json()["review"]["reason"]
         assert approved.json()["review"]["decided_at"]
         assert approved.json()["review"]["valid_until"]
 
         duplicate_review = await client.post(
             f"/api/projects/{project_id}/commercial-actions/{action['id']}/review",
-            headers=approval_headers(),
             json={"decision": "approve", "reason": "Again", "valid_for_seconds": 900},
         )
         assert duplicate_review.status_code == 409
 
         apply_body = {
-            "source_run_id": run_id,
-            "source_session_id": session_id,
             "reason": "Queue the approved change for a future commerce adapter",
         }
-        apply_without_identity = await client.post(
-            f"/api/projects/{project_id}/commercial-actions/{action['id']}/apply",
-            headers={"X-Ophira-Approval-Secret": APPROVAL_SECRET},
-            json=apply_body,
-        )
-        assert apply_without_identity.status_code == 401
         applied = await client.post(
             f"/api/projects/{project_id}/commercial-actions/{action['id']}/apply",
-            headers=approval_headers(),
             json=apply_body,
         )
         assert applied.status_code == 202
@@ -271,7 +217,6 @@ async def test_full_lifecycle_is_human_gated_idempotent_and_truthful(tmp_path: P
 
         repeated = await client.post(
             f"/api/projects/{project_id}/commercial-actions/{action['id']}/apply",
-            headers=approval_headers("another-owner@example.com"),
             json=apply_body,
         )
         assert repeated.status_code == 202
@@ -285,22 +230,22 @@ async def test_full_lifecycle_is_human_gated_idempotent_and_truthful(tmp_path: P
         assert [item["id"] for item in listed.json()] == [action["id"]]
         assert fetched.json() == result
 
-    restarted = create_app(settings_with_gateway(tmp_path), runtime=FakeRuntime())
+    restarted = create_app(local_settings(tmp_path), runtime=FakeRuntime())
     persisted = restarted.state.commercial_actions.get(project_id, action["id"])
     assert persisted.execution_request is not None
     assert persisted.execution_request.external_status == "not_executed"
 
 
 @pytest.mark.asyncio
-async def test_review_is_disabled_without_a_configured_gateway(tmp_path: Path) -> None:
+async def test_local_only_review_uses_the_explicit_loopback_operator(tmp_path: Path) -> None:
     app = create_app(Settings(data_dir=tmp_path), runtime=FakeRuntime())
     project_id, run_id, session_id = create_source(app.state.ledger)
+    allow_price_actions(app)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         staged = stage_action(app, project_id, run_id, session_id)
         response = await client.post(
             f"/api/projects/{project_id}/commercial-actions/{staged.id}/review",
-            headers=approval_headers(),
             json={
                 "decision": "approve",
                 "reason": "No gateway is configured",
@@ -308,13 +253,13 @@ async def test_review_is_disabled_without_a_configured_gateway(tmp_path: Path) -
             },
         )
 
-    assert response.status_code == 503
-    assert "not configured" in response.text
+    assert response.status_code == 200
+    assert response.json()["review"]["actor_id"] == "local-operator"
 
 
 @pytest.mark.asyncio
 async def test_forged_cross_project_and_cross_session_ids_fail_closed(tmp_path: Path) -> None:
-    app = create_app(settings_with_gateway(tmp_path), runtime=FakeRuntime())
+    app = create_app(local_settings(tmp_path), runtime=FakeRuntime())
     project_id, run_id, session_id = create_source(app.state.ledger, name="Kettle")
     other_project, other_run, other_session = create_source(app.state.ledger, name="Lamp")
     allow_price_actions(app)
@@ -340,25 +285,23 @@ async def test_forged_cross_project_and_cross_session_ids_fail_closed(tmp_path: 
 
         review = await client.post(
             f"/api/projects/{project_id}/commercial-actions/{action_id}/review",
-            headers=approval_headers("owner-1"),
             json={"decision": "approve", "reason": "Confirmed", "valid_for_seconds": 900},
         )
         assert review.status_code == 200
         cross_source_apply = await client.post(
             f"/api/projects/{project_id}/commercial-actions/{action_id}/apply",
-            headers=approval_headers("owner-1"),
             json={
                 "source_run_id": other_run,
                 "source_session_id": other_session,
                 "reason": "Try the wrong source",
             },
         )
-        assert cross_source_apply.status_code == 403
+        assert cross_source_apply.status_code == 422
 
 
 @pytest.mark.asyncio
 async def test_rejected_action_can_never_be_applied(tmp_path: Path) -> None:
-    app = create_app(settings_with_gateway(tmp_path), runtime=FakeRuntime())
+    app = create_app(local_settings(tmp_path), runtime=FakeRuntime())
     project_id, run_id, session_id = create_source(app.state.ledger)
     allow_price_actions(app)
 
@@ -366,7 +309,6 @@ async def test_rejected_action_can_never_be_applied(tmp_path: Path) -> None:
         action_id = stage_action(app, project_id, run_id, session_id).id
         rejected = await client.post(
             f"/api/projects/{project_id}/commercial-actions/{action_id}/review",
-            headers=approval_headers("owner-1"),
             json={"decision": "reject", "reason": "Margin is too low"},
         )
         assert rejected.status_code == 200
@@ -374,10 +316,7 @@ async def test_rejected_action_can_never_be_applied(tmp_path: Path) -> None:
 
         applied = await client.post(
             f"/api/projects/{project_id}/commercial-actions/{action_id}/apply",
-            headers=approval_headers("owner-1"),
             json={
-                "source_run_id": run_id,
-                "source_session_id": session_id,
                 "reason": "This must be denied",
             },
         )
@@ -388,7 +327,7 @@ async def test_rejected_action_can_never_be_applied(tmp_path: Path) -> None:
 async def test_apply_rechecks_latest_policy_numeric_limits_and_project_revision(
     tmp_path: Path,
 ) -> None:
-    app = create_app(settings_with_gateway(tmp_path), runtime=FakeRuntime())
+    app = create_app(local_settings(tmp_path), runtime=FakeRuntime())
     project_id, run_id, session_id = create_source(app.state.ledger)
     allow_price_actions(app)
 
@@ -399,46 +338,127 @@ async def test_apply_rechecks_latest_policy_numeric_limits_and_project_revision(
         app.state.policy.save(OrgPolicy())
         denied_by_default = await client.post(
             f"/api/projects/{project_id}/commercial-actions/{action_id}/apply",
-            headers=approval_headers(),
             json={
-                "source_run_id": run_id,
-                "source_session_id": session_id,
                 "reason": "Request execution",
             },
         )
         assert denied_by_default.status_code == 403
         assert "disabled" in denied_by_default.text
 
-        # Narrowing policy after approval must be observed by apply.
+        # A freshly staged action is checked against the narrowed policy at review.
         allow_price_actions(app, maximum=90)
+        narrowed = stage_action(app, project_id, run_id, session_id)
         denied_by_latest_policy = await client.post(
-            f"/api/projects/{project_id}/commercial-actions/{action_id}/apply",
-            headers=approval_headers(),
+            f"/api/projects/{project_id}/commercial-actions/{narrowed.id}/review",
             json={
-                "source_run_id": run_id,
-                "source_session_id": session_id,
-                "reason": "Request execution",
+                "decision": "approve",
+                "reason": "Review under the narrower policy",
+                "valid_for_seconds": 900,
             },
         )
         assert denied_by_latest_policy.status_code == 403
         assert "current maximum" in denied_by_latest_policy.text
 
         allow_price_actions(app)
+        fresh = await stage_and_approve(
+            app,
+            client,
+            project_id,
+            run_id,
+            session_id,
+        )
         app.state.ledger.update_project(
             project_id,
             lambda project: project.constraints.append("Do not discount during the embargo"),
         )
         stale_project = await client.post(
-            f"/api/projects/{project_id}/commercial-actions/{action_id}/apply",
-            headers=approval_headers(),
+            f"/api/projects/{project_id}/commercial-actions/{fresh['id']}/apply",
             json={
-                "source_run_id": run_id,
-                "source_session_id": session_id,
                 "reason": "Request execution",
             },
         )
         assert stale_project.status_code == 409
         assert "project state changed" in stale_project.text
+
+
+def test_preview_review_and_apply_bind_current_policy_versions(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import ophira_backend.policy as policy_module
+
+    policy_times = iter(
+        [
+            datetime(2026, 9, 3, 8, 0, tzinfo=UTC),
+            datetime(2026, 9, 3, 8, 5, tzinfo=UTC),
+            datetime(2026, 9, 3, 8, 10, tzinfo=UTC),
+            datetime(2026, 9, 3, 8, 15, tzinfo=UTC),
+        ]
+    )
+    monkeypatch.setattr(policy_module, "utc_now", lambda: next(policy_times))
+    ledger = FileLedger(tmp_path)
+    project_id, run_id, session_id = create_source(ledger)
+    policy = OrgPolicyStore(tmp_path / "org" / "policy.json")
+    allowed = OrgPolicy(
+        commercial_actions_enabled=True,
+        allowed_commercial_operations=[CommercialActionOperation.CHANGE_PRICE],
+        allowed_commercial_connector_ids=["shopify"],
+    )
+    staged_policy = policy.save(allowed)
+    service = CommercialActionService(
+        tmp_path / "commercial-actions",
+        ledger=ledger,
+        policy=policy,
+    )
+    staged = service.stage(
+        project_id,
+        CommercialActionStage.model_validate(stage_json(run_id, session_id)),
+    )
+    assert staged.staged_policy_updated_at == staged_policy.updated_at
+
+    policy.save(OrgPolicy())
+    with pytest.raises(CommercialActionPolicyError, match="disabled"):
+        service.review(
+            project_id,
+            staged.id,
+            CommercialActionReviewRequest(
+                decision="approve",
+                reason="A disabled policy cannot authorize this preview",
+                valid_for_seconds=900,
+            ),
+            actor_id="owner-1",
+        )
+    assert service.get(project_id, staged.id).status == CommercialActionStatus.STAGED
+
+    review_policy = policy.save(allowed)
+    approved = service.review(
+        project_id,
+        staged.id,
+        CommercialActionReviewRequest(
+            decision="approve",
+            reason="Review against the restored current policy",
+            valid_for_seconds=900,
+        ),
+        actor_id="owner-1",
+    )
+    assert approved.review is not None
+    assert approved.review.policy_updated_at == review_policy.updated_at
+
+    policy.save(allowed)
+    with pytest.raises(CommercialActionConflictError, match="changed after approval"):
+        service.apply(
+            project_id,
+            approved.id,
+            CommercialActionApplyRequest(
+                source_run_id=run_id,
+                source_session_id=session_id,
+                reason="Policy changed, so a new human review is required",
+            ),
+            actor_id="owner-1",
+        )
+    unchanged = service.get(project_id, approved.id)
+    assert unchanged.status == CommercialActionStatus.APPROVED
+    assert unchanged.execution_request is None
 
 
 def test_expired_stage_and_approval_transition_fail_closed(tmp_path: Path) -> None:
@@ -719,26 +739,17 @@ def test_forbidden_commercial_fields_block_both_hierarchy_directions(
         "pricing": {"cost": 10, "costBasis": 11, "retail": 20}
     }
     raw["changes"] = [{"field": changed_field, "before": before, "after": after}]
-    staged = service.stage(project_id, CommercialActionStage.model_validate(raw))
-    approved = service.review(
-        project_id,
-        staged.id,
-        CommercialActionReviewRequest(
-            decision="approve",
-            reason="Review the hierarchy policy",
-            valid_for_seconds=900,
-        ),
-        actor_id="owner-1",
-    )
-
     with pytest.raises(CommercialActionPolicyError, match="forbidden"):
-        service.apply(
+        service.review(
             project_id,
-            approved.id,
-            CommercialActionApplyRequest(
-                source_run_id=run_id,
-                source_session_id=session_id,
-                reason="Policy must reject overlapping paths",
+            service.stage(
+                project_id,
+                CommercialActionStage.model_validate(raw),
+            ).id,
+            CommercialActionReviewRequest(
+                decision="approve",
+                reason="Policy must reject overlapping paths before approval",
+                valid_for_seconds=900,
             ),
             actor_id="owner-1",
         )
@@ -814,27 +825,24 @@ def test_org_policy_commercial_gate_is_explicit_and_default_deny() -> None:
         OrgPolicy(commercial_forbidden_fields=[f"field{index}" for index in range(101)])
 
 
-def test_unicode_commercial_gateway_secret_is_compared_without_type_error(
-    tmp_path: Path,
-) -> None:
-    secret = "审批密钥" * 10
-    settings = Settings(data_dir=tmp_path, commercial_approval_secret=secret)
-
-    assert _require_authenticated_user("owner@example.com", secret, settings) == (
-        "owner@example.com"
-    )
-
-
 def test_commercial_store_normalizes_directory_and_temporary_io_errors(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     ledger = FileLedger(tmp_path)
     project_id, run_id, session_id = create_source(ledger)
+    policy = OrgPolicyStore(tmp_path / "org" / "policy.json")
+    policy.save(
+        OrgPolicy(
+            commercial_actions_enabled=True,
+            allowed_commercial_operations=[CommercialActionOperation.CHANGE_PRICE],
+            allowed_commercial_connector_ids=["shopify"],
+        )
+    )
     service = CommercialActionService(
         tmp_path / "commercial-actions",
         ledger=ledger,
-        policy=OrgPolicyStore(tmp_path / "org" / "policy.json"),
+        policy=policy,
     )
     original_mkdir = Path.mkdir
 

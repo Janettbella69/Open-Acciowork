@@ -8,9 +8,13 @@ import re
 import socket
 import threading
 from collections.abc import Mapping
+from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import urlsplit
 
+from pydantic import SecretStr
+
+from .constants import COMMERCIAL_HTTPS_JSON_CONNECTOR_TYPE
 from .models import Connector, utc_now
 from .providers import FileSecretVault
 
@@ -102,6 +106,16 @@ CONNECTOR_CATALOG: list[dict[str, str | None]] = [
     },
 ]
 
+# Connector credentials are server-only data. Restrict administrator-selected
+# environment references to the dedicated connector namespace so a connector
+# cannot be pointed at process-control credentials such as PATH, HOME, or an
+# ANTHROPIC_* provider token. The two legacy application-owned names below are
+# retained because they are part of the built-in catalog.
+_CONNECTOR_SECRET_ENV_PATTERN = re.compile(
+    r"^(?:OPHIRA_CONNECTOR_[A-Z][A-Z0-9_]{2,95}|"
+    r"OPHIRA_(?:MEDIA|SEARCH)_API_KEY)$"
+)
+
 
 class ConnectorNotFoundError(KeyError):
     pass
@@ -113,6 +127,77 @@ class ConnectorUnavailableError(RuntimeError):
     def __init__(self, code: str, message: str) -> None:
         super().__init__(message)
         self.code = code
+
+
+def check_connector_secret_env(secret_env: str | None) -> str | None:
+    """Validate a server-owned connector credential environment reference."""
+
+    if secret_env is None:
+        return None
+    if not _CONNECTOR_SECRET_ENV_PATTERN.fullmatch(secret_env):
+        return (
+            "connector secret_env must use OPHIRA_CONNECTOR_* "
+            "(or the built-in OPHIRA_MEDIA_API_KEY/OPHIRA_SEARCH_API_KEY names)"
+        )
+    return None
+
+
+def is_public_unicast_address(address: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
+    """Accept only globally routable unicast destinations for credentialed calls."""
+
+    return bool(
+        address.is_global
+        and not address.is_multicast
+        and not address.is_unspecified
+        and not address.is_reserved
+        and not address.is_loopback
+        and not address.is_link_local
+        and not address.is_private
+    )
+
+
+@dataclass(frozen=True)
+class CommercialConnectorRuntime:
+    """Server-only connector material passed directly to an action adapter."""
+
+    connector: Connector
+    credential: SecretStr = field(repr=False)
+
+
+def check_commercial_https_endpoint(endpoint: str) -> str | None:
+    """Validate the admin-configured base URL used for external mutations.
+
+    Domain names are resolved again immediately before every adapter request.
+    Literal local/private/reserved destinations can be rejected here without a
+    network lookup, so they can never be persisted as usable commerce endpoints.
+    """
+
+    try:
+        parts = urlsplit(endpoint)
+        port = parts.port
+    except (TypeError, ValueError):
+        return "commercial action endpoint could not be parsed"
+    if parts.scheme != "https":
+        return "commercial action endpoint must use HTTPS"
+    if not parts.hostname:
+        return "commercial action endpoint requires a hostname"
+    if parts.username or parts.password:
+        return "commercial action endpoint cannot contain credentials"
+    if parts.query or parts.fragment:
+        return "commercial action endpoint cannot contain query or fragment"
+    if port is not None and not (1 <= port <= 65_535):
+        return "commercial action endpoint port is invalid"
+    hostname = parts.hostname.rstrip(".").casefold()
+    if hostname == "localhost":
+        return "commercial action endpoint must use a public network destination"
+    try:
+        address = ipaddress.ip_address(hostname)
+    except ValueError:
+        pass
+    else:
+        if not is_public_unicast_address(address):
+            return "commercial action endpoint must use a public network destination"
+    return None
 
 
 def check_loopback_cdp_endpoint(endpoint: str) -> str | None:
@@ -223,10 +308,17 @@ class ConnectorRegistry:
         secret: str | None = None,
     ) -> Connector:
         connector_id = self._safe_id(connector_id)
+        secret_env_reason = check_connector_secret_env(secret_env)
+        if secret_env_reason:
+            raise ValueError(secret_env_reason)
         if connector_id == "chrome_cdp" or type == "chrome_cdp":
             if connector_id != "chrome_cdp" or type != "chrome_cdp":
                 raise ValueError("Chrome CDP connector 必须使用 id/type chrome_cdp")
             reason = check_loopback_cdp_endpoint(endpoint or "")
+            if reason:
+                raise ValueError(reason)
+        if type == COMMERCIAL_HTTPS_JSON_CONNECTOR_TYPE:
+            reason = check_commercial_https_endpoint(endpoint or "")
             if reason:
                 raise ValueError(reason)
         existing = None
@@ -288,6 +380,18 @@ class ConnectorRegistry:
                 if reason or not _cdp_endpoint_reachable(connector.endpoint or "")
                 else "ok"
             )
+        elif connector.type == COMMERCIAL_HTTPS_JSON_CONNECTOR_TYPE:
+            vaulted = self.vault is not None and self.vault.has(connector.id)
+            env_present = bool(connector.secret_env and env.get(connector.secret_env))
+            reason = check_commercial_https_endpoint(connector.endpoint or "")
+            if reason:
+                health = "unreachable"
+            elif connector.secret_env and not vaulted and not env_present:
+                health = "no_credential"
+            elif not vaulted and not env_present:
+                health = "no_credential"
+            else:
+                health = "ok"
         else:
             vaulted = self.vault is not None and self.vault.has(connector.id)
             env_present = bool(connector.secret_env and env.get(connector.secret_env))
@@ -336,3 +440,49 @@ class ConnectorRegistry:
             raise ConnectorUnavailableError("BROWSER_CONNECTOR_INVALID", reason)
         assert connector.endpoint is not None
         return connector.endpoint
+
+    def require_commercial_action_runtime(
+        self,
+        connector_id: str,
+        environ: Mapping[str, str] | None = None,
+    ) -> CommercialConnectorRuntime:
+        """Resolve an enabled action connector without serializing its secret."""
+
+        env = os.environ if environ is None else environ
+        try:
+            connector = self.get(connector_id)
+        except ConnectorNotFoundError as exc:
+            raise ConnectorUnavailableError(
+                "COMMERCIAL_CONNECTOR_NOT_CONFIGURED",
+                "The commercial action connector is not configured.",
+            ) from exc
+        if connector.type != COMMERCIAL_HTTPS_JSON_CONNECTOR_TYPE:
+            raise ConnectorUnavailableError(
+                "COMMERCIAL_CONNECTOR_UNSUPPORTED",
+                "The connector does not provide the HTTPS JSON action contract.",
+            )
+        if not connector.enabled:
+            raise ConnectorUnavailableError(
+                "COMMERCIAL_CONNECTOR_DISABLED",
+                "The commercial action connector is disabled.",
+            )
+        if connector.health != "ok":
+            raise ConnectorUnavailableError(
+                "COMMERCIAL_CONNECTOR_UNHEALTHY",
+                "The commercial action connector has not passed its health check.",
+            )
+        reason = check_commercial_https_endpoint(connector.endpoint or "")
+        if reason:
+            raise ConnectorUnavailableError("COMMERCIAL_CONNECTOR_INVALID", reason)
+        secret = self.vault.get(connector.id) if self.vault is not None else None
+        if not secret and connector.secret_env:
+            secret = env.get(connector.secret_env)
+        if not secret:
+            raise ConnectorUnavailableError(
+                "COMMERCIAL_CONNECTOR_NO_CREDENTIAL",
+                "The commercial action connector has no credential.",
+            )
+        return CommercialConnectorRuntime(
+            connector=connector,
+            credential=SecretStr(secret),
+        )

@@ -38,6 +38,7 @@ def distill_run(
             origin=origin,
             source_run_id=run.id,
             source_anchor=anchor,
+            principal=run,
         )
         proposed.append(item)
     return proposed

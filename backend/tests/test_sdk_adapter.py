@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import io
 import json
 import zipfile
@@ -16,6 +17,7 @@ from claude_agent_sdk import (
 from mcp.types import CallToolRequest, CallToolRequestParams
 
 from ophira_backend.config import Settings
+from ophira_backend.connectors import ConnectorRegistry
 from ophira_backend.constants import (
     PRESENTATION_MCP_SERVER_NAME,
     TOOL_GET_PROJECT_CONTEXT,
@@ -81,12 +83,22 @@ def test_default_sdk_options_keep_the_agent_general_and_observable(tmp_path: Pat
     assert options.disallowed_tools == []
     assert options.system_prompt["preset"] == "claude_code"
     assert "不要把请求强制归入预设意图" in options.system_prompt["append"]
-    assert runtime._query_prompt(run) == "Start"
+    persisted = _ledger.get_run(run.id)
+    assert persisted.context_refresh is not None
+    assert persisted.context_refresh.prompt_prefix_hash == hashlib.sha256(
+        options.system_prompt["append"].encode("utf-8")
+    ).hexdigest()
+    query_prompt = runtime._query_prompt(run)
+    assert query_prompt.startswith("Start\n\n<OPHIRA_CONTEXT_REFRESH>\n")
+    assert query_prompt.endswith("\n</OPHIRA_CONTEXT_REFRESH>")
     assert options.strict_mcp_config is True
     assert options.env["ANTHROPIC_API_KEY"] == ""
     assert options.env["ANTHROPIC_AUTH_TOKEN"] == ""
     assert options.env["CLAUDE_CODE_OAUTH_TOKEN"] == ""
     assert options.env["OPHIRA_COMMERCIAL_APPROVAL_SECRET"] == ""
+    assert options.env["OPHIRA_TRUSTED_GATEWAY_AUTH_SECRET"] == ""
+    assert options.env["OPHIRA_FEISHU_APP_SECRET"] == ""
+    assert options.env["OPHIRA_FEISHU_ENCRYPT_KEY"] == ""
     assert options.setting_sources == []
     assert isinstance(options.skills, list)
     assert len(options.skills) == 13
@@ -175,23 +187,85 @@ async def test_presentation_response_is_structured_before_event_string_bounds(
     assert len(response[0]["text"]) > 20_000
     mcp_presentation = json.loads(response[0]["text"])["presentation"]
 
-    await runtime._hook(run.id, ledger.workspace_for_project(run.project_id))(
+    hook = runtime._hook(run.id, ledger.workspace_for_project(run.project_id))
+    await hook(
+        {
+            "hook_event_name": "PreToolUse",
+            "tool_name": TOOL_PRESENT_EVIDENCE_COMPARISON,
+            "tool_input": tool_input,
+        },
+        "tool_1",
+        None,
+    )
+    await hook(
         {
             "hook_event_name": "PostToolUse",
             "tool_name": TOOL_PRESENT_EVIDENCE_COMPARISON,
             "tool_input": tool_input,
             "tool_response": response,
-            "tool_use_id": "tool_1",
+        },
+        "tool_1",
+        None,
+    )
+
+    started, partial, tool_event, event = ledger.list_events(run.id)[-4:]
+    assert started.type == EventType.TOOL_STARTED.value
+    assert partial.type == EventType.UI_PRESENTATION.value
+    assert partial.data["frame"]["frame_type"] == "partial"
+    slot_id = partial.data["frame"]["slot_id"]
+    assert slot_id == f"slot_{hashlib.sha256(b'tool_1').hexdigest()[:32]}"
+    assert "tool_1" not in json.dumps(partial.data)
+    assert tool_event.type == EventType.TOOL_COMPLETED.value
+    assert event.type == EventType.UI_PRESENTATION.value
+    assert event.data["frame"]["frame_type"] == "final"
+    assert event.data["frame"]["slot_id"] == slot_id
+    stored = event.data["presentation"]
+    assert stored == mcp_presentation
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("event_name", ["PostToolUse", "PostToolUseFailure"])
+async def test_presentation_failure_discards_the_server_owned_partial_slot(
+    tmp_path: Path,
+    event_name: str,
+) -> None:
+    ledger, run, runtime = build_runtime(tmp_path)
+    hook = runtime._hook(run.id, ledger.workspace_for_project(run.project_id))
+    tool_input = {"title": "Comparison", "evidence_ids": []}
+    await hook(
+        {
+            "hook_event_name": "PreToolUse",
+            "tool_name": TOOL_PRESENT_EVIDENCE_COMPARISON,
+            "tool_input": tool_input,
+            "tool_use_id": "tool_failed",
         },
         None,
         None,
     )
+    completion = {
+        "hook_event_name": event_name,
+        "tool_name": TOOL_PRESENT_EVIDENCE_COMPARISON,
+        "tool_input": tool_input,
+        "tool_use_id": "tool_failed",
+    }
+    if event_name == "PostToolUse":
+        completion["tool_response"] = {"content": [{"type": "text", "text": "invalid"}]}
+    else:
+        completion["error"] = "presentation failed"
+        completion["is_interrupt"] = False
+    await hook(completion, None, None)
 
-    tool_event, event = ledger.list_events(run.id)[-2:]
-    assert tool_event.type == EventType.TOOL_COMPLETED.value
-    assert event.type == EventType.UI_PRESENTATION.value
-    stored = event.data["presentation"]
-    assert stored == mcp_presentation
+    presentation_events = [
+        event for event in ledger.list_events(run.id)
+        if event.type == EventType.UI_PRESENTATION.value
+    ]
+    assert [event.data["frame"]["frame_type"] for event in presentation_events] == [
+        "partial",
+        "discarded",
+    ]
+    assert presentation_events[0].data["frame"]["slot_id"] == (
+        presentation_events[1].data["frame"]["slot_id"]
+    )
 
 
 @pytest.mark.asyncio
@@ -552,6 +626,10 @@ def test_sdk_key_is_passed_to_subprocess_without_entering_events(tmp_path: Path)
             data_dir=tmp_path,
             ANTHROPIC_API_KEY="sk-ant-test-secret",
             commercial_approval_secret="gateway-secret-not-for-agent-workers",
+            trusted_gateway_auth_secret="identity-secret-not-for-agent-workers",
+            feishu_app_id="cli_host-only",
+            feishu_app_secret="feishu-secret-not-for-agent-workers",
+            feishu_encrypt_key="feishu-encrypt-key-not-for-agent-workers",
         ),
         ledger,
         events,
@@ -561,6 +639,47 @@ def test_sdk_key_is_passed_to_subprocess_without_entering_events(tmp_path: Path)
     options = runtime._build_options(run)
     assert options.env["ANTHROPIC_API_KEY"] == "sk-ant-test-secret"
     assert options.env["OPHIRA_COMMERCIAL_APPROVAL_SECRET"] == ""
+    assert options.env["OPHIRA_TRUSTED_GATEWAY_AUTH_SECRET"] == ""
+    assert options.env["OPHIRA_FEISHU_APP_ID"] == ""
+    assert options.env["OPHIRA_FEISHU_APP_SECRET"] == ""
+    assert options.env["OPHIRA_FEISHU_ENCRYPT_KEY"] == ""
+    assert ledger.list_events(run.id) == []
+
+
+def test_connector_secret_env_is_shadowed_in_agent_worker_options(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    secret_env = "OPHIRA_CONNECTOR_VENDOR_TOKEN"
+    monkeypatch.setenv(secret_env, "server-only-connector-secret")
+    ledger = FileLedger(tmp_path)
+    project = ledger.create_project(ProjectCreate(name="Kettle", objective="Validate"))
+    run = ledger.create_run(project.id, "Start")
+    events = EventPublisher(ledger)
+    permissions = PermissionBroker(ledger, events, timeout_seconds=30)
+    connectors = ConnectorRegistry(tmp_path / "connectors")
+    connectors.upsert(
+        "vendor",
+        type="commercial_https_json",
+        display_name="Vendor messaging",
+        scope="messages:write",
+        secret_env=secret_env,
+        endpoint="https://commerce.example.com",
+    )
+    runtime = ClaudeAgentRuntime(
+        Settings(data_dir=tmp_path),
+        ledger,
+        events,
+        permissions,
+        connectors=connectors,
+    )
+
+    options = runtime._build_options(run)
+
+    # Claude Agent SDK passes options.env to its worker process. Explicitly
+    # blanking the configured name prevents Bash/tool code from inheriting it.
+    assert options.env[secret_env] == ""
+    assert "server-only-connector-secret" not in options.env.values()
     assert ledger.list_events(run.id) == []
 
 
@@ -599,7 +718,12 @@ def test_sdk_uses_anthropic_compatible_gateway_configuration(tmp_path: Path) -> 
         "ANTHROPIC_DEFAULT_SONNET_MODEL": "glm-5.2[1m]",
         "ANTHROPIC_DEFAULT_OPUS_MODEL": "glm-5.2[1m]",
         "CLAUDE_CODE_SUBAGENT_MODEL": "glm-5.2[1m]",
+        "OPHIRA_CHANNEL_WEBHOOK_URL": "",
         "OPHIRA_COMMERCIAL_APPROVAL_SECRET": "",
+        "OPHIRA_TRUSTED_GATEWAY_AUTH_SECRET": "",
+        "OPHIRA_FEISHU_APP_ID": "",
+        "OPHIRA_FEISHU_APP_SECRET": "",
+        "OPHIRA_FEISHU_ENCRYPT_KEY": "",
     }
     assert ledger.list_events(run.id) == []
 

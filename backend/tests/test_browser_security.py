@@ -1,14 +1,17 @@
 import asyncio
+import base64
 import json
 import sys
 import types
 from pathlib import Path
 from typing import Any
 
+import httpx
 import pytest
 
 from ophira_backend import browser_tools
 from ophira_backend.browser_tools import (
+    _fetch_pinned_browser_resource,
     _install_cdp_request_guard,
     _install_l2_service_worker_guard,
     _install_request_guard,
@@ -139,6 +142,7 @@ async def test_l2_endpoint_comes_from_connector_and_capture_is_registered(
     ledger = FileLedger(tmp_path)
     project = ledger.create_project(ProjectCreate(name="Kettle", objective="Validate"))
     run = ledger.create_run(project.id, "Open supplier page")
+    run = ledger.update_run(run.id, sdk_session_id="sdk_browser_test")
     seen: dict[str, Any] = {}
 
     class FakeConnectors:
@@ -186,6 +190,14 @@ async def test_l2_endpoint_comes_from_connector_and_capture_is_registered(
     assert artifact.source_ids == [evidence.id]
     assert evidence.source_run_id == run.id
     assert evidence.source_path == artifact.path
+    assert evidence.receipt_id is not None
+    receipt = ledger.verify_tool_receipt(
+        project.id,
+        evidence.receipt_id,
+        run_id=run.id,
+        session_id="sdk_browser_test",
+    ).receipt
+    assert receipt.canonical_source == "https://supplier.example/"
 
 
 def test_browser_capture_external_text_is_sanitized_before_ledger_exposure() -> None:
@@ -381,13 +393,7 @@ async def test_request_guard_fails_closed_for_unowned_popup_navigation() -> None
 
 @pytest.mark.asyncio
 async def test_cdp_guard_blocks_a_private_server_redirect_before_request_is_sent(
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    async def fake_check(url: str, _policy: OrgPolicy) -> str | None:
-        return "private" if "127.0.0.1" in url else None
-
-    monkeypatch.setattr(browser_tools, "_check_browser_target", fake_check)
-
     class Session:
         def __init__(self) -> None:
             self.handlers: dict[str, Any] = {}
@@ -447,8 +453,82 @@ async def test_cdp_guard_blocks_a_private_server_redirect_before_request_is_sent
         {"bypass": False},
     ) in session.sent
     assert not any(method == "Fetch.continueRequest" for method, _ in session.sent)
-    assert blocked == [{"url": "http://127.0.0.1/admin", "reason": "private"}]
+    assert blocked[0]["url"] == "http://127.0.0.1/admin"
+    assert "SSRF" in blocked[0]["reason"]
     assert session.detached is True
+
+
+@pytest.mark.asyncio
+async def test_browser_relay_pins_ip_preserves_host_and_sni_without_dns_reuse(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    dns_calls = 0
+
+    def rebinding_dns(_hostname: str) -> list[str]:
+        nonlocal dns_calls
+        dns_calls += 1
+        if dns_calls == 1:
+            return ["93.184.216.34"]
+        return ["127.0.0.1"]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.host == "93.184.216.34"
+        assert request.headers["Host"] == "supplier.example"
+        assert request.extensions["sni_hostname"] == "supplier.example"
+        return httpx.Response(
+            200,
+            headers={"content-type": "text/plain"},
+            content=b"supplier page",
+            request=request,
+        )
+
+    monkeypatch.setattr("ophira_backend.web_tools._resolve_ips", rebinding_dns)
+    fulfilled, reason = await _fetch_pinned_browser_resource(
+        {
+            "url": "https://supplier.example/quote",
+            "method": "GET",
+            "headers": {"Accept": "text/html", "Host": "attacker.invalid"},
+        },
+        policy=OrgPolicy(),
+        timeout_seconds=2,
+        transport=httpx.MockTransport(handler),
+    )
+
+    assert reason is None
+    assert fulfilled is not None
+    assert fulfilled["responseCode"] == 200
+    assert base64.b64decode(fulfilled["body"]) == b"supplier page"
+    assert dns_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_browser_relay_returns_redirect_without_following_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(str(request.url))
+        return httpx.Response(
+            302,
+            headers={"Location": "http://127.0.0.1/admin"},
+            request=request,
+        )
+
+    monkeypatch.setattr(
+        "ophira_backend.web_tools._resolve_ips", lambda _host: ["93.184.216.34"]
+    )
+    fulfilled, reason = await _fetch_pinned_browser_resource(
+        {"url": "https://supplier.example/redirect", "method": "GET"},
+        policy=OrgPolicy(),
+        timeout_seconds=2,
+        transport=httpx.MockTransport(handler),
+    )
+
+    assert reason is None
+    assert fulfilled is not None
+    assert fulfilled["responseCode"] == 302
+    assert calls == ["https://93.184.216.34/redirect"]
 
 
 @pytest.mark.asyncio

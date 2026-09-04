@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import base64
 import hashlib
 import json
@@ -11,6 +12,7 @@ from cryptography.hazmat.primitives import hashes, padding
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from httpx import ASGITransport, AsyncClient
 
+from ophira_backend.channel_delivery import FeishuReplyResult
 from ophira_backend.channels import (
     CHANNEL_USER_REQUEST_CLOSE,
     CHANNEL_USER_REQUEST_NOTICE,
@@ -24,7 +26,7 @@ from ophira_backend.channels import (
 )
 from ophira_backend.config import Settings
 from ophira_backend.main import create_app
-from ophira_backend.models import Notification
+from ophira_backend.models import Notification, OrgPolicy, ProjectCreate
 
 
 class FakeRuntime:
@@ -33,6 +35,20 @@ class FakeRuntime:
 
     async def cancel(self, _run_id: str) -> None:
         return None
+
+
+class CapturingReplyAdapter:
+    configured = True
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[object, str, str]] = []
+
+    async def reply(self, target, text: str, *, idempotency_key: str) -> FeishuReplyResult:
+        self.calls.append((target, text, idempotency_key))
+        return FeishuReplyResult(
+            message_id="om_delivered_reply",
+            chat_id=target.chat_id,
+        )
 
 
 def signed_headers(body: bytes, key: str, *, timestamp: str, nonce: str) -> dict[str, str]:
@@ -274,3 +290,145 @@ async def test_unmentioned_group_message_is_ignored(tmp_path: Path) -> None:
 
     assert response.status_code == 200
     assert response.json()["ignored"] is True
+
+
+@pytest.mark.asyncio
+async def test_verified_feishu_message_binds_run_before_one_idempotent_reply(
+    tmp_path: Path,
+) -> None:
+    key = "encrypt-key"
+    adapter = CapturingReplyAdapter()
+    app = create_app(
+        Settings(data_dir=tmp_path, feishu_encrypt_key=key),
+        runtime=FakeRuntime(),
+        channel_reply_adapter=adapter,
+    )
+    app.state.policy.save(OrgPolicy(channel_delivery_enabled=True))
+    project = app.state.ledger.create_project(
+        ProjectCreate(name="Feishu", objective="Reply to the verified message")
+    )
+    payload = {
+        "schema": "2.0",
+        "header": {"event_id": "event-reply"},
+        "event": {
+            "message": {
+                "message_id": "om_source_message",
+                "chat_id": "oc_verified_chat",
+                "chat_type": "p2p",
+                "content": json.dumps({"text": "check this supplier"}),
+            },
+            "sender": {"sender_id": {"open_id": "ou_sender"}},
+        },
+    }
+    body = json.dumps(payload, separators=(",", ":")).encode()
+    timestamp = str(int(time.time()))
+    headers = signed_headers(body, key, timestamp=timestamp, nonce="reply-nonce")
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        first = await client.post(
+            f"/api/channels/feishu?project_id={project.id}",
+            content=body,
+            headers=headers,
+        )
+        for _ in range(50):
+            delivery = app.state.channel_delivery.store.get_for_run(first.json()["run_id"])
+            if delivery is not None and delivery.status.value == "delivered":
+                break
+            await asyncio.sleep(0.01)
+        duplicate = await client.post(
+            f"/api/channels/feishu?project_id={project.id}",
+            content=body,
+            headers=headers,
+        )
+
+    assert first.status_code == 200
+    assert first.json()["delivery_status"] == "pending"
+    assert delivery is not None and delivery.status.value == "delivered"
+    assert len(adapter.calls) == 1
+    target, text, idempotency_key = adapter.calls[0]
+    assert target.message_id == "om_source_message"
+    assert target.chat_id == "oc_verified_chat"
+    assert "已完成" in text
+    assert idempotency_key == delivery.idempotency_key
+    assert duplicate.json() == {"duplicate": True, "channel": "feishu"}
+
+
+@pytest.mark.asyncio
+async def test_feishu_message_requires_outbound_configuration_and_policy(
+    tmp_path: Path,
+) -> None:
+    key = "encrypt-key"
+    payload = {
+        "header": {"event_id": "event-no-outbound"},
+        "event": {
+            "message": {
+                "message_id": "om_source_message",
+                "chat_id": "oc_verified_chat",
+                "chat_type": "p2p",
+                "content": json.dumps({"text": "hello"}),
+            }
+        },
+    }
+    body = json.dumps(payload, separators=(",", ":")).encode()
+    timestamp = str(int(time.time()))
+
+    policy_off = create_app(
+        Settings(data_dir=tmp_path / "policy-off", feishu_encrypt_key=key),
+        runtime=FakeRuntime(),
+        channel_reply_adapter=CapturingReplyAdapter(),
+    )
+    headers = signed_headers(body, key, timestamp=timestamp, nonce="policy-off")
+    async with AsyncClient(
+        transport=ASGITransport(app=policy_off), base_url="http://test"
+    ) as client:
+        denied = await client.post("/api/channels/feishu", content=body, headers=headers)
+
+    not_configured = create_app(
+        Settings(data_dir=tmp_path / "not-configured", feishu_encrypt_key=key),
+        runtime=FakeRuntime(),
+    )
+    not_configured.state.policy.save(OrgPolicy(channel_delivery_enabled=True))
+    headers = signed_headers(body, key, timestamp=timestamp, nonce="not-configured")
+    async with AsyncClient(
+        transport=ASGITransport(app=not_configured), base_url="http://test"
+    ) as client:
+        unavailable = await client.post(
+            "/api/channels/feishu", content=body, headers=headers
+        )
+
+    assert denied.status_code == 403
+    assert unavailable.status_code == 503
+    assert list(policy_off.state.ledger.runs_dir.glob("run_*")) == []
+    assert list(not_configured.state.ledger.runs_dir.glob("run_*")) == []
+
+
+@pytest.mark.asyncio
+async def test_invalid_feishu_reply_scope_releases_the_replay_claim(tmp_path: Path) -> None:
+    key = "encrypt-key"
+    app = create_app(
+        Settings(data_dir=tmp_path, feishu_encrypt_key=key),
+        runtime=FakeRuntime(),
+        channel_reply_adapter=CapturingReplyAdapter(),
+    )
+    app.state.policy.save(OrgPolicy(channel_delivery_enabled=True))
+    payload = {
+        "header": {"event_id": "event-bad-target"},
+        "event": {
+            "message": {
+                "message_id": "om_without_chat",
+                "chat_type": "p2p",
+                "content": json.dumps({"text": "hello"}),
+            }
+        },
+    }
+    body = json.dumps(payload, separators=(",", ":")).encode()
+    timestamp = str(int(time.time()))
+    headers = signed_headers(body, key, timestamp=timestamp, nonce="bad-target")
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        first = await client.post("/api/channels/feishu", content=body, headers=headers)
+        second = await client.post("/api/channels/feishu", content=body, headers=headers)
+
+    assert first.status_code == second.status_code == 400
+    assert first.json()["detail"] == second.json()["detail"]
+    assert second.json() != {"duplicate": True, "channel": "feishu"}

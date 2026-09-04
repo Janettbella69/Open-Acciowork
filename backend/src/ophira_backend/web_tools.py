@@ -17,6 +17,7 @@ import ipaddress
 import json
 import re
 import socket
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import urljoin, urlsplit
@@ -42,42 +43,117 @@ _TAG_STRIP_PATTERNS = (
 )
 
 
+@dataclass(frozen=True)
+class PinnedPublicDestination:
+    """One validated address used by the transport without a second DNS lookup."""
+
+    request_url: str
+    host_header: str
+    sni_hostname: str
+    resolved_ip: str
+
+
 def _resolve_ips(hostname: str) -> list[str]:
     infos = socket.getaddrinfo(hostname, None, proto=socket.IPPROTO_TCP)
     return sorted({info[4][0] for info in infos})
 
 
-def check_public_http_url(url: str) -> str | None:
-    """Return a rejection reason, or None when the URL is a fetchable public target."""
+def pin_public_http_url(url: str) -> tuple[PinnedPublicDestination | None, str | None]:
+    """Resolve, validate, and pin one public address for a single request.
+
+    The returned request URL contains a numeric address, so httpx cannot repeat
+    attacker-controlled DNS resolution after the validation. ``Host`` and the
+    httpcore ``sni_hostname`` extension retain virtual hosting and certificate
+    verification against the original hostname.
+    """
     try:
         parts = urlsplit(url)
     except ValueError:
-        return "URL 无法解析"
+        return None, "URL 无法解析"
     if parts.scheme not in {"http", "https"}:
-        return f"仅允许 http/https（收到 {parts.scheme or '空'}）"
+        return None, f"仅允许 http/https（收到 {parts.scheme or '空'}）"
     if not parts.hostname:
-        return "URL 缺少主机名"
+        return None, "URL 缺少主机名"
     if parts.username or parts.password:
-        return "不允许在 URL 中携带凭据"
+        return None, "不允许在 URL 中携带凭据"
     try:
         literal = ipaddress.ip_address(parts.hostname)
     except ValueError:
         literal = None
     if literal is not None:
         if not literal.is_global:
-            return f"目标地址 {literal} 不是公网地址（SSRF 防护）"
-        return None
-    try:
-        addresses = _resolve_ips(parts.hostname)
-    except OSError:
-        return f"主机名无法解析：{parts.hostname}"
-    if not addresses:
-        return f"主机名无法解析：{parts.hostname}"
+            return None, f"目标地址 {literal} 不是公网地址（SSRF 防护）"
+        addresses = [str(literal)]
+    else:
+        try:
+            addresses = _resolve_ips(parts.hostname)
+        except OSError:
+            return None, f"主机名无法解析：{parts.hostname}"
+        if not addresses:
+            return None, f"主机名无法解析：{parts.hostname}"
+
+    public_addresses: list[str] = []
     for raw in addresses:
-        address = ipaddress.ip_address(raw.split("%")[0])
+        try:
+            address = ipaddress.ip_address(raw.split("%")[0])
+        except ValueError:
+            return None, f"主机名返回无效地址：{parts.hostname}"
         if not address.is_global:
-            return f"目标地址 {address} 不是公网地址（SSRF 防护）"
-    return None
+            return None, f"目标地址 {address} 不是公网地址（SSRF 防护）"
+        normalized = str(address)
+        if normalized not in public_addresses:
+            public_addresses.append(normalized)
+
+    try:
+        parsed = httpx.URL(url)
+        selected = public_addresses[0]
+        pinned = parsed.copy_with(host=selected)
+        host_header = parsed.netloc.decode("ascii")
+        sni_hostname = parsed.raw_host.decode("ascii")
+    except (IndexError, UnicodeDecodeError, ValueError):
+        return None, "URL 无法解析"
+    return (
+        PinnedPublicDestination(
+            request_url=str(pinned),
+            host_header=host_header,
+            sni_hostname=sni_hostname,
+            resolved_ip=selected,
+        ),
+        None,
+    )
+
+
+def check_public_http_url(url: str) -> str | None:
+    """Return a rejection reason, or None when the URL is a fetchable public target."""
+    _destination, reason = pin_public_http_url(url)
+    return reason
+
+
+async def send_pinned_public_request(
+    client: httpx.AsyncClient,
+    method: str,
+    url: str,
+    *,
+    headers: dict[str, str] | None = None,
+    content: bytes | None = None,
+    json_body: Any | None = None,
+    stream: bool = False,
+) -> tuple[httpx.Response | None, str | None]:
+    """Send one request to its validated numeric IP while retaining Host/SNI."""
+    destination, reason = pin_public_http_url(url)
+    if destination is None:
+        return None, reason or "URL 安全校验失败"
+    request_headers = {**(headers or {}), "Host": destination.host_header}
+    request = client.build_request(
+        method,
+        destination.request_url,
+        headers=request_headers,
+        content=content,
+        json=json_body,
+    )
+    request.extensions["sni_hostname"] = destination.sni_hostname
+    response = await client.send(request, stream=stream, follow_redirects=False)
+    return response, None
 
 
 def extract_text(content: str, content_type: str) -> str:
@@ -101,15 +177,21 @@ async def fetch_page_snapshot_impl(
     async with httpx.AsyncClient(
         transport=transport,
         follow_redirects=False,
+        trust_env=False,
+        limits=httpx.Limits(max_keepalive_connections=0),
         timeout=settings.web_timeout_seconds,
         headers={"User-Agent": "OPHIRA-retrieval/0.1 (+FR-23 fallback fetch)"},
     ) as client:
         for _hop in range(MAX_REDIRECTS + 1):
-            reason = check_public_http_url(current)
+            response, reason = await send_pinned_public_request(
+                client,
+                "GET",
+                current,
+                stream=True,
+            )
             if reason:
                 return {"error_code": "URL_REJECTED", "error": reason, "url": current}
-            request = client.build_request("GET", current)
-            response = await client.send(request, stream=True)
+            assert response is not None
             try:
                 if response.status_code in {301, 302, 303, 307, 308}:
                     location = response.headers.get("location")
@@ -188,15 +270,26 @@ async def search_public_web_impl(
         }
     count = max(1, min(int(count), 10))
     async with httpx.AsyncClient(
-        transport=transport, timeout=settings.web_timeout_seconds
+        transport=transport,
+        timeout=settings.web_timeout_seconds,
+        follow_redirects=False,
+        trust_env=False,
+        limits=httpx.Limits(max_keepalive_connections=0),
     ) as client:
         try:
             if provider == "serper":
-                response = await client.post(
+                response, reason = await send_pinned_public_request(
+                    client,
+                    "POST",
                     "https://google.serper.dev/search",
                     headers={"X-API-KEY": key, "Content-Type": "application/json"},
-                    json={"q": query, "num": count},
+                    json_body={"q": query, "num": count},
                 )
+                if response is None:
+                    return {
+                        "error_code": "SEARCH_API_ERROR",
+                        "error": f"检索 API 目标被安全策略拒绝：{reason}",
+                    }
                 response.raise_for_status()
                 items = response.json().get("organic", [])[:count]
                 results = [
@@ -208,10 +301,17 @@ async def search_public_web_impl(
                     for item in items
                 ]
             elif provider == "tavily":
-                response = await client.post(
+                response, reason = await send_pinned_public_request(
+                    client,
+                    "POST",
                     "https://api.tavily.com/search",
-                    json={"api_key": key, "query": query, "max_results": count},
+                    json_body={"api_key": key, "query": query, "max_results": count},
                 )
+                if response is None:
+                    return {
+                        "error_code": "SEARCH_API_ERROR",
+                        "error": f"检索 API 目标被安全策略拒绝：{reason}",
+                    }
                 response.raise_for_status()
                 items = response.json().get("results", [])[:count]
                 results = [

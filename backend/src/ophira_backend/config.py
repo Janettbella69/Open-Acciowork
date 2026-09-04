@@ -1,8 +1,11 @@
+from __future__ import annotations
+
+import ipaddress
 from functools import lru_cache
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Literal
 
-from pydantic import AliasChoices, Field, SecretStr, field_validator
+from pydantic import AliasChoices, Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 BACKEND_DIR = Path(__file__).resolve().parents[2]
@@ -82,11 +85,40 @@ class Settings(BaseSettings):
     web_fetch_max_bytes: int = Field(default=2_000_000, ge=10_000, le=20_000_000)
     web_timeout_seconds: float = Field(default=20, ge=1, le=120)
     permission_timeout_seconds: int = Field(default=28_800, ge=10, le=86_400)
+    # ``local_only`` is an explicit single-operator boundary, not authentication.
+    # A deployed multi-tenant control plane must opt into signed gateway assertions.
+    auth_mode: Literal["local_only", "trusted_gateway"] = "local_only"
+    trusted_gateway_auth_secret: SecretStr | None = Field(
+        default=None,
+        min_length=32,
+        max_length=512,
+    )
+    trusted_gateway_tenant_id: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=160,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9._:@+\-]{0,159}$",
+    )
+    auth_assertion_max_age_seconds: int = Field(default=60, ge=10, le=300)
+    auth_assertion_future_skew_seconds: int = Field(default=5, ge=0, le=30)
     media_endpoint: str | None = Field(default=None, max_length=2_000)
     media_api_key: SecretStr | None = None
     channel_webhook_url: str | None = Field(default=None, max_length=2_000)
     feishu_encrypt_key: SecretStr | None = None
     feishu_bot_open_id: str | None = Field(default=None, max_length=160)
+    # FR-24 outbound replies use the official Feishu/Lark tenant-token and
+    # reply-message APIs. These credentials never enter Agent worker envs.
+    feishu_app_id: str | None = Field(default=None, max_length=160)
+    feishu_app_secret: SecretStr | None = Field(default=None, max_length=512)
+    feishu_api_base_url: str = Field(
+        default="https://open.feishu.cn",
+        max_length=200,
+    )
+    feishu_delivery_timeout_seconds: float = Field(default=15, ge=1, le=120)
+    feishu_delivery_max_attempts: int = Field(default=4, ge=1, le=20)
+    feishu_delivery_retry_base_seconds: float = Field(default=2, ge=0.1, le=3_600)
+    feishu_delivery_retry_max_seconds: float = Field(default=60, ge=0.1, le=3_600)
+    feishu_delivery_worker_interval_seconds: float = Field(default=5, ge=0.1, le=300)
     # Shared only with the trusted authentication gateway. It is deliberately
     # shadowed out of every Claude Agent SDK worker environment.
     commercial_approval_secret: SecretStr | None = Field(
@@ -118,6 +150,13 @@ class Settings(BaseSettings):
         "claude_subagent_model",
         "claude_effort_level",
         "commercial_approval_secret",
+        "trusted_gateway_auth_secret",
+        "trusted_gateway_tenant_id",
+        "channel_webhook_url",
+        "feishu_encrypt_key",
+        "feishu_bot_open_id",
+        "feishu_app_id",
+        "feishu_app_secret",
         mode="before",
     )
     @classmethod
@@ -133,6 +172,45 @@ class Settings(BaseSettings):
         if isinstance(value, str):
             return [item.strip() for item in value.split(",") if item.strip()]
         return value
+
+    @model_validator(mode="after")
+    def trusted_gateway_requires_a_signing_secret(self) -> Settings:
+        if self.auth_mode == "local_only":
+            try:
+                loopback = (
+                    self.host.casefold() == "localhost"
+                    or ipaddress.ip_address(self.host).is_loopback
+                )
+            except ValueError:
+                loopback = False
+            if not loopback:
+                raise ValueError(
+                    "local_only auth mode requires a loopback OPHIRA_HOST"
+                )
+        if self.auth_mode == "trusted_gateway":
+            missing: list[str] = []
+            if self.trusted_gateway_auth_secret is None:
+                missing.append("OPHIRA_TRUSTED_GATEWAY_AUTH_SECRET")
+            if self.trusted_gateway_tenant_id is None:
+                missing.append("OPHIRA_TRUSTED_GATEWAY_TENANT_ID")
+            if missing:
+                raise ValueError(
+                    "trusted_gateway auth mode requires " + " and ".join(missing)
+                )
+        return self
+
+    def auth_status(self) -> dict[str, str | bool]:
+        """Describe the real deployment boundary without implying local IAM."""
+
+        trusted = self.auth_mode == "trusted_gateway"
+        return {
+            "mode": self.auth_mode,
+            "authenticated": trusted,
+            # Global Agent/Provider/Skill/Connector stores are intentionally one
+            # deployment tenant until they are physically partitioned.
+            "multi_tenant": False,
+            "trusted_gateway_assertions_required": trusted,
+        }
 
     def claude_sdk_env(self, isolated_config_dir: Path | None = None) -> dict[str, str]:
         """Build an isolated Claude Code worker environment for the legacy env profile.

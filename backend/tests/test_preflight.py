@@ -134,6 +134,8 @@ async def test_preflight_runs_the_locked_down_sdk_configuration(tmp_path: Path) 
     assert options.env["ANTHROPIC_API_KEY"] == ""
     assert options.env["CLAUDE_CODE_OAUTH_TOKEN"] == ""
     assert options.env["ANTHROPIC_BASE_URL"] == "https://api.deepseek.com/anthropic"
+    assert options.env["OPHIRA_FEISHU_APP_SECRET"] == ""
+    assert options.env["OPHIRA_FEISHU_ENCRYPT_KEY"] == ""
 
 
 @pytest.mark.asyncio

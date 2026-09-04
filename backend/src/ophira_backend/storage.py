@@ -7,10 +7,18 @@ import os
 import re
 import threading
 from collections.abc import Callable
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit, urlunsplit
 
-from .constants import DecisionStatus, EvidenceKind, EvidenceStatus, RunMode
+from .constants import (
+    DecisionStatus,
+    EvidenceKind,
+    EvidenceSourceType,
+    EvidenceStatus,
+    RunMode,
+)
 from .ingest import ingest_to_markdown, needs_markdown_companion
 from .models import (
     AgentCreate,
@@ -19,15 +27,44 @@ from .models import (
     EventEnvelope,
     Evidence,
     OpportunityProject,
+    PrincipalBinding,
+    PrincipalContext,
     ProjectCreate,
     RunRecord,
     RunSummary,
     Schedule,
+    ToolReceipt,
+    ToolReceiptReplay,
+    new_id,
     utc_now,
 )
 
 
 class LedgerNotFoundError(KeyError):
+    pass
+
+
+class LedgerIdentityScopeError(RuntimeError):
+    """A durable object was accessed or created outside its principal scope."""
+
+
+class SourceReceiptError(RuntimeError):
+    """Base error for server-issued source receipt validation."""
+
+
+class SourceReceiptNotFoundError(SourceReceiptError):
+    pass
+
+
+class SourceReceiptScopeError(SourceReceiptError):
+    pass
+
+
+class SourceReceiptExpiredError(SourceReceiptError):
+    pass
+
+
+class SourceReceiptIntegrityError(SourceReceiptError):
     pass
 
 
@@ -40,11 +77,13 @@ class FileLedger:
         self.runs_dir = self.root / "runs"
         self.agents_dir = self.root / "agents"
         self.schedules_dir = self.root / "schedules"
+        self.receipts_dir = self.root / "receipts"
         self.manifest_path = self.root / "_manifest.jsonl"
         self.projects_dir.mkdir(parents=True, exist_ok=True)
         self.runs_dir.mkdir(parents=True, exist_ok=True)
         self.agents_dir.mkdir(parents=True, exist_ok=True)
         self.schedules_dir.mkdir(parents=True, exist_ok=True)
+        self.receipts_dir.mkdir(parents=True, exist_ok=True)
         self._locks: dict[str, threading.RLock] = {}
         self._locks_guard = threading.Lock()
 
@@ -92,11 +131,363 @@ class FileLedger:
     def _events_path(self, run_id: str) -> Path:
         return self.runs_dir / self._safe_id(run_id) / "events.jsonl"
 
-    def create_project(self, payload: ProjectCreate) -> OpportunityProject:
-        project = OpportunityProject(**payload.model_dump())
+    def _receipt_directory(self, project_id: str, receipt_id: str) -> Path:
+        return (
+            self.receipts_dir
+            / self._safe_id(project_id)
+            / self._safe_id(receipt_id)
+        )
+
+    @staticmethod
+    def _canonical_source(value: str) -> str:
+        """Normalize a host-observed source without accepting ambiguous credentials."""
+
+        source = value.strip()
+        if not source or len(source) > 2_000 or any(ord(char) < 32 for char in source):
+            raise SourceReceiptIntegrityError("canonical source is invalid")
+        try:
+            parts = urlsplit(source)
+        except ValueError as exc:
+            raise SourceReceiptIntegrityError("canonical source is invalid") from exc
+        scheme = parts.scheme.casefold()
+        if scheme in {"http", "https"}:
+            if not parts.hostname or parts.username is not None or parts.password is not None:
+                raise SourceReceiptIntegrityError("canonical HTTP source is invalid")
+            try:
+                hostname = parts.hostname.rstrip(".").casefold()
+                if ":" in hostname:
+                    hostname = f"[{hostname}]"
+                else:
+                    hostname = hostname.encode("idna").decode("ascii")
+                port = parts.port
+            except (UnicodeError, ValueError) as exc:
+                raise SourceReceiptIntegrityError("canonical HTTP source is invalid") from exc
+            default_port = 443 if scheme == "https" else 80
+            netloc = hostname + (f":{port}" if port is not None and port != default_port else "")
+            return urlunsplit((scheme, netloc, parts.path or "/", parts.query, ""))
+        if scheme == "ophira-search" and parts.netloc and not parts.fragment:
+            return urlunsplit((scheme, parts.netloc.casefold(), parts.path, parts.query, ""))
+        raise SourceReceiptIntegrityError("canonical source scheme is not supported")
+
+    @staticmethod
+    def _canonical_payload_bytes(payload: Any) -> bytes:
+        try:
+            return json.dumps(
+                payload,
+                ensure_ascii=False,
+                allow_nan=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        except (TypeError, ValueError) as exc:
+            raise SourceReceiptIntegrityError(
+                "source receipt payload must be finite JSON"
+            ) from exc
+
+    def issue_tool_receipt(
+        self,
+        project_id: str,
+        run_id: str,
+        *,
+        tool: str,
+        source_type: EvidenceSourceType,
+        canonical_source: str,
+        payload: Any,
+        object_type: str,
+        object_key: str | None = None,
+        object_version: str | None = None,
+        object_metadata: dict[str, Any] | None = None,
+        ttl: timedelta = timedelta(hours=24),
+        tenant_id: str | None = None,
+        principal_id: str | None = None,
+        now: datetime | None = None,
+    ) -> ToolReceipt:
+        """Issue a receipt from trusted host/adapter code, never from an MCP input.
+
+        The initialized SDK session is read from the durable run.  Callers cannot
+        nominate another session and thereby broaden the writable provenance set.
+        """
+
+        try:
+            project = self.get_project(project_id)
+            run = self.get_run(run_id)
+        except (LedgerNotFoundError, ValueError) as exc:
+            raise SourceReceiptScopeError("source receipt run scope is not valid") from exc
+        if run.project_id != project_id or not run.sdk_session_id:
+            raise SourceReceiptScopeError(
+                "source receipt requires this project's initialized SDK session"
+            )
+        if project.identity_binding != run.identity_binding:
+            raise SourceReceiptScopeError("source receipt project/run identity does not match")
+        if run.identity_binding == "authenticated_principal":
+            if (
+                project.tenant_id != run.tenant_id
+                or tenant_id not in {None, run.tenant_id}
+                or principal_id not in {None, run.principal_id}
+            ):
+                raise SourceReceiptScopeError(
+                    "source receipt principal scope is not valid for this run"
+                )
+            tenant_id = run.tenant_id
+            principal_id = run.principal_id
+        elif tenant_id is not None or principal_id is not None:
+            raise SourceReceiptScopeError(
+                "local-only runs cannot mint authenticated source receipts"
+            )
+        if ttl <= timedelta(0) or ttl > timedelta(days=30):
+            raise SourceReceiptIntegrityError("source receipt TTL is invalid")
+        canonical = self._canonical_source(canonical_source)
+        encoded = self._canonical_payload_bytes(payload)
+        content_hash = hashlib.sha256(encoded).hexdigest()
+        metadata = object_metadata or {}
+        if len(self._canonical_payload_bytes(metadata)) > 16 * 1024:
+            raise SourceReceiptIntegrityError("source receipt metadata exceeds 16 KB")
+        issued_at = now or utc_now()
+        if issued_at.tzinfo is None or issued_at.utcoffset() is None:
+            raise SourceReceiptIntegrityError("source receipt clock must be timezone-aware")
+        identity_binding = (
+            "authenticated_principal"
+            if tenant_id is not None and principal_id is not None
+            else "project_run_session_only"
+        )
+
+        with self._lock_for(f"receipt:{project_id}"):
+            receipt_id = new_id("receipt")
+            directory = self._receipt_directory(project_id, receipt_id)
+            while directory.exists():  # pragma: no cover - UUID collision defense
+                receipt_id = new_id("receipt")
+                directory = self._receipt_directory(project_id, receipt_id)
+            relative_payload = (
+                Path("receipts") / project_id / receipt_id / "payload.json"
+            ).as_posix()
+            receipt = ToolReceipt(
+                id=receipt_id,
+                project_id=project_id,
+                run_id=run.id,
+                session_id=run.sdk_session_id,
+                tenant_id=tenant_id,
+                principal_id=principal_id,
+                principal_role=run.principal_role,
+                principal_session_id=run.principal_session_id,
+                identity_binding=identity_binding,
+                tool=tool,
+                source_type=EvidenceSourceType(source_type),
+                canonical_source=canonical,
+                retrieved_at=issued_at,
+                content_hash=content_hash,
+                object_type=object_type,
+                object_key=object_key or canonical,
+                object_version=object_version or f"sha256:{content_hash}",
+                object_metadata=metadata,
+                sanitized_payload_ref=relative_payload,
+                expires_at=issued_at + ttl,
+                created_at=issued_at,
+            )
+            self._atomic_write(directory / "payload.json", payload)
+            # Publish metadata only after the payload exists.  A crash before
+            # this write leaves an unreachable payload, never a valid receipt.
+            self._atomic_write(directory / "receipt.json", receipt)
+        return receipt
+
+    def _read_tool_receipt(self, project_id: str, receipt_id: str) -> ToolReceipt:
+        try:
+            directory = self._receipt_directory(project_id, receipt_id)
+        except ValueError as exc:
+            raise SourceReceiptNotFoundError("source receipt not found") from exc
+        if directory.is_symlink():
+            raise SourceReceiptIntegrityError("source receipt directory is invalid")
+        try:
+            directory.resolve().relative_to(self.receipts_dir.resolve())
+        except (OSError, ValueError) as exc:
+            raise SourceReceiptIntegrityError(
+                "source receipt directory escapes the receipt store"
+            ) from exc
+        path = directory / "receipt.json"
+        try:
+            if path.is_symlink() or not path.is_file():
+                raise SourceReceiptNotFoundError("source receipt not found")
+            receipt = ToolReceipt.model_validate_json(path.read_text(encoding="utf-8"))
+        except SourceReceiptNotFoundError:
+            raise
+        except (OSError, ValueError) as exc:
+            raise SourceReceiptIntegrityError(
+                "stored source receipt failed integrity validation"
+            ) from exc
+        expected_ref = (
+            Path("receipts") / project_id / receipt_id / "payload.json"
+        ).as_posix()
+        if (
+            receipt.id != receipt_id
+            or receipt.project_id != project_id
+            or receipt.sanitized_payload_ref != expected_ref
+        ):
+            raise SourceReceiptIntegrityError(
+                "stored source receipt does not match its ledger scope"
+            )
+        return receipt
+
+    def replay_tool_receipt(
+        self,
+        project_id: str,
+        receipt_id: str,
+        *,
+        now: datetime | None = None,
+    ) -> ToolReceiptReplay:
+        """Replay an immutable sanitized payload and verify its content hash."""
+
+        receipt = self._read_tool_receipt(project_id, receipt_id)
+        payload_path = self._receipt_directory(project_id, receipt_id) / "payload.json"
+        try:
+            if payload_path.is_symlink() or not payload_path.is_file():
+                raise SourceReceiptIntegrityError("source receipt payload is unavailable")
+            payload = json.loads(payload_path.read_text(encoding="utf-8"))
+        except SourceReceiptIntegrityError:
+            raise
+        except (OSError, ValueError) as exc:
+            raise SourceReceiptIntegrityError(
+                "source receipt payload failed integrity validation"
+            ) from exc
+        actual_hash = hashlib.sha256(self._canonical_payload_bytes(payload)).hexdigest()
+        if actual_hash != receipt.content_hash:
+            raise SourceReceiptIntegrityError("source receipt payload hash does not match")
+        if (
+            receipt.object_version.startswith("sha256:")
+            and receipt.object_version != f"sha256:{actual_hash}"
+        ):
+            raise SourceReceiptIntegrityError("source receipt object version does not match")
+        checked_at = now or utc_now()
+        if checked_at.tzinfo is None or checked_at.utcoffset() is None:
+            raise SourceReceiptIntegrityError(
+                "source receipt verification clock must be timezone-aware"
+            )
+        return ToolReceiptReplay(
+            receipt=receipt,
+            payload=payload,
+            expired=checked_at >= receipt.expires_at,
+        )
+
+    def verify_tool_receipt(
+        self,
+        project_id: str,
+        receipt_id: str,
+        *,
+        run_id: str,
+        session_id: str,
+        tenant_id: str | None = None,
+        principal_id: str | None = None,
+        now: datetime | None = None,
+    ) -> ToolReceiptReplay:
+        """Verify integrity, freshness, and the complete current write scope."""
+
+        replay = self.replay_tool_receipt(project_id, receipt_id, now=now)
+        receipt = replay.receipt
+        try:
+            run = self.get_run(run_id)
+        except (LedgerNotFoundError, ValueError) as exc:
+            raise SourceReceiptScopeError(
+                "source receipt run scope is not valid"
+            ) from exc
+        if run.project_id != project_id or run.sdk_session_id != session_id:
+            raise SourceReceiptScopeError(
+                "source receipt is not valid for this project/run/session"
+            )
+        if tenant_id not in {None, run.tenant_id} or principal_id not in {
+            None,
+            run.principal_id,
+        }:
+            raise SourceReceiptScopeError(
+                "source receipt is not valid for this principal"
+            )
+        if (
+            receipt.run_id != run_id
+            or receipt.session_id != session_id
+            or receipt.tenant_id != run.tenant_id
+            or receipt.principal_id != run.principal_id
+            or receipt.principal_role != run.principal_role
+            or receipt.principal_session_id != run.principal_session_id
+        ):
+            raise SourceReceiptScopeError(
+                "source receipt is not valid for this project/run/session"
+            )
+        if replay.expired:
+            raise SourceReceiptExpiredError("source receipt has expired")
+        return replay
+
+    def list_tool_receipts(
+        self,
+        project_id: str,
+        *,
+        run_id: str | None = None,
+    ) -> list[ToolReceipt]:
+        self.get_project(project_id)
+        project_dir = self.receipts_dir / self._safe_id(project_id)
+        if not project_dir.exists():
+            return []
+        if project_dir.is_symlink() or not project_dir.is_dir():
+            raise SourceReceiptIntegrityError("source receipt directory is invalid")
+        receipts: list[ToolReceipt] = []
+        for path in project_dir.glob("receipt_*/receipt.json"):
+            replay = self.replay_tool_receipt(project_id, path.parent.name)
+            if run_id is None or replay.receipt.run_id == run_id:
+                receipts.append(replay.receipt)
+        return sorted(receipts, key=lambda item: item.retrieved_at, reverse=True)
+
+    def create_project(
+        self,
+        payload: ProjectCreate,
+        *,
+        principal: PrincipalContext | PrincipalBinding | None = None,
+        project_id: str | None = None,
+    ) -> OpportunityProject:
+        identity: dict[str, Any] = {}
+        if principal is not None:
+            if principal.role.value != "owner":
+                raise LedgerIdentityScopeError(
+                    "a new authenticated project requires an owner principal"
+                )
+            identity = {
+                "tenant_id": principal.tenant_id,
+                "owner_principal_id": principal.principal_id,
+                "owner_role": principal.role,
+                "owner_session_id": principal.session_id,
+                "identity_binding": "authenticated_principal",
+            }
+        project = OpportunityProject(
+            **payload.model_dump(),
+            **identity,
+            **({"id": self._safe_id(project_id)} if project_id is not None else {}),
+        )
         with self._lock_for(project.id):
             self._atomic_write(self._project_path(project.id), project)
         return project
+
+    def bind_project_identity(
+        self,
+        project_id: str,
+        principal: PrincipalContext,
+    ) -> OpportunityProject:
+        """Explicitly migrate one local project; never infer ownership from a caller."""
+
+        if principal.role.value != "owner":
+            raise LedgerIdentityScopeError(
+                "project migration requires an authenticated owner principal"
+            )
+
+        def bind(project: OpportunityProject) -> None:
+            if project.identity_binding == "authenticated_principal":
+                if (
+                    project.tenant_id == principal.tenant_id
+                    and project.owner_principal_id == principal.principal_id
+                ):
+                    return
+                raise LedgerIdentityScopeError("project is already bound to another identity")
+            project.tenant_id = principal.tenant_id
+            project.owner_principal_id = principal.principal_id
+            project.owner_role = principal.role
+            project.owner_session_id = principal.session_id
+            project.identity_binding = "authenticated_principal"
+
+        return self.update_project(project_id, bind)
 
     def get_project(self, project_id: str) -> OpportunityProject:
         path = self._project_path(project_id)
@@ -135,23 +526,54 @@ class FileLedger:
         *,
         agent_id: str | None = None,
         schedule_id: str | None = None,
+        standing_intent_id: str | None = None,
+        automation_claim_id: str | None = None,
         resume_session_id: str | None = None,
+        resume_source_run_id: str | None = None,
+        session_compaction_epoch: int = 0,
         mode: RunMode = RunMode.STANDARD,
         provider_profile_id: str | None = None,
         provider_snapshot: dict[str, Any] | None = None,
         skill_snapshot: list[dict[str, Any]] | None = None,
+        max_budget_usd: float | None = None,
+        principal: PrincipalContext | None = None,
     ) -> RunRecord:
-        self.get_project(project_id)
+        project = self.get_project(project_id)
+        identity: dict[str, Any] = {}
+        if project.identity_binding == "authenticated_principal":
+            if principal is None:
+                raise LedgerIdentityScopeError(
+                    "authenticated projects require a trusted principal for every run"
+                )
+            if project.tenant_id != principal.tenant_id:
+                raise LedgerIdentityScopeError("run principal is outside the project tenant")
+            identity = {
+                "tenant_id": principal.tenant_id,
+                "principal_id": principal.principal_id,
+                "principal_role": principal.role,
+                "principal_session_id": principal.session_id,
+                "identity_binding": "authenticated_principal",
+            }
+        elif principal is not None:
+            raise LedgerIdentityScopeError(
+                "bind the local project before creating an authenticated run"
+            )
         run = RunRecord(
             project_id=project_id,
             prompt=prompt,
+            **identity,
             agent_id=agent_id,
             schedule_id=schedule_id,
+            standing_intent_id=standing_intent_id,
+            automation_claim_id=automation_claim_id,
             resume_session_id=resume_session_id,
+            resume_source_run_id=resume_source_run_id,
+            session_compaction_epoch=session_compaction_epoch,
             mode=mode,
             provider_profile_id=provider_profile_id,
             provider_snapshot=provider_snapshot,
             skill_snapshot=skill_snapshot or [],
+            max_budget_usd=max_budget_usd,
         )
         summary = RunSummary(
             run_id=run.id,
@@ -173,15 +595,38 @@ class FileLedger:
 
     def list_runs(self, project_id: str) -> list[RunRecord]:
         self.get_project(project_id)
+        runs = [run for run in self._iter_runs() if run.project_id == project_id]
+        return sorted(runs, key=lambda run: run.created_at, reverse=True)
+
+    def _iter_runs(self) -> list[RunRecord]:
         runs: list[RunRecord] = []
         for path in self.runs_dir.glob("*/run.json"):
             try:
                 run = RunRecord.model_validate_json(path.read_text(encoding="utf-8"))
             except (OSError, ValueError):
                 continue
-            if run.project_id == project_id:
-                runs.append(run)
-        return sorted(runs, key=lambda run: run.created_at, reverse=True)
+            runs.append(run)
+        return runs
+
+    def runs_for_sdk_session(self, session_id: str) -> list[RunRecord]:
+        """Return durable runs bound to an SDK session, newest first."""
+
+        if not session_id or len(session_id) > 500:
+            raise ValueError("invalid SDK session identifier")
+        matches = [run for run in self._iter_runs() if run.sdk_session_id == session_id]
+        return sorted(matches, key=lambda run: run.created_at, reverse=True)
+
+    def runs_claiming_sdk_session(self, session_id: str) -> list[RunRecord]:
+        """Include queued resume attempts so one transcript cannot be resumed concurrently."""
+
+        if not session_id or len(session_id) > 500:
+            raise ValueError("invalid SDK session identifier")
+        matches = [
+            run
+            for run in self._iter_runs()
+            if run.sdk_session_id == session_id or run.resume_session_id == session_id
+        ]
+        return sorted(matches, key=lambda run: run.created_at, reverse=True)
 
     def update_run(self, run_id: str, **changes: Any) -> RunRecord:
         with self._lock_for(run_id):

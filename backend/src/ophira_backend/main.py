@@ -1,23 +1,56 @@
 from __future__ import annotations
 
-import hmac
+import hashlib
 import json
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from datetime import timedelta
 from typing import Annotated
 
 import uvicorn
-from fastapi import FastAPI, Header, HTTPException, Query, Request, status
+from fastapi import FastAPI, Header, HTTPException, Query, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from sse_starlette.sse import EventSourceResponse
 
 from .agent_core import create_agent_core
+from .auth import (
+    ROLE_PERMISSIONS,
+    AuthAssertionExpiredError,
+    AuthAssertionReplayError,
+    AuthenticationError,
+    AuthNonceStore,
+    AuthorizationError,
+    InvalidAuthAssertionError,
+    PrincipalAuthenticator,
+    ProjectAccessGrantRequest,
+    ProjectAccessNotFoundError,
+    ProjectAccessRecord,
+    ProjectAccessStore,
+    ProjectPermission,
+)
 from .automation import (
     IntentNotFoundError,
     IntentStore,
     NotificationNotFoundError,
     NotificationStore,
+)
+from .channel_delivery import (
+    ChannelDeliveryService,
+    ChannelDeliveryStore,
+    ChannelReplyAdapter,
+    FeishuReplyAdapter,
+)
+from .channel_identity import (
+    ChannelIdentityAmbiguousError,
+    ChannelIdentityConflictError,
+    ChannelIdentityError,
+    ChannelIdentityIntegrityError,
+    ChannelIdentityNotFoundError,
+    FeishuIdentityBinding,
+    FeishuIdentityBindingCreate,
+    FeishuIdentityBindingStore,
+    feishu_identity_selector,
 )
 from .channels import (
     MAX_FEISHU_BODY_BYTES,
@@ -26,6 +59,7 @@ from .channels import (
     decrypt_feishu_payload,
     feishu_challenge,
     feishu_event_id,
+    feishu_reply_target,
     feishu_should_handle,
     feishu_timestamp_is_fresh,
     to_inbound,
@@ -38,11 +72,12 @@ from .commercial_actions import (
     CommercialActionPolicyError,
     CommercialActionScopeError,
     CommercialActionService,
-    validate_human_actor,
 )
+from .commercial_adapters import HttpsJsonMessageAdapter
 from .config import Settings, get_settings
 from .connectors import ConnectorNotFoundError, ConnectorRegistry
 from .constants import (
+    USER_SCOPE_ID,
     AgentTemplate,
     CommercialActionOperation,
     CommercialActionStatus,
@@ -59,6 +94,8 @@ from .constants import (
     MissedRunPolicy,
     PermissionDecision,
     PermissionModePolicy,
+    PresentationFrameType,
+    PrincipalRole,
     ProjectStage,
     ProviderErrorCode,
     RunMode,
@@ -68,13 +105,16 @@ from .constants import (
 from .events import EventPublisher
 from .feedback import FeedbackStore
 from .grants import GrantNotFoundError, PermissionGrantStore
-from .memory import FileMemoryProvider, MemoryNotFoundError
+from .intent_watcher import StandingIntentWatcher
+from .memory import FileMemoryProvider, MemoryNotFoundError, public_memory_item
 from .models import (
     AgentCreate,
     AgentProfile,
     AgentUpdate,
     Artifact,
+    CommercialActionApplyControlRequest,
     CommercialActionApplyRequest,
+    CommercialActionCancelRequest,
     CommercialActionRecord,
     CommercialActionReviewRequest,
     Connector,
@@ -88,14 +128,21 @@ from .models import (
     MemoryCorrection,
     MemoryCreate,
     MemoryDecision,
+    MemoryDelete,
+    MemoryExpiryUpdate,
+    MemoryExportResponse,
     MemoryItem,
+    MemoryRetrievalRequest,
+    MemoryRetrievalResponse,
     MemoryRollback,
+    MemoryTombstone,
     Notification,
     OpportunityProject,
     OrgPolicy,
     PendingPermissionView,
     PermissionGrant,
     PermissionResolution,
+    PrincipalContext,
     ProjectCreate,
     ProviderPreflightResult,
     ProviderProfile,
@@ -111,14 +158,18 @@ from .models import (
     SkillVersion,
     SkillVersionResponse,
     StandingIntent,
+    StandingIntentCheckResponse,
     StandingIntentCreate,
+    ToolReceipt,
+    ToolReceiptReplay,
+    new_id,
     utc_now,
 )
 from .permissions import PermissionBroker, PermissionNotFoundError
 from .policy import OrgPolicyStore, PolicyDeniedError
 from .presentation_tools import PRESENTATION_COMPONENTS, PRESENTATION_SCHEMA_VERSION
 from .providers import FileSecretVault, ProviderNotFoundError, ProviderRegistry
-from .runs import AgentRuntime, RunManager, RunRetryConflictError
+from .runs import AgentRuntime, RunManager, RunResumeConflictError, RunRetryConflictError
 from .scheduler import ScheduleService, ScheduleValidationError, compute_next_fire, new_schedule
 from .sdk_adapter import ClaudeAgentRuntime
 from .skills import (
@@ -129,46 +180,50 @@ from .skills import (
     SkillNotFoundError,
     SkillRegistry,
 )
-from .storage import FileLedger, LedgerNotFoundError
+from .storage import (
+    FileLedger,
+    LedgerIdentityScopeError,
+    LedgerNotFoundError,
+    SourceReceiptIntegrityError,
+    SourceReceiptNotFoundError,
+)
+from .telemetry import RunTelemetry, build_run_telemetry
 from .templates import TEMPLATE_SPECS
 
 MAX_PROJECT_UPLOAD_BYTES = 50 * 1024 * 1024
+LOCAL_OPERATOR_ID = "local-operator"
 
 
-def _require_authenticated_user(
-    value: str | None,
-    provided_secret: str | None,
-    settings: Settings,
-) -> str:
-    """Resolve a user identity asserted by the trusted HTTP control plane.
+def _request_principal(request: Request) -> PrincipalContext | None:
+    """Return only middleware-verified identity; request fields are never authority."""
 
-    These endpoints are intentionally absent from Agent/MCP tools. Deployments must
-    strip this header at ingress and set it only after user authentication.
-    """
+    return getattr(request.state, "principal", None)
 
-    configured_secret = settings.commercial_approval_secret
-    if configured_secret is None:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="commercial action approval gateway is not configured",
+
+def _project_route_permission(method: str, path: str) -> ProjectPermission:
+    if "/access" in path:
+        return ProjectPermission.PROJECT_ACCESS_MANAGE
+    if "/commercial-actions" in path:
+        if path.endswith("/review"):
+            return ProjectPermission.COMMERCIAL_REVIEW
+        if path.endswith("/apply"):
+            return ProjectPermission.COMMERCIAL_APPLY
+        if path.endswith("/cancel"):
+            return ProjectPermission.COMMERCIAL_CANCEL
+        return ProjectPermission.COMMERCIAL_READ
+    if "/source-receipts" in path:
+        return ProjectPermission.SOURCE_RECEIPT_READ
+    if path.endswith("/runs"):
+        return (
+            ProjectPermission.RUN_READ
+            if method == "GET"
+            else ProjectPermission.RUN_CREATE
         )
-    expected_secret = configured_secret.get_secret_value()
-    if provided_secret is None or not hmac.compare_digest(
-        provided_secret.encode("utf-8"), expected_secret.encode("utf-8")
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="trusted approval gateway authentication failed",
-        )
-    if value is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="authenticated user confirmation is required",
-        )
-    try:
-        return validate_human_actor(value)
-    except CommercialActionScopeError as exc:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+    return (
+        ProjectPermission.PROJECT_READ
+        if method in {"GET", "HEAD"}
+        else ProjectPermission.PROJECT_WRITE
+    )
 
 
 async def _read_bounded_body(
@@ -200,6 +255,7 @@ async def _read_bounded_body(
 def create_app(
     settings: Settings | None = None,
     runtime: AgentRuntime | None = None,
+    channel_reply_adapter: ChannelReplyAdapter | None = None,
 ) -> FastAPI:
     settings = settings or get_settings()
     ledger = FileLedger(settings.data_dir)
@@ -211,12 +267,26 @@ def create_app(
     grants = PermissionGrantStore(settings.data_dir / "grants")
     policy = OrgPolicyStore(settings.data_dir / "org" / "policy.json")
     feedback = FeedbackStore(settings.data_dir / "feedback")
-    commercial_actions = CommercialActionService(
-        settings.data_dir / "commercial-actions",
-        ledger=ledger,
-        policy=policy,
+    authenticator = PrincipalAuthenticator(
+        settings,
+        AuthNonceStore(settings.data_dir / "auth" / "nonces"),
+    )
+    project_access = ProjectAccessStore(settings.data_dir / "auth" / "projects")
+    channel_identity_bindings = FeishuIdentityBindingStore(
+        settings.data_dir / "channels" / "feishu-bindings",
+        project_access,
     )
     channel_replays = ChannelReplayGuard(settings.data_dir / "channels" / "replays.json")
+    channel_delivery = ChannelDeliveryService(
+        ledger,
+        ChannelDeliveryStore(settings.data_dir / "channel-deliveries"),
+        channel_reply_adapter or FeishuReplyAdapter(settings),
+        enabled=lambda: policy.get().channel_delivery_enabled,
+        max_attempts=settings.feishu_delivery_max_attempts,
+        retry_base_seconds=settings.feishu_delivery_retry_base_seconds,
+        retry_max_seconds=settings.feishu_delivery_retry_max_seconds,
+        worker_interval_seconds=settings.feishu_delivery_worker_interval_seconds,
+    )
     permissions = PermissionBroker(
         ledger,
         events,
@@ -232,6 +302,15 @@ def create_app(
         vault=FileSecretVault(settings.data_dir / "secrets", filename="connector-secrets.json"),
     )
     connectors.ensure_catalog()
+    commercial_action_adapter = HttpsJsonMessageAdapter(connectors)
+    commercial_actions = CommercialActionService(
+        settings.data_dir / "commercial-actions",
+        ledger=ledger,
+        policy=policy,
+        executor=commercial_action_adapter,
+        target_reader=commercial_action_adapter,
+        access=project_access,
+    )
     runtime = runtime or ClaudeAgentRuntime(
         settings,
         ledger,
@@ -257,15 +336,38 @@ def create_app(
         memory=memory,
         policy=policy,
         settings=settings,
+        channel_delivery=channel_delivery,
     )
-    scheduler = ScheduleService(ledger, runs, events, notifications=notifications)
+    scheduler = ScheduleService(
+        ledger,
+        runs,
+        events,
+        notifications=notifications,
+        access=project_access,
+    )
+    intent_watcher = StandingIntentWatcher(
+        ledger,
+        runs,
+        intents,
+        notifications,
+        access=project_access,
+    )
+
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
-        await scheduler.start()
+        await channel_delivery.start()
         try:
-            yield
+            await scheduler.start()
+            try:
+                await intent_watcher.start()
+                try:
+                    yield
+                finally:
+                    await intent_watcher.stop()
+            finally:
+                await scheduler.stop()
         finally:
-            await scheduler.stop()
+            await channel_delivery.stop()
 
     application = FastAPI(title="OPHIRA API", version="0.1.0", lifespan=lifespan)
     application.state.ledger = ledger
@@ -277,13 +379,19 @@ def create_app(
     application.state.runtime = runtime
     application.state.runs = runs
     application.state.scheduler = scheduler
+    application.state.intent_watcher = intent_watcher
     application.state.connectors = connectors
     application.state.notifications = notifications
     application.state.intents = intents
     application.state.grants = grants
     application.state.policy = policy
     application.state.feedback = feedback
+    application.state.authenticator = authenticator
+    application.state.project_access = project_access
+    application.state.channel_identity_bindings = channel_identity_bindings
     application.state.commercial_actions = commercial_actions
+    application.state.commercial_action_adapter = commercial_action_adapter
+    application.state.channel_delivery = channel_delivery
     application.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,
@@ -292,6 +400,199 @@ def create_app(
         allow_headers=["*"],
     )
 
+    def authorize_project_request(
+        project_id: str,
+        principal: PrincipalContext | None,
+        permission: ProjectPermission,
+    ) -> None:
+        project = ledger.get_project(project_id)
+        if principal is None:
+            if project.identity_binding != "local_only":
+                raise AuthorizationError(
+                    "authenticated projects are unavailable in local-only mode"
+                )
+            return
+        if (
+            project.identity_binding != "authenticated_principal"
+            or project.tenant_id != principal.tenant_id
+        ):
+            raise AuthorizationError("principal is outside the project tenant")
+        project_access.authorize(project_id, principal, permission)
+
+    def require_project_authorization(
+        project_id: str,
+        principal: PrincipalContext | None,
+        permission: ProjectPermission,
+    ) -> None:
+        try:
+            authorize_project_request(project_id, principal, permission)
+        except (LedgerNotFoundError, ValueError) as exc:
+            raise HTTPException(status_code=404, detail="Project not found") from exc
+        except AuthorizationError as exc:
+            raise HTTPException(
+                status_code=403,
+                detail="principal is not authorized for this resource",
+            ) from exc
+
+    def project_is_visible(
+        project_id: str,
+        principal: PrincipalContext | None,
+        permission: ProjectPermission = ProjectPermission.PROJECT_READ,
+    ) -> bool:
+        try:
+            authorize_project_request(project_id, principal, permission)
+            return True
+        except (AuthorizationError, LedgerNotFoundError, ValueError):
+            return False
+
+    def require_memory_authorization(
+        item: MemoryItem | MemoryTombstone,
+        principal: PrincipalContext | None,
+        permission: ProjectPermission,
+    ) -> None:
+        if principal is None:
+            if item.identity_binding != "local_only":
+                raise HTTPException(status_code=403, detail="Memory is outside local scope")
+            return
+        if (
+            item.identity_binding != "authenticated_principal"
+            or item.tenant_id != principal.tenant_id
+        ):
+            raise HTTPException(status_code=403, detail="Memory is outside principal scope")
+        if item.scope == MemoryScope.PROJECT:
+            require_project_authorization(item.scope_id, principal, permission)
+            return
+        if (
+            item.principal_id != principal.principal_id
+            or permission not in ROLE_PERMISSIONS[principal.role]
+        ):
+            raise HTTPException(status_code=403, detail="Memory is outside principal scope")
+
+    def notification_is_visible(
+        notification: Notification,
+        principal: PrincipalContext | None,
+        *,
+        write: bool = False,
+    ) -> bool:
+        if notification.project_id is not None:
+            return project_is_visible(
+                notification.project_id,
+                principal,
+                (
+                    ProjectPermission.PROJECT_WRITE
+                    if write
+                    else ProjectPermission.PROJECT_READ
+                ),
+            )
+        return principal is None or principal.role in {
+            PrincipalRole.OWNER,
+            PrincipalRole.ADMIN,
+        }
+
+    @application.middleware("http")
+    async def authenticate_control_plane(request: Request, call_next):
+        path = request.url.path
+        if not (path == "/api" or path.startswith("/api/")):
+            return await call_next(request)
+        # Feishu has its own body-bound signature.  In trusted-gateway mode the
+        # handler validates it, then refuses dispatch until a durable channel
+        # identity mapping exists; it never falls back to an arbitrary project.
+        if path == "/api/channels/feishu":
+            return await call_next(request)
+        if settings.auth_mode == "local_only" and any(
+            name in request.headers
+            for name in ("forwarded", "x-forwarded-for", "x-real-ip")
+        ):
+            return JSONResponse(
+                status_code=status.HTTP_403_FORBIDDEN,
+                content={"detail": "local-only control plane rejects proxied requests"},
+            )
+        raw_path_value = request.scope.get("raw_path")
+        try:
+            raw_path = (
+                bytes(raw_path_value).decode("ascii")
+                if raw_path_value is not None
+                else path.encode("ascii").decode("ascii")
+            )
+            principal = authenticator.authenticate(
+                request.headers,
+                method=request.method,
+                path=raw_path,
+                client_host=request.client.host if request.client else None,
+            )
+        except (
+            AuthAssertionExpiredError,
+            AuthAssertionReplayError,
+            InvalidAuthAssertionError,
+            UnicodeError,
+        ):
+            return JSONResponse(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                content={"detail": "trusted gateway authentication failed"},
+            )
+        except AuthenticationError:
+            return JSONResponse(
+                status_code=(
+                    status.HTTP_403_FORBIDDEN
+                    if settings.auth_mode == "local_only"
+                    else status.HTTP_503_SERVICE_UNAVAILABLE
+                ),
+                content={"detail": "control-plane authentication is unavailable"},
+            )
+        request.state.principal = principal
+
+        admin_prefixes = (
+            "/api/agents",
+            "/api/channels/feishu/bindings",
+            "/api/connectors",
+            "/api/org/",
+            "/api/providers",
+            "/api/skills",
+        )
+        if (
+            principal is not None
+            and request.method not in {"GET", "HEAD", "OPTIONS"}
+            and path.startswith(admin_prefixes)
+            and principal.role not in {PrincipalRole.OWNER, PrincipalRole.ADMIN}
+        ):
+            return JSONResponse(
+                status_code=status.HTTP_403_FORBIDDEN,
+                content={"detail": "tenant administrator authorization is required"},
+            )
+
+        # Resolve authorization only from server-owned project/run records.  Route
+        # payloads and identity-shaped headers never select the principal.
+        segments = [segment for segment in path.split("/") if segment]
+        try:
+            if len(segments) >= 3 and segments[:2] == ["api", "projects"]:
+                project_id = segments[2]
+                authorize_project_request(
+                    project_id,
+                    principal,
+                    _project_route_permission(request.method, path),
+                )
+            elif len(segments) >= 3 and segments[:2] == ["api", "runs"]:
+                run = ledger.get_run(segments[2])
+                permission = (
+                    ProjectPermission.RUN_READ
+                    if request.method in {"GET", "HEAD"}
+                    else (
+                        ProjectPermission.RUN_CREATE
+                        if path.endswith("/retry")
+                        else ProjectPermission.PROJECT_WRITE
+                    )
+                )
+                authorize_project_request(run.project_id, principal, permission)
+        except (LedgerNotFoundError, ValueError):
+            # Preserve each route's existing not-found contract.
+            pass
+        except AuthorizationError:
+            return JSONResponse(
+                status_code=status.HTTP_403_FORBIDDEN,
+                content={"detail": "principal is not authorized for this resource"},
+            )
+        return await call_next(request)
+
     @application.get("/health")
     async def health() -> dict[str, str]:
         return {"status": "ok", "service": "ophira-backend"}
@@ -299,6 +600,10 @@ def create_app(
     @application.get("/api/runtime/provider")
     async def runtime_provider() -> dict[str, str | bool | None]:
         return settings.provider_status()
+
+    @application.get("/api/auth/status")
+    async def authentication_status() -> dict[str, str | bool]:
+        return settings.auth_status()
 
     @application.get("/api/meta/protocol")
     async def protocol_metadata() -> dict[str, list[str] | str]:
@@ -328,6 +633,7 @@ def create_app(
             "external_execution_statuses": [
                 item.value for item in ExternalExecutionStatus
             ],
+            "presentation_frame_types": [item.value for item in PresentationFrameType],
             "presentation_schema_versions": [PRESENTATION_SCHEMA_VERSION],
             "presentation_components": list(PRESENTATION_COMPONENTS),
         }
@@ -337,12 +643,47 @@ def create_app(
         response_model=OpportunityProject,
         status_code=status.HTTP_201_CREATED,
     )
-    async def create_project(payload: ProjectCreate) -> OpportunityProject:
-        return ledger.create_project(payload)
+    async def create_project(
+        request: Request,
+        payload: ProjectCreate,
+    ) -> OpportunityProject:
+        principal = _request_principal(request)
+        try:
+            if principal is None:
+                return ledger.create_project(payload)
+            project_id = new_id("project")
+            project_access.bind_project(project_id, principal)
+            try:
+                return ledger.create_project(
+                    payload,
+                    principal=principal,
+                    project_id=project_id,
+                )
+            except Exception:
+                # Access is published first so no authenticated project can be
+                # observed without an authorization record. Compensate ordinary
+                # write failures; a process crash can leave only an unreachable
+                # access record, which remains fail-closed.
+                project_access.remove_initial_binding(project_id, principal)
+                raise
+        except (AuthorizationError, LedgerIdentityScopeError) as exc:
+            raise HTTPException(status_code=403, detail=str(exc)) from exc
 
     @application.get("/api/projects", response_model=list[OpportunityProject])
-    async def list_projects() -> list[OpportunityProject]:
-        return ledger.list_projects()
+    async def list_projects(request: Request) -> list[OpportunityProject]:
+        principal = _request_principal(request)
+        visible: list[OpportunityProject] = []
+        for project in ledger.list_projects():
+            try:
+                authorize_project_request(
+                    project.id,
+                    principal,
+                    ProjectPermission.PROJECT_READ,
+                )
+            except (AuthorizationError, ProjectAccessNotFoundError):
+                continue
+            visible.append(project)
+        return visible
 
     @application.get("/api/projects/{project_id}", response_model=OpportunityProject)
     async def get_project(project_id: str) -> OpportunityProject:
@@ -350,6 +691,88 @@ def create_app(
             return ledger.get_project(project_id)
         except (LedgerNotFoundError, ValueError) as exc:
             raise HTTPException(status_code=404, detail="Project not found") from exc
+
+    @application.get(
+        "/api/projects/{project_id}/access",
+        response_model=ProjectAccessRecord,
+    )
+    async def get_project_access(
+        request: Request,
+        project_id: str,
+    ) -> ProjectAccessRecord:
+        if _request_principal(request) is None:
+            raise HTTPException(
+                status_code=403,
+                detail="Project membership is unavailable in local-only mode",
+            )
+        try:
+            return project_access.get(project_id)
+        except ProjectAccessNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="Project access not found") from exc
+        except AuthorizationError as exc:
+            raise HTTPException(
+                status_code=500,
+                detail="Project access integrity validation failed",
+            ) from exc
+
+    @application.post(
+        "/api/projects/{project_id}/access",
+        response_model=ProjectAccessRecord,
+    )
+    async def grant_project_access(
+        request: Request,
+        project_id: str,
+        payload: ProjectAccessGrantRequest,
+    ) -> ProjectAccessRecord:
+        principal = _request_principal(request)
+        if principal is None:
+            raise HTTPException(
+                status_code=403,
+                detail="Project membership is unavailable in local-only mode",
+            )
+        try:
+            return project_access.grant(
+                project_id,
+                principal,
+                principal_id=payload.principal_id,
+                role=payload.role,
+            )
+        except ProjectAccessNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="Project access not found") from exc
+        except AuthorizationError as exc:
+            raise HTTPException(
+                status_code=403,
+                detail="principal is not authorized to grant project access",
+            ) from exc
+
+    @application.delete(
+        "/api/projects/{project_id}/access/{principal_id}",
+        response_model=ProjectAccessRecord,
+    )
+    async def revoke_project_access(
+        request: Request,
+        project_id: str,
+        principal_id: str,
+    ) -> ProjectAccessRecord:
+        principal = _request_principal(request)
+        if principal is None:
+            raise HTTPException(
+                status_code=403,
+                detail="Project membership is unavailable in local-only mode",
+            )
+        try:
+            return project_access.revoke(
+                project_id,
+                principal,
+                principal_id=principal_id,
+            )
+        except ProjectAccessNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="Project access not found") from exc
+        except AuthorizationError as exc:
+            raise HTTPException(
+                status_code=403,
+                detail="principal is not authorized to revoke project access",
+            ) from exc
 
     @application.get(
         "/api/projects/{project_id}/commercial-actions",
@@ -383,29 +806,49 @@ def create_app(
         response_model=CommercialActionRecord,
     )
     async def review_commercial_action(
+        request: Request,
         project_id: str,
         action_id: str,
         payload: CommercialActionReviewRequest,
-        authenticated_user: Annotated[
-            str | None,
-            Header(alias="X-Ophira-Authenticated-User"),
-        ] = None,
-        approval_secret: Annotated[
-            str | None,
-            Header(alias="X-Ophira-Approval-Secret"),
-        ] = None,
     ) -> CommercialActionRecord:
-        actor = _require_authenticated_user(
-            authenticated_user,
-            approval_secret,
-            settings,
-        )
+        principal = _request_principal(request)
         try:
             return commercial_actions.review(
                 project_id,
                 action_id,
                 payload,
-                actor_id=actor,
+                principal=principal,
+                actor_id=LOCAL_OPERATOR_ID if principal is None else None,
+            )
+        except CommercialActionNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except CommercialActionScopeError as exc:
+            raise HTTPException(status_code=403, detail=str(exc)) from exc
+        except CommercialActionPolicyError as exc:
+            raise HTTPException(status_code=403, detail=str(exc)) from exc
+        except CommercialActionConflictError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except CommercialActionIntegrityError as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    @application.post(
+        "/api/projects/{project_id}/commercial-actions/{action_id}/cancel",
+        response_model=CommercialActionRecord,
+    )
+    async def cancel_commercial_action(
+        request: Request,
+        project_id: str,
+        action_id: str,
+        payload: CommercialActionCancelRequest,
+    ) -> CommercialActionRecord:
+        principal = _request_principal(request)
+        try:
+            return commercial_actions.cancel(
+                project_id,
+                action_id,
+                payload,
+                principal=principal,
+                actor_id=LOCAL_OPERATOR_ID if principal is None else None,
             )
         except CommercialActionNotFoundError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -422,29 +865,25 @@ def create_app(
         status_code=status.HTTP_202_ACCEPTED,
     )
     async def apply_commercial_action(
+        request: Request,
         project_id: str,
         action_id: str,
-        payload: CommercialActionApplyRequest,
-        authenticated_user: Annotated[
-            str | None,
-            Header(alias="X-Ophira-Authenticated-User"),
-        ] = None,
-        approval_secret: Annotated[
-            str | None,
-            Header(alias="X-Ophira-Approval-Secret"),
-        ] = None,
+        payload: CommercialActionApplyControlRequest,
     ) -> CommercialActionRecord:
-        actor = _require_authenticated_user(
-            authenticated_user,
-            approval_secret,
-            settings,
-        )
+        principal = _request_principal(request)
         try:
+            action = commercial_actions.get(project_id, action_id)
+            internal_request = CommercialActionApplyRequest(
+                source_run_id=action.source_run_id,
+                source_session_id=action.source_session_id,
+                reason=payload.reason,
+            )
             return commercial_actions.apply(
                 project_id,
                 action_id,
-                payload,
-                actor_id=actor,
+                internal_request,
+                principal=principal,
+                actor_id=LOCAL_OPERATOR_ID if principal is None else None,
             )
         except CommercialActionNotFoundError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -506,6 +945,42 @@ def create_app(
         except (LedgerNotFoundError, ValueError) as exc:
             raise HTTPException(status_code=404, detail="Project not found") from exc
 
+    @application.get(
+        "/api/projects/{project_id}/source-receipts",
+        response_model=list[ToolReceipt],
+    )
+    async def list_source_receipts(
+        project_id: str,
+        run_id: Annotated[str | None, Query(max_length=160)] = None,
+    ) -> list[ToolReceipt]:
+        try:
+            return ledger.list_tool_receipts(project_id, run_id=run_id)
+        except (LedgerNotFoundError, ValueError) as exc:
+            raise HTTPException(status_code=404, detail="Project not found") from exc
+        except SourceReceiptIntegrityError as exc:
+            raise HTTPException(
+                status_code=500,
+                detail="Source receipt integrity validation failed",
+            ) from exc
+
+    @application.get(
+        "/api/projects/{project_id}/source-receipts/{receipt_id}",
+        response_model=ToolReceiptReplay,
+    )
+    async def replay_source_receipt(
+        project_id: str,
+        receipt_id: str,
+    ) -> ToolReceiptReplay:
+        try:
+            return ledger.replay_tool_receipt(project_id, receipt_id)
+        except (SourceReceiptNotFoundError, ValueError) as exc:
+            raise HTTPException(status_code=404, detail="Source receipt not found") from exc
+        except SourceReceiptIntegrityError as exc:
+            raise HTTPException(
+                status_code=500,
+                detail="Source receipt integrity validation failed",
+            ) from exc
+
     @application.post(
         "/api/projects/{project_id}/evidence/{evidence_id}/status",
         response_model=EvidenceStatusChange,
@@ -543,7 +1018,11 @@ def create_app(
         response_model=RunRecord,
         status_code=status.HTTP_202_ACCEPTED,
     )
-    async def start_run(project_id: str, payload: RunCreate) -> RunRecord:
+    async def start_run(
+        request: Request,
+        project_id: str,
+        payload: RunCreate,
+    ) -> RunRecord:
         try:
             if payload.agent_id:
                 ledger.get_agent(payload.agent_id)
@@ -560,10 +1039,18 @@ def create_app(
                 provider_profile_id=provider_profile_id,
                 provider_snapshot=provider_snapshot,
                 skill_snapshot=skills.snapshot(),
+                principal=_request_principal(request),
             )
         except PolicyDeniedError as exc:
             raise HTTPException(status_code=403, detail=str(exc)) from exc
-        except (LedgerNotFoundError, ProviderNotFoundError, ValueError) as exc:
+        except RunResumeConflictError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except (
+            LedgerIdentityScopeError,
+            LedgerNotFoundError,
+            ProviderNotFoundError,
+            ValueError,
+        ) as exc:
             raise HTTPException(
                 status_code=404,
                 detail="Project, Agent, or Provider not found",
@@ -742,17 +1229,38 @@ def create_app(
         except (LedgerNotFoundError, ValueError) as exc:
             raise HTTPException(status_code=404, detail="Run not found") from exc
 
+    @application.get("/api/runs/{run_id}/telemetry", response_model=RunTelemetry)
+    async def get_run_telemetry(run_id: str) -> RunTelemetry:
+        try:
+            run = ledger.get_run(run_id)
+            return build_run_telemetry(run, ledger.list_events(run_id))
+        except LedgerNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="Run not found") from exc
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=500,
+                detail="Run telemetry source is inconsistent",
+            ) from exc
+
     @application.post(
         "/api/runs/{run_id}/retry",
         response_model=RunRecord,
         status_code=status.HTTP_202_ACCEPTED,
     )
-    async def retry_run(run_id: str, payload: RunRetryRequest) -> RunRecord:
+    async def retry_run(
+        request: Request,
+        run_id: str,
+        payload: RunRetryRequest,
+    ) -> RunRecord:
         try:
-            return await runs.retry(run_id, payload.strategy)
+            return await runs.retry(
+                run_id,
+                payload.strategy,
+                principal=_request_principal(request),
+            )
         except RunRetryConflictError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
-        except (PolicyDeniedError, ProviderNotFoundError) as exc:
+        except (AuthorizationError, PolicyDeniedError, ProviderNotFoundError) as exc:
             raise HTTPException(status_code=403, detail=str(exc)) from exc
         except (LedgerNotFoundError, ValueError) as exc:
             raise HTTPException(status_code=404, detail="Run or project not found") from exc
@@ -845,28 +1353,152 @@ def create_app(
         response_model=MemoryItem,
         status_code=status.HTTP_201_CREATED,
     )
-    async def create_memory(payload: MemoryCreate) -> MemoryItem:
-        return memory.propose(
-            scope=payload.scope,
-            scope_id=payload.scope_id,
-            text=payload.text,
-            kind=payload.kind,
-            source=MemorySource.USER,
-            sensitivity=payload.sensitivity,
-            created_by="user",
-        )
+    async def create_memory(
+        request: Request,
+        payload: MemoryCreate,
+    ) -> MemoryItem:
+        principal = _request_principal(request)
+        if payload.scope == MemoryScope.PROJECT:
+            require_project_authorization(
+                payload.scope_id,
+                principal,
+                ProjectPermission.MEMORY_WRITE,
+            )
+        elif (
+            principal is not None
+            and ProjectPermission.MEMORY_WRITE not in ROLE_PERMISSIONS[principal.role]
+        ):
+            raise HTTPException(status_code=403, detail="Memory write is not authorized")
+        expires_at = payload.expires_at
+        if payload.ttl_seconds is not None:
+            expires_at = utc_now() + timedelta(seconds=payload.ttl_seconds)
+        try:
+            return memory.propose(
+                scope=payload.scope,
+                scope_id=payload.scope_id,
+                text=payload.text,
+                kind=payload.kind,
+                source=MemorySource.USER,
+                sensitivity=payload.sensitivity,
+                created_by=LOCAL_OPERATOR_ID,
+                principal=principal,
+                expires_at=expires_at,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     @application.get("/api/memory", response_model=list[MemoryItem])
     async def list_memory(
+        request: Request,
         scope: MemoryScope | None = None,
         scope_id: str | None = None,
         status_filter: Annotated[MemoryStatus | None, Query(alias="status")] = None,
     ) -> list[MemoryItem]:
-        return memory.list(scope=scope, scope_id=scope_id, status=status_filter)
+        principal = _request_principal(request)
+        visible: list[MemoryItem] = []
+        for item in memory.list(scope=scope, scope_id=scope_id, status=status_filter):
+            try:
+                require_memory_authorization(
+                    item,
+                    principal,
+                    ProjectPermission.MEMORY_READ,
+                )
+            except HTTPException:
+                continue
+            visible.append(item)
+        return visible
+
+    @application.get("/api/memory/export", response_model=MemoryExportResponse)
+    async def export_memory(
+        request: Request,
+        response: Response,
+        scope: MemoryScope | None = None,
+        scope_id: str | None = None,
+    ) -> MemoryExportResponse:
+        if scope_id is not None and scope is None:
+            raise HTTPException(status_code=400, detail="scope_id requires scope")
+        principal = _request_principal(request)
+        if scope == MemoryScope.PROJECT and scope_id is not None:
+            require_project_authorization(
+                scope_id,
+                principal,
+                ProjectPermission.MEMORY_READ,
+            )
+        evaluated_at = utc_now()
+        items = []
+        for item in memory.list(scope=scope, scope_id=scope_id):
+            try:
+                require_memory_authorization(
+                    item,
+                    principal,
+                    ProjectPermission.MEMORY_READ,
+                )
+            except HTTPException:
+                continue
+            items.append(public_memory_item(item, at=evaluated_at))
+        tombstones = []
+        for tombstone in memory.list_tombstones(scope=scope, scope_id=scope_id):
+            try:
+                require_memory_authorization(
+                    tombstone,
+                    principal,
+                    ProjectPermission.MEMORY_READ,
+                )
+            except HTTPException:
+                continue
+            tombstones.append(tombstone)
+        response.headers["Content-Disposition"] = (
+            'attachment; filename="ophira-memory-export.json"'
+        )
+        return MemoryExportResponse(
+            exported_at=evaluated_at,
+            exported_by=(principal.principal_id if principal else LOCAL_OPERATOR_ID),
+            count=len(items),
+            items=items,
+            tombstone_count=len(tombstones),
+            tombstones=tombstones,
+        )
+
+    @application.post("/api/memory/retrieve", response_model=MemoryRetrievalResponse)
+    async def retrieve_memory(
+        request: Request,
+        payload: MemoryRetrievalRequest,
+    ) -> MemoryRetrievalResponse:
+        principal = _request_principal(request)
+        pairs: list[tuple[MemoryScope, str]] = []
+        if payload.include_user_scope:
+            pairs.append((MemoryScope.USER, USER_SCOPE_ID))
+        if payload.project_id is not None:
+            require_project_authorization(
+                payload.project_id,
+                principal,
+                ProjectPermission.MEMORY_READ,
+            )
+            pairs.append((MemoryScope.PROJECT, payload.project_id))
+        if payload.agent_id is not None:
+            pairs.append((MemoryScope.AGENT, payload.agent_id))
+        try:
+            return memory.retrieve(
+                payload.query,
+                pairs=pairs,
+                identity=principal,
+                limit=payload.limit,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     @application.post("/api/memory/{memory_id}/decision", response_model=MemoryItem)
-    async def decide_memory(memory_id: str, payload: MemoryDecision) -> MemoryItem:
+    async def decide_memory(
+        request: Request,
+        memory_id: str,
+        payload: MemoryDecision,
+    ) -> MemoryItem:
         try:
+            require_memory_authorization(
+                memory.get(memory_id),
+                _request_principal(request),
+                ProjectPermission.MEMORY_WRITE,
+            )
             return memory.decide(memory_id, payload.decision, payload.reason)
         except MemoryNotFoundError as exc:
             raise HTTPException(status_code=404, detail="Memory not found") from exc
@@ -874,8 +1506,17 @@ def create_app(
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     @application.patch("/api/memory/{memory_id}", response_model=MemoryItem)
-    async def correct_memory(memory_id: str, payload: MemoryCorrection) -> MemoryItem:
+    async def correct_memory(
+        request: Request,
+        memory_id: str,
+        payload: MemoryCorrection,
+    ) -> MemoryItem:
         try:
+            require_memory_authorization(
+                memory.get(memory_id),
+                _request_principal(request),
+                ProjectPermission.MEMORY_WRITE,
+            )
             return memory.correct(
                 memory_id,
                 text=payload.text,
@@ -888,20 +1529,82 @@ def create_app(
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     @application.post("/api/memory/{memory_id}/rollback", response_model=MemoryItem)
-    async def rollback_memory(memory_id: str, payload: MemoryRollback) -> MemoryItem:
+    async def rollback_memory(
+        request: Request,
+        memory_id: str,
+        payload: MemoryRollback,
+    ) -> MemoryItem:
         try:
+            require_memory_authorization(
+                memory.get(memory_id),
+                _request_principal(request),
+                ProjectPermission.MEMORY_WRITE,
+            )
             return memory.rollback(memory_id, payload.version)
         except (MemoryNotFoundError, ValueError) as exc:
             raise HTTPException(status_code=404, detail="Memory version not found") from exc
+
+    @application.patch("/api/memory/{memory_id}/expiry", response_model=MemoryItem)
+    async def update_memory_expiry(
+        request: Request,
+        memory_id: str,
+        payload: MemoryExpiryUpdate,
+    ) -> MemoryItem:
+        try:
+            require_memory_authorization(
+                memory.get(memory_id),
+                _request_principal(request),
+                ProjectPermission.MEMORY_WRITE,
+            )
+            expires_at = payload.expires_at
+            if payload.ttl_seconds is not None:
+                expires_at = utc_now() + timedelta(seconds=payload.ttl_seconds)
+            return memory.set_expiry(memory_id, expires_at)
+        except MemoryNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="Memory not found") from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @application.delete("/api/memory/{memory_id}", response_model=MemoryTombstone)
+    async def delete_memory(
+        request: Request,
+        memory_id: str,
+        payload: MemoryDelete,
+    ) -> MemoryTombstone:
+        principal = _request_principal(request)
+        try:
+            require_memory_authorization(
+                memory.get(memory_id),
+                principal,
+                ProjectPermission.MEMORY_WRITE,
+            )
+            return memory.delete(
+                memory_id,
+                deleted_by=(principal.principal_id if principal else LOCAL_OPERATOR_ID),
+                reason=payload.reason,
+            )
+        except MemoryNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="Memory not found") from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     @application.post(
         "/api/schedules",
         response_model=Schedule,
         status_code=status.HTTP_201_CREATED,
     )
-    async def create_schedule(payload: ScheduleCreate) -> Schedule:
+    async def create_schedule(
+        request: Request,
+        payload: ScheduleCreate,
+    ) -> Schedule:
+        principal = _request_principal(request)
+        require_project_authorization(
+            payload.project_id,
+            principal,
+            ProjectPermission.RUN_CREATE,
+        )
         try:
-            schedule = new_schedule(payload)
+            schedule = new_schedule(payload, principal=principal)
         except ScheduleValidationError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         try:
@@ -910,20 +1613,36 @@ def create_app(
             raise HTTPException(status_code=404, detail="Project not found") from exc
 
     @application.get("/api/schedules", response_model=list[Schedule])
-    async def list_schedules() -> list[Schedule]:
-        return ledger.list_schedules()
+    async def list_schedules(request: Request) -> list[Schedule]:
+        principal = _request_principal(request)
+        return [
+            schedule
+            for schedule in ledger.list_schedules()
+            if project_is_visible(schedule.project_id, principal)
+        ]
 
     @application.post("/api/schedules/{schedule_id}/pause", response_model=Schedule)
-    async def pause_schedule(schedule_id: str) -> Schedule:
+    async def pause_schedule(request: Request, schedule_id: str) -> Schedule:
         try:
+            schedule = ledger.get_schedule(schedule_id)
+            require_project_authorization(
+                schedule.project_id,
+                _request_principal(request),
+                ProjectPermission.PROJECT_WRITE,
+            )
             return ledger.update_schedule(schedule_id, enabled=False)
         except (LedgerNotFoundError, ValueError) as exc:
             raise HTTPException(status_code=404, detail="Schedule not found") from exc
 
     @application.post("/api/schedules/{schedule_id}/resume", response_model=Schedule)
-    async def resume_schedule(schedule_id: str) -> Schedule:
+    async def resume_schedule(request: Request, schedule_id: str) -> Schedule:
         try:
             schedule = ledger.get_schedule(schedule_id)
+            require_project_authorization(
+                schedule.project_id,
+                _request_principal(request),
+                ProjectPermission.PROJECT_WRITE,
+            )
             next_at = compute_next_fire(
                 schedule.cron,
                 schedule.run_once_at,
@@ -936,54 +1655,147 @@ def create_app(
 
     @application.get("/api/notifications", response_model=list[Notification])
     async def list_notifications(
+        request: Request,
         unread: bool = False,
         limit: Annotated[int, Query(ge=1, le=500)] = 100,
     ) -> list[Notification]:
-        return notifications.list(unread_only=unread, limit=limit)
+        principal = _request_principal(request)
+        return [
+            item
+            for item in notifications.list(unread_only=unread, limit=limit)
+            if notification_is_visible(item, principal)
+        ]
 
     @application.post("/api/notifications/{notification_id}/read", response_model=Notification)
-    async def read_notification(notification_id: str) -> Notification:
+    async def read_notification(request: Request, notification_id: str) -> Notification:
         try:
+            item = notifications.get(notification_id)
+            if not notification_is_visible(
+                item,
+                _request_principal(request),
+                write=True,
+            ):
+                raise HTTPException(status_code=403, detail="Notification is not authorized")
             return notifications.mark_read(notification_id)
         except (NotificationNotFoundError, ValueError) as exc:
             raise HTTPException(status_code=404, detail="Notification not found") from exc
 
     @application.post("/api/notifications/read-all")
-    async def read_all_notifications() -> dict[str, int]:
-        return {"marked": notifications.mark_all_read()}
+    async def read_all_notifications(request: Request) -> dict[str, int]:
+        principal = _request_principal(request)
+        marked = 0
+        for item in notifications.list(unread_only=True, limit=10_000):
+            if notification_is_visible(item, principal, write=True):
+                notifications.mark_read(item.id)
+                marked += 1
+        return {"marked": marked}
 
     @application.get("/api/intents", response_model=list[StandingIntent])
-    async def list_intents(project_id: str | None = None) -> list[StandingIntent]:
-        return intents.list(project_id=project_id)
+    async def list_intents(
+        request: Request,
+        project_id: str | None = None,
+    ) -> list[StandingIntent]:
+        principal = _request_principal(request)
+        return [
+            intent
+            for intent in intents.list(project_id=project_id)
+            if project_is_visible(intent.project_id, principal)
+        ]
 
     @application.post(
         "/api/intents",
         response_model=StandingIntent,
         status_code=status.HTTP_201_CREATED,
     )
-    async def create_intent(payload: StandingIntentCreate) -> StandingIntent:
+    async def create_intent(
+        request: Request,
+        payload: StandingIntentCreate,
+    ) -> StandingIntent:
+        principal = _request_principal(request)
+        require_project_authorization(
+            payload.project_id,
+            principal,
+            ProjectPermission.RUN_CREATE,
+        )
         try:
             ledger.get_project(payload.project_id)
         except (LedgerNotFoundError, ValueError) as exc:
             raise HTTPException(status_code=404, detail="Project not found") from exc
-        return intents.create(payload)
+        if payload.agent_id is not None:
+            try:
+                ledger.get_agent(payload.agent_id)
+            except (LedgerNotFoundError, ValueError) as exc:
+                raise HTTPException(status_code=404, detail="Agent not found") from exc
+        if payload.provider_profile_id is not None:
+            try:
+                providers.get(payload.provider_profile_id)
+            except (ProviderNotFoundError, ValueError) as exc:
+                raise HTTPException(status_code=404, detail="Provider not found") from exc
+        return intents.create(payload, principal=principal)
 
     @application.post("/api/intents/{intent_id}/pause", response_model=StandingIntent)
-    async def pause_intent(intent_id: str) -> StandingIntent:
+    async def pause_intent(request: Request, intent_id: str) -> StandingIntent:
         try:
+            intent = intents.get(intent_id)
+            require_project_authorization(
+                intent.project_id,
+                _request_principal(request),
+                ProjectPermission.PROJECT_WRITE,
+            )
             return intents.set_enabled(intent_id, False)
         except (IntentNotFoundError, ValueError) as exc:
             raise HTTPException(status_code=404, detail="Intent not found") from exc
 
     @application.post("/api/intents/{intent_id}/resume", response_model=StandingIntent)
-    async def resume_intent(intent_id: str) -> StandingIntent:
+    async def resume_intent(request: Request, intent_id: str) -> StandingIntent:
         try:
-            return intents.set_enabled(intent_id, True)
+            intent = intents.get(intent_id)
+            require_project_authorization(
+                intent.project_id,
+                _request_principal(request),
+                ProjectPermission.PROJECT_WRITE,
+            )
+            return intents.set_enabled(
+                intent_id,
+                True,
+                authorization_source="user_api",
+            )
+        except IntentNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="Intent not found") from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    @application.post(
+        "/api/intents/{intent_id}/check",
+        response_model=StandingIntentCheckResponse,
+        status_code=status.HTTP_202_ACCEPTED,
+    )
+    async def check_intent_now(
+        request: Request,
+        intent_id: str,
+    ) -> StandingIntentCheckResponse:
+        try:
+            intent = intents.get(intent_id)
+            require_project_authorization(
+                intent.project_id,
+                _request_principal(request),
+                ProjectPermission.RUN_CREATE,
+            )
+            dispatch = await intent_watcher.run_now(intent_id)
         except (IntentNotFoundError, ValueError) as exc:
             raise HTTPException(status_code=404, detail="Intent not found") from exc
+        return StandingIntentCheckResponse(
+            outcome=dispatch.outcome,
+            intent=dispatch.intent,
+            run=dispatch.run,
+        )
 
     @application.patch("/api/schedules/{schedule_id}", response_model=Schedule)
-    async def patch_schedule(schedule_id: str, payload: ScheduleUpdate) -> Schedule:
+    async def patch_schedule(
+        request: Request,
+        schedule_id: str,
+        payload: ScheduleUpdate,
+    ) -> Schedule:
         # Keep nested SchedulePermissionRule instances typed; model_dump would turn
         # them into dicts and model_copy(update=...) intentionally skips validation.
         changes = {field: getattr(payload, field) for field in payload.model_fields_set}
@@ -991,6 +1803,11 @@ def create_app(
             changes.pop("permission_ceiling", None)
         try:
             schedule = ledger.get_schedule(schedule_id)
+            require_project_authorization(
+                schedule.project_id,
+                _request_principal(request),
+                ProjectPermission.PROJECT_WRITE,
+            )
         except (LedgerNotFoundError, ValueError) as exc:
             raise HTTPException(status_code=404, detail="Schedule not found") from exc
         merged = schedule.model_copy(update=changes)
@@ -1017,10 +1834,16 @@ def create_app(
         response_model=RunRecord,
         status_code=status.HTTP_202_ACCEPTED,
     )
-    async def run_schedule_now(schedule_id: str) -> RunRecord:
+    async def run_schedule_now(request: Request, schedule_id: str) -> RunRecord:
         try:
+            schedule = ledger.get_schedule(schedule_id)
+            require_project_authorization(
+                schedule.project_id,
+                _request_principal(request),
+                ProjectPermission.RUN_CREATE,
+            )
             return await scheduler.run_now(schedule_id)
-        except (PolicyDeniedError, ProviderNotFoundError) as exc:
+        except (AuthorizationError, PolicyDeniedError, ProviderNotFoundError) as exc:
             raise HTTPException(status_code=403, detail=str(exc)) from exc
         except (LedgerNotFoundError, ValueError) as exc:
             raise HTTPException(status_code=404, detail="Schedule not found") from exc
@@ -1034,16 +1857,59 @@ def create_app(
         return policy.save(payload)
 
     @application.get("/api/permissions/pending", response_model=list[PendingPermissionView])
-    async def list_pending_permissions() -> list[PendingPermissionView]:
-        return permissions.list_pending()
+    async def list_pending_permissions(request: Request) -> list[PendingPermissionView]:
+        principal = _request_principal(request)
+        return [
+            item
+            for item in permissions.list_pending()
+            if (
+                project_is_visible(item.project_id, principal)
+                if item.project_id is not None
+                else principal is None
+                or principal.role in {PrincipalRole.OWNER, PrincipalRole.ADMIN}
+            )
+        ]
 
     @application.get("/api/permissions/grants", response_model=list[PermissionGrant])
-    async def list_permission_grants() -> list[PermissionGrant]:
-        return grants.list()
+    async def list_permission_grants(request: Request) -> list[PermissionGrant]:
+        principal = _request_principal(request)
+        return [
+            grant
+            for grant in grants.list()
+            if (
+                project_is_visible(
+                    grant.project_id,
+                    principal,
+                    ProjectPermission.PROJECT_ACCESS_MANAGE,
+                )
+                if grant.project_id is not None
+                else principal is None
+                or principal.role in {PrincipalRole.OWNER, PrincipalRole.ADMIN}
+            )
+        ]
 
     @application.post("/api/permissions/grants/{grant_id}/revoke", response_model=PermissionGrant)
-    async def revoke_permission_grant(grant_id: str) -> PermissionGrant:
+    async def revoke_permission_grant(
+        request: Request,
+        grant_id: str,
+    ) -> PermissionGrant:
         try:
+            grant = grants.get(grant_id)
+            principal = _request_principal(request)
+            if grant.project_id is not None:
+                require_project_authorization(
+                    grant.project_id,
+                    principal,
+                    ProjectPermission.PROJECT_ACCESS_MANAGE,
+                )
+            elif principal is not None and principal.role not in {
+                PrincipalRole.OWNER,
+                PrincipalRole.ADMIN,
+            }:
+                raise HTTPException(
+                    status_code=403,
+                    detail="Tenant administrator authorization is required",
+                )
             return grants.revoke(grant_id)
         except (GrantNotFoundError, ValueError) as exc:
             raise HTTPException(status_code=404, detail="Grant not found") from exc
@@ -1053,12 +1919,51 @@ def create_app(
         response_model=FeedbackItem,
         status_code=status.HTTP_201_CREATED,
     )
-    async def create_feedback(payload: FeedbackCreate) -> FeedbackItem:
-        return feedback.add(payload)
+    async def create_feedback(
+        request: Request,
+        payload: FeedbackCreate,
+    ) -> FeedbackItem:
+        project_id = payload.project_id
+        if payload.run_id is not None:
+            try:
+                run = ledger.get_run(payload.run_id)
+            except (LedgerNotFoundError, ValueError) as exc:
+                raise HTTPException(status_code=404, detail="Run not found") from exc
+            if project_id is not None and project_id != run.project_id:
+                raise HTTPException(status_code=400, detail="Run is outside feedback project")
+            project_id = run.project_id
+        if project_id is not None:
+            require_project_authorization(
+                project_id,
+                _request_principal(request),
+                ProjectPermission.PROJECT_WRITE,
+            )
+        normalized = payload.model_copy(update={"project_id": project_id})
+        return feedback.add(normalized, principal=_request_principal(request))
 
     @application.get("/api/feedback", response_model=list[FeedbackItem])
-    async def list_feedback() -> list[FeedbackItem]:
-        return feedback.list()
+    async def list_feedback(request: Request) -> list[FeedbackItem]:
+        principal = _request_principal(request)
+        visible: list[FeedbackItem] = []
+        for item in feedback.list():
+            if item.project_id is not None:
+                if project_is_visible(item.project_id, principal):
+                    visible.append(item)
+                continue
+            if principal is None:
+                if item.identity_binding == "local_only":
+                    visible.append(item)
+                continue
+            if (
+                item.identity_binding == "authenticated_principal"
+                and item.tenant_id == principal.tenant_id
+                and (
+                    item.principal_id == principal.principal_id
+                    or principal.role in {PrincipalRole.OWNER, PrincipalRole.ADMIN}
+                )
+            ):
+                visible.append(item)
+        return visible
 
     @application.post(
         "/api/projects/{project_id}/constraints",
@@ -1074,6 +1979,109 @@ def create_app(
             return ledger.update_project(project_id, mutate)
         except (LedgerNotFoundError, ValueError) as exc:
             raise HTTPException(status_code=404, detail="Project not found") from exc
+
+    def require_feishu_binding_admin(request: Request) -> PrincipalContext:
+        principal = _request_principal(request)
+        if principal is None or principal.role not in {
+            PrincipalRole.OWNER,
+            PrincipalRole.ADMIN,
+        }:
+            raise HTTPException(
+                status_code=403,
+                detail="Tenant administrator authorization is required",
+            )
+        return principal
+
+    @application.get(
+        "/api/channels/feishu/bindings",
+        response_model=list[FeishuIdentityBinding],
+    )
+    async def list_feishu_identity_bindings(
+        request: Request,
+        include_revoked: bool = False,
+    ) -> list[FeishuIdentityBinding]:
+        principal = require_feishu_binding_admin(request)
+        try:
+            return channel_identity_bindings.list_for_tenant(
+                principal.tenant_id,
+                include_revoked=include_revoked,
+            )
+        except ChannelIdentityIntegrityError as exc:
+            raise HTTPException(
+                status_code=500,
+                detail="Channel identity binding integrity validation failed",
+            ) from exc
+
+    @application.post(
+        "/api/channels/feishu/bindings",
+        response_model=FeishuIdentityBinding,
+        status_code=status.HTTP_201_CREATED,
+    )
+    async def create_feishu_identity_binding(
+        request: Request,
+        payload: FeishuIdentityBindingCreate,
+    ) -> FeishuIdentityBinding:
+        principal = require_feishu_binding_admin(request)
+        try:
+            return channel_identity_bindings.create(payload, actor=principal)
+        except (ChannelIdentityConflictError, ChannelIdentityAmbiguousError) as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except AuthorizationError as exc:
+            raise HTTPException(
+                status_code=403,
+                detail="Principal is not authorized to create this channel binding",
+            ) from exc
+        except ChannelIdentityError as exc:
+            raise HTTPException(
+                status_code=500,
+                detail="Channel identity binding could not be persisted",
+            ) from exc
+
+    @application.get(
+        "/api/channels/feishu/bindings/{binding_id}",
+        response_model=FeishuIdentityBinding,
+    )
+    async def get_feishu_identity_binding(
+        request: Request,
+        binding_id: str,
+    ) -> FeishuIdentityBinding:
+        principal = require_feishu_binding_admin(request)
+        try:
+            return channel_identity_bindings.get_for_tenant(
+                binding_id,
+                principal.tenant_id,
+            )
+        except ChannelIdentityNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="Channel binding not found") from exc
+        except ChannelIdentityIntegrityError as exc:
+            raise HTTPException(
+                status_code=500,
+                detail="Channel identity binding integrity validation failed",
+            ) from exc
+
+    @application.delete(
+        "/api/channels/feishu/bindings/{binding_id}",
+        response_model=FeishuIdentityBinding,
+    )
+    async def revoke_feishu_identity_binding(
+        request: Request,
+        binding_id: str,
+    ) -> FeishuIdentityBinding:
+        principal = require_feishu_binding_admin(request)
+        try:
+            return channel_identity_bindings.revoke(binding_id, actor=principal)
+        except ChannelIdentityNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="Channel binding not found") from exc
+        except AuthorizationError as exc:
+            raise HTTPException(
+                status_code=403,
+                detail="Principal is not authorized to revoke this channel binding",
+            ) from exc
+        except ChannelIdentityIntegrityError as exc:
+            raise HTTPException(
+                status_code=500,
+                detail="Channel identity binding could not be revoked",
+            ) from exc
 
     @application.post("/api/channels/feishu")
     async def feishu_channel(request: Request) -> dict:
@@ -1108,36 +2116,100 @@ def create_app(
             payload = decrypt_feishu_payload(payload, encrypt_key)
         except ChannelError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
-        identity = feishu_event_id(payload) or f"{timestamp}:{nonce}:{signature}"
-        replay_token = channel_replays.claim(identity)
-        if replay_token is None:
-            return {"duplicate": True, "channel": "feishu"}
+        supplied_event_id = feishu_event_id(payload)
+        verified_event_id = supplied_event_id or hashlib.sha256(
+            f"{timestamp}\0{nonce}\0{signature}".encode()
+        ).hexdigest()
         challenge = feishu_challenge(payload)
         if challenge:
+            replay_token = channel_replays.claim(
+                f"feishu:challenge:v1\0{verified_event_id}"
+            )
+            if replay_token is None:
+                return {"duplicate": True, "channel": "feishu"}
             return challenge
         if not feishu_should_handle(payload, settings.feishu_bot_open_id):
             return {"ignored": True, "reason": "bot_not_mentioned", "channel": "feishu"}
-        try:
-            inbound = to_inbound(payload, project_id=request.query_params.get("project_id"))
-        except ChannelError as exc:
-            channel_replays.release(replay_token)
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-        project_id = inbound.project_id
-        if not project_id:
-            projects = ledger.list_projects()
-            if not projects:
-                channel_replays.release(replay_token)
+
+        resolved_identity = None
+        if settings.auth_mode == "trusted_gateway":
+            try:
+                selector = feishu_identity_selector(payload)
+                resolved_identity = channel_identity_bindings.resolve(selector)
+            except (ChannelIdentityError, AuthorizationError) as exc:
                 raise HTTPException(
-                    status_code=400,
-                    detail="no project to attach the channel message",
-                )
-            project_id = projects[0].id
+                    status_code=503,
+                    detail=(
+                        "Feishu dispatch requires a valid server-owned "
+                        "channel-to-principal/project binding"
+                    ),
+                ) from exc
+        if not policy.get().channel_delivery_enabled:
+            raise HTTPException(
+                status_code=403,
+                detail="Feishu channel delivery is disabled by organization policy",
+            )
+        if not channel_delivery.configured:
+            raise HTTPException(
+                status_code=503,
+                detail="Feishu outbound reply is not configured",
+            )
+
+        if resolved_identity is not None:
+            binding = resolved_identity.binding
+            project_id = binding.project_id
+            principal = resolved_identity.principal
+            replay_identity = (
+                f"feishu:business:v1\0{binding.tenant_key}\0{binding.chat_id}\0"
+                f"{binding.user_open_id}\0{verified_event_id}"
+            )
+        else:
+            principal = None
+            project_id = request.query_params.get("project_id")
+            if not project_id:
+                projects = ledger.list_projects()
+                if not projects:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="no project to attach the channel message",
+                    )
+                project_id = projects[0].id
+            replay_identity = f"feishu:business:v1\0local\0{verified_event_id}"
+
         try:
-            run = await runs.create_and_start(project_id, inbound.text)
-        except Exception:
-            channel_replays.release(replay_token)
-            raise
-        return {"run_id": run.id, "project_id": project_id, "channel": inbound.channel}
+            reply_target = feishu_reply_target(
+                payload,
+                verified_event_id=verified_event_id,
+            )
+            inbound = to_inbound(payload, project_id=project_id)
+        except ChannelError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        replay_token = channel_replays.claim(replay_identity)
+        if replay_token is None:
+            return {"duplicate": True, "channel": "feishu"}
+
+        # From this point onward a durable Run may already exist even if a later
+        # write fails. Keep the replay claim on every outcome rather than risk a
+        # second Run for one signed Feishu event.
+        run = await runs.create_and_start(
+            project_id,
+            inbound.text,
+            channel_reply_target=reply_target,
+            principal=principal,
+        )
+        delivery = channel_delivery.store.get_for_run(run.id)
+        if delivery is None:  # pragma: no cover - bind-before-task invariant
+            raise HTTPException(
+                status_code=500,
+                detail="Feishu delivery obligation was not persisted",
+            )
+        return {
+            "run_id": run.id,
+            "project_id": project_id,
+            "channel": inbound.channel,
+            "delivery_id": delivery.id,
+            "delivery_status": delivery.status,
+        }
 
     return application
 

@@ -11,6 +11,7 @@ from ophira_backend.web_tools import (
     check_public_http_url,
     extract_text,
     fetch_page_snapshot_impl,
+    pin_public_http_url,
     search_public_web_impl,
 )
 
@@ -54,6 +55,21 @@ class TestSSRFGuard:
         )
         assert check_public_http_url("https://example.org/page") is None
 
+    def test_public_destination_retains_original_host_and_sni(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(
+            "ophira_backend.web_tools._resolve_ips", lambda _host: ["93.184.216.34"]
+        )
+
+        destination, reason = pin_public_http_url("https://example.org:8443/page")
+
+        assert reason is None
+        assert destination is not None
+        assert destination.request_url == "https://93.184.216.34:8443/page"
+        assert destination.host_header == "example.org:8443"
+        assert destination.sni_hostname == "example.org"
+
 
 class TestFetchSnapshot:
     @pytest.fixture(autouse=True)
@@ -85,6 +101,41 @@ class TestFetchSnapshot:
         assert "evil()" not in result["excerpt"]
         assert result["retrieved_at"]
         assert "不可信数据" in result["note"]
+
+    @pytest.mark.asyncio
+    async def test_fetch_uses_validated_ip_without_a_second_dns_lookup(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        dns_calls = 0
+
+        def rebinding_dns(_hostname: str) -> list[str]:
+            nonlocal dns_calls
+            dns_calls += 1
+            if dns_calls == 1:
+                return ["93.184.216.34"]
+            return ["127.0.0.1"]
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            assert request.url.host == "93.184.216.34"
+            assert request.headers["Host"] == "example.org"
+            assert request.extensions["sni_hostname"] == "example.org"
+            return httpx.Response(
+                200,
+                headers={"content-type": "text/plain"},
+                text="safe response",
+            )
+
+        monkeypatch.setattr("ophira_backend.web_tools._resolve_ips", rebinding_dns)
+        result = await fetch_page_snapshot_impl(
+            settings_with(tmp_path),
+            "https://example.org/page",
+            transport=httpx.MockTransport(handler),
+        )
+
+        assert result["excerpt"] == "safe response"
+        assert dns_calls == 1
 
     @pytest.mark.asyncio
     async def test_page_data_plane_injection_is_neutralized(self, tmp_path: Path) -> None:
@@ -154,7 +205,7 @@ class TestFetchSnapshot:
     @pytest.mark.asyncio
     async def test_redirect_to_private_address_is_blocked(self, tmp_path: Path) -> None:
         def handler(request: httpx.Request) -> httpx.Response:
-            if request.url.host == "example.org":
+            if request.headers["Host"] == "example.org":
                 return httpx.Response(
                     302, headers={"location": "http://169.254.169.254/creds"}
                 )
@@ -185,6 +236,12 @@ class TestFetchSnapshot:
 
 
 class TestSearch:
+    @pytest.fixture(autouse=True)
+    def public_dns(self, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.setattr(
+            "ophira_backend.web_tools._resolve_ips", lambda _host: ["93.184.216.34"]
+        )
+
     @pytest.mark.asyncio
     async def test_unconfigured_search_returns_structured_error(self, tmp_path: Path) -> None:
         result = await search_public_web_impl(settings_with(tmp_path), "portable blender")

@@ -7,7 +7,7 @@ import re
 import threading
 from pathlib import Path
 
-from .models import FeedbackCreate, FeedbackItem
+from .models import FeedbackCreate, FeedbackItem, PrincipalContext
 
 
 class FeedbackNotFoundError(KeyError):
@@ -29,8 +29,24 @@ class FeedbackStore:
     def _path(self, item_id: str) -> Path:
         return self.root / f"{self._safe_id(item_id)}.json"
 
-    def add(self, payload: FeedbackCreate) -> FeedbackItem:
-        item = FeedbackItem(**payload.model_dump())
+    def add(
+        self,
+        payload: FeedbackCreate,
+        *,
+        principal: PrincipalContext | None = None,
+    ) -> FeedbackItem:
+        identity = (
+            {
+                "tenant_id": principal.tenant_id,
+                "principal_id": principal.principal_id,
+                "principal_role": principal.role,
+                "principal_session_id": principal.session_id,
+                "identity_binding": "authenticated_principal",
+            }
+            if principal is not None
+            else {}
+        )
+        item = FeedbackItem(**payload.model_dump(), **identity)
         with self._lock:
             path = self._path(item.id)
             temporary = path.with_suffix(".tmp")

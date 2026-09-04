@@ -21,6 +21,7 @@ import httpx
 from cryptography.hazmat.primitives import hashes, padding
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
+from .channel_delivery import FeishuReplyTarget
 from .config import Settings
 from .models import ChannelInbound, Notification
 from .untrusted import UntrustedSource, sanitize_untrusted_text
@@ -149,6 +150,39 @@ def inbound_text(payload: dict[str, Any]) -> str:
 def feishu_event_id(payload: dict[str, Any]) -> str:
     header = payload.get("header") or {}
     return str(header.get("event_id") or payload.get("uuid") or "")
+
+
+def feishu_reply_target(
+    payload: dict[str, Any],
+    *,
+    verified_event_id: str,
+) -> FeishuReplyTarget:
+    """Capture the exact reply/chat scope from an already verified message event."""
+
+    event = payload.get("event") or payload
+    message = event.get("message") if isinstance(event, dict) else None
+    if not isinstance(message, dict):
+        raise ChannelError("MISSING_REPLY_TARGET", "Feishu event did not contain a message")
+    message_id = message.get("message_id")
+    chat_id = message.get("chat_id")
+    chat_type = message.get("chat_type")
+    if chat_type not in {"p2p", "group", "topic"}:
+        chat_type = "unknown"
+    thread_id = message.get("thread_id") or message.get("root_id")
+    try:
+        return FeishuReplyTarget(
+            event_id=verified_event_id,
+            message_id=message_id,
+            chat_id=chat_id,
+            chat_type=chat_type,
+            thread_id=thread_id or None,
+            reply_in_thread=bool(thread_id),
+        )
+    except ValueError as exc:
+        raise ChannelError(
+            "MISSING_REPLY_TARGET",
+            "Feishu message_id/chat scope was missing or invalid",
+        ) from exc
 
 
 def feishu_should_handle(payload: dict[str, Any], bot_open_id: str | None) -> bool:

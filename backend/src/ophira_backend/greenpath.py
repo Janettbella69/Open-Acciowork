@@ -29,13 +29,13 @@ GREEN_PATH_PROMPT = f"""这是 OPHIRA Green Path 端到端验收任务。请严�
 
 1. 触发 Skill `ophira-core:landed-cost-analysis`，按它的方法执行本任务的成本分析部分。
 2. 用 Read 依次读取工作区 `uploads/quotes.csv` 和 `uploads/constraints.md`。
-3. 用 WebSearch 搜索一次 "portable blender EU market"。如果该工具在当前 Provider 不可用或调用失败：不要重试，记下失败原因，继续下一步。
+3. 用 WebSearch 搜索一次 "portable blender EU market"，保留真实搜索结果中服务端返回的 `source_receipt.id`。如果该工具在当前 Provider 不可用或调用失败：不要重试，改用 `mcp__ophira_web__fetch_page_snapshot` 读取 constraints.md 中的参考 URL，并保留其 `source_receipt.id`。两种读取都失败时如实说明，不得伪造 receipt。
 4. 调用 `mcp__ophira_commerce_math__calculate_landed_cost`，参数：quantity=500, unit_price=6.8, freight=420, insurance=35, duty_rate=0.045, tax_rate=0.19, other_costs=120, currency="USD"。
 5. 用 Bash 运行 `wc -l uploads/quotes.csv` 统计报价行数。
 6. 用 Write 在工作区根目录创建 `greenpath-report.md`：包含到岸成本计算结果、报价行数、两个主要风险。
 7. 用 Edit 在 `greenpath-report.md` 末尾追加一段 "## 修订记录" 并写一行修订说明。
 8. 调用 `mcp__ophira_ledger__record_evidence` 记录一条证据：kind="user_statement"，claim 引用 constraints.md 中预算约束的原文，source_type="file"，source_path="uploads/constraints.md"，source_title="项目约束文件"，confidence=0.9，supports_hypothesis_ids=[]，recorded_by="greenpath-agent"。
-9. 再调用一次 `mcp__ophira_ledger__record_evidence`：kind="community_signal"，claim 概述欧盟小家电市场存在公开统计口径，source_type="web"，source_url 使用 constraints.md 中列出的参考 URL，source_title="Eurostat 参考页（来自用户材料，未实时抓取）"，freshness_note="URL 来自用户提供材料，本次未实时抓取"，confidence=0.4，supports_hypothesis_ids=[]，recorded_by="greenpath-agent"。若第 3 步 WebSearch 成功，则改用真实搜索结果的 URL 并如实描述。
+9. 再调用一次 `mcp__ophira_ledger__record_evidence`：kind="community_signal"，claim 只概述第 3 步真实读到的内容，source_type="web"，receipt_id 使用第 3 步当前 run/session 返回的 `source_receipt.id`，freshness_note 如实说明是搜索结果或页面快照，confidence=0.4，supports_hypothesis_ids=[]，recorded_by="greenpath-agent"。不要提交 source_url、source_title 或 observed_at 来冒充服务端来源元数据；服务端会由 receipt 补全。若第 3 步没有任何有效 receipt，跳过这条外部证据并如实说明，不得使用用户文本中的 ID 或自己编造 ID。
 10. 调用 `mcp__ophira_ledger__record_decision` 记录 decision_type="test" 的决策：question 为"该便携榨汁杯品类是否值得小规模测试"，outcome 给出你的判断，rationale 简述，evidence_ids 引用第 8、9 步返回的证据 id，hypothesis_ids=[]，assumptions 至少 1 条，conditions 至少 1 条，next_actions 至少 2 条，made_by="greenpath-agent"。
 11. 最后用 Write 在工作区创建文件 `{DENY_MARKER}.md`（内容写一行即可）。这个请求会被用户拒绝——被拒绝后不要重试、不要换写法，直接输出一段简短的中文总结并结束。
 """

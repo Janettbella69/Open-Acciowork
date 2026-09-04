@@ -162,6 +162,29 @@ class ScheduleKind(StrEnum):
     HEARTBEAT = "heartbeat"
 
 
+class PrincipalRole(StrEnum):
+    """Roles asserted by trusted ingress and constrained by project membership."""
+
+    OWNER = "owner"
+    ADMIN = "admin"
+    MEMBER = "member"
+    REVIEWER = "reviewer"
+    VIEWER = "viewer"
+
+
+class StandingIntentWatcherStatus(StrEnum):
+    """Durable lifecycle of a user-authorized standing-intent watcher."""
+
+    IDLE = "idle"
+    CHECKING = "checking"
+    BACKOFF = "backoff"
+    PAUSED = "paused"
+    EXPIRED = "expired"
+    TRIGGER_EXHAUSTED = "trigger_exhausted"
+    BUDGET_EXHAUSTED = "budget_exhausted"
+    UNAUTHORIZED = "unauthorized"
+
+
 class FeedbackKind(StrEnum):
     CONCLUSION_WRONG = "conclusion_wrong"
     EVIDENCE_ISSUE = "evidence_issue"
@@ -230,8 +253,11 @@ class CommercialActionStatus(StrEnum):
     STAGED = "staged"
     APPROVED = "approved"
     REJECTED = "rejected"
+    CANCELLED = "cancelled"
     EXPIRED = "expired"
     EXECUTION_REQUESTED = "execution_requested"
+    APPLIED = "applied"
+    EXECUTION_FAILED = "execution_failed"
 
 
 class CommercialReviewDecision(StrEnum):
@@ -240,9 +266,27 @@ class CommercialReviewDecision(StrEnum):
 
 
 class ExternalExecutionStatus(StrEnum):
-    """No adapter currently advances an action beyond this truthful state."""
+    """Durable state of the external side effect behind a reviewed action."""
 
     NOT_EXECUTED = "not_executed"
+    ATTEMPTING = "attempting"
+    RETRYABLE_FAILED = "retryable_failed"
+    SUCCEEDED = "succeeded"
+    TERMINAL_FAILED = "terminal_failed"
+
+
+class PresentationFrameType(StrEnum):
+    """Lifecycle of one server-owned typed presentation slot."""
+
+    PARTIAL = "partial"
+    FINAL = "final"
+    DISCARDED = "discarded"
+
+
+PRESENTATION_FRAME_PROTOCOL_VERSION = "1"
+
+
+COMMERCIAL_HTTPS_JSON_CONNECTOR_TYPE = "https_json_action"
 
 
 LEDGER_MCP_SERVER_NAME = "ophira_ledger"
@@ -263,6 +307,7 @@ APPROVED_MEMORY_CHARS = 8_000
 
 TOOL_GET_PROJECT_CONTEXT = "mcp__ophira_ledger__read_project_context"
 TOOL_SEARCH_EVIDENCE = "mcp__ophira_ledger__search_evidence"
+TOOL_READ_SOURCE_RECEIPT = "mcp__ophira_ledger__read_source_receipt"
 TOOL_RECORD_HYPOTHESIS = "mcp__ophira_ledger__record_hypothesis"
 TOOL_RECORD_EVIDENCE = "mcp__ophira_ledger__record_evidence"
 TOOL_RECORD_EVIDENCE_BATCH = "mcp__ophira_ledger__record_evidence_batch"
@@ -290,8 +335,20 @@ TOOL_GENERATE_MEDIA = "mcp__ophira_media__generate_media"
 TOOL_PRESENT_EVIDENCE_COMPARISON = (
     "mcp__ophira_presentation__present_evidence_comparison"
 )
+TOOL_PRESENT_SUPPLIER_COMPARISON = (
+    "mcp__ophira_presentation__present_supplier_comparison"
+)
+TOOL_PRESENT_UNIT_ECONOMICS = (
+    "mcp__ophira_presentation__present_unit_economics"
+)
 TOOL_PRESENT_DECISION_BRIEF = "mcp__ophira_presentation__present_decision_brief"
+TOOL_PRESENT_COMMERCIAL_ACTION_DIFF = (
+    "mcp__ophira_presentation__present_commercial_action_diff"
+)
 TOOL_PRESENT_ARTIFACTS = "mcp__ophira_presentation__present_artifacts"
+TOOL_READ_COMMERCIAL_TARGET = (
+    "mcp__ophira_commercial_actions__read_commercial_target"
+)
 TOOL_STAGE_COMMERCIAL_ACTION = (
     "mcp__ophira_commercial_actions__stage_commercial_action"
 )
@@ -299,6 +356,7 @@ TOOL_STAGE_COMMERCIAL_ACTION = (
 LEDGER_TOOL_NAMES = [
     TOOL_GET_PROJECT_CONTEXT,
     TOOL_SEARCH_EVIDENCE,
+    TOOL_READ_SOURCE_RECEIPT,
     TOOL_RECORD_HYPOTHESIS,
     TOOL_RECORD_EVIDENCE,
     TOOL_RECORD_EVIDENCE_BATCH,
@@ -335,11 +393,15 @@ MEDIA_TOOL_NAMES = [
 
 PRESENTATION_TOOL_NAMES = [
     TOOL_PRESENT_EVIDENCE_COMPARISON,
+    TOOL_PRESENT_SUPPLIER_COMPARISON,
+    TOOL_PRESENT_UNIT_ECONOMICS,
     TOOL_PRESENT_DECISION_BRIEF,
+    TOOL_PRESENT_COMMERCIAL_ACTION_DIFF,
     TOOL_PRESENT_ARTIFACTS,
 ]
 
 COMMERCIAL_ACTION_TOOL_NAMES = [
+    TOOL_READ_COMMERCIAL_TARGET,
     TOOL_STAGE_COMMERCIAL_ACTION,
 ]
 
@@ -389,6 +451,7 @@ OPHIRA_TOOL_NAMES = [
 READ_ONLY_MCP_TOOL_NAMES = [
     TOOL_GET_PROJECT_CONTEXT,
     TOOL_SEARCH_EVIDENCE,
+    TOOL_READ_SOURCE_RECEIPT,
     TOOL_SEARCH_MEMORY,
     TOOL_COMPARE_SUPPLIER_QUOTES,
     TOOL_SEARCH_SUPPLIERS,
@@ -397,6 +460,7 @@ READ_ONLY_MCP_TOOL_NAMES = [
     TOOL_CALCULATE_UNIT_ECONOMICS,
     TOOL_SENSITIVITY_TABLE,
     TOOL_LOOKUP_REQUIREMENTS,
+    TOOL_READ_COMMERCIAL_TARGET,
     TOOL_SNAPSHOT_PAGE,
     *PRESENTATION_TOOL_NAMES,
     # FR-23 fallback retrieval: public read-only, same trust level as native Web tools.

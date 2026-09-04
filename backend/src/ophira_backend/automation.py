@@ -8,13 +8,25 @@ budget (cooldown / max triggers / expiry) before any trigger reaches the inbox.
 
 from __future__ import annotations
 
+import fcntl
 import os
 import re
 import threading
+from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Literal
 
-from .models import Notification, StandingIntent, StandingIntentCreate, utc_now
+from .constants import StandingIntentWatcherStatus
+from .models import (
+    Notification,
+    PrincipalBinding,
+    PrincipalContext,
+    StandingIntent,
+    StandingIntentCreate,
+    new_id,
+    utc_now,
+)
 
 
 class NotificationNotFoundError(KeyError):
@@ -106,19 +118,65 @@ class NotificationStore(_FileStore):
 
 
 class IntentStore(_FileStore):
+    def __init__(self, root: Path) -> None:
+        super().__init__(root)
+        self._process_lock_path = self.root / ".intent-store.lock"
+
+    @contextmanager
+    def _exclusive(self):
+        """Serialize read/modify/write cycles across threads and API workers."""
+
+        with self._lock:
+            descriptor = os.open(self._process_lock_path, os.O_CREAT | os.O_RDWR, 0o600)
+            try:
+                fcntl.flock(descriptor, fcntl.LOCK_EX)
+                yield
+            finally:
+                fcntl.flock(descriptor, fcntl.LOCK_UN)
+                os.close(descriptor)
+
+    @staticmethod
+    def _validated_copy(intent: StandingIntent, **changes) -> StandingIntent:
+        values = intent.model_dump()
+        values.update(changes)
+        return StandingIntent.model_validate(values)
+
     def create(
-        self, payload: StandingIntentCreate, *, now: datetime | None = None
+        self,
+        payload: StandingIntentCreate,
+        *,
+        now: datetime | None = None,
+        authorization_source: Literal["user_api", "user_approved_agent"] = "user_api",
+        principal: PrincipalContext | PrincipalBinding | None = None,
     ) -> StandingIntent:
-        moment = now or utc_now()
+        moment = (now or utc_now()).astimezone(UTC)
+        principal_binding = (
+            principal
+            if isinstance(principal, PrincipalBinding)
+            else PrincipalBinding.from_context(principal)
+            if principal is not None
+            else None
+        )
         intent = StandingIntent(
             project_id=payload.project_id,
+            principal_binding=principal_binding,
+            agent_id=payload.agent_id,
+            provider_profile_id=payload.provider_profile_id,
             intent=payload.intent,
             cooldown_hours=payload.cooldown_hours,
             max_triggers=payload.max_triggers,
             expires_at=moment + timedelta(days=payload.expires_days),
+            check_interval_minutes=payload.check_interval_minutes,
+            check_timeout_seconds=payload.check_timeout_seconds,
+            per_check_budget_usd=payload.per_check_budget_usd,
+            total_budget_usd=payload.total_budget_usd,
+            next_check_at=moment,
+            authorization_source=authorization_source,
+            authorized_at=moment,
+            created_by=principal.principal_id if principal is not None else "user",
             created_at=moment,
         )
-        with self._lock:
+        with self._exclusive():
             self._write(intent)
         return intent
 
@@ -146,24 +204,396 @@ class IntentStore(_FileStore):
             items = [item for item in items if item.enabled]
         return sorted(items, key=lambda item: item.created_at, reverse=True)
 
-    def set_enabled(self, intent_id: str, enabled: bool) -> StandingIntent:
-        with self._lock:
-            updated = self.get(intent_id).model_copy(update={"enabled": enabled})
+    def set_enabled(
+        self,
+        intent_id: str,
+        enabled: bool,
+        *,
+        now: datetime | None = None,
+        authorization_source: Literal["user_api", "user_approved_agent"] | None = None,
+    ) -> StandingIntent:
+        moment = (now or utc_now()).astimezone(UTC)
+        with self._exclusive():
+            intent = self.get(intent_id)
+            if enabled:
+                if (
+                    intent.authorization_source is None
+                    and authorization_source is None
+                ):
+                    raise ValueError(
+                        "legacy standing intent requires explicit user reauthorization"
+                    )
+                if moment >= intent.expires_at:
+                    raise ValueError("expired standing intent cannot be resumed")
+                if intent.triggered_count >= intent.max_triggers:
+                    raise ValueError("standing intent trigger budget is exhausted")
+                remaining = intent.total_budget_usd - (
+                    intent.budget_committed_usd + intent.budget_reserved_usd
+                )
+                if remaining + 1e-9 < intent.per_check_budget_usd:
+                    raise ValueError("standing intent check budget is exhausted")
+                updated = self._validated_copy(
+                    intent,
+                    enabled=True,
+                    next_check_at=(intent.next_check_at if intent.active_claim_id else moment),
+                    watcher_status=(
+                        StandingIntentWatcherStatus.CHECKING
+                        if intent.active_claim_id
+                        else StandingIntentWatcherStatus.IDLE
+                    ),
+                    authorization_source=(
+                        authorization_source or intent.authorization_source
+                    ),
+                    authorized_at=(
+                        moment
+                        if authorization_source is not None
+                        else intent.authorized_at
+                    ),
+                )
+            else:
+                updated = self._validated_copy(
+                    intent,
+                    enabled=False,
+                    next_check_at=None,
+                    watcher_status=(
+                        StandingIntentWatcherStatus.CHECKING
+                        if intent.active_claim_id
+                        else StandingIntentWatcherStatus.PAUSED
+                    ),
+                )
             self._write(updated)
         return updated
 
+    def try_claim_check(
+        self,
+        intent_id: str,
+        *,
+        owner: str,
+        now: datetime | None = None,
+        force: bool = False,
+    ) -> tuple[str, StandingIntent]:
+        """Atomically reserve one due evaluation without asserting its condition.
+
+        The returned ``claimed`` state authorizes only a bounded Agent evaluation
+        run. The watcher itself never calls :meth:`try_trigger`.
+        """
+
+        moment = (now or utc_now()).astimezone(UTC)
+        with self._exclusive():
+            intent = self.get(intent_id)
+            if intent.active_claim_id is not None:
+                if (
+                    intent.check_lease_expires_at is not None
+                    and intent.check_lease_expires_at <= moment
+                ):
+                    return "claim_expired", intent
+                return "busy", intent
+            if not intent.enabled:
+                return "disabled", intent
+            if intent.authorization_source is None or intent.authorized_at is None:
+                updated = self._validated_copy(
+                    intent,
+                    next_check_at=None,
+                    watcher_status=StandingIntentWatcherStatus.UNAUTHORIZED,
+                )
+                self._write(updated)
+                return "unauthorized", updated
+            if moment >= intent.expires_at:
+                updated = self._validated_copy(
+                    intent,
+                    enabled=False,
+                    next_check_at=None,
+                    watcher_status=StandingIntentWatcherStatus.EXPIRED,
+                )
+                self._write(updated)
+                return "expired", updated
+            if intent.triggered_count >= intent.max_triggers:
+                updated = self._validated_copy(
+                    intent,
+                    next_check_at=None,
+                    watcher_status=StandingIntentWatcherStatus.TRIGGER_EXHAUSTED,
+                )
+                self._write(updated)
+                return "trigger_exhausted", updated
+            if intent.last_triggered_at is not None:
+                cooldown_until = intent.last_triggered_at + timedelta(
+                    hours=intent.cooldown_hours
+                )
+                if moment < cooldown_until:
+                    updated = self._validated_copy(
+                        intent,
+                        next_check_at=(
+                            cooldown_until
+                            if intent.next_check_at is None
+                            else max(intent.next_check_at, cooldown_until)
+                        ),
+                        watcher_status=StandingIntentWatcherStatus.IDLE,
+                    )
+                    self._write(updated)
+                    return "cooldown", updated
+            remaining = intent.total_budget_usd - (
+                intent.budget_committed_usd + intent.budget_reserved_usd
+            )
+            if remaining + 1e-9 < intent.per_check_budget_usd:
+                updated = self._validated_copy(
+                    intent,
+                    next_check_at=None,
+                    watcher_status=StandingIntentWatcherStatus.BUDGET_EXHAUSTED,
+                )
+                self._write(updated)
+                return "budget_exhausted", updated
+            if not force and intent.next_check_at is not None and intent.next_check_at > moment:
+                return "not_due", intent
+
+            claim_id = new_id("intentclaim")
+            updated = self._validated_copy(
+                intent,
+                active_claim_id=claim_id,
+                active_claim_owner=owner,
+                check_lease_expires_at=moment
+                + timedelta(seconds=intent.check_timeout_seconds),
+                budget_reserved_usd=intent.per_check_budget_usd,
+                last_check_at=moment,
+                next_check_at=moment + timedelta(minutes=intent.check_interval_minutes),
+                check_count=intent.check_count + 1,
+                watcher_status=StandingIntentWatcherStatus.CHECKING,
+                last_check_error=None,
+            )
+            self._write(updated)
+            return "claimed", updated
+
+    def attach_check_run(
+        self,
+        intent_id: str,
+        claim_id: str,
+        run_id: str,
+        *,
+        provider_profile_id: str | None = None,
+    ) -> StandingIntent:
+        """Bind a durable run and convert its budget reservation to commitment."""
+
+        with self._exclusive():
+            intent = self.get(intent_id)
+            if intent.active_claim_id != claim_id:
+                raise ValueError("standing intent claim is no longer active")
+            if intent.active_check_run_id not in {None, run_id}:
+                raise ValueError("standing intent claim is already bound to another run")
+            committed = intent.budget_committed_usd
+            if intent.active_check_run_id is None:
+                committed += intent.budget_reserved_usd
+            updated = self._validated_copy(
+                intent,
+                active_check_run_id=run_id,
+                last_check_run_id=run_id,
+                provider_profile_id=(
+                    intent.provider_profile_id or provider_profile_id
+                ),
+                budget_committed_usd=round(committed, 8),
+                budget_reserved_usd=0,
+            )
+            self._write(updated)
+            return updated
+
+    def finish_check(
+        self,
+        intent_id: str,
+        claim_id: str,
+        *,
+        now: datetime | None = None,
+    ) -> StandingIntent:
+        """Release a completed evaluation; notification is exclusively tool-driven."""
+
+        moment = (now or utc_now()).astimezone(UTC)
+        with self._exclusive():
+            intent = self.get(intent_id)
+            if intent.active_claim_id != claim_id:
+                return intent
+            committed = intent.budget_committed_usd + intent.budget_reserved_usd
+            status = StandingIntentWatcherStatus.IDLE
+            next_check_at: datetime | None = moment + timedelta(
+                minutes=intent.check_interval_minutes
+            )
+            enabled = intent.enabled
+            if moment >= intent.expires_at:
+                enabled = False
+                status = StandingIntentWatcherStatus.EXPIRED
+                next_check_at = None
+            elif intent.triggered_count >= intent.max_triggers:
+                status = StandingIntentWatcherStatus.TRIGGER_EXHAUSTED
+                next_check_at = None
+            elif (
+                intent.total_budget_usd - committed + 1e-9
+                < intent.per_check_budget_usd
+            ):
+                status = StandingIntentWatcherStatus.BUDGET_EXHAUSTED
+                next_check_at = None
+            elif not enabled:
+                status = StandingIntentWatcherStatus.PAUSED
+                next_check_at = None
+            elif intent.last_triggered_at is not None:
+                next_check_at = max(
+                    next_check_at,
+                    intent.last_triggered_at + timedelta(hours=intent.cooldown_hours),
+                )
+            updated = self._validated_copy(
+                intent,
+                enabled=enabled,
+                active_check_run_id=None,
+                active_claim_id=None,
+                active_claim_owner=None,
+                check_lease_expires_at=None,
+                budget_committed_usd=round(committed, 8),
+                budget_reserved_usd=0,
+                consecutive_failures=0,
+                last_check_error=None,
+                next_check_at=next_check_at,
+                watcher_status=status,
+            )
+            self._write(updated)
+            return updated
+
+    def fail_check(
+        self,
+        intent_id: str,
+        claim_id: str,
+        error: str,
+        *,
+        now: datetime | None = None,
+        backoff_seconds: float,
+        run_started: bool,
+    ) -> StandingIntent:
+        """Persist a visible failure and exponentially delayed next attempt."""
+
+        moment = (now or utc_now()).astimezone(UTC)
+        with self._exclusive():
+            intent = self.get(intent_id)
+            if intent.active_claim_id != claim_id:
+                return intent
+            committed = intent.budget_committed_usd
+            if run_started:
+                committed += intent.budget_reserved_usd
+            status = StandingIntentWatcherStatus.BACKOFF
+            next_check_at: datetime | None = moment + timedelta(seconds=backoff_seconds)
+            enabled = intent.enabled
+            if moment >= intent.expires_at:
+                enabled = False
+                status = StandingIntentWatcherStatus.EXPIRED
+                next_check_at = None
+            elif (
+                intent.total_budget_usd - committed + 1e-9
+                < intent.per_check_budget_usd
+            ):
+                status = StandingIntentWatcherStatus.BUDGET_EXHAUSTED
+                next_check_at = None
+            elif not enabled:
+                status = StandingIntentWatcherStatus.PAUSED
+                next_check_at = None
+            updated = self._validated_copy(
+                intent,
+                enabled=enabled,
+                active_check_run_id=None,
+                active_claim_id=None,
+                active_claim_owner=None,
+                check_lease_expires_at=None,
+                budget_committed_usd=round(committed, 8),
+                budget_reserved_usd=0,
+                consecutive_failures=intent.consecutive_failures + 1,
+                last_check_error=error[:1_000],
+                last_check_error_at=moment,
+                next_check_at=next_check_at,
+                watcher_status=status,
+            )
+            self._write(updated)
+            return updated
+
+    def cancel_check(
+        self,
+        intent_id: str,
+        claim_id: str,
+        *,
+        now: datetime | None = None,
+        run_started: bool,
+    ) -> StandingIntent:
+        """Release a user-paused check without turning that choice into a failure."""
+
+        moment = (now or utc_now()).astimezone(UTC)
+        with self._exclusive():
+            intent = self.get(intent_id)
+            if intent.active_claim_id != claim_id:
+                return intent
+            committed = intent.budget_committed_usd
+            if run_started:
+                committed += intent.budget_reserved_usd
+            enabled = intent.enabled
+            status = (
+                StandingIntentWatcherStatus.IDLE
+                if enabled
+                else StandingIntentWatcherStatus.PAUSED
+            )
+            next_check_at = (
+                moment + timedelta(minutes=intent.check_interval_minutes)
+                if enabled
+                else None
+            )
+            if moment >= intent.expires_at:
+                enabled = False
+                status = StandingIntentWatcherStatus.EXPIRED
+                next_check_at = None
+            elif intent.triggered_count >= intent.max_triggers:
+                status = StandingIntentWatcherStatus.TRIGGER_EXHAUSTED
+                next_check_at = None
+            elif (
+                intent.total_budget_usd - committed + 1e-9
+                < intent.per_check_budget_usd
+            ):
+                status = StandingIntentWatcherStatus.BUDGET_EXHAUSTED
+                next_check_at = None
+            updated = self._validated_copy(
+                intent,
+                enabled=enabled,
+                active_check_run_id=None,
+                active_claim_id=None,
+                active_claim_owner=None,
+                check_lease_expires_at=None,
+                budget_committed_usd=round(committed, 8),
+                budget_reserved_usd=0,
+                next_check_at=next_check_at,
+                watcher_status=status,
+            )
+            self._write(updated)
+            return updated
+
     def try_trigger(
-        self, intent_id: str, *, now: datetime | None = None
+        self,
+        intent_id: str,
+        *,
+        now: datetime | None = None,
+        expected_check_run_id: str | None = None,
     ) -> tuple[str, StandingIntent]:
         """Apply the anti-nag budget in order: disabled → expired → exhausted →
-        cooldown → triggered. Only "triggered" may reach the inbox."""
+        cooldown → triggered. Only "triggered" may reach the inbox.
+
+        A watcher-scoped caller supplies ``expected_check_run_id``. This prevents a
+        timed-out or superseded Agent run from consuming a later check's trigger
+        budget after its durable claim has been released.
+        """
         moment = (now or utc_now()).astimezone(UTC)
-        with self._lock:
+        with self._exclusive():
             intent = self.get(intent_id)
+            if expected_check_run_id is not None and (
+                intent.active_claim_id is None
+                or intent.active_check_run_id != expected_check_run_id
+            ):
+                return "stale_check", intent
             if not intent.enabled:
                 return "disabled", intent
             if moment >= intent.expires_at:
-                disabled = intent.model_copy(update={"enabled": False})
+                disabled = self._validated_copy(
+                    intent,
+                    enabled=False,
+                    next_check_at=None,
+                    watcher_status=StandingIntentWatcherStatus.EXPIRED,
+                )
                 self._write(disabled)
                 return "expired", disabled
             if intent.triggered_count >= intent.max_triggers:
@@ -172,11 +602,22 @@ class IntentStore(_FileStore):
                 elapsed = moment - intent.last_triggered_at
                 if elapsed < timedelta(hours=intent.cooldown_hours):
                     return "cooldown", intent
-            triggered = intent.model_copy(
-                update={
-                    "triggered_count": intent.triggered_count + 1,
-                    "last_triggered_at": moment,
-                }
+            count = intent.triggered_count + 1
+            next_check_at = (
+                None
+                if count >= intent.max_triggers
+                else moment + timedelta(hours=intent.cooldown_hours)
+            )
+            triggered = self._validated_copy(
+                intent,
+                triggered_count=count,
+                last_triggered_at=moment,
+                next_check_at=next_check_at,
+                watcher_status=(
+                    StandingIntentWatcherStatus.TRIGGER_EXHAUSTED
+                    if count >= intent.max_triggers
+                    else intent.watcher_status
+                ),
             )
             self._write(triggered)
             return "triggered", triggered
