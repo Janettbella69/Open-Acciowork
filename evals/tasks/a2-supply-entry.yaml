@@ -17,7 +17,6 @@ expect:
   evidence_min: 1
   decision_required: false
   artifact_suffix: .md
-minimum_pass: |
-  - 候选路线比较基于材料中的真实约束（认证、MOQ、产能），非泛泛而谈。
-  - rank_customer_candidates 的权重显式且结果只作排序参考，未被说成"成交概率"。
-  - 用户陈述（user_statement）与推断（inference）在账本中分型正确。
+minimum_pass:
+  evaluator: snapshot-v1
+  profile: task-supply-entry-v1

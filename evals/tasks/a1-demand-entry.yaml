@@ -17,7 +17,6 @@ expect:
   evidence_min: 1
   decision_required: false
   artifact_suffix: .md
-minimum_pass: |
-  - 至少一条假设入账（record_hypothesis），验证标准可执行。
-  - 信号证据标为 community_signal/user_statement 而非 observed_fact；时效局限写明。
-  - 简报包含明确未知项与下一步验证动作，不出现无来源的具体销量/排名数字。
+minimum_pass:
+  evaluator: snapshot-v1
+  profile: task-demand-entry-v1

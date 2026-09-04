@@ -2,11 +2,12 @@
 
 评测系统自有代码，**与主系统解耦**：
 
-- 逻辑与界面（`gold_sampling.py` / `gold_annotator.py` / `annotate_gold.py` /
+- 逻辑与界面（`snapshot_eval.py` / `run_snapshot_evals.py` / `gold_sampling.py` / `gold_annotator.py` / `annotate_gold.py` /
   `annotate_gold.html`）只用 Python stdlib，不 import `ophira_backend`；
   测试 `tests/` 亦然（CI 中独立 job，不安装 backend 包）。
-- **唯一接触点**：`sample_gold.py` 以只读方式 import 主系统 storage 层加载 run
-  数据（依赖方向 evals → backend 单向；主系统对 evals/ 无任何感知）。
+- 边缘 driver 有两个显式接触点：`sample_gold.py` 只读 import storage 加载 run；
+  `backend/scripts/run_l2.py` 把运行时状态序列化后调用本目录的纯 stdlib grader。
+  两者都不进入产品包或在线请求路径。
 - 主包 `ophira_backend` 内不得出现评测代码；评测资产（任务集/judge/gold/报告）
   全部在 `evals/` 下。
 
@@ -32,3 +33,15 @@ fact-inference-confusion → **确属混淆**（confusion，正类）。
 
 红线：gold 标签由项目负责人本人给出，不外包、不由模型代标——本目录工具只负责
 抽样与记录。
+
+## Snapshot release gate（P0-5）
+
+```bash
+PYTHONPATH=evals/tools python3 evals/tools/run_snapshot_evals.py
+pytest evals/tools/tests
+```
+
+`snapshot_eval.py` 是纯 stdlib、fail-closed 的确定性 grader；静态 suite、schema、
+profile 与 61 个 case 见 [`../snapshots/README.md`](../snapshots/README.md)。
+`backend/scripts/run_l2.py` 只负责把主系统状态序列化成该公开 shape 并调用 grader；
+所有“好/坏”判定仍只住在 `evals/`。

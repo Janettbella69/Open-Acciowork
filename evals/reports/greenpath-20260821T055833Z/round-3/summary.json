@@ -1,0 +1,75 @@
+{
+  "generated_at": "2026-08-21T06:07:59.588318+00:00",
+  "run": {
+    "id": "run_1b8fc2e1dec846bdb1a9b1581fcd68e7",
+    "trace_id": "trace_1e4b1bbe4fb3429394304e46ce613235",
+    "project_id": "project_e1cbc4ffbff74878820415f998b03795",
+    "status": "completed",
+    "mode": "standard",
+    "provider_profile_id": "kimi",
+    "sdk_session_id": "b992f08d-96b1-4a27-b2ad-d3cd7875cffc",
+    "error": null,
+    "error_code": null,
+    "created_at": "2026-08-21T06:04:22.817107Z",
+    "finished_at": "2026-08-21T06:07:36.548852Z"
+  },
+  "verdict": {
+    "tool_coverage": {
+      "read": true,
+      "web": true,
+      "skill": true,
+      "mcp": true,
+      "bash": true,
+      "write": true,
+      "edit": true
+    },
+    "web_degraded": false,
+    "subagent_events": 0,
+    "permission_requests": 7,
+    "permission_flow_ok": true,
+    "deny_then_continue_ok": true,
+    "sequence_contiguous": true,
+    "run_completed": true,
+    "result_is_error": false,
+    "served_models": [
+      "kimi-k3"
+    ],
+    "total_cost_usd": 0.429363,
+    "num_turns": 14,
+    "missing": []
+  },
+  "project_missing": [],
+  "event_count": 2910,
+  "event_type_counts": {
+    "run.created": 1,
+    "run.started": 1,
+    "sdk.system": 364,
+    "assistant.message.started": 10,
+    "assistant.reasoning_summary.delta": 353,
+    "assistant.reasoning_summary.completed": 7,
+    "tool.input.delta": 1513,
+    "tool.planned": 12,
+    "tool.started": 12,
+    "tool.completed": 11,
+    "assistant.text.delta": 586,
+    "assistant.message.completed": 9,
+    "run.status": 14,
+    "permission.requested": 7,
+    "permission.resolved": 7,
+    "run.result": 1,
+    "run.completed": 1,
+    "artifact.registered": 1
+  },
+  "notes": {
+    "sse_replay_ok": true,
+    "sse_checkpoint": 1455,
+    "sse_replayed_count": 1455,
+    "resume_run_id": "run_4e8f13fb2b644673a4243488c201581c",
+    "resume_ok": true,
+    "resume_error": null,
+    "policy_denied": [
+      "Bash"
+    ],
+    "policy_allowed_count": 6
+  }
+}

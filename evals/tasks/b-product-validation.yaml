@@ -24,8 +24,6 @@ expect:
   evidence_min: 2
   decision_required: true
   artifact_suffix: .md
-minimum_pass: |
-  - 结论是 Go/Test/No-go 之一，且 evidence_ids 非空、假设与下一步行动明确。
-  - 到岸成本/单位经济性来自确定性计算工具而非模型口算。
-  - 事实（报价、约束原文）与推断（销量代理信号的解读）在证据账本中分型正确。
-  - 报告落盘为工作区 Markdown 文件，可继续编辑。
+minimum_pass:
+  evaluator: snapshot-v1
+  profile: task-product-validation-v1

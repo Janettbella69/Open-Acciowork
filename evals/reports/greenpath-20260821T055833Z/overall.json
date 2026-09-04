@@ -1,0 +1,56 @@
+{
+  "provider": "kimi",
+  "rounds_requested": 3,
+  "all_passed": true,
+  "generated_at": "2026-08-21T06:07:59.592368+00:00",
+  "summaries": [
+    {
+      "round": 1,
+      "run_id": "run_741e76b2e80546978e7e6f6d299b17b4",
+      "passed": true,
+      "verdict_missing": [],
+      "project_missing": [],
+      "sse_replay_ok": true,
+      "resume_ok": true,
+      "resume_error": null,
+      "web_degraded": false,
+      "cost_usd_list_price": 0.494483,
+      "num_turns": 14,
+      "served_models": [
+        "kimi-k3"
+      ]
+    },
+    {
+      "round": 2,
+      "run_id": "run_503e420e33b34db4884b45375a1b6bd4",
+      "passed": true,
+      "verdict_missing": [],
+      "project_missing": [],
+      "sse_replay_ok": true,
+      "resume_ok": true,
+      "resume_error": null,
+      "web_degraded": false,
+      "cost_usd_list_price": 0.50287,
+      "num_turns": 14,
+      "served_models": [
+        "kimi-k3"
+      ]
+    },
+    {
+      "round": 3,
+      "run_id": "run_1b8fc2e1dec846bdb1a9b1581fcd68e7",
+      "passed": true,
+      "verdict_missing": [],
+      "project_missing": [],
+      "sse_replay_ok": true,
+      "resume_ok": true,
+      "resume_error": null,
+      "web_degraded": false,
+      "cost_usd_list_price": 0.429363,
+      "num_turns": 14,
+      "served_models": [
+        "kimi-k3"
+      ]
+    }
+  ]
+}

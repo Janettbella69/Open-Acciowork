@@ -1,0 +1,29 @@
+{
+  "kind": "browser_l2_acceptance",
+  "generated_at": "2026-09-03T09:36:47.002625+00:00",
+  "url": "http://44.195.8.204/html",
+  "passed": true,
+  "checks": {
+    "connector_health_ok": true,
+    "tool_success": true,
+    "browser_level_l2": true,
+    "evidence_persisted": true,
+    "artifact_persisted": true,
+    "source_receipt_persisted": true,
+    "artifact_links_evidence": true,
+    "screenshot_exists": true
+  },
+  "browser_result": {
+    "artifact_id": "artifact_aab228e97c224a47acd74e84e62d8004",
+    "ok": true,
+    "title": "",
+    "url": "http://44.195.8.204/html",
+    "browser_level": "L2",
+    "final_url": "http://44.195.8.204/html",
+    "evidence_id": "ev_6b2c6f829e4c40a6bd0f46e48a70f4d3"
+  },
+  "preexisting_service_workers": {
+    "count": 0,
+    "schemes": []
+  }
+}
