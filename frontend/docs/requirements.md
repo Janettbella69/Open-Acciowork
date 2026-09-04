@@ -1,6 +1,6 @@
 # Frontend requirement inventory
 
-Updated: 2026-08-29
+Updated: 2026-09-03
 
 | Requirement | Status | Evidence / note |
 | --- | --- | --- |
@@ -30,8 +30,8 @@ Updated: 2026-08-29
 | Avoid fabricated commercial precision | Delivered | Marketing examples make no customer, revenue, transaction, or performance claims; capital values remain uncalculated until inputs exist, and source evidence is preserved without invented translations or metrics |
 | Provide an English and Simplified Chinese interface | Delivered | Marketing, workspace chrome, settings, memory review, evidence controls, Skills, schedules, status, dates, notices, and accessibility labels follow the selected language; user, evidence, runtime, and backend-authored content remains in its source language |
 | Responsive marketing and product UI | Delivered | Desktop, tablet, and mobile breakpoints; mobile controls retain 44px minimum targets |
-| Automated frontend verification | Delivered | 47 Vitest component and contract tests, ESLint, TypeScript, and Vite production build |
+| Automated frontend verification | Delivered | The full Vitest component/contract suite, ESLint, TypeScript, and Vite production build pass; the 2026-09-03 verification run covered 91 tests. |
 | Browser visual-regression pass | Needs review | The corrected `/app/plugins` page is open locally for manual review; automated route, interaction, responsive-CSS, lint, and production-build checks pass, but the in-app browser session was unavailable for a fresh screenshot pass |
 | Connect the live backend API and SSE event stream | Delivered | The persistent conversation shell creates projects and runs, renders durable project truth, consumes protocol-discovered SSE event names, exposes Trace and Agent activity, handles approvals and cancellation, and refreshes the ledger |
-| Authentication and external side effects | Omitted | Authentication has not been implemented; runtime permissions still gate consequential Agent actions |
+| Authentication and external side effects | Partially delivered | The backend now supports request-bound trusted-gateway principals, durable project membership, and a reviewed `send_message` adapter. The frontend still lacks a production sign-in/pairing and complete human-approval experience; no authorized commercial test-account E2E has run, and the backend truth remains `multi_tenant=false`. |
 | Production deployment | Delivered | The frontend is deployed at `https://trademind.store` behind Nginx with HTTPS, SPA fallback, security headers, and an `/api` reverse-proxy path; backend service deployment remains separate |

@@ -91,6 +91,22 @@ npm run lint
 npm run build
 ```
 
+### Current verification boundary
+
+- Real Chromium L1 and Chrome-CDP L2 smoke acceptance passed on 2026-09-03; the
+  archived reports are `evals/reports/browser-l1-20260903T093547Z.json` and
+  `evals/reports/browser-l2-20260903T093647Z.json`. They prove browser capture and
+  screenshot/Evidence/Artifact/source-receipt persistence, not model quality or GUI L3.
+- The autonomous standing-intent watcher, Feishu Run/reply delivery with durable
+  channel identity binding, trusted-gateway principal/project authorization,
+  governed memory lifetime/export/deletion, and the reviewed commercial
+  `send_message` adapter are implemented and covered locally.
+- No real Feishu tenant or authorized commercial test account has completed those
+  external E2Es. The trusted gateway is a single-deployment-tenant principal boundary,
+  not production multi-tenancy; `/api/auth/status` remains `multi_tenant: false`.
+- The executable offline Snapshot gate currently contains 61 cases. It does not replace
+  the still-required real Provider + real connector Opportunity-to-Action E2E.
+
 真端点验收（花钱，环境变量门控）：Green Path 3 连过与 Provider 合约测试见
 [`backend/README.md`](backend/README.md)；评测体系与报告见 [`evals/README.md`](evals/README.md)。
 

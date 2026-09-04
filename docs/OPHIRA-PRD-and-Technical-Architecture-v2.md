@@ -1,7 +1,7 @@
 # OPHIRA AI PRD 与技术架构 v2.2
 
-> 文档状态：Draft v2.2；实现状态审计更新于 2026-09-02
-> 研究基线：2026-08-20（v1.1 为 2026-08-05）；实现状态以 §3.8 的 2026-09-02 审计为准
+> 文档状态：Draft v2.2；实现状态增量复核于 2026-09-03
+> 研究基线：2026-08-20（v1.1 为 2026-08-05）；当前实现状态以 §3.8 的 2026-09-03 增量复核为准
 > 产品方向：面向出海小B的 AI 全球商业执行系统（对标 Accio Work）
 > 架构基线：Claude Agent SDK 单主 Agent，保留 Claude Code 原生能力
 > 本文合并 PRD 与技术架构；产品需求、架构约束和验收标准共同构成范围基线。
@@ -27,7 +27,7 @@
 | 2 | **单 Agent 红线细化（历史中间态）**：2026-08-20 曾暂缓普通模式只读支线；该表述已被 2026-08-24 终版取代：普通模式可极少调用 SDK 原生一次性只读支线，固定角色团队仍禁止（§1.1、FR-01、§4.8） | Cowork/Codex/Claude Code 均原生具备；上下文经济学需要 |
 | 3 | **主动服务与渠道提级（用户拍板 IM 形态）**：IM 渠道按 Claude Tag 形态、心跳巡检、前瞻意图、通知收件箱、移动远程审批（FR-15/24/25/26、§4.16） | 品类五件套 table stakes；Accio Mobile Beta 实证 |
 | 4 | **记忆蒸馏提案化**：后台蒸馏 + 人审闸门 + 结构化溯源分级 + 容量上限（FR-14、§4.16） | OpenClaw Dreaming / Codex Memories / Hermes 容量上限 / Cursor 记忆反转教训 |
-| 5 | **GUI 三级能力阶梯与"截图即证据"**（FR-20；2026-08-21 拍板将三级全部纳入目标范围、运行时按任务选；实现状态见 2026-09-02 审计） | 逆向实证：Claude Desktop 与 Codex 均三级全装（内嵌+接管+OS级），大厂无一"三选一" |
+| 5 | **GUI 三级能力阶梯与"截图即证据"**（FR-20；2026-08-21 拍板将三级全部纳入目标范围、运行时按任务选；当前实现状态见 §3.8） | 逆向实证：Claude Desktop 与 Codex 均三级全装（内嵌+接管+OS级），大厂无一"三选一" |
 | 6 | **权限增补**：删除文件任何模式必须确认、Auto 自审档、once/session/persistent 粒度（§4.10） | Cowork 误删 11GB 事故铁律等品类实证 |
 | 7 | **产物补洞**：图像/视频生成 MCP（FR-27） | Accio/Codex 均有；跨境 Listing 素材刚需 |
 | 8 | **全量核对补丁**：办公格式产物（FR-16）、首批连接器矩阵（FR-21）、结构化追问表单（FR-28）、内容营销 Skill 族（§4.7） | 对 Accio Work 功能清单逐项核对后的残余项 |
@@ -55,7 +55,7 @@ OPHIRA 的核心产品场景是：让跨境小商家从任何一个模糊的全�
 
 "一个 Agent"仍是产品和架构的共同原则：常规任务不拆成研究、供应、资金、销售等固定角色，也不实现固定节点工作流。四个维度作为 Agent 可按需调用的商业分析 Skill 和证据标签存在，而不是用户每次都必须穿过的流程。
 
-2026-09-02 的实现判断：单主 Agent、账本、权限和多数控制面已有本地代码/测试切片，但真实 Provider、真实浏览器、真实渠道/连接器、真实媒体生成商和 Office 可视质量仍缺可采信的端到端证明。Phase 0 的剩余工作是“接通真实依赖并证明”，不能用单元测试数量替代。
+截至 2026-09-03，单主 Agent、账本、可信网关 principal/项目权限和多数控制面已有本地代码/测试；Browser L1/L2 已分别通过真实 Chromium 与 Chrome-CDP smoke acceptance，standing-intent watcher、飞书回复及 durable identity mapping、首个商业 `send_message` adapter 和记忆生命周期治理也已完成本地闭环。仍未证明的是“真实 Provider + 真实商业 connector”的整条闭环、真实飞书租户、真实媒体生成商和 Office 可视质量；全局 store 尚未物理分租户，`multi_tenant=false`。Phase 0 的剩余工作仍是接通这些真实依赖并证明，不能用单元测试数量替代。
 
 ### 1.1 不可妥协的架构红线（与 v1.1 一致）
 
@@ -76,9 +76,9 @@ OPHIRA 的核心产品场景是：让跨境小商家从任何一个模糊的全�
 
 ## 2. 研究范围与事实基线
 
-### 2.1 本地仓库历史基线（2026-08-20；已由 §3.8 的 2026-09-02 审计取代）
+### 2.1 本地仓库历史基线（2026-08-20；已由 §3.8 的当前复核取代）
 
-以下内容保留为 2026-08-20 的历史检查点，不代表当前实现状态；当前能力与缺口以 §3.8 的 2026-09-02 代码审计为准。权威仓库：`github.com/Janettbella69/Open-Acciowork`（2026-08-20 由 Ophira-ai 更名），本地克隆 `/Users/isabella/Open-Acciowork`。技术栈：FastAPI + React/Vite + Python 3.11。
+以下内容保留为 2026-08-20 的历史检查点，不代表当前实现状态；当前能力与缺口以 §3.8 的 2026-09-03 增量复核为准。权威仓库：`github.com/Janettbella69/Open-Acciowork`（2026-08-20 由 Ophira-ai 更名），本地克隆 `/Users/isabella/Open-Acciowork`。技术栈：FastAPI + React/Vite + Python 3.11。
 
 **已实现（大部分在未提交的工作树中）：**
 
@@ -284,7 +284,7 @@ Accio 同时也**抬高了 table stakes**：权限四态与审计日志、分层
 
 #### 场景 F：持续监控
 
-用户说"每周一检查这 5 个竞品的价格和评论变化"。Agent 把自然语言意图转成可审阅的计划；用户确认后创建定时任务。目标体验是每次运行复用同一 Skill 和项目上下文，新增带时间的证据，只有达到阈值才通知。当前 Scheduler 和 standing intent 控制面已存在，但尚无自主条件 watcher，不能把目标体验作为现成能力宣传。
+用户说"每周一检查这 5 个竞品的价格和评论变化"。Agent 把自然语言意图转成可审阅的计划；用户确认后创建定时任务。目标体验是每次运行复用同一 Skill 和项目上下文，新增带时间的证据，只有达到阈值才通知。当前 Scheduler、standing intent 控制面与自主条件 watcher 已接通本地闭环；真实 Provider、数据源与渠道的连续运行质量仍需独立验收。
 
 #### 场景 G：Deep Research 例外模式
 
@@ -300,8 +300,8 @@ Accio 同时也**抬高了 table stakes**：权限四态与审计日志、分层
 - **产物区**：报告、表格、文本、脚本和导出文件；支持版本与下载。
 - **项目记录**：目标、已确认约束、决策、开放问题和经批准的记忆。
 - **Skills**：已安装能力、适用场景、来源、启停、测试、不可变版本历史与人工回滚；Run 使用内容哈希快照和只读运行时视图。
-- **自动化**：已连接后端计划任务、standing intent 和通知收件箱；自主 watcher 与真实渠道投递仍缺。
-- **设置**：已有 Provider、Key、连接器与组织策略控制面；真实业务适配器、移动配对和桌面桥仍缺。
+- **自动化**：已连接后端计划任务、standing intent、自主 watcher 和通知收件箱；真实 Provider/数据源条件评估与真实渠道投递仍待验收。
+- **设置**：已有 Provider、Key、连接器与组织策略控制面；首个 `send_message` HTTPS JSON adapter 已有本地实现，但真实 test-account E2E、更多业务 adapter、移动配对和桌面桥仍缺。
 
 ### 3.7 首发范围（v2.2 更名：抛弃 MVP/demo 概念，教材口径——做真产品，只是还没上线）
 
@@ -316,9 +316,9 @@ Accio 同时也**抬高了 table stakes**：权限四态与审计日志、分层
 
 #### P1：紧随其后（v2.1 重排）
 
-- 补齐飞书回复闭环和微信渠道；为移动控制面增加认证配对、推送与设备信任（FR-24/25）。
-- 为 standing intent 增加自主条件 watcher；补齐真实渠道投递（FR-26、§4.16）。
-- 对 GUI L1/L2 做真实浏览器集成验证并实现 L3；当前只有 L1/L2 后端安全与账本切片（FR-20）。
+- 在真实飞书/Lark 租户验收已实现的回复与 durable identity mapping，再补微信渠道；为移动控制面增加认证配对、推送与设备信任（FR-24/25）。
+- 用真实 Provider/数据源验证 standing intent 自主 watcher 的长时运行；补齐真实渠道投递（FR-26、§4.16）。
+- 扩展 GUI L1/L2 的真实浏览器回归并实现 L3；L1/L2 smoke acceptance 已于 2026-09-03 通过，重定向/Service Worker 等攻击矩阵当前主要由确定性测试覆盖（FR-20）。
 - 为媒体 MCP 配置并认证真实生成商；补齐视频能力和成品质量验证（FR-27）。
 - 更多市场与平台 Skills、合规数据源、物流与汇率工具。
 - 供应商联系、Listing 发布等外部动作的预览—批准—执行闭环。
@@ -327,7 +327,7 @@ Accio 同时也**抬高了 table stakes**：权限四态与审计日志、分层
 
 #### P2：观察项
 
-- **GUI L3 + 桌面版**：OS 级 computer use 与承载它的桌面壳；L1/L2 先完成真实浏览器验收，L3 当前未实现。
+- **GUI L3 + 桌面版**：OS 级 computer use 与承载它的桌面壳；L1/L2 已完成真实 smoke acceptance，L3 当前未实现。
 - "从重复任务中提议新 Skill"（Hermes/OpenClaw 形态；提案制、强制人审 + 安全扫描，见 §4.7）。
 - 团队协作、评论、项目模板、Skill 私有仓库和组织策略。
 - 知识库（项目级参考资料索引，服务检索而非替代证据账本）。
@@ -341,9 +341,9 @@ Accio 同时也**抬高了 table stakes**：权限四态与审计日志、分层
 - 不用向量库自动写入所有对话来替代可审核的长期记忆。
 - 不在一个共享宿主目录里让不同用户的 Agent 执行 Bash。
 
-### 3.8 功能需求与实现状态审计（2026-09-02）
+### 3.8 功能需求与实现状态审计（2026-09-03 增量复核）
 
-> 审计口径：“已实现”表示本地代码路径和相应自动化测试存在；“部分实现”表示已有可执行切片，但仍缺需求中的关键闭环；“未实现”表示没有可执行切片。该审计未执行真实模型、真实浏览器、真实 IM/移动推送、真实媒体生成商或 LibreOffice 可视 E2E，因此不得把本表解释为生产可用证明。
+> 审计口径：“已实现”表示本地代码路径和相应自动化测试存在；“部分实现”表示已有可执行切片，但仍缺需求中的关键闭环；“未实现”表示没有可执行切片。2026-09-03 已执行真实 Chromium L1 与 Chrome-CDP L2 smoke acceptance；该证明只覆盖浏览器捕获及截图/Evidence/Artifact/source receipt 持久化。本轮没有执行真实 Provider、真实 Feishu/Lark 租户、真实商业 test account、真实媒体生成商或 LibreOffice 可视 E2E，因此不得把本表解释为生产可用证明。
 
 | ID | 优先级 | 需求 | 可验收标准 | 现状 |
 |---|---:|---|---|---|
@@ -355,24 +355,24 @@ Accio 同时也**抬高了 table stakes**：权限四态与审计日志、分层
 | FR-06 | P0 | 鉴权预检 | 经 SDK 最小路径预检，并把认证、端点、模型、额度、协议、MCP、Skill 与运行时错误结构化 | **部分实现**：代码和模拟测试已覆盖；真实 Provider 合约未验证 |
 | FR-07 | P0 | 会话与运行 | 创建、流式接收、取消、恢复、回放；重复取消幂等 | **已实现**（本地代码/测试） |
 | FR-08 | P0 | 项目工作区 | 项目隔离目录；拒绝路径越界、敏感路径和符号链接逃逸 | **已实现**（本地代码/测试） |
-| FR-09 | P0 | 证据账本 | Evidence/Artifact 带来源、时间、类型、置信度与来源运行；UI 可审查 | **已实现**（本地代码/测试） |
+| FR-09 | P0 | 证据账本 | Evidence/Artifact 带来源、时间、类型、置信度与来源运行；UI 可审查 | **已实现**（本地代码/测试）：主 Agent Web/Browser 读取由 host 签发可回放 source receipt，外部 Evidence 的来源、时间、hash、版本和 Run/SDK session scope 由服务端补全并校验 |
 | FR-10 | P0 | 结论可追溯 | Decision 回链证据；证据失效时联动标记受影响结论 | **已实现**（本地代码/测试） |
 | FR-11 | P0 | MCP 领域工具 | 台账、供应商、客户、商业计算等工具返回结构化结果与明确错误 | **部分实现**：确定性工具与数据加工切片存在；供应商/客户等尚无真实业务数据适配器，不能宣称实时业务数据 |
 | FR-12 | P0 | Skills | `SKILL.md` 可发现、启停、测试并由 Run 固化版本 | **已实现**（本地代码/测试）：不可变内容寻址历史、存储配额、Run 快照、只读运行时物化、活跃会话租约与人工回滚均已接通；不等同于真实 Provider Skill 调用 E2E |
 | FR-13 | P0 | 权限 | 路径/工具/副作用策略、once/run/persistent 授权、删除强制确认、Auto 模式和审计 | **已实现**（本地代码/测试） |
-| FR-14 | P0 | 记忆 | 仅提案可进入稳定记忆；审批、撤回、来源、容量与当前运行蒸馏受控 | **已实现**（本地代码/测试；不等同于真实模型质量验证） |
-| FR-15 | P0 | 自动化与主动链路 | 计划任务、错过运行/重叠治理、静默结果、通知收件箱和渠道投递 | **部分实现**：Scheduler、API/UI、自动化 MCP 和收件箱存在；真实渠道投递及凭据失效通知闭环未验证 |
+| FR-14 | P0 | 记忆 | 仅提案可进入稳定记忆；审批、撤回、来源、容量与当前运行蒸馏受控 | **已实现**（本地代码/测试）：除人审/版本外，已有绝对 expiry/TTL、过期召回排除、确定性 request-signal retrieval、授权 JSON 导出、tombstone-first 硬删除与启动恢复；不等同于真实模型召回质量或基础设施备份擦除 |
+| FR-15 | P0 | 自动化与主动链路 | 计划任务、错过运行/重叠治理、静默结果、通知收件箱和渠道投递 | **部分实现**：Scheduler、API/UI、自动化 MCP、standing watcher、收件箱和飞书 Run-bound 回复投递均有本地闭环；真实 Provider/数据源长期运行、真实飞书租户投递及移动推送未验证 |
 | FR-16 | P0 | 产物 | Artifact 记录版本、来源运行和证据；支持常用文本及 DOCX/XLSX/PPTX 导出 | **部分实现**：文件台账、下载和 Office 结构验证已实现；环境无 LibreOffice 可视 QA，未证明版式质量 |
 | FR-17 | P0 | 运行可观测性 | 事件带项目/Run/Trace/Session 关联；记录工具、授权、资源和错误且不暴露私有思维链 | **已实现**（本地代码/测试） |
 | FR-18 | P0 | 错误恢复 | 失败保留证据与产物，可重试/分支恢复，并分类 Provider/MCP/权限/网络错误 | **已实现**（本地代码/测试） |
 | FR-19 | P0/Beta | Deep Research | 显式启用恰好 3 个只读研究子代理；共享主 Run 预算、统一取消、墙钟时限；不设轮数上限；仅主 Agent 写最终台账 | **已实现**（本地代码/测试；未声称真实研究 E2E） |
-| FR-20 | P1 | GUI 操作（L1/L2/L3） | L1 独立 profile；L2 只接已启用且健康的 loopback Chrome CDP；域策略/SSRF/重定向防护；动作与截图进 Artifact/Evidence；L3 为 OS 级操作 | **部分实现**：L1/L2 后端安全和账本路径已实现并有测试，但未用真实浏览器验证；**L3 未实现** |
-| FR-21 | P1 | 连接器管理 | 管理能力、范围、凭据、健康状态与撤销；业务适配器按授权接入 | **部分实现**：仅有 catalog、vault、health、revoke 及 Chrome CDP 元数据；没有 Gmail/店铺/社媒等真实业务适配器 |
-| FR-22 | P1 | 组织治理 | 组织策略约束 Provider、Skill、浏览器、域和渠道，运行仍由一个主 Agent 负责 | **部分实现**：OrgPolicy 及 Provider/Skill/browser/channel 运行时门禁已有代码/测试；项目角色、组织管理面与完整多租户治理未完成 |
+| FR-20 | P1 | GUI 操作（L1/L2/L3） | L1 独立 profile；L2 只接已启用且健康的 loopback Chrome CDP；域策略/SSRF/重定向防护；动作与截图进 Artifact/Evidence；L3 为 OS 级操作 | **部分实现**：L1/L2 后端安全和账本路径已有测试，并于 2026-09-03 分别通过真实 Chromium/Chrome-CDP smoke acceptance；攻击边界主要仍由确定性测试覆盖，**L3 未实现** |
+| FR-21 | P1 | 连接器管理 | 管理能力、范围、凭据、健康状态与撤销；业务适配器按授权接入 | **部分实现**：catalog、vault、health/revoke、Chrome CDP，以及首个受 review/apply 治理的 HTTPS JSON `send_message` adapter 已本地实现；尚无授权 test-account 真实外发，也没有 Gmail/店铺/社媒等垂直 adapter |
+| FR-22 | P1 | 组织治理 | 组织策略约束 Provider、Skill、浏览器、域和渠道，运行仍由一个主 Agent 负责 | **部分实现**：OrgPolicy、request-bound trusted-gateway principal、持久项目 membership/role 与 Provider/Skill/browser/channel 运行时门禁已有代码/测试；当前仅为单 deployment tenant，全球 store 未物理分租户且 `multi_tenant=false` |
 | FR-23 | P0 | Web 能力降级 | 原生 Web 不可用时可走安全检索/抓取 MCP；能力等级显式呈现 | **部分实现**：Web MCP 有 URL/重定向/SSRF 防护与测试；真实搜索服务配置和 Provider 降级 E2E 未验证 |
-| FR-24 | P1 | IM 渠道 | 群内 @ 触发同一主 Agent Run，安全接收并回帖；支持权限与账本关联 | **部分实现**：飞书入站具备签名时效校验、解密、去重、challenge 和 mention 门禁；没有飞书回复闭环，也没有微信 |
+| FR-24 | P1 | IM 渠道 | 群内 @ 触发同一主 Agent Run，安全接收并回帖；支持权限与账本关联 | **部分实现**：飞书入站安全门、Run-bound 官方 reply adapter、durable delivery/retry，以及 signed-body tenant/chat/user → principal/project binding 均已本地实现并测试；尚无真实租户 E2E，微信未实现 |
 | FR-25 | P1 | 移动远程审批 | 手机远程查看/批准权限、接收推送并发起任务，具备认证配对和设备信任 | **部分实现**：只有复用现有 API 的响应式远程控制面；没有认证配对、设备绑定或推送 |
-| FR-26 | P1 | 主动巡检与前瞻意图 | standing intent 带冷却、次数、过期和预算；条件成立才通知 | **部分实现**：Intent 存储/API/MCP、防唠叨约束和手动/Agent 触发存在；没有自主条件 watcher |
+| FR-26 | P1 | 主动巡检与前瞻意图 | standing intent 带冷却、次数、过期和预算；条件成立才通知 | **已实现（本地代码/离线测试）**：用户授权、持久化调度/恢复、冷却/过期/触发与金额预算、Provider readiness、单主 Agent 条件评估、静默未命中、受控 trigger/inbox 与失败退避已闭环；尚未证明真实 Provider/数据源的判断质量与长时稳定性 |
 | FR-27 | P1 | 图像/视频生成 | 经认证生成商产生媒体，安全落盘为 Artifact，并与来源 Evidence/Run 关联 | **部分实现**：安全通用媒体接入、下载校验和台账关联已有代码/测试；未配置或验证真实生成商，不能宣称真实图像/视频生成 |
 | FR-28 | P2 | 结构化追问表单 | Agent 发起结构化问题/选项，用户答案回到同一 Run 并可沉淀约束 | **已实现**（本地代码/测试） |
 
@@ -612,11 +612,11 @@ v2.0 增补建议（不改变红线，按需采纳）：
 | `ophira_commerce_math` | 到岸成本、单位经济、敏感性表 | 更多现金流模型 | 纯确定性计算 |
 | `ophira_compliance` | 内置来源目录查询 | 授权法规数据源与有效性更新 | 读取；输出不是法律意见 |
 | `ophira_web` | `search_public_web`、`fetch_page_snapshot`，含 URL/重定向/SSRF 防护 | 认证真实搜索服务与 Provider 降级 E2E | 公开读取低；内容视为不可信数据 |
-| `ophira_browser` | `snapshot_page`、`act_on_page`；OrgPolicy 门禁、L1/L2、安全导航和截图账本 | 真实浏览器验证与 L3 | 读取按域策略；动作需治理 |
-| `ophira_automation` | 计划创建/暂停、standing intent 管理/触发、通知写入 | 自主 watcher 与真实渠道投递 | 创建承诺/外发需授权；支线 Agent 禁用 |
+| `ophira_browser` | `snapshot_page`、`act_on_page`；OrgPolicy 门禁、L1/L2、安全导航和截图账本；L1/L2 已通过真实浏览器 smoke acceptance | 扩展真实浏览器攻击/恢复回归与实现 L3 | 读取按域策略；动作需治理 |
+| `ophira_automation` | 计划创建/暂停、standing intent 管理/触发、通知写入；自主 watcher 已接入标准单主 Agent Run | 真实 Provider/数据源长时验证与真实渠道投递 | 创建承诺/外发需授权；支线 Agent 禁用 |
 | `ophira_media` | `generate_media` 通用安全接入并注册 Artifact/Evidence 关联 | 配置并认证真实图像/视频生成商 | 下载与落盘受大小、类型、URL 和路径约束 |
 | `ophira_presentation` | 证据比较、决策摘要和 Artifact 清单；模型只选已有 ID，服务端关联账本事实并签发 `ui.presentation` | 更多版本化 UI 组件 | 只读；外部文本统一清洗，客户端再做严格 schema/project/origin 校验 |
-| `ophira_commercial_actions` | 仅提供 `stage_commercial_action`；项目、Run 和 SDK session 由服务端注入 | 真实适配器、项目角色授权与审批 UI | 高后果；review/apply 只在 HTTP 人审面，当前 apply 仅生成 `not_executed` execution request |
+| `ophira_commercial_actions` | `read_commercial_target` 通过 host connector 读取并签发 project/Run/SDK session/connector/resource/version/state receipt；`stage_commercial_action` 只接 receipt ID、diff 和 reason，权威字段由服务端补全 | 扩展更多业务垂直 adapter，并在授权 sandbox/test account 做真实 E2E | 高后果；review/apply/cancel 只在 HTTP 人审面。当前首条 HTTPS JSON adapter 仅执行匹配 connector 的 `send_message`，其余保持 `not_executed` |
 
 \* 仅当注入 MemoryProvider 时注册。
 
@@ -767,20 +767,20 @@ v1.1 规划仍缺的事件：`artifact.updated`、`evidence.added`、`decision.r
 
 **云端 SaaS**：Control Plane 与 Agent Runner 分离；按租户隔离的短生命周期容器/微虚机；只读 Plugin、临时 Claude 配置目录、短期密钥；出网按 Provider/MCP 域名 allowlist；浏览器能力经本地 Bridge/Relay（不上传登录 Cookie）；**session transcript 用 SDK `session_store` 适配器外置**（更新：官方能力已可用）；多租户隔离遵循官方 hosting 指引三件套（`setting_sources=[]` + `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1` + 每租户 `CLAUDE_CONFIG_DIR`/`cwd`）。绝不让多租户 Agent 在 Control Plane 宿主上直接执行 Bash。
 
-### 4.14 现状与目标架构的差距（2026-09-02 审计）
+### 4.14 现状与目标架构的差距（2026-09-03 增量复核）
 
 | 状态 | 项 | 说明 |
 |---|---|---|
 | ✅ 本地实现 | 运行时边界 | Claude SDK 单主 Agent；普通模式可极少调用原生只读支线；支线写账本/自动化承诺代码级拒绝；Deep Research 3 个只读子代理，共享预算、统一取消、墙钟时限且无轮数上限 |
 | ✅ 本地实现 | 治理与账本 | 路径/删除/授权策略、OrgPolicy、Evidence/Decision/Artifact 来源 Run 关联、失效联动、事件脱敏及审计均有自动化测试 |
 | 🚧 部分实现 | Provider | Registry、Vault、隔离环境、预检、设置 UI 和错误分类已实现；真实 Provider 兼容矩阵与 Green Path 未在本次审计验证 |
-| 🚧 部分实现 | Browser | L1/L2 后端、域策略、SSRF/重定向防护、截图证据与 Chrome Connector 门禁已实现；未做真实浏览器验证；L3 未实现 |
-| 🚧 部分实现 | Connectors/Channels | Connector catalog/vault/health/revoke 和飞书安全入站存在；没有真实业务连接器，飞书无回复闭环，微信未实现 |
-| 🚧 部分实现 | Commercial actions | 主 Agent 内 stage、HTTP 双头 review/apply、策略重检、跨进程原子审计和幂等 execution request 已实现；当前始终 `not_executed`，接真实适配器前仍缺生产身份/项目审批角色模型与审批 UI |
-| 🚧 部分实现 | 主动与移动 | Scheduler、自动化 MCP、standing intent 数据模型/约束、Inbox、移动响应式控制面存在；无自主 watcher、认证配对和推送 |
+| 🚧 部分实现 | Browser | L1/L2 后端、域策略、SSRF/重定向防护、截图证据与 Chrome Connector 门禁已实现；2026-09-03 真实 Chromium/Chrome-CDP smoke acceptance 均通过；攻击边界仍主要靠确定性测试，L3 未实现 |
+| 🚧 部分实现 | Connectors/Channels | Connector catalog/vault/health/revoke、首个 HTTPS JSON `send_message` adapter、飞书安全入站、Run-bound 回复和 durable identity mapping 已本地实现；真实商业 test account 与真实飞书租户 E2E 均未完成，微信未实现 |
+| 🚧 部分实现 | Commercial actions | Host read receipt → server-hydrated stage → 独立 reviewer → apply/cancel、可信网关 tenant/principal/project role、策略版本/外部版本重检、跨进程原子审计、稳定幂等键和 execution receipt 已实现；匹配的 `send_message` 可走 HTTPS JSON adapter，重试/并发/双击/成功后本地落账失败恢复均有离线测试。仍未在授权 sandbox/test account 对真实第三方 endpoint 完成 E2E，其他商业 operation/connector 仍诚实停在 `not_executed` |
+| 🚧 部分实现 | 主动与移动 | Scheduler、自动化 MCP、standing intent 自主 watcher/恢复/预算/静默未命中、Inbox 和移动响应式控制面存在；真实 Provider/数据源长时质量、认证配对和推送未验证/未实现 |
 | 🚧 部分实现 | Media/Office | 媒体安全接入与台账关联、Office 文件结构验证存在；无已配置真实媒体生成商，也无 LibreOffice 可视 QA |
 | ✅ 本地实现 | Skills | 发现、启停、测试、安全校验、内容寻址历史、存储配额、Run 快照、只读运行时物化、活跃会话租约和人工回滚均有本地测试；真实 Provider Skill 调用 E2E 仍未证明 |
-| ❌ 未证明 | 生产 E2E | 本地测试不能证明真实模型、真实浏览器、真实渠道、真实连接器或真实生成商可用；所有上线声明仍须独立验收 |
+| ❌ 未证明 | 生产 E2E | Browser L1/L2 仅完成真实 smoke acceptance；仍未证明真实 Provider + 真实商业 connector 全链、真实飞书租户、真实生成商或生产多租户可用，所有上线声明仍须独立验收 |
 
 ### 4.15 API 增量（对齐实际实现）
 
@@ -800,14 +800,14 @@ v1.1 规划仍缺的事件：`artifact.updated`、`evidence.added`、`decision.r
 #### 主动服务：巡检 → 判断 → 触达 → 授权
 
 - **心跳巡检（部分实现）**：Schedule 可复用项目上下文并支持静默结果；完整凭据失效/渠道通知闭环仍待验证。
-- **前瞻意图（部分实现）**：standing intent 已有存储、API/MCP、冷却期、最大触发次数和过期时间；当前只能由人或 Agent 显式触发，**没有自主条件 watcher**。
+- **前瞻意图（本地闭环已实现）**：standing intent 已有用户授权的存储/API/MCP、冷却期、最大触发次数、过期时间、每次/总检查预算与自主 watcher；未命中只产生 `HEARTBEAT_OK` 并静默，命中只能通过绑定当前 Run 的受控 trigger 进收件箱。真实 Provider/数据源的判断质量与长时稳定性未验证。
 - **通知收件箱 + 渠道投递（部分实现）**：集中收件箱存在；尚未证明真实 IM/手机投递。
 - **移动远程审批（部分实现）**：已有复用权限/Run API 的响应式控制面；认证配对、设备绑定和推送未实现。
-- **IM 渠道（部分实现）**：飞书入站已处理签名时效、解密、重放去重、challenge 和 @ mention 门禁，并创建同一主 Agent Run；没有回复闭环，微信未实现。
+- **IM 渠道（部分实现）**：飞书入站安全门、同一主 Agent Run、Run-bound 官方回复、durable delivery/retry 和 signed-body identity mapping 已本地闭环；尚无真实飞书/Lark 租户 E2E，微信未实现。
 
 ---
 
-## 5. 分阶段落地（2026-09-02 更新）
+## 5. 分阶段落地（2026-09-03 更新）
 
 ### Phase 0：恢复可信的 Agent Green Path —— **本地切片较完整，真实出口未过**
 
@@ -816,7 +816,7 @@ v1.1 规划仍缺的事件：`artifact.updated`、`evidence.added`、`decision.r
 1. **P0-1**：用有合法资格的真实 Provider 跑预检和固定 Green Path，归档可审查 Run bundle；本地模拟测试不得替代此门槛。
 2. **P0-2**：验证文件/Web/Skill/MCP/Bash/Write/Edit、权限 ask/deny/continue、SSE 重连与会话恢复全链路；若普通模式出现支线，只允许 SDK 原生一次性只读支线并断言无账本写入/自动化承诺。
 3. **P0-3**：建立首批 Provider 合约报告，包含模型身份、工具、Web/视觉能力、错误映射、费用与会话续接；能力字段只写实测结果。
-4. **P0-4**：在真实浏览器上验证 L1/L2 的导航、重定向、Service Worker、域策略、截图与清理；L3 另行实现，不能借 L1/L2 后端代码宣称三级完成。
+4. **P0-4**：L1/L2 真实浏览器 smoke acceptance 已通过；下一步把重定向、Service Worker、域策略与清理等确定性攻击用例扩展为真实回归。L3 另行实现，不能借 L1/L2 的结果宣称三级完成。
 5. **P0-5**：对 DOCX/XLSX/PPTX 增加 LibreOffice 渲染/目视 QA；在真实 Provider Green Path 中验收不可变 Skill 快照的发现、调用和回滚后重跑。
 
 完成门槛（不变）：同一主 Agent 在隔离样例项目中搜索网页、读文件、运行计算脚本、写/改产物、调用 Skill/MCP，并按要求请求授权；过程中没有普通 Client SDK 或工作流框架。
@@ -829,14 +829,14 @@ v1.1 规划仍缺的事件：`artifact.updated`、`evidence.added`、`decision.r
 
 ### Phase 2：从判断到供需与客户连接
 
-- 为供应商、客户、邮箱、店铺和 CRM 接入真实授权适配器；深化供应尽调、成本分析、询盘和 Listing Skills；给已有媒体安全接入配置真实生成商；补齐外部动作预览—批准—执行闭环。
+- 在已有通用 `send_message` preview/review/apply adapter 之上，为供应商、客户、邮箱、店铺和 CRM 接入真实授权适配器并完成 test-account E2E；深化供应尽调、成本分析、询盘和 Listing Skills；给已有媒体安全接入配置真实生成商。
 
 ### Phase 3：主动服务、渠道与连接器（v2.1 扩充）
 
-- 为已有 standing intent 增加自主 watcher，并验证通知收件箱/真实渠道投递。
-- 补齐飞书回复和权限卡片，再实现微信；移动控制面增加认证配对、设备信任和推送。
-- 把已实现的 L1/L2 后端接入真实浏览器测试；实现 L3 所需桌面宿主与 OS 权限治理。
-- 为 Connector 接入真实业务适配器；为 Skill Registry 增加生产级备份、恢复演练与更细粒度审计。
+- 用真实 Provider/数据源对已有 standing intent 自主 watcher 做长时验证，并验证通知收件箱/真实渠道投递。
+- 在真实飞书/Lark 租户验收已有回复、身份绑定与权限行为，再实现微信；移动控制面增加认证配对、设备信任和推送。
+- 扩展 L1/L2 真实浏览器回归；实现 L3 所需桌面宿主与 OS 权限治理。
+- 为 Connector 扩展真实垂直业务适配器并完成授权 test-account E2E；为 Skill Registry 增加生产级备份、恢复演练与更细粒度审计。
 
 ### Phase 4：Deep Research 正式化与组织治理
 
@@ -888,7 +888,7 @@ v1.1 规划仍缺的事件：`artifact.updated`、`evidence.added`、`decision.r
 | 风险/决策 | 默认建议 | 触发复审的条件 |
 |---|---|---|
 | **缺少本次审计可采信的真实运行证明** | Phase 0 出口=真实端点 Green Path 3 连过，不以单元测试代替 | — |
-| 浏览器/渠道/媒体集成证明不足 | 分别在真实浏览器、真实飞书回复链路、真实生成商上验收；不得由模拟测试外推 | — |
+| 浏览器/渠道/媒体集成证明不足 | Browser L1/L2 smoke 已实测，但攻击/恢复矩阵仍需扩展；飞书回复链路和生成商仍须分别在真实租户/服务上验收，不得由模拟测试外推 | — |
 | SDK 版本策略（新增） | 已于 2026-08-21 升级钉 0.2.143；后续升级先跑合约测试、逐 Provider 认证 | SDK 安全公告或必需能力（如 session_store）出现 |
 | 首发业务范围 | 围绕"发现需求、组织供给、连接客户并走向成交"的通用闭环收敛，不用单个平台定义产品 | 用户研究证明某细分任务值得专门入口（仍作为 Skill/连接器） |
 | 市场数据许可 | 首发公开来源 + 用户文件 + 授权连接器，清楚标代理信号 | 宣传"实时销量/官方趋势"前必须取得数据许可 |
