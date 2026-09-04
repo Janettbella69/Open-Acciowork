@@ -93,6 +93,12 @@ npm run build
 
 ### Current verification boundary
 
+- The current nine-case DeepSeek Provider contract matrix was rerun against the real endpoint on
+  2026-09-04 with Claude Agent SDK 0.2.143: text streaming, served-model identity,
+  file tools, Bash, MCP, Plugin Skill discovery, and native WebSearch passed. Vision
+  remains unavailable and invalid credentials still rely on the bounded preflight
+  timeout instead of an SDK fast failure. This contract run does not replace a current
+  Green Path proof of actual Skill invocation or a real commercial connector E2E.
 - Real Chromium L1 and Chrome-CDP L2 smoke acceptance passed on 2026-09-03; the
   archived reports are `evals/reports/browser-l1-20260903T093547Z.json` and
   `evals/reports/browser-l2-20260903T093647Z.json`. They prove browser capture and

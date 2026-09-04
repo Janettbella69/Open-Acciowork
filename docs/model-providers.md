@@ -25,9 +25,15 @@ listed so the wrong endpoint is recognised, not used — always pick the pay-as-
 
 Capability columns are never copied from vendor docs. Anything a run depends on — native
 web tools, image input, context window — is measured by the contract suite and written
-back to the profile (PRD §4.9). Measured so far (2026-08-21, `evals/reports/provider-contract-*`): DeepSeek native
-WebSearch ✅; DeepSeek image input ✗ — confirmed twice, once through the agent's Read
-path and once by posting a raw `image` block to `api.deepseek.com/anthropic`, which
+back to the profile (PRD §4.9). The current nine-case DeepSeek profile was rerun against the real
+endpoint on 2026-09-04 with Claude Agent SDK 0.2.143: 7 cases passed and 2 were degraded,
+with no failures (`evals/reports/provider-contract-deepseek-20260904.*`). Text streaming,
+served-model identity, file tools, Bash, MCP, Plugin Skill discovery, and native WebSearch
+passed. Image comprehension remains unavailable, and the SDK's invalid-token path still
+requires OPHIRA's bounded preflight timeout instead of failing fast. The latter two results
+match the 2026-08-21 measurements. DeepSeek native WebSearch ✅; DeepSeek image input ✗ —
+confirmed through repeated agent Read probes and by posting a raw `image` block to
+`api.deepseek.com/anthropic`, which
 answers **HTTP 200 while silently dropping the image** (`input_tokens: 101`, and the
 model's own thinking reads "图片是unsupported，我们看不到"). Note that shape: a status
 code alone would have read as success. **Kimi K3 image input ✅** — verified twice on
