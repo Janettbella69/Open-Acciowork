@@ -18,7 +18,7 @@ from ophira_backend.models import (
     Schedule,
     SchedulePermissionRule,
 )
-from ophira_backend.permissions import PermissionBroker
+from ophira_backend.permissions import PermissionBroker, PermissionNotFoundError
 from ophira_backend.storage import FileLedger
 
 
@@ -29,6 +29,34 @@ async def wait_for_pending(broker: PermissionBroker):
             return views[0]
         await asyncio.sleep(0.01)
     raise AssertionError("permission request did not become pending")
+
+
+@pytest.mark.asyncio
+async def test_late_permission_resolution_cannot_change_a_denial_or_create_a_grant(tmp_path):
+    ledger = FileLedger(tmp_path)
+    project = ledger.create_project(ProjectCreate(name="Late approval", objective="Inspect"))
+    run = ledger.create_run(project.id, "Start")
+    grants = PermissionGrantStore(tmp_path / "grants")
+    broker = PermissionBroker(ledger, EventPublisher(ledger), timeout_seconds=30, grants=grants)
+    pending = asyncio.create_task(broker.request(
+        run.id, "Write", {"file_path": "report.txt"}, agent_id=None, context={},
+    ))
+    view = await wait_for_pending(broker)
+    try:
+        await broker.resolve(run.id, view.id, PermissionResolution(
+            decision=PermissionDecision.DENY,
+        ))
+        with pytest.raises(PermissionNotFoundError):
+            await broker.resolve(run.id, view.id, PermissionResolution(
+                decision=PermissionDecision.ALLOW_PERSISTENT,
+            ))
+        assert (await pending).decision == PermissionDecision.DENY
+        assert grants.match("Write", {"file_path": "report.txt"}, project_id=project.id) is None
+        assert len([event for event in ledger.list_events(run.id)
+                    if event.type == EventType.PERMISSION_RESOLVED.value]) == 1
+    finally:
+        pending.cancel()
+        await asyncio.gather(pending, return_exceptions=True)
 
 
 @pytest.mark.asyncio

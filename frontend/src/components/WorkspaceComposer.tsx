@@ -3,7 +3,6 @@ import Markdown from 'react-markdown'
 import {
   dimensions,
   UI_PRESENTATION_EVENT,
-  type FeedbackKind,
   type OpportunityProject,
   type OphiraEvent,
   type PendingPermission,
@@ -21,6 +20,8 @@ import { useLanguage, useT, type Translate } from '../i18n'
 import { providerIsRunnable, providerUnavailableReason } from '../providerEligibility'
 import Brand from './Brand'
 import EvidenceDrawer from './EvidenceDrawer'
+import FeedbackForm from './FeedbackForm'
+import FeedbackReviewPanel from './FeedbackReviewPanel'
 import { PermissionDetails, PermissionQuestionCard } from './PermissionRequest'
 import PresentationCards, { extractPresentationFrames } from './PresentationCards'
 import WorkspaceNav from './WorkspaceNav'
@@ -63,10 +64,6 @@ type WorkspaceComposerProps = {
   retrying?: RunRetryStrategy | null
   retryError?: string
   onRetry?: (strategy: RunRetryStrategy) => void
-  feedbackBusy?: FeedbackKind | null
-  feedbackSubmitted?: FeedbackKind[]
-  feedbackError?: string
-  onFeedback?: (kind: FeedbackKind) => void
 }
 
 type ComposerMenuView = 'closed' | 'root' | 'mode' | 'skills'
@@ -324,10 +321,6 @@ export default function WorkspaceComposer({
   retrying = null,
   retryError = '',
   onRetry,
-  feedbackBusy = null,
-  feedbackSubmitted = [],
-  feedbackError = '',
-  onFeedback,
 }: WorkspaceComposerProps) {
   const [composerMenu, setComposerMenu] = useState<ComposerMenuView>('closed')
   const [modelMenuOpen, setModelMenuOpen] = useState(false)
@@ -847,32 +840,22 @@ export default function WorkspaceComposer({
                   </section>
                 )}
 
-                {run && onFeedback && (assistantText || run.status === 'failed') && (
-                  <div className="conversation-feedback">
-                    <span data-error={feedbackError ? 'true' : undefined} role={feedbackError ? 'alert' : undefined}>{feedbackError || t('Was this conclusion useful?')}</span>
-                    {assistantText && (
-                      <>
-                        <button
-                          type="button"
-                          disabled={feedbackBusy !== null || feedbackSubmitted.includes('conclusion_wrong')}
-                          onClick={() => onFeedback('conclusion_wrong')}
-                        >{feedbackSubmitted.includes('conclusion_wrong') ? `✓ ${t('Feedback sent')}` : feedbackBusy === 'conclusion_wrong' ? t('Sending…') : t('Flag conclusion')}</button>
-                        <button
-                          type="button"
-                          disabled={feedbackBusy !== null || feedbackSubmitted.includes('evidence_issue')}
-                          onClick={() => onFeedback('evidence_issue')}
-                        >{feedbackSubmitted.includes('evidence_issue') ? `✓ ${t('Feedback sent')}` : feedbackBusy === 'evidence_issue' ? t('Sending…') : t('Flag evidence')}</button>
-                      </>
-                    )}
-                    {run.status === 'failed' && (
-                      <button
-                        type="button"
-                        disabled={feedbackBusy !== null || feedbackSubmitted.includes('run_failure')}
-                        onClick={() => onFeedback('run_failure')}
-                      >{feedbackSubmitted.includes('run_failure') ? `✓ ${t('Feedback sent')}` : feedbackBusy === 'run_failure' ? t('Sending…') : t('Flag run failure')}</button>
-                    )}
-                  </div>
+                {run && !historyLoading && events.some((event) => event.run_id === run.id && event.type === 'assistant.message.completed' && typeof event.data.text === 'string' && event.data.text.trim()) && (
+                  <details className="feedback-message-list">
+                    <summary>{t('Report a conclusion issue')}</summary>
+                    {events.filter((event) => event.run_id === run.id && event.type === 'assistant.message.completed' && typeof event.data.text === 'string' && event.data.text.trim()).map((event) => (
+                      <article key={event.id}>
+                        <small>{t('Message')} <code>{event.id}</code></small>
+                        <blockquote>{String(event.data.text).slice(0, 700)}</blockquote>
+                        <FeedbackForm target={{ project_id: run.project_id, run_id: run.id, message_id: event.id, kind: 'conclusion_wrong' }} label="Flag conclusion" />
+                      </article>
+                    ))}
+                  </details>
                 )}
+                {run && ['failed', 'cancelled'].includes(run.status) && !historyLoading && (
+                  <FeedbackForm key={run.id} target={{ project_id: run.project_id, run_id: run.id, kind: 'run_failure' }} label="Flag run failure" />
+                )}
+                {project && <FeedbackReviewPanel key={project.id} projectId={project.id} />}
 
                 {permissions.map((permission) => {
                   if (permission.toolName === 'AskUserQuestion') {
@@ -935,7 +918,7 @@ export default function WorkspaceComposer({
                       {project.evidence.length > 0 && (
                         <div className="conversation-evidence-ledger">
                           <div><strong>{t('Evidence ledger')}</strong><span>{t('{n} records', { n: project.evidence.length })}</span></div>
-                          <EvidenceDrawer project={project} onChanged={onProjectRefresh} />
+                          <EvidenceDrawer key={project.id} project={project} runId={run?.id} onChanged={onProjectRefresh} />
                         </div>
                       )}
                       {project.decisions.length > 0 && (

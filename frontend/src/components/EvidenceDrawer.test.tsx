@@ -6,10 +6,11 @@ import EvidenceDrawer from './EvidenceDrawer'
 
 vi.mock('../api/client', () => ({
   setEvidenceStatus: vi.fn(),
+  submitFeedback: vi.fn(),
   errorMessage: (error: unknown) => (error instanceof Error ? error.message : 'unknown error'),
 }))
 
-import { setEvidenceStatus } from '../api/client'
+import { setEvidenceStatus, submitFeedback } from '../api/client'
 
 const fact: Evidence = {
   id: 'ev_fact',
@@ -71,6 +72,25 @@ describe('EvidenceDrawer', () => {
       evidence: { ...fact, status: 'stale' },
       affected_decision_ids: ['decision_1'],
     })
+  })
+
+  it('requires a reason and reports the exact evidence and its source run', async () => {
+    vi.mocked(submitFeedback).mockResolvedValueOnce({
+      id: 'feedback_evidence', project_id: project.id, run_id: 'run_source',
+      evidence_id: fact.id, kind: 'evidence_issue', user_note: 'Currency is EUR.',
+      status: 'open', created_at: '2026-09-05T00:00:00Z',
+    })
+    render(<EvidenceDrawer project={{ ...project, evidence: [{ ...fact, source_run_id: 'run_source' }] }} runId="run_current" onChanged={vi.fn()} />)
+    fireEvent.click(screen.getByRole('button', { name: /report evidence issue/i }))
+    const submit = screen.getByRole('button', { name: /submit feedback/i })
+    expect(submit).toBeDisabled()
+    fireEvent.change(screen.getByRole('textbox', { name: /what is wrong/i }), { target: { value: 'Currency is EUR.' } })
+    fireEvent.click(submit)
+    await waitFor(() => expect(submitFeedback).toHaveBeenCalledWith({
+      project_id: project.id, run_id: 'run_source', evidence_id: fact.id,
+      kind: 'evidence_issue', user_note: 'Currency is EUR.',
+    }))
+    expect(await screen.findByRole('button', { name: /feedback sent/i })).toBeDisabled()
   })
 
   it('renders sourced evidence with kind, confidence, and provenance', () => {

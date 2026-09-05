@@ -52,6 +52,7 @@ export type Evidence = {
   confidence: number
   supports_hypothesis_ids: string[]
   recorded_by: string
+  source_run_id?: string | null
   recorded_at: string
 }
 
@@ -621,15 +622,65 @@ export type PendingPermissionView = {
 }
 
 export type FeedbackKind = 'conclusion_wrong' | 'evidence_issue' | 'run_failure'
+export type FeedbackStatus = 'open' | 'reviewed' | 'folded_into_skill' | 'rejected'
+
+export type FeedbackCreate = {
+  project_id?: string | null
+  run_id?: string | null
+  message_id?: string | null
+  evidence_id?: string | null
+  kind: FeedbackKind
+  user_note: string
+}
+
+export type FeedbackReview = {
+  expected_revision: number
+  status: FeedbackStatus
+  note: string
+  skill_id?: string
+  skill_content_hash?: string
+  regression_report?: string
+  manual_skill_update_confirmed?: boolean
+  l2_regression_passed_confirmed?: boolean
+}
+
+export type FeedbackReviewRecord = {
+  from_status: FeedbackStatus
+  to_status: FeedbackStatus
+  note: string
+  reviewed_at: string
+  reviewer_tenant_id: string | null
+  reviewer_principal_id: string | null
+  reviewer_role: string | null
+  skill_id: string | null
+  skill_content_hash: string | null
+  regression_report: string | null
+  manual_skill_update_confirmed: boolean
+  l2_regression_passed_confirmed: boolean
+}
 
 export type FeedbackItem = {
   id: string
   project_id: string | null
   run_id: string | null
   evidence_id: string | null
+  message_id?: string | null
+  context?: {
+    trace_id: string
+    run_status: RunStatus
+    event_id: string | null
+    event_type: string | null
+    message_text: string | null
+    evidence: Evidence | null
+    captured_at: string
+  } | null
+  source?: 'user' | 'system'
+  candidate_state?: 'unlabeled'
   kind: FeedbackKind
   user_note: string
-  status: string
+  status: FeedbackStatus
+  revision?: number
+  reviews?: FeedbackReviewRecord[]
   created_at: string
 }
 

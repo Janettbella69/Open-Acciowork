@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import fcntl
 import hashlib
+import logging
 import os
 from collections.abc import Callable
 from typing import Protocol
@@ -20,6 +21,7 @@ from .constants import (
 )
 from .distill import distill_run
 from .events import EventPublisher, redact
+from .feedback import FeedbackStore
 from .memory import FileMemoryProvider
 from .models import EventActor, PrincipalBinding, PrincipalContext, RunRecord, new_id, utc_now
 from .permissions import PermissionBroker
@@ -32,6 +34,7 @@ INTERRUPTED_RUN_MESSAGE = (
     "The backend stopped before this run finished. Saved evidence, artifacts "
     "and SDK session are preserved. Review the saved work before retrying."
 )
+logger = logging.getLogger(__name__)
 
 
 class AgentRuntime(Protocol):
@@ -48,6 +51,10 @@ class RunResumeConflictError(RuntimeError):
     """A client-supplied session locator is not a safe resumable lineage."""
 
 
+class RunCancelConflictError(RuntimeError):
+    """Cancellation cannot be dispatched by a worker that does not own the run."""
+
+
 class RunManager:
     def __init__(
         self,
@@ -62,6 +69,7 @@ class RunManager:
         policy: OrgPolicyStore | None = None,
         settings=None,
         channel_delivery: ChannelDeliveryService | None = None,
+        feedback: FeedbackStore | None = None,
     ) -> None:
         self.ledger = ledger
         self.events = events
@@ -74,6 +82,7 @@ class RunManager:
         self.policy = policy
         self.settings = settings
         self.channel_delivery = channel_delivery
+        self.feedback = feedback
         self._tasks: dict[str, asyncio.Task[None]] = {}
 
     def _acquire_run_lease(self, run_id: str) -> int | None:
@@ -128,6 +137,7 @@ class RunManager:
                             },
                             actor=EventActor(type="system", name="run-manager"),
                         )
+                    self._capture_terminal_feedback(run.id)
                     continue
                 message = INTERRUPTED_RUN_MESSAGE
                 # Close historical permission prompts whose in-memory futures
@@ -174,6 +184,7 @@ class RunManager:
                 )
                 self._write_diary(run.id, RunStatus.FAILED, message)
                 self._notify_schedule_failure(run.id, message, ProviderErrorCode.SDK_RUNTIME_FAILED)
+                self._capture_terminal_feedback(run.id)
             finally:
                 os.close(lease)
 
@@ -199,6 +210,7 @@ class RunManager:
         schedule_id: str | None = None,
         standing_intent_id: str | None = None,
         automation_claim_id: str | None = None,
+        companion_device_id: str | None = None,
         resume_session_id: str | None = None,
         mode: RunMode = RunMode.STANDARD,
         provider_profile_id: str | None = None,
@@ -258,6 +270,7 @@ class RunManager:
                 schedule_id=schedule_id,
                 standing_intent_id=standing_intent_id,
                 automation_claim_id=automation_claim_id,
+                companion_device_id=companion_device_id,
                 resume_session_id=resume_session_id,
                 resume_source_run_id=resume_source.id if resume_source else None,
                 session_compaction_epoch=(
@@ -281,6 +294,7 @@ class RunManager:
                     "provider_profile_id": run.provider_profile_id,
                     "skill_snapshot": run.skill_snapshot,
                     "standing_intent_id": run.standing_intent_id,
+                    "companion_device_id": run.companion_device_id,
                     "max_budget_usd": run.max_budget_usd,
                     "resume_source_run_id": run.resume_source_run_id,
                 },
@@ -308,6 +322,7 @@ class RunManager:
                         {"status": RunStatus.FAILED, "error": safe_error},
                         actor=EventActor(type="system", name="run-manager"),
                     )
+                    self._capture_terminal_feedback(run.id)
                     raise RuntimeError(safe_error) from exc
             task = asyncio.create_task(self._execute(run.id), name=f"ophira:{run.id}")
             self._tasks[run.id] = task
@@ -426,6 +441,7 @@ class RunManager:
             await self._capture_artifacts(run_id)
             self._write_diary(run_id, RunStatus.FAILED, safe_error)
             self._notify_schedule_failure(run_id, safe_error, error_code)
+            self._capture_terminal_feedback(run_id)
             await self._finalize_channel_reply(run_id)
             return
         self.ledger.update_run(
@@ -628,29 +644,62 @@ class RunManager:
             principal=principal,
         )
 
-    async def cancel(self, run_id: str) -> RunRecord:
+    async def cancel(self, run_id: str, *, actor: EventActor | None = None) -> RunRecord:
         run = self.ledger.get_run(run_id)
         if run.status in TERMINAL_RUN_STATUSES:
             return run
-        run = self.ledger.update_run(run_id, status=RunStatus.CANCELLING)
-        await self.events.publish(
-            run_id,
-            EventType.RUN_CANCEL_REQUESTED,
-            {"status": RunStatus.CANCELLING},
-            actor=EventActor(type="user", name="frontend-user"),
-        )
-        await self.permissions.deny_all(run_id, "Run cancelled by the user.")
-        await self.runtime.cancel(run_id)
         task = self._tasks.get(run_id)
-        if task is not None and not task.done():
-            task.cancel()
-            await asyncio.gather(task, return_exceptions=True)
-        await self._finalize_cancel(run_id)
-        return self.ledger.get_run(run_id)
+        lease = None
+        if task is None or task.done():
+            # An empty local task map says nothing about another API worker.
+            # Only an acquired lease proves this is an ownerless orphan.
+            lease = self._acquire_run_lease(run_id)
+            if lease is None:
+                run = self.ledger.get_run(run_id)
+                if run.status in TERMINAL_RUN_STATUSES:
+                    return run
+                raise RunCancelConflictError(
+                    "Run is owned by another live worker. Route cancellation to "
+                    "the owning worker; no cancellation was issued."
+                )
+        try:
+            run = self.ledger.get_run(run_id)
+            if run.status in TERMINAL_RUN_STATUSES:
+                return run
+            self.ledger.update_run(run_id, status=RunStatus.CANCELLING)
+            await self.events.publish(
+                run_id,
+                EventType.RUN_CANCEL_REQUESTED,
+                {"status": RunStatus.CANCELLING},
+                actor=actor or EventActor(type="user", name="frontend-user"),
+            )
+            await self.permissions.deny_all(run_id, "Run cancelled by the user.")
+            await self.runtime.cancel(run_id)
+            if task is not None and not task.done():
+                task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
+            run = self.ledger.get_run(run_id)
+            if run.status in TERMINAL_RUN_STATUSES:
+                return run
+            if lease is None:
+                # A queued task cancelled before _execute starts never runs its
+                # cleanup. Its done callback released the original lease;
+                # acquire it again before publishing an ownerless terminal state.
+                lease = self._acquire_run_lease(run_id)
+                if lease is None:
+                    raise RunCancelConflictError(
+                        "Cancellation cleanup is owned by another worker. "
+                        "Refresh the recorded run status before retrying."
+                    )
+            await self._finalize_cancel(run_id)
+            return self.ledger.get_run(run_id)
+        finally:
+            if lease is not None:
+                os.close(lease)
 
     async def _finalize_cancel(self, run_id: str) -> None:
         run = self.ledger.get_run(run_id)
-        if run.status == RunStatus.CANCELLED:
+        if run.status in TERMINAL_RUN_STATUSES:
             return
         await self._capture_artifacts(run_id)
         self.ledger.update_run(
@@ -665,6 +714,19 @@ class RunManager:
             actor=EventActor(type="system", name="run-manager"),
         )
         self._write_diary(run_id, RunStatus.CANCELLED, "")
+        self._capture_terminal_feedback(run_id)
+
+    def _capture_terminal_feedback(self, run_id: str) -> None:
+        if self.feedback is None:
+            return
+        try:
+            self.feedback.capture_terminal(
+                self.ledger.get_run(run_id), self.ledger.list_events(run_id),
+            )
+        except Exception as exc:
+            # Candidate collection cannot turn a completed cancellation/failure
+            # into a different Run outcome; startup reconciliation retries it.
+            logger.error("terminal feedback capture failed for %s: %s", run_id, redact(str(exc)))
 
 
 RuntimeFactory = Callable[[FileLedger, EventPublisher, PermissionBroker], AgentRuntime]

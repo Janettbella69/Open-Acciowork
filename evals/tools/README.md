@@ -34,6 +34,22 @@ fact-inference-confusion → **确属混淆**（confusion，正类）。
 红线：gold 标签由项目负责人本人给出，不外包、不由模型代标——本目录工具只负责
 抽样与记录。
 
+### 用户反馈候选
+
+`sample_feedback.py` 从显式导出的反馈 JSON 生成同格式的**无标签**批次；
+只用 stdlib + `gold_sampling`，不 import backend，不读取业务数据目录，不调用模型。
+
+```bash
+.venv/bin/python evals/tools/sample_feedback.py \
+  --input /path/to/feedback-candidates.json --out evals/gold/samples/feedback-batch.json
+python3 evals/tools/annotate_gold.py --samples evals/gold/samples/feedback-batch.json
+```
+
+候选理由不是 gold verdict。失败/取消但没有商业陈述的条目保留在
+`feedback_candidates`，不会因为零 `items` 被当成通过或丢弃。
+显式导出前必须复核商业数据敏感性；脚本拒绝覆盖既有批次或写标签文件。
+完整 API/人审流程及未完成人工门禁见 [`../../docs/feedback-loop.md`](../../docs/feedback-loop.md)。
+
 ## Snapshot release gate（P0-5）
 
 ```bash

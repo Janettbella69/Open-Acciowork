@@ -479,6 +479,8 @@ class RunRecord(APIModel):
     schedule_id: str | None = None
     standing_intent_id: str | None = None
     automation_claim_id: str | None = None
+    # Set only by the authenticated companion control plane, never a model/request claim.
+    companion_device_id: str | None = Field(default=None, pattern=r"^pair_[a-f0-9]{32}$")
     resume_session_id: str | None = Field(default=None, min_length=1, max_length=500)
     # Resumption is resolved server-side to a durable run. A caller-supplied SDK
     # session ID is a locator, never an authority boundary.
@@ -1751,11 +1753,75 @@ class OrgPolicy(APIModel):
         return self
 
 
+FeedbackStatus = Literal["open", "reviewed", "folded_into_skill", "rejected"]
+
+
+class FeedbackContext(APIModel):
+    """Server-captured anchor, never supplied by a feedback caller."""
+
+    trace_id: str
+    run_status: RunStatus
+    event_id: str | None = None
+    event_type: str | None = None
+    message_text: str | None = Field(default=None, max_length=20_000)
+    evidence: Evidence | None = None
+    captured_at: datetime = Field(default_factory=utc_now)
+
+
+class FeedbackReview(APIModel):
+    expected_revision: int = Field(ge=1)
+    status: FeedbackStatus
+    note: str = Field(min_length=1, max_length=4_000)
+    skill_id: str | None = Field(default=None, max_length=200)
+    skill_content_hash: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    regression_report: str | None = Field(default=None, max_length=1_000)
+    manual_skill_update_confirmed: bool = False
+    l2_regression_passed_confirmed: bool = False
+
+    @model_validator(mode="after")
+    def justified_review(self) -> FeedbackReview:
+        self.note = self.note.strip()
+        if not self.note:
+            raise ValueError("review requires a written reason")
+        references = (self.skill_id, self.skill_content_hash, self.regression_report)
+        if self.status == "folded_into_skill":
+            if not all(value and value.strip() for value in references) or not (
+                self.manual_skill_update_confirmed and self.l2_regression_passed_confirmed
+            ):
+                raise ValueError("Skill folding requires manual change and L2 report attestations")
+        elif any(value is not None for value in references) or (
+            self.manual_skill_update_confirmed or self.l2_regression_passed_confirmed
+        ):
+            raise ValueError("Skill attestations are only valid when folding into a Skill")
+        return self
+
+
+class FeedbackReviewRecord(APIModel):
+    from_status: FeedbackStatus
+    to_status: FeedbackStatus
+    note: str
+    reviewed_at: datetime = Field(default_factory=utc_now)
+    reviewer_tenant_id: str | None = None
+    reviewer_principal_id: str | None = None
+    reviewer_role: PrincipalRole | None = None
+    # A human attestation is not an independently verified release gate.
+    skill_id: str | None = None
+    skill_content_hash: str | None = None
+    regression_report: str | None = None
+    manual_skill_update_confirmed: bool = False
+    l2_regression_passed_confirmed: bool = False
+
+
 class FeedbackItem(APIModel):
     id: str = Field(default_factory=lambda: new_id("feedback"))
     project_id: str | None = None
     run_id: str | None = None
     evidence_id: str | None = None
+    message_id: str | None = None
+    context: FeedbackContext | None = None
+    source: Literal["user", "system"] = "user"
+    # This denotes an UNLABELED sampling candidate, not a gold label or verdict.
+    candidate_state: Literal["unlabeled"] = "unlabeled"
     tenant_id: str | None = Field(default=None, min_length=1, max_length=160)
     principal_id: str | None = Field(default=None, min_length=1, max_length=160)
     principal_role: PrincipalRole | None = None
@@ -1763,7 +1829,9 @@ class FeedbackItem(APIModel):
     identity_binding: Literal["local_only", "authenticated_principal"] = "local_only"
     kind: FeedbackKind
     user_note: str = Field(min_length=1, max_length=4_000)
-    status: Literal["open", "reviewed", "folded_into_skill", "rejected"] = "open"
+    status: FeedbackStatus = "open"
+    revision: int = Field(default=1, ge=1)
+    reviews: list[FeedbackReviewRecord] = Field(default_factory=list)
     created_at: datetime = Field(default_factory=utc_now)
 
     @model_validator(mode="after")
@@ -1783,11 +1851,30 @@ class FeedbackItem(APIModel):
 
 
 class FeedbackCreate(APIModel):
-    project_id: str | None = None
-    run_id: str | None = None
-    evidence_id: str | None = None
+    project_id: str | None = Field(default=None, min_length=1, max_length=200)
+    run_id: str | None = Field(default=None, min_length=1, max_length=200)
+    evidence_id: str | None = Field(default=None, min_length=1, max_length=200)
+    # Persisted assistant.message.completed event ID, not arbitrary client text.
+    message_id: str | None = Field(default=None, min_length=1, max_length=250)
     kind: FeedbackKind
     user_note: str = Field(min_length=1, max_length=4_000)
+
+    @model_validator(mode="after")
+    def anchored_feedback(self) -> FeedbackCreate:
+        self.user_note = self.user_note.strip()
+        if not self.user_note:
+            raise ValueError("feedback requires a written reason")
+        if self.kind == FeedbackKind.CONCLUSION_WRONG:
+            if not self.run_id or not self.message_id or self.evidence_id is not None:
+                raise ValueError("conclusion feedback requires a run and assistant message anchor")
+        elif self.kind == FeedbackKind.EVIDENCE_ISSUE:
+            if not self.evidence_id or not (self.project_id or self.run_id):
+                raise ValueError("evidence feedback requires an evidence and project/run anchor")
+            if self.message_id is not None:
+                raise ValueError("evidence feedback cannot claim a message anchor")
+        elif not self.run_id or self.message_id is not None or self.evidence_id is not None:
+            raise ValueError("run-failure feedback requires only a run anchor")
+        return self
 
 
 class ConnectorUpsert(APIModel):

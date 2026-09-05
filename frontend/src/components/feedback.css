@@ -1,0 +1,17 @@
+.feedback-form { margin-top: 10px; font-size: 13px; }
+.feedback-form button, .feedback-review button { cursor: pointer; border: 1px solid #dce0dd; border-radius: 7px; padding: 7px 10px; color: #263b34; background: #fff; }
+.feedback-form button:disabled, .feedback-review button:disabled { cursor: default; opacity: .55; }
+.feedback-form form, .feedback-review form { margin: 10px 0; display: grid; gap: 9px; }
+.feedback-form textarea, .feedback-review textarea, .feedback-review input, .feedback-review select { box-sizing: border-box; width: 100%; padding: 9px; border: 1px solid #ccd5ce; border-radius: 7px; font: inherit; }
+.feedback-form textarea, .feedback-review textarea { min-height: 85px; resize: vertical; }
+.feedback-form small { display: block; margin-top: 7px; color: #596a62; line-height: 1.5; }
+.feedback-form [role=alert], .feedback-review [role=alert] { color: #963c32; }
+.feedback-review { margin-top: 24px; border-top: 1px solid #e2e7e2; padding-top: 14px; font-size: 13px; }
+.feedback-review > summary, .feedback-message-list > summary { cursor: pointer; padding: 8px 0; font-weight: 600; }
+.feedback-review article, .feedback-message-list article { border: 1px solid #e1e6e2; padding: 12px; margin: 12px 0; border-radius: 9px; overflow-wrap: anywhere; }
+.feedback-review blockquote, .feedback-message-list blockquote { margin: 8px 0; padding: 8px 12px; border-left: 3px solid #d0dacf; background: #f7f9f7; white-space: pre-wrap; }
+.feedback-review code { font-size: 11px; overflow-wrap: anywhere; }
+.feedback-review label { display: grid; gap: 6px; }
+.feedback-review label:has(input[type=checkbox]) { display: flex; align-items: start; }
+.feedback-review input[type=checkbox] { width: auto; }
+.feedback-review-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 10px 0; }

@@ -253,10 +253,14 @@ class PermissionBroker:
         run_id: str,
         request_id: str,
         resolution: PermissionResolution,
+        *,
+        actor: EventActor | None = None,
     ) -> None:
         async with self._lock:
             pending = self._pending.get(request_id)
-            if pending is None or pending.run_id != run_id:
+            # A second device/late retry must never change the first decision or
+            # create a reusable grant after denial, cancellation or timeout.
+            if pending is None or pending.run_id != run_id or pending.future.done():
                 raise PermissionNotFoundError(request_id)
             if (
                 resolution.decision
@@ -306,7 +310,7 @@ class PermissionBroker:
                 "decision": resolution.decision,
                 "reason": resolution.reason,
             },
-            actor=EventActor(type="user", name="frontend-user"),
+            actor=actor or EventActor(type="user", name="frontend-user"),
         )
 
     async def deny_all(self, run_id: str, reason: str) -> None:

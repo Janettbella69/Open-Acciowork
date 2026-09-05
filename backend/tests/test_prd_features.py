@@ -9,6 +9,7 @@ from ophira_backend.channels import feishu_challenge, verify_feishu_signature
 from ophira_backend.config import Settings
 from ophira_backend.constants import (
     HEARTBEAT_OK,
+    EventType,
     EvidenceKind,
     EvidenceSourceType,
     MemorySource,
@@ -245,9 +246,17 @@ async def test_org_policy_and_inbox_apis(tmp_path: Path) -> None:
         assert constrained.status_code == 200
         assert "只做欧盟" in constrained.json()["constraints"]
 
+        feedback_run = app.state.ledger.create_run(project_id, "Synthetic feedback task")
+        feedback_message = await app.state.events.publish(
+            feedback_run.id, EventType.ASSISTANT_MESSAGE_COMPLETED,
+            {"text": "所有市场都适合这个合成产品。"},
+        )
         feedback = await client.post(
             "/api/feedback",
-            json={"kind": "conclusion_wrong", "user_note": "结论过宽", "project_id": project_id},
+            json={
+                "kind": "conclusion_wrong", "user_note": "结论过宽", "project_id": project_id,
+                "run_id": feedback_run.id, "message_id": feedback_message.id,
+            },
         )
         assert feedback.status_code == 201
         listed = await client.get("/api/feedback")

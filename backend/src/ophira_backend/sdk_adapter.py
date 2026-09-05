@@ -66,6 +66,7 @@ from .context_protocol import (
 )
 from .destructive import is_destructive_delete
 from .events import EventPublisher, redact
+from .ingest import file_needs_markdown_companion
 from .ledger_tools import build_mcp_servers
 from .memory import MemoryProvider
 from .models import EventActor, ProviderPreflightResult, RunRecord, utc_now
@@ -819,6 +820,37 @@ class ClaudeAgentRuntime:
                                 "permissionDecision": "deny",
                                 "permissionDecisionReason": (
                                     "Sensitive credential paths are unavailable to the Agent."
+                                ),
+                            }
+                        }
+                    if (
+                        tool_name == "Read"
+                        and resolved.is_relative_to(workspace / "uploads")
+                        and file_needs_markdown_companion(resolved)
+                    ):
+                        companion = resolved.with_name(resolved.name + ".md")
+                        if (
+                            companion.is_file()
+                            and not companion.is_symlink()
+                            and companion.resolve().is_relative_to(workspace)
+                        ):
+                            next_action = (
+                                f"Read {companion.relative_to(workspace).as_posix()!r} "
+                                "instead and respect its extraction failure, missing-page, "
+                                "and truncation notices."
+                            )
+                        else:
+                            next_action = (
+                                "The Markdown companion is missing; ask the user to "
+                                "re-upload with local OCR configured, or provide a text version."
+                            )
+                        return {
+                            "hookSpecificOutput": {
+                                "hookEventName": "PreToolUse",
+                                "permissionDecision": "deny",
+                                "permissionDecisionReason": (
+                                    "Uploaded PDF/images must enter the Agent through "
+                                    "Markdown ingestion, not native binary Read. " + next_action
                                 ),
                             }
                         }

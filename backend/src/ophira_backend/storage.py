@@ -22,7 +22,7 @@ from .constants import (
     EvidenceStatus,
     RunMode,
 )
-from .ingest import ingest_to_markdown, needs_markdown_companion
+from .ingest import IngestConfig, ingest_to_markdown, needs_markdown_companion
 from .models import (
     AgentCreate,
     AgentProfile,
@@ -74,8 +74,9 @@ class SourceReceiptIntegrityError(SourceReceiptError):
 class FileLedger:
     """Durable JSON/JSONL ledger with atomic snapshots and append-only detail logs."""
 
-    def __init__(self, root: Path) -> None:
+    def __init__(self, root: Path, *, ingest_config: IngestConfig | None = None) -> None:
         self.root = root.resolve()
+        self.ingest_config = ingest_config or IngestConfig()
         self.projects_dir = self.root / "projects"
         self.runs_dir = self.root / "runs"
         self.agents_dir = self.root / "agents"
@@ -578,6 +579,7 @@ class FileLedger:
         schedule_id: str | None = None,
         standing_intent_id: str | None = None,
         automation_claim_id: str | None = None,
+        companion_device_id: str | None = None,
         resume_session_id: str | None = None,
         resume_source_run_id: str | None = None,
         session_compaction_epoch: int = 0,
@@ -618,6 +620,7 @@ class FileLedger:
             schedule_id=schedule_id,
             standing_intent_id=standing_intent_id,
             automation_claim_id=automation_claim_id,
+            companion_device_id=companion_device_id,
             resume_session_id=resume_session_id,
             resume_source_run_id=resume_source_run_id,
             session_compaction_epoch=session_compaction_epoch,
@@ -935,8 +938,10 @@ class FileLedger:
             source_ids=source_ids,
             mime=mime,
         )
-        if needs_markdown_companion(filename):
-            markdown, _backend = ingest_to_markdown(path, original_name=filename)
+        if needs_markdown_companion(filename, mime=mime, header=content[:16]):
+            markdown, _backend = ingest_to_markdown(
+                path, original_name=filename, config=self.ingest_config, mime=mime,
+            )
             companion = f"{relative}.md"
             companion_path = self._artifact_path(project_id, companion)
             companion_path.parent.mkdir(parents=True, exist_ok=True)

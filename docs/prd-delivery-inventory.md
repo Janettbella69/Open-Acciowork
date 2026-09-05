@@ -22,7 +22,7 @@
 | FR-10 决策 | delivered：证据关联与失效联动 | 开放任务质量另行验收 |
 | FR-11 领域 MCP | delivered：确定性商业计算、用户记录加工 | deferred：真实供应商/客户/市场/法规/物流/汇率授权数据适配、现金流模型 |
 | FR-12 Skill 生命周期 | delivered：发现/启停/扫描/不可变版本/配额/租约/回滚 | deferred：真端点回滚重跑、备份恢复演练、每个内置 Skill 的证据参考与输出模板 |
-| FR-13 权限 | delivered：范围/有效期/审计、删除确认、沙箱拒绝逃逸 | deferred：跨设备持久等待与真实远程审批验收 |
+| FR-13 权限 | delivered：范围/有效期/审计、删除确认、沙箱拒绝逃逸；可信设备单次审批与重复决议拒绝 | deferred：跨进程持久等待与真实远程审批验收 |
 | FR-14 记忆 | delivered：提案人审、TTL/过期/检索/导出/删除恢复 | deferred：真实蒸馏质量、生产备份删除边界与恢复演练 |
 | FR-15 自动化 | delivered：计划/心跳/收件箱本地链路；跨进程自动调度租约和崩溃幂等 | deferred：手动运行并发治理、真实长期运行与渠道投递 |
 | FR-16 产物 | delivered：版本化台账/下载、Office 文件结构 | deferred：真实编辑流程、Office 渲染目视 QA、布局回归 |
@@ -34,7 +34,7 @@
 | FR-22 组织治理 | delivered：单部署租户 principal/membership/策略 | deferred：租户分区、隔离 runner、共享项目/评论/模板、组织私有 Skill 仓库 |
 | FR-23 Web 兜底 | delivered：Serper/Tavily 适配与 SSRF 防护 | deferred：真实配置搜索服务和 Provider 降级 E2E |
 | FR-24 IM | delivered：飞书签名入站/身份绑定/同 Agent/持久回复重试 | deferred：真实飞书/Lark 租户 E2E；微信适配未实现 |
-| FR-25 移动 | delivered：响应式 Run/审批控制面 | deferred：认证配对、可信设备、推送与跨设备真实验收 |
+| FR-25 移动 | delivered：项目范围配对、双端验证码批准、私有 cookie 与设备撤销/过期；单次审批、可选任务发起与状态轮询 | deferred：Web/native push、跨进程持久等待、真实手机 HTTPS/长期运行验收；OS 防休眠未实现 |
 | FR-26 主动服务 | delivered：授权 standing intent、只读 watcher、预算与持久 claim | deferred：真实数据/Provider 长时判断质量、有效变化触达 |
 | FR-27 媒体 | delivered：安全二进制接入与 Artifact/Evidence | deferred：真实图像/视频厂商适配、授权配置及验收 |
 | FR-28 澄清表单 | delivered：结构化问题与同任务约束回传 | 保持 UI/API 回归 |
@@ -53,8 +53,8 @@
 | §3.9 性能 | deferred：Run 创建 P95 < 500ms，queued/started < 2s，取消 < 2s 的实测报告 |
 | §3.9 / §3.10 | deferred：按 Provider/model/Skill/tool 的指标汇总、业务成功指标、区域与数据流披露 |
 | §3.11 / §6.6 | deferred：当前 L2 基线、人亲自标注的 gold、judge 校准与 TPR/TNR 门槛；不能由 AI 伪造标注 |
-| 教材审计 / CLAUDE.md | delivered：上传 PDF/图片生成 Markdown 伴随文件，pypdf/Tesseract 降级；deferred：当前 `_try_paddle` 使用 `PaddleOCR` 却标为 `paddleocr-vl`，需正确实现并验收 VL 摄取、明确提取失败边界 |
-| P2-feedback-loop-spec.md | delivered：反馈存取 API、对话结果级按钮；deferred：消息/证据精确锚点、失败/取消自动采集、评测候选回流和人审处置；gold 本人标注与口径定版仍需负责人完成 |
+| 教材审计 / CLAUDE.md | delivered：有界 PDF/图片 Markdown 伴随文件、正确可选本地 PaddleOCRVL 适配、pypdf/Tesseract 明确降级、缺页/失败/截断提示与上传原件 Read 门禁；deferred：真实 VL 识别与版式质量、TextIn 坐标、生产解码容器和 OS 资源隔离；当前未安装 VL 模型或 Tesseract |
+| P2-feedback-loop-spec.md | delivered：消息/证据精确锚点、原始 why、失败/取消幂等自动采集和启动补采、人审 revision/history、Skill 版本/L2 人工确认记录、显式无标签候选导出与抽样；deferred：本人 gold/FM 定版、真实 Skill 改善与 L2 验收、生产长期回流、负责人尚未定值的积压通知 |
 | §4.13 / §6.4 | deferred：生产多租户隔离、跨宿主 SessionStore、密钥/备份恢复及攻击面验收 |
 | §6.2 / §6.3 | delivered：已归档 DeepSeek 三连过及首批合约；其他组合不可借此宣称认证 |
 
@@ -95,7 +95,42 @@ Run 先持久化 claim 再启动、已有 Run 的审计/计划收尾恢复、条
 边界：这不是多租户认证，也不证明外部副作用 exactly-once、远程文件系统锁语义、
 断电/磁盘损坏恢复或真实长期运行。旧版本 worker 不参与新锁协议，升级时须先全部停止。
 
-后续代码复核：`MobilePage.tsx` 的控制/保活开关仍只写浏览器本地设置，
-不构成认证、设备绑定、推送或系统保活实现。FR-25 不能因存在该页面而标为已完成。
+当时的代码复核：`MobilePage.tsx` 的控制/保活开关只写浏览器本地设置，
+不构成认证、设备绑定、推送或系统保活实现（下节修复已移除这些开关）。
+FR-25 不能因存在该页面或局部配对功能而标为全部完成。
 `ingest.py` 和 `feedback.py` 已有部分代码，不能沿用历史审计的“完全未实现”描述，
 上表已据现有实现细化其剩余缺口。
+
+## 2026-09-05：可信移动设备、摄取与反馈闭环
+
+交付前基线：`7331138`。新增的本地实现与配置说明：
+
+- [移动 companion](mobile-companion.md)：明确项目范围、十分钟一次性配对、双端
+  六位验证码批准、批准后轮换私有 cookie、三十天到期和撤销；手机只可单次审批，
+  是否允许发起任务由桌面单独授权，不获得后台管理身份。移除虚假 OS 开关。
+- [PDF/图片摄取](ocr-ingestion.md)：正确的可选本地 PaddleOCRVL 适配，受限子进程、
+  失败/缺页/截断说明、pypdf/Tesseract 真实降级；上传原件 Read 指向 Markdown，
+  不限制正常生成媒体/截图读取或受沙箱约束的二进制加工。没有下载模型或冒充 VL 成功。
+- [反馈闭环](feedback-loop.md)：消息/证据服务端精确锚点与用户 why，失败/取消
+  幂等采集和启动补采，人审处置历史及版本冲突、显式无标签候选导出/抽样。
+  Skill 折叠记录只承载人的工作确认，不自动编辑 Skill，不伪造 gold 或 L2 认证。
+
+交叉复核发现并修复：读取慢请求后复用已撤销设备权限、批准配对时绕过当前签名角色、
+重复审批制造长期 grant、非 owning worker 误报任务已取消、旧反馈响应覆盖新 revision、
+动态分页重复页卡住，以及脱敏扩长导致合法反馈/证据超限。跨进程配对竞争只有一个成功；
+非 owning worker 的取消返回 HTTP 409，不改变仍在执行的 Run。
+
+根代理在全部代码冻结后验证：
+
+- `OPHIRA_CONTRACT_PROVIDER= PYTHONPATH=backend/src .venv/bin/python -m pytest backend/tests -q`：728 passed，8 live-only skipped。
+- `.venv/bin/ruff check backend/src backend/tests evals/tools`、`git diff --check`：通过。
+- `.venv/bin/python -m pytest evals/tools/tests -q`：59 passed。
+- `PYTHONPATH=evals/tools .venv/bin/python evals/tools/run_snapshot_evals.py`：61/61。
+- 前端 `npm run test:run`：137 passed；`npm run lint`、`npm run build`：通过。
+  主 JS 581.64 kB，既有 >500 kB 警告仍在，没有通过调高警告阈值掩盖。
+
+验收边界：未发起本轮真实外发、付费模型调用或大型模型下载。配对/API 测试使用
+隔离账本和离线 runtime，不能冒充真实手机 TLS/E2E。浏览器验收已尝试连接，但当前
+Browser 插件运行时引用已不存在的版本路径，连接失败；没有绕过该工具边界或声称目视通过。
+真实 VL/版式质量、TextIn、生产 OCR 解码隔离、Web/native push、跨进程持久审批等待、
+组织物理隔离及其余上表 deferred 保持开放；全 PRD 目标尚未完成。

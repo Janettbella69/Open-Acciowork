@@ -37,12 +37,20 @@ The repository now contains two connected React surfaces:
 
 The product rail also opens Agents (`/app/agents`), a Plugins hub (`/app/plugins`)
 with Skills and Connectors sections, Scheduled tasks (`/app/schedules`), and Mobile
-pairing preparation (`/app/mobile`).
+trusted-device pairing (`/app/mobile`). Companion access is disabled until a
+same-origin HTTPS deployment is configured; background push is not yet available.
+See [`docs/mobile-companion.md`](docs/mobile-companion.md).
 
 Tenant Skills keep immutable, content-addressed package history with per-run snapshots,
 version inspection, reviewed rollback, bounded storage, and active-session-safe runtime
 leases. Workspace results can also render typed evidence, decision, and artifact cards
 whose factual fields are joined from the server ledger rather than authored by the model.
+
+PDF/image uploads produce bounded Markdown companions with honest extraction
+diagnostics; optional local PaddleOCR-VL setup and remaining quality checks are in
+[`docs/ocr-ingestion.md`](docs/ocr-ingestion.md). Result/evidence feedback now has
+exact ledger anchors, human review and explicit unlabeled evaluation-candidate
+export; see [`docs/feedback-loop.md`](docs/feedback-loop.md).
 
 ### Run locally
 

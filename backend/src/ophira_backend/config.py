@@ -4,11 +4,33 @@ import ipaddress
 from functools import lru_cache
 from pathlib import Path
 from typing import Annotated, Literal
+from urllib.parse import urlsplit
 
 from pydantic import AliasChoices, Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 BACKEND_DIR = Path(__file__).resolve().parents[2]
+
+
+def companion_origin(value: str) -> str:
+    """One explicit HTTPS origin, never a redirect or an arbitrary URL prefix."""
+    try:
+        parsed = urlsplit(value)
+        if (
+            not value.isascii() or any(char.isspace() for char in value)
+            or parsed.scheme != "https" or not parsed.hostname
+            or parsed.username is not None or parsed.password is not None
+            or parsed.query or parsed.fragment
+            or parsed.path not in {"", "/"} or "\\" in value or "%" in parsed.netloc
+            or parsed.hostname.endswith(".")
+        ):
+            raise ValueError
+        hostname = parsed.hostname.lower()
+        host = f"[{hostname}]" if ":" in hostname else hostname
+        port = parsed.port
+        return f"https://{host}" + (f":{port}" if port not in {None, 443} else "")
+    except ValueError as exc:
+        raise ValueError("companion_public_origin must be an exact HTTPS origin") from exc
 
 
 class Settings(BaseSettings):
@@ -84,6 +106,21 @@ class Settings(BaseSettings):
     search_api_key: SecretStr | None = None
     web_fetch_max_bytes: int = Field(default=2_000_000, ge=10_000, le=20_000_000)
     web_timeout_seconds: float = Field(default=20, ge=1, le=120)
+    # Local OCR is explicit opt-in: models are provisioned by the operator, not
+    # implicitly downloaded during an upload request. No remote VLM endpoint.
+    ocr_paddle_enabled: bool = False
+    ocr_layout_model_dir: Path | None = None
+    ocr_vl_model_dir: Path | None = None
+    ocr_device: Literal["cpu", "gpu:0"] = "cpu"
+    ocr_timeout_seconds: float = Field(default=60, gt=0, le=600)
+    ocr_max_bytes: int = Field(default=32_000_000, ge=1, le=100_000_000)
+    ocr_max_pages: int = Field(default=20, ge=1, le=200)
+    ocr_max_pixels: int = Field(default=40_000_000, ge=1, le=100_000_000)
+    ocr_memory_mb: int = Field(default=8_192, ge=256, le=32_768)
+    ocr_tesseract_languages: str = Field(
+        default="chi_sim+eng", min_length=1, max_length=120,
+        pattern=r"^[A-Za-z0-9_]+(?:\+[A-Za-z0-9_]+)*$",
+    )
     permission_timeout_seconds: int = Field(default=28_800, ge=10, le=86_400)
     # ``local_only`` is an explicit single-operator boundary, not authentication.
     # A deployed multi-tenant control plane must opt into signed gateway assertions.
@@ -101,6 +138,8 @@ class Settings(BaseSettings):
     )
     auth_assertion_max_age_seconds: int = Field(default=60, ge=10, le=300)
     auth_assertion_future_skew_seconds: int = Field(default=5, ge=0, le=30)
+    companion_enabled: bool = False
+    companion_public_origin: str | None = Field(default=None, max_length=500)
     media_endpoint: str | None = Field(default=None, max_length=2_000)
     media_api_key: SecretStr | None = None
     channel_webhook_url: str | None = Field(default=None, max_length=2_000)
@@ -175,6 +214,10 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def trusted_gateway_requires_a_signing_secret(self) -> Settings:
+        if self.companion_public_origin is not None:
+            self.companion_public_origin = companion_origin(self.companion_public_origin)
+        if self.companion_enabled and self.companion_public_origin is None:
+            raise ValueError("companion access requires OPHIRA_COMPANION_PUBLIC_ORIGIN")
         if self.auth_mode == "local_only":
             try:
                 loopback = (

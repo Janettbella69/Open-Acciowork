@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-import { errorMessage, listProviders, submitFeedback } from '../api/client'
-import type { FeedbackKind, ProviderProfile, RunMode, RunRetryStrategy } from '../api/types'
+import { errorMessage, listProviders } from '../api/client'
+import type { ProviderProfile, RunMode, RunRetryStrategy } from '../api/types'
 import { useOpportunityRuntime } from '../api/useOpportunityRuntime'
 import { providerIsRunnable } from '../providerEligibility'
 import WorkspaceComposer from './WorkspaceComposer'
@@ -30,12 +30,6 @@ export default function Workspace() {
   const [providers, setProviders] = useState<ProviderProfile[]>([])
   const [providerProfileId, setProviderProfileId] = useState<string | null>(null)
   const [runMode, setRunMode] = useState<RunMode>('standard')
-  const [feedbackByRun, setFeedbackByRun] = useState<Record<string, {
-    busy: FeedbackKind | null
-    submitted: FeedbackKind[]
-    error: string
-  }>>({})
-  const feedbackInFlightRef = useRef(new Set<string>())
   const [retrying, setRetrying] = useState<RunRetryStrategy | null>(null)
   const [retryFailure, setRetryFailure] = useState<{ runId: string; message: string } | null>(null)
   const retryInFlightRef = useRef(false)
@@ -79,64 +73,6 @@ export default function Workspace() {
       }
     }
   }
-
-  const sendFeedback = async (kind: FeedbackKind) => {
-    const run = runtime.run
-    if (!run) return
-    const currentFeedback = feedbackByRun[run.id]
-    if (feedbackInFlightRef.current.has(run.id) || currentFeedback?.busy || currentFeedback?.submitted.includes(kind)) return
-    feedbackInFlightRef.current.add(run.id)
-    setFeedbackByRun((current) => ({
-      ...current,
-      [run.id]: { busy: kind, submitted: current[run.id]?.submitted ?? [], error: '' },
-    }))
-    try {
-      await submitFeedback({
-        project_id: run.project_id,
-        run_id: run.id,
-        kind,
-        user_note: kind === 'conclusion_wrong'
-          ? 'User flagged the conclusion.'
-          : kind === 'evidence_issue'
-            ? 'User flagged the evidence.'
-            : 'User flagged a run failure.',
-      })
-      setFeedbackByRun((current) => {
-        const state = current[run.id] ?? { busy: null, submitted: [], error: '' }
-        return {
-          ...current,
-          [run.id]: {
-            ...state,
-            submitted: state.submitted.includes(kind) ? state.submitted : [...state.submitted, kind],
-          },
-        }
-      })
-      setNotice('Feedback recorded for this run.')
-    } catch (submitError) {
-      setFeedbackByRun((current) => ({
-        ...current,
-        [run.id]: {
-          busy: current[run.id]?.busy ?? null,
-          submitted: current[run.id]?.submitted ?? [],
-          error: errorMessage(submitError),
-        },
-      }))
-    } finally {
-      feedbackInFlightRef.current.delete(run.id)
-      setFeedbackByRun((current) => ({
-        ...current,
-        [run.id]: {
-          busy: null,
-          submitted: current[run.id]?.submitted ?? [],
-          error: current[run.id]?.error ?? '',
-        },
-      }))
-    }
-  }
-
-  const runFeedback = runtime.run
-    ? feedbackByRun[runtime.run.id] ?? { busy: null, submitted: [], error: '' }
-    : { busy: null, submitted: [], error: '' }
 
   const retryRun = async (strategy: RunRetryStrategy) => {
     const source = runtime.run
@@ -229,10 +165,6 @@ export default function Workspace() {
         ? retryFailure.message
         : ''}
       onRetry={(strategy) => void retryRun(strategy)}
-      feedbackBusy={runFeedback.busy}
-      feedbackSubmitted={runFeedback.submitted}
-      feedbackError={runFeedback.error}
-      onFeedback={(kind) => void sendFeedback(kind)}
     />
   )
 }

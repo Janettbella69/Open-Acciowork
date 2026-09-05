@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 from collections.abc import AsyncIterator
@@ -75,6 +76,8 @@ from .commercial_actions import (
     CommercialActionService,
 )
 from .commercial_adapters import HttpsJsonMessageAdapter
+from .companion import CompanionStore
+from .companion_routes import register_companion_routes, validate_companion_request
 from .config import Settings, get_settings
 from .connectors import ConnectorNotFoundError, ConnectorRegistry
 from .constants import (
@@ -105,7 +108,9 @@ from .constants import (
 )
 from .events import EventPublisher
 from .feedback import FeedbackStore
+from .feedback_routes import register_feedback_routes
 from .grants import GrantNotFoundError, PermissionGrantStore
+from .ingest import IngestConfig
 from .intent_watcher import StandingIntentWatcher
 from .memory import FileMemoryProvider, MemoryNotFoundError, public_memory_item
 from .models import (
@@ -124,8 +129,6 @@ from .models import (
     Evidence,
     EvidenceStatusChange,
     EvidenceStatusUpdate,
-    FeedbackCreate,
-    FeedbackItem,
     MemoryCorrection,
     MemoryCreate,
     MemoryDecision,
@@ -170,7 +173,13 @@ from .permissions import PermissionBroker, PermissionNotFoundError
 from .policy import OrgPolicyStore, PolicyDeniedError
 from .presentation_tools import PRESENTATION_COMPONENTS, PRESENTATION_SCHEMA_VERSION
 from .providers import FileSecretVault, ProviderNotFoundError, ProviderRegistry
-from .runs import AgentRuntime, RunManager, RunResumeConflictError, RunRetryConflictError
+from .runs import (
+    AgentRuntime,
+    RunCancelConflictError,
+    RunManager,
+    RunResumeConflictError,
+    RunRetryConflictError,
+)
 from .scheduler import ScheduleService, ScheduleValidationError, compute_next_fire, new_schedule
 from .sdk_adapter import ClaudeAgentRuntime
 from .skills import (
@@ -259,7 +268,7 @@ def create_app(
     channel_reply_adapter: ChannelReplyAdapter | None = None,
 ) -> FastAPI:
     settings = settings or get_settings()
-    ledger = FileLedger(settings.data_dir)
+    ledger = FileLedger(settings.data_dir, ingest_config=IngestConfig.from_settings(settings))
     events = EventPublisher(ledger)
     memory = FileMemoryProvider(
         settings.data_dir / "memory",
@@ -268,6 +277,7 @@ def create_app(
     grants = PermissionGrantStore(settings.data_dir / "grants")
     policy = OrgPolicyStore(settings.data_dir / "org" / "policy.json")
     feedback = FeedbackStore(settings.data_dir / "feedback")
+    companions = CompanionStore(settings.data_dir / "companion-devices")
     authenticator = PrincipalAuthenticator(
         settings,
         AuthNonceStore(settings.data_dir / "auth" / "nonces"),
@@ -338,6 +348,7 @@ def create_app(
         policy=policy,
         settings=settings,
         channel_delivery=channel_delivery,
+        feedback=feedback,
     )
     scheduler = ScheduleService(
         ledger,
@@ -357,6 +368,7 @@ def create_app(
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         await runs.recover_interrupted()
+        feedback.reconcile_terminal(ledger)
         await channel_delivery.start()
         try:
             await scheduler.start()
@@ -391,6 +403,7 @@ def create_app(
     application.state.grants = grants
     application.state.policy = policy
     application.state.feedback = feedback
+    application.state.companions = companions
     application.state.authenticator = authenticator
     application.state.project_access = project_access
     application.state.channel_identity_bindings = channel_identity_bindings
@@ -494,11 +507,36 @@ def create_app(
             PrincipalRole.ADMIN,
         }
 
+    register_feedback_routes(
+        application, feedback=feedback, ledger=ledger, skills=skills,
+        require_project_authorization=require_project_authorization,
+        project_is_visible=project_is_visible,
+    )
+    register_companion_routes(
+        application, settings=settings, store=companions, ledger=ledger, runs=runs,
+        permissions=permissions, notifications=notifications, access=project_access,
+        require_project_authorization=require_project_authorization,
+    )
+
     @application.middleware("http")
     async def authenticate_control_plane(request: Request, call_next):
         path = request.url.path
         if not (path == "/api" or path.startswith("/api/")):
             return await call_next(request)
+        # This is a deliberately separate, project-scoped device API. Its cookie
+        # is NEVER accepted by the normal control-plane routes below.
+        if path == "/api/companion" or path.startswith("/api/companion/"):
+            try:
+                validate_companion_request(settings, request)
+            except HTTPException as exc:
+                return JSONResponse(
+                    status_code=exc.status_code, content={"detail": exc.detail},
+                    headers={"Cache-Control": "no-store"},
+                )
+            response = await call_next(request)
+            response.headers["Cache-Control"] = "no-store"
+            response.headers["Referrer-Policy"] = "no-referrer"
+            return response
         # Feishu has its own body-bound signature.  In trusted-gateway mode the
         # handler validates it, then refuses dispatch until a durable channel
         # identity mapping exists; it never falls back to an arbitrary project.
@@ -511,6 +549,18 @@ def create_app(
             return JSONResponse(
                 status_code=status.HTTP_403_FORBIDDEN,
                 content={"detail": "local-only control plane rejects proxied requests"},
+            )
+        if (
+            settings.auth_mode == "local_only" and settings.companion_enabled
+            and (request.url.scheme == "https" or any(
+                name in request.headers for name in ("x-forwarded-host", "x-forwarded-proto")
+            ))
+        ):
+            return JSONResponse(
+                status_code=403,
+                content={
+                    "detail": "paired local deployments expose only the companion API over HTTPS",
+                },
             )
         if settings.auth_mode == "local_only":
             try:
@@ -939,7 +989,9 @@ def create_app(
         if not content:
             raise HTTPException(status_code=400, detail="File is empty")
         try:
-            return ledger.save_upload(project_id, filename, content, mime=mime)
+            return await asyncio.to_thread(
+                ledger.save_upload, project_id, filename, content, mime=mime,
+            )
         except (LedgerNotFoundError, ValueError) as exc:
             raise HTTPException(
                 status_code=404,
@@ -1327,6 +1379,8 @@ def create_app(
     async def cancel_run(run_id: str) -> RunRecord:
         try:
             return await runs.cancel(run_id)
+        except RunCancelConflictError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
         except (LedgerNotFoundError, ValueError) as exc:
             raise HTTPException(status_code=404, detail="Run not found") from exc
 
@@ -1930,57 +1984,6 @@ def create_app(
             return grants.revoke(grant_id)
         except (GrantNotFoundError, ValueError) as exc:
             raise HTTPException(status_code=404, detail="Grant not found") from exc
-
-    @application.post(
-        "/api/feedback",
-        response_model=FeedbackItem,
-        status_code=status.HTTP_201_CREATED,
-    )
-    async def create_feedback(
-        request: Request,
-        payload: FeedbackCreate,
-    ) -> FeedbackItem:
-        project_id = payload.project_id
-        if payload.run_id is not None:
-            try:
-                run = ledger.get_run(payload.run_id)
-            except (LedgerNotFoundError, ValueError) as exc:
-                raise HTTPException(status_code=404, detail="Run not found") from exc
-            if project_id is not None and project_id != run.project_id:
-                raise HTTPException(status_code=400, detail="Run is outside feedback project")
-            project_id = run.project_id
-        if project_id is not None:
-            require_project_authorization(
-                project_id,
-                _request_principal(request),
-                ProjectPermission.PROJECT_WRITE,
-            )
-        normalized = payload.model_copy(update={"project_id": project_id})
-        return feedback.add(normalized, principal=_request_principal(request))
-
-    @application.get("/api/feedback", response_model=list[FeedbackItem])
-    async def list_feedback(request: Request) -> list[FeedbackItem]:
-        principal = _request_principal(request)
-        visible: list[FeedbackItem] = []
-        for item in feedback.list():
-            if item.project_id is not None:
-                if project_is_visible(item.project_id, principal):
-                    visible.append(item)
-                continue
-            if principal is None:
-                if item.identity_binding == "local_only":
-                    visible.append(item)
-                continue
-            if (
-                item.identity_binding == "authenticated_principal"
-                and item.tenant_id == principal.tenant_id
-                and (
-                    item.principal_id == principal.principal_id
-                    or principal.role in {PrincipalRole.OWNER, PrincipalRole.ADMIN}
-                )
-            ):
-                visible.append(item)
-        return visible
 
     @application.post(
         "/api/projects/{project_id}/constraints",

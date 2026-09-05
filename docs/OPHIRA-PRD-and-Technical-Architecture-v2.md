@@ -301,7 +301,7 @@ Accio 同时也**抬高了 table stakes**：权限四态与审计日志、分层
 - **项目记录**：目标、已确认约束、决策、开放问题和经批准的记忆。
 - **Skills**：已安装能力、适用场景、来源、启停、测试、不可变版本历史与人工回滚；Run 使用内容哈希快照和只读运行时视图。
 - **自动化**：已连接后端计划任务、standing intent、自主 watcher 和通知收件箱；真实 Provider/数据源条件评估与真实渠道投递仍待验收。
-- **设置**：已有 Provider、Key、连接器与组织策略控制面；首个 `send_message` HTTPS JSON adapter 已有本地实现，但真实 test-account E2E、更多业务 adapter、移动配对和桌面桥仍缺。
+- **设置**：已有 Provider、Key、连接器与组织策略控制面；首个 `send_message` HTTPS JSON adapter 及项目范围移动设备配对已有本地实现，但真实 test-account/手机 HTTPS E2E、更多业务 adapter、移动推送和桌面桥仍缺。
 
 ### 3.7 首发范围（v2.2 更名：抛弃 MVP/demo 概念，教材口径——做真产品，只是还没上线）
 
@@ -316,7 +316,7 @@ Accio 同时也**抬高了 table stakes**：权限四态与审计日志、分层
 
 #### P1：紧随其后（v2.1 重排）
 
-- 在真实飞书/Lark 租户验收已实现的回复与 durable identity mapping，再补微信渠道；为移动控制面增加认证配对、推送与设备信任（FR-24/25）。
+- 在真实飞书/Lark 租户验收已实现的回复与 durable identity mapping，再补微信渠道；验收移动控制面已有的配对/设备信任，补跨进程持久等待与推送（FR-24/25）。
 - 用真实 Provider/数据源验证 standing intent 自主 watcher 的长时运行；补齐真实渠道投递（FR-26、§4.16）。
 - 扩展 GUI L1/L2 的真实浏览器回归并实现 L3；L1/L2 smoke acceptance 已于 2026-09-03 通过，重定向/Service Worker 等攻击矩阵当前主要由确定性测试覆盖（FR-20）。
 - 为媒体 MCP 配置并认证真实生成商；补齐视频能力和成品质量验证（FR-27）。
@@ -371,7 +371,7 @@ Accio 同时也**抬高了 table stakes**：权限四态与审计日志、分层
 | FR-22 | P1 | 组织治理 | 组织策略约束 Provider、Skill、浏览器、域和渠道，运行仍由一个主 Agent 负责 | **部分实现**：OrgPolicy、request-bound trusted-gateway principal、持久项目 membership/role 与 Provider/Skill/browser/channel 运行时门禁已有代码/测试；当前仅为单 deployment tenant，全球 store 未物理分租户且 `multi_tenant=false` |
 | FR-23 | P0 | Web 能力降级 | 原生 Web 不可用时可走安全检索/抓取 MCP；能力等级显式呈现 | **部分实现**：Web MCP 有 URL/重定向/SSRF 防护与测试；真实搜索服务配置和 Provider 降级 E2E 未验证 |
 | FR-24 | P1 | IM 渠道 | 群内 @ 触发同一主 Agent Run，安全接收并回帖；支持权限与账本关联 | **部分实现**：飞书入站安全门、Run-bound 官方 reply adapter、durable delivery/retry，以及 signed-body tenant/chat/user → principal/project binding 均已本地实现并测试；尚无真实租户 E2E，微信未实现 |
-| FR-25 | P1 | 移动远程审批 | 手机远程查看/批准权限、接收推送并发起任务，具备认证配对和设备信任 | **部分实现**：只有复用现有 API 的响应式远程控制面；没有认证配对、设备绑定或推送 |
+| FR-25 | P1 | 移动远程审批 | 手机远程查看/批准权限、接收推送并发起任务，具备认证配对和设备信任 | **部分实现**：项目范围配对、双端验证码批准、私有 cookie、设备过期/撤销、单次审批和可选任务发起已有本地闭环；推送、跨进程持久等待、真实手机 HTTPS 验收仍未完成 |
 | FR-26 | P1 | 主动巡检与前瞻意图 | standing intent 带冷却、次数、过期和预算；条件成立才通知 | **已实现（本地代码/离线测试）**：用户授权、持久化调度/恢复、冷却/过期/触发与金额预算、Provider readiness、单主 Agent 条件评估、静默未命中、受控 trigger/inbox 与失败退避已闭环；尚未证明真实 Provider/数据源的判断质量与长时稳定性 |
 | FR-27 | P1 | 图像/视频生成 | 经认证生成商产生媒体，安全落盘为 Artifact，并与来源 Evidence/Run 关联 | **部分实现**：安全通用媒体接入、下载校验和台账关联已有代码/测试；未配置或验证真实生成商，不能宣称真实图像/视频生成 |
 | FR-28 | P2 | 结构化追问表单 | Agent 发起结构化问题/选项，用户答案回到同一 Run 并可沉淀约束 | **已实现**（本地代码/测试） |
@@ -777,7 +777,7 @@ v1.1 规划仍缺的事件：`artifact.updated`、`evidence.added`、`decision.r
 | 🚧 部分实现 | Browser | L1/L2 后端、域策略、SSRF/重定向防护、截图证据与 Chrome Connector 门禁已实现；2026-09-03 真实 Chromium/Chrome-CDP smoke acceptance 均通过；攻击边界仍主要靠确定性测试，L3 未实现 |
 | 🚧 部分实现 | Connectors/Channels | Connector catalog/vault/health/revoke、首个 HTTPS JSON `send_message` adapter、飞书安全入站、Run-bound 回复和 durable identity mapping 已本地实现；真实商业 test account 与真实飞书租户 E2E 均未完成，微信未实现 |
 | 🚧 部分实现 | Commercial actions | Host read receipt → server-hydrated stage → 独立 reviewer → apply/cancel、可信网关 tenant/principal/project role、策略版本/外部版本重检、跨进程原子审计、稳定幂等键和 execution receipt 已实现；匹配的 `send_message` 可走 HTTPS JSON adapter，重试/并发/双击/成功后本地落账失败恢复均有离线测试。仍未在授权 sandbox/test account 对真实第三方 endpoint 完成 E2E，其他商业 operation/connector 仍诚实停在 `not_executed` |
-| 🚧 部分实现 | 主动与移动 | Scheduler、自动化 MCP、standing intent 自主 watcher/恢复/预算/静默未命中、Inbox 和移动响应式控制面存在；真实 Provider/数据源长时质量、认证配对和推送未验证/未实现 |
+| 🚧 部分实现 | 主动与移动 | Scheduler、自动化 MCP、standing intent 自主 watcher/恢复/预算/静默未命中、Inbox 和项目范围移动配对/设备撤销存在；真实 Provider/数据源长时质量、手机 HTTPS 验收、跨进程持久等待和推送未完成 |
 | 🚧 部分实现 | Media/Office | 媒体安全接入与台账关联、Office 文件结构验证存在；无已配置真实媒体生成商，也无 LibreOffice 可视 QA |
 | ✅ 实现并有调用证明 | Skills | 发现、启停、测试、安全校验、内容寻址历史、存储配额、Run 快照、只读运行时物化、活跃会话租约和人工回滚均有本地测试；2026-09-04 DeepSeek Green Path 连续 3 轮实际调用当前 Plugin Skill，回滚后真端点重跑仍待验收 |
 | ❌ 未证明 | 生产 E2E | Browser L1/L2 与 DeepSeek Agent Green Path 已分别完成真实验收；仍未证明真实商业 connector 副作用全链、真实飞书租户、真实生成商或生产多租户可用，所有上线声明仍须独立验收 |
@@ -802,7 +802,7 @@ v1.1 规划仍缺的事件：`artifact.updated`、`evidence.added`、`decision.r
 - **心跳巡检（部分实现）**：Schedule 可复用项目上下文并支持静默结果；完整凭据失效/渠道通知闭环仍待验证。
 - **前瞻意图（本地闭环已实现）**：standing intent 已有用户授权的存储/API/MCP、冷却期、最大触发次数、过期时间、每次/总检查预算与自主 watcher；未命中只产生 `HEARTBEAT_OK` 并静默，命中只能通过绑定当前 Run 的受控 trigger 进收件箱。真实 Provider/数据源的判断质量与长时稳定性未验证。
 - **通知收件箱 + 渠道投递（部分实现）**：集中收件箱存在；尚未证明真实 IM/手机投递。
-- **移动远程审批（部分实现）**：已有复用权限/Run API 的响应式控制面；认证配对、设备绑定和推送未实现。
+- **移动远程审批（部分实现）**：已有独立项目范围 companion API、配对批准、设备过期/撤销和单次审批/任务控制；真实手机 HTTPS、跨进程持久等待及推送仍未完成。部署与验证边界见 `docs/mobile-companion.md`。
 - **IM 渠道（部分实现）**：飞书入站安全门、同一主 Agent Run、Run-bound 官方回复、durable delivery/retry 和 signed-body identity mapping 已本地闭环；尚无真实飞书/Lark 租户 E2E，微信未实现。
 
 ---
@@ -834,7 +834,7 @@ v1.1 规划仍缺的事件：`artifact.updated`、`evidence.added`、`decision.r
 ### Phase 3：主动服务、渠道与连接器（v2.1 扩充）
 
 - 用真实 Provider/数据源对已有 standing intent 自主 watcher 做长时验证，并验证通知收件箱/真实渠道投递。
-- 在真实飞书/Lark 租户验收已有回复、身份绑定与权限行为，再实现微信；移动控制面增加认证配对、设备信任和推送。
+- 在真实飞书/Lark 租户验收已有回复、身份绑定与权限行为，再实现微信；验收移动配对/设备信任，补跨进程持久等待和推送。
 - 扩展 L1/L2 真实浏览器回归；实现 L3 所需桌面宿主与 OS 权限治理。
 - 为 Connector 扩展真实垂直业务适配器并完成授权 test-account E2E；为 Skill Registry 增加生产级备份、恢复演练与更细粒度审计。
 

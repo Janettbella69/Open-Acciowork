@@ -27,8 +27,10 @@ import type {
   OrgPolicy,
   PermissionGrant,
   PendingPermissionView,
-  FeedbackKind,
+  FeedbackCreate,
   FeedbackItem,
+  FeedbackReview,
+  FeedbackStatus,
   CommercialActionRecord,
   CommercialReviewDecision,
 } from './types'
@@ -438,13 +440,20 @@ export function revokePermissionGrant(id: string): Promise<PermissionGrant> {
   return request<PermissionGrant>(`/api/permissions/grants/${id}/revoke`, { method: 'POST' })
 }
 
-export function submitFeedback(input: {
-  project_id?: string | null
-  run_id?: string | null
-  kind: FeedbackKind
-  user_note: string
-}): Promise<FeedbackItem> {
+export function submitFeedback(input: FeedbackCreate): Promise<FeedbackItem> {
   return request<FeedbackItem>('/api/feedback', { method: 'POST', body: JSON.stringify(input) })
+}
+
+export function listFeedback(projectId: string, status?: FeedbackStatus, offset = 0): Promise<FeedbackItem[]> {
+  const query = new URLSearchParams({ project_id: projectId, limit: '200', offset: String(offset) })
+  if (status) query.set('status', status)
+  return request<FeedbackItem[]>(`/api/feedback?${query}`)
+}
+
+export function reviewFeedback(id: string, input: FeedbackReview): Promise<FeedbackItem> {
+  return request<FeedbackItem>(`/api/feedback/${encodeURIComponent(id)}/review`, {
+    method: 'POST', body: JSON.stringify(input),
+  })
 }
 
 export function getCommercialAction(

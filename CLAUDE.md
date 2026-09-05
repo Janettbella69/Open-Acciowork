@@ -95,7 +95,7 @@ npm run lint && npm run build
 
 ## 数据与验证纪律
 
-- **PDF 与图片统一先转 Markdown 再进 Agent**（教材口径：PaddleOCR-VL；需要精确坐标溯源用 TextIn）。产品运行时的 OCR 摄取管线尚未实现（见 docs/textbook-audit-2026-08-24.md 开放缺口），实现前不要让 Agent 直接啃多页 PDF。
+- **PDF 与图片统一先转 Markdown 再进 Agent**（教材口径：PaddleOCR-VL；需要精确坐标溯源用 TextIn）。上传已接入有界 Markdown 摄取与上传原件 Read 门禁，VL 需显式配置本地模型；缺工具、空白页和截断必须如实标记，不得推断缺失内容。真实 VL 质量、生产解码隔离与 TextIn 坐标验收仍未完成，见 `docs/ocr-ingestion.md`，不能沿用历史审计的“完全未实现”描述或宣称已全量验收。
 - 改完功能让 AI 做端到端验证：Web 面优先用浏览器真实走一遍（真实 query/真实文件），API 面跑 Green Path；只跑单测不算端到端。
 - `backend/data/` 整体 gitignored（项目账本、runs、providers、secrets）；**绝不读取或提交 `backend/data/secrets/`**，测试一律用 `tmp_path`。
 - 声称"完成/修好/通过"之前，先在对应目录实际跑测试/lint 并给出输出证据（AGENTS.md §Verification）。

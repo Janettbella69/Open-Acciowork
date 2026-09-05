@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { errorMessage, setEvidenceStatus } from '../api/client'
 import type { Evidence, EvidenceStatus, OpportunityProject } from '../api/types'
 import { useLanguage, useT } from '../i18n'
+import FeedbackForm from './FeedbackForm'
 
 const kindLabels: Record<Evidence['kind'], string> = {
   observed_fact: 'Observed fact',
@@ -18,10 +19,11 @@ const statusLabels: Record<EvidenceStatus, string> = {
 
 type EvidenceDrawerProps = {
   project: OpportunityProject
+  runId?: string
   onChanged: () => void
 }
 
-export default function EvidenceDrawer({ project, onChanged }: EvidenceDrawerProps) {
+export default function EvidenceDrawer({ project, runId, onChanged }: EvidenceDrawerProps) {
   const t = useT()
   const language = useLanguage()
   const [kindFilter, setKindFilter] = useState<'all' | Evidence['kind']>('all')
@@ -167,6 +169,11 @@ export default function EvidenceDrawer({ project, onChanged }: EvidenceDrawerPro
               >{t('Restore')}</button>
             )}
           </div>
+          <FeedbackForm
+            key={`${project.id}:${item.id}:${item.source_run_id ?? runId ?? ''}`}
+            target={{ project_id: project.id, evidence_id: item.id, run_id: item.source_run_id ?? runId, kind: 'evidence_issue' }}
+            label="Report evidence issue"
+          />
         </article>
       )) : (
         <p className="evidence-drawer-empty">
