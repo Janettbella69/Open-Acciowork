@@ -559,7 +559,7 @@ async def test_receipt_replay_tool_and_read_only_api_enforce_scope_and_integrity
     assert denied["is_error"] is True
     assert _parse(denied)["error"]["code"] == "SOURCE_RECEIPT_SCOPE_MISMATCH"
 
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://localhost") as client:
         listed = await client.get(f"/api/projects/{project.id}/source-receipts")
         replay = await client.get(
             f"/api/projects/{project.id}/source-receipts/{receipt.id}"

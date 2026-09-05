@@ -216,7 +216,7 @@ def test_heartbeat_prompt_wraps_and_feishu_challenge() -> None:
 @pytest.mark.asyncio
 async def test_org_policy_and_inbox_apis(tmp_path: Path) -> None:
     app = create_app(Settings(data_dir=tmp_path), runtime=FakeRuntime())
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://localhost") as client:
         created = await client.post(
             "/api/projects",
             json={"name": "Kettle", "objective": "Validate"},

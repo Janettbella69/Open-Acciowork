@@ -181,7 +181,7 @@ async def test_notification_webhook_requires_https(tmp_path: Path) -> None:
 @pytest.mark.asyncio
 async def test_feishu_webhook_fails_closed_without_encrypt_key(tmp_path: Path) -> None:
     app = create_app(Settings(data_dir=tmp_path), runtime=FakeRuntime())
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://localhost") as client:
         response = await client.post(
             "/api/channels/feishu",
             json={"type": "url_verification", "challenge": "token-1"},
@@ -204,7 +204,7 @@ async def test_signed_challenge_is_idempotent(tmp_path: Path) -> None:
     timestamp = str(int(time.time()))
     headers = signed_headers(body, key, timestamp=timestamp, nonce="nonce-1")
 
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://localhost") as client:
         first = await client.post("/api/channels/feishu", content=body, headers=headers)
         duplicate = await client.post("/api/channels/feishu", content=body, headers=headers)
 
@@ -227,7 +227,7 @@ async def test_encrypted_signed_challenge_is_decrypted(tmp_path: Path) -> None:
     timestamp = str(int(time.time()))
     headers = signed_headers(body, key, timestamp=timestamp, nonce="encrypted-nonce")
 
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://localhost") as client:
         response = await client.post("/api/channels/feishu", content=body, headers=headers)
 
     assert response.status_code == 200
@@ -245,7 +245,7 @@ async def test_feishu_rejects_oversized_and_non_object_bodies(tmp_path: Path) ->
     list_body = b"[]"
     list_headers = signed_headers(list_body, key, timestamp=timestamp, nonce="list")
 
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://localhost") as client:
         non_object = await client.post(
             "/api/channels/feishu", content=list_body, headers=list_headers
         )
@@ -285,7 +285,7 @@ async def test_unmentioned_group_message_is_ignored(tmp_path: Path) -> None:
     timestamp = str(int(time.time()))
     headers = signed_headers(body, key, timestamp=timestamp, nonce="nonce-ignore")
 
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://localhost") as client:
         response = await client.post("/api/channels/feishu", content=body, headers=headers)
 
     assert response.status_code == 200
@@ -324,7 +324,7 @@ async def test_verified_feishu_message_binds_run_before_one_idempotent_reply(
     timestamp = str(int(time.time()))
     headers = signed_headers(body, key, timestamp=timestamp, nonce="reply-nonce")
 
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://localhost") as client:
         first = await client.post(
             f"/api/channels/feishu?project_id={project.id}",
             content=body,
@@ -379,7 +379,7 @@ async def test_feishu_message_requires_outbound_configuration_and_policy(
     )
     headers = signed_headers(body, key, timestamp=timestamp, nonce="policy-off")
     async with AsyncClient(
-        transport=ASGITransport(app=policy_off), base_url="http://test"
+        transport=ASGITransport(app=policy_off), base_url="http://localhost"
     ) as client:
         denied = await client.post("/api/channels/feishu", content=body, headers=headers)
 
@@ -390,7 +390,7 @@ async def test_feishu_message_requires_outbound_configuration_and_policy(
     not_configured.state.policy.save(OrgPolicy(channel_delivery_enabled=True))
     headers = signed_headers(body, key, timestamp=timestamp, nonce="not-configured")
     async with AsyncClient(
-        transport=ASGITransport(app=not_configured), base_url="http://test"
+        transport=ASGITransport(app=not_configured), base_url="http://localhost"
     ) as client:
         unavailable = await client.post(
             "/api/channels/feishu", content=body, headers=headers
@@ -425,7 +425,7 @@ async def test_invalid_feishu_reply_scope_releases_the_replay_claim(tmp_path: Pa
     timestamp = str(int(time.time()))
     headers = signed_headers(body, key, timestamp=timestamp, nonce="bad-target")
 
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://localhost") as client:
         first = await client.post("/api/channels/feishu", content=body, headers=headers)
         second = await client.post("/api/channels/feishu", content=body, headers=headers)
 

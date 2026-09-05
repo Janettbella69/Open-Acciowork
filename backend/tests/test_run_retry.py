@@ -105,7 +105,7 @@ async def test_retry_derives_source_configuration_and_preserves_project_work(
         finished_at=utc_now(),
     )
 
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://localhost") as client:
         response = await client.post(
             f"/api/runs/{source.id}/retry",
             json={"strategy": strategy},
@@ -143,7 +143,7 @@ async def test_retry_keeps_an_explicitly_providerless_source_providerless(tmp_pa
     ledger.update_run(source.id, status=RunStatus.FAILED, finished_at=utc_now())
     add_ready_provider(app, "new-default")
 
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://localhost") as client:
         response = await client.post(
             f"/api/runs/{source.id}/retry",
             json={"strategy": "new_branch"},
@@ -173,7 +173,7 @@ async def test_retry_rejects_invalid_sources_and_maps_provider_failures(tmp_path
     )
     ledger.update_run(missing_provider.id, status=RunStatus.FAILED, finished_at=utc_now())
 
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://localhost") as client:
         missing = await client.post(
             "/api/runs/run_missing/retry",
             json={"strategy": "new_branch"},

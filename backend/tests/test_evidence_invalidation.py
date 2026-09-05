@@ -153,7 +153,7 @@ async def test_evidence_endpoints_query_and_invalidate(tmp_path: Path) -> None:
     ledger = app.state.ledger
     project, evidence_a, _b, decision_both, _u = seed_project(ledger)
 
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://localhost") as client:
         listing = await client.get(f"/api/projects/{project.id}/evidence")
         assert listing.status_code == 200
         assert {item["id"] for item in listing.json()} == {evidence_a.id, _b.id}

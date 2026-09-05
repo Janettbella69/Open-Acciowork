@@ -20,3 +20,18 @@ Updated: 2026-09-04
 Historical rows were removed from this file so search results cannot present superseded
 fixed-role Agents or obsolete delivery claims as current requirements. Git history remains the
 source for the 2026-08-05 snapshot.
+
+## Review fixes — 2026-09-05
+
+These scoped fixes supplement the FR inventory; they do not certify the remaining
+commercial, channel, media, or production acceptance requirements.
+
+| Requirement | Status | Verification |
+| --- | --- | --- |
+| Reject untrusted Host/Origin requests before local API reads or writes | Delivered | Tests cover bodyless writes, host rebinding inputs, opaque/duplicate origins, Referer/Fetch metadata, CORS preflight, IPv4/IPv6 and legitimate frontend/CLI requests. |
+| Keep delayed project/run responses and SSE callbacks within their selected conversation | Delivered | Hook regression tests cover project refresh, terminal refresh, delayed creation/discovery, cancellation, selection changes and unmount; workspace notices and Provider selection also check navigation ownership. |
+| Recover interrupted runs without replaying work or interrupting a live worker | Delivered | Startup/API tests cover queued/running/waiting/paused recovery, permission expiry, preserved artifacts/session, SSE replay and retry, cancellation, idempotence, competing worker leases, shutdown and interrupted event persistence. |
+
+Validation: backend 585 passed / 8 live-only skipped; frontend 97 passed; Ruff,
+ESLint, TypeScript and production build passed. The existing bundle-size warning
+remains. Real Provider and external connector E2Es were not rerun for these fixes.

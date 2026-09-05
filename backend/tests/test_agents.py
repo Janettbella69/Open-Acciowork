@@ -60,7 +60,7 @@ def test_template_creation_generates_agent_core_files(tmp_path: Path) -> None:
 @pytest.mark.asyncio
 async def test_agent_api_create_and_update_bumps_revision(tmp_path: Path) -> None:
     app = create_app(Settings(data_dir=tmp_path), runtime=FakeRuntime())
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://localhost") as client:
         response = await client.post(
             "/api/agents",
             json={"name": "小采", "template": "sourcing"},

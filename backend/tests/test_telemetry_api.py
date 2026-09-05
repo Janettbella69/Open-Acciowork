@@ -26,7 +26,7 @@ async def test_run_telemetry_endpoint_reads_the_durable_ledger(tmp_path: Path) -
 
     async with AsyncClient(
         transport=ASGITransport(app=app),
-        base_url="http://test",
+        base_url="http://localhost",
     ) as client:
         response = await client.get(f"/api/runs/{run.id}/telemetry")
 
@@ -47,7 +47,7 @@ async def test_run_telemetry_endpoint_returns_404_for_an_unknown_run(
 
     async with AsyncClient(
         transport=ASGITransport(app=app),
-        base_url="http://test",
+        base_url="http://localhost",
     ) as client:
         response = await client.get("/api/runs/run_missing/telemetry")
 

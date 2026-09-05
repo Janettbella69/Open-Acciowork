@@ -537,6 +537,7 @@ class FileLedger:
         skill_snapshot: list[dict[str, Any]] | None = None,
         max_budget_usd: float | None = None,
         principal: PrincipalContext | None = None,
+        run_id: str | None = None,
     ) -> RunRecord:
         project = self.get_project(project_id)
         identity: dict[str, Any] = {}
@@ -562,6 +563,7 @@ class FileLedger:
             project_id=project_id,
             prompt=prompt,
             **identity,
+            **({"id": self._safe_id(run_id)} if run_id is not None else {}),
             agent_id=agent_id,
             schedule_id=schedule_id,
             standing_intent_id=standing_intent_id,
@@ -582,6 +584,8 @@ class FileLedger:
             status=run.status,
         )
         with self._lock_for(run.id):
+            if self._run_path(run.id).exists():
+                raise ValueError("run already exists")
             self._atomic_write(self._run_path(run.id), run)
             self._atomic_write(self._summary_path(run.id), summary)
             self._append_manifest(run, 0)
@@ -593,9 +597,13 @@ class FileLedger:
             raise LedgerNotFoundError(run_id)
         return RunRecord.model_validate_json(path.read_text(encoding="utf-8"))
 
-    def list_runs(self, project_id: str) -> list[RunRecord]:
-        self.get_project(project_id)
-        runs = [run for run in self._iter_runs() if run.project_id == project_id]
+    def list_runs(self, project_id: str | None = None) -> list[RunRecord]:
+        if project_id is not None:
+            self.get_project(project_id)
+        runs = [
+            run for run in self._iter_runs()
+            if project_id is None or run.project_id == project_id
+        ]
         return sorted(runs, key=lambda run: run.created_at, reverse=True)
 
     def _iter_runs(self) -> list[RunRecord]:

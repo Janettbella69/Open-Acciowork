@@ -155,7 +155,7 @@ async def test_full_lifecycle_is_human_gated_idempotent_and_truthful(tmp_path: P
     project_id, run_id, session_id = create_source(app.state.ledger)
     allow_price_actions(app)
 
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://localhost") as client:
         injected = stage_json(run_id, session_id)
         injected["status"] = "approved"
         with pytest.raises(ValueError):
@@ -242,7 +242,7 @@ async def test_local_only_review_uses_the_explicit_loopback_operator(tmp_path: P
     project_id, run_id, session_id = create_source(app.state.ledger)
     allow_price_actions(app)
 
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://localhost") as client:
         staged = stage_action(app, project_id, run_id, session_id)
         response = await client.post(
             f"/api/projects/{project_id}/commercial-actions/{staged.id}/review",
@@ -264,7 +264,7 @@ async def test_forged_cross_project_and_cross_session_ids_fail_closed(tmp_path: 
     other_project, other_run, other_session = create_source(app.state.ledger, name="Lamp")
     allow_price_actions(app)
 
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://localhost") as client:
         action_id = stage_action(app, project_id, run_id, session_id).id
 
         forged = await client.get(
@@ -305,7 +305,7 @@ async def test_rejected_action_can_never_be_applied(tmp_path: Path) -> None:
     project_id, run_id, session_id = create_source(app.state.ledger)
     allow_price_actions(app)
 
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://localhost") as client:
         action_id = stage_action(app, project_id, run_id, session_id).id
         rejected = await client.post(
             f"/api/projects/{project_id}/commercial-actions/{action_id}/review",
@@ -331,7 +331,7 @@ async def test_apply_rechecks_latest_policy_numeric_limits_and_project_revision(
     project_id, run_id, session_id = create_source(app.state.ledger)
     allow_price_actions(app)
 
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://localhost") as client:
         approved = await stage_and_approve(app, client, project_id, run_id, session_id)
         action_id = approved["id"]
 

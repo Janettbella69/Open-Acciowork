@@ -58,12 +58,15 @@ export function useOpportunityRuntime() {
   }, [])
 
   const refreshProject = useCallback(async (projectId: string) => {
+    const selection = selectionRef.current
     const updated = await getProject(projectId)
-    setProject(updated)
+    if (selectionRef.current !== selection) return
+    setProject((current) => current?.id === projectId ? updated : current)
     setProjects((current) => [updated, ...current.filter((item) => item.id !== updated.id)])
   }, [])
 
   const handleEvent = useCallback((event: OphiraEvent) => {
+    if (event.run_id !== runRef.current?.id) return
     const status = event.data.status
     if (typeof status === 'string') {
       setRun((current) => {
@@ -149,6 +152,7 @@ export function useOpportunityRuntime() {
     }
 
     if (['run.completed', 'run.failed', 'run.cancelled'].includes(event.type)) {
+      const selection = selectionRef.current
       terminalRef.current = true
       setConnection('closed')
       setHistoryLoading(false)
@@ -156,6 +160,7 @@ export function useOpportunityRuntime() {
       void Promise.all([
         refreshProject(event.project_id),
         getRun(event.run_id).then((record) => {
+          if (selectionRef.current !== selection || runRef.current?.id !== record.id) return
           runRef.current = record
           setRun(record)
         }),
@@ -166,14 +171,17 @@ export function useOpportunityRuntime() {
   }, [refreshProject])
 
   const connectToRun = useCallback(async (nextRun: RunRecord) => {
+    const selection = selectionRef.current
     closeStream()
     terminalRef.current = false
     setConnection('connecting')
     const protocol = await getProtocol()
+    if (selectionRef.current !== selection || runRef.current?.id !== nextRun.id) return
     const source = new EventSource(runEventUrl(nextRun.id))
     eventSourceRef.current = source
 
     const listener = (message: Event) => {
+      if (selectionRef.current !== selection || eventSourceRef.current !== source) return
       try {
         handleEvent(JSON.parse((message as MessageEvent<string>).data) as OphiraEvent)
       } catch {
@@ -181,9 +189,15 @@ export function useOpportunityRuntime() {
       }
     }
     protocol.event_types.forEach((eventType) => source.addEventListener(eventType, listener))
-    source.onopen = () => setConnection('live')
+    source.onopen = () => {
+      if (selectionRef.current === selection && eventSourceRef.current === source) {
+        setConnection('live')
+      }
+    }
     source.onerror = () => {
-      if (!terminalRef.current) setConnection('reconnecting')
+      if (selectionRef.current === selection && eventSourceRef.current === source && !terminalRef.current) {
+        setConnection('reconnecting')
+      }
     }
   }, [closeStream, handleEvent])
 
@@ -194,7 +208,7 @@ export function useOpportunityRuntime() {
     agentId?: string | null,
     providerProfileId?: string | null,
   ) => {
-    selectionRef.current += 1
+    const selection = ++selectionRef.current
     closeStream()
     setStarting(true)
     setError('')
@@ -207,20 +221,24 @@ export function useOpportunityRuntime() {
     sawReasoningDeltaRef.current = false
     try {
       const nextProject = await createProject(brief)
+      if (selectionRef.current !== selection) return null
       setProject(nextProject)
       setProjects((current) => [nextProject, ...current])
       if (files.length) await Promise.all(files.map((file) => uploadProjectFile(nextProject.id, file)))
+      if (selectionRef.current !== selection) return null
       const nextRun = await startRun(nextProject.id, brief, null, mode, providerProfileId, agentId)
+      if (selectionRef.current !== selection) return null
       runRef.current = nextRun
       setRun(nextRun)
       await connectToRun(nextRun)
       return nextRun
     } catch (startError) {
+      if (selectionRef.current !== selection) return null
       setConnection('closed')
       setError(errorMessage(startError))
       throw startError
     } finally {
-      setStarting(false)
+      if (selectionRef.current === selection) setStarting(false)
     }
   }, [closeStream, connectToRun])
 
@@ -233,7 +251,7 @@ export function useOpportunityRuntime() {
   ) => {
     if (!project) return start(brief, files, mode, agentId, providerProfileId)
 
-    selectionRef.current += 1
+    const selection = ++selectionRef.current
     closeStream()
     setStarting(true)
     setError('')
@@ -246,28 +264,33 @@ export function useOpportunityRuntime() {
     sawReasoningDeltaRef.current = false
     try {
       if (files.length) await Promise.all(files.map((file) => uploadProjectFile(project.id, file)))
+      if (selectionRef.current !== selection) return null
       const nextRun = await startRun(project.id, brief, run?.sdk_session_id, mode, providerProfileId, agentId)
+      if (selectionRef.current !== selection) return null
       runRef.current = nextRun
       setRun(nextRun)
       await connectToRun(nextRun)
       return nextRun
     } catch (continueError) {
+      if (selectionRef.current !== selection) return null
       setConnection('closed')
       setError(errorMessage(continueError))
       throw continueError
     } finally {
-      setStarting(false)
+      if (selectionRef.current === selection) setStarting(false)
     }
   }, [closeStream, connectToRun, project, run?.sdk_session_id, start])
 
   const cancel = useCallback(async () => {
     if (!run) return
+    const selection = selectionRef.current
     try {
       const cancelled = await cancelRun(run.id)
+      if (selectionRef.current !== selection) return
       runRef.current = cancelled
       setRun(cancelled)
     } catch (cancelError) {
-      setError(errorMessage(cancelError))
+      if (selectionRef.current === selection) setError(errorMessage(cancelError))
     }
   }, [run])
 
@@ -316,12 +339,14 @@ export function useOpportunityRuntime() {
     answers?: Record<string, string | string[]>,
   ) => {
     if (!run || permissionInFlightRef.current.has(requestId)) return
+    const selection = selectionRef.current
     permissionInFlightRef.current.add(requestId)
     try {
       await resolvePermission(run.id, requestId, decision, answers)
+      if (selectionRef.current !== selection) return
       setPermissions((current) => current.filter((item) => item.id !== requestId))
     } catch (permissionError) {
-      setError(errorMessage(permissionError))
+      if (selectionRef.current === selection) setError(errorMessage(permissionError))
     } finally {
       permissionInFlightRef.current.delete(requestId)
     }
@@ -355,7 +380,6 @@ export function useOpportunityRuntime() {
       setRun(latestRun)
       await connectToRun(latestRun)
       if (selectionRef.current !== selection) {
-        closeStream()
         return null
       }
       if (terminalStatuses.has(latestRun.status)) return latestRun
@@ -425,6 +449,7 @@ export function useOpportunityRuntime() {
       })
     return () => {
       active = false
+      selectionRef.current += 1
       closeStream()
     }
   }, [closeStream])

@@ -13,12 +13,32 @@ the assertion. Unsigned identity-shaped headers and model/tool arguments never c
 principal. In `local_only` mode only direct loopback requests are accepted and the
 server deliberately exposes no authenticated principal.
 
+Local API requests must also carry a loopback `Host`. Browser `Origin` (or `Referer`
+when Origin is absent) must match the request origin or an explicit
+`OPHIRA_CORS_ORIGINS` entry. Missing-source cross-site Fetch requests, duplicate source
+headers, opaque origins, and untrusted hosts/origins return `403` before route execution,
+including bodyless writes and CORS preflights. A CORS `*` is not an authorization grant.
+Direct local CLI clients without browser source headers remain supported. The separately
+signed Feishu callback and trusted-gateway authentication retain their own boundaries.
+
 This is a trusted-principal, single-deployment-tenant boundary, not complete
 multi-tenancy. `GET /api/auth/status` therefore returns `multi_tenant: false` in both
 modes. Global Provider, Agent, Skill, Connector, policy, and automation stores still
 need physical tenant partitioning before a multi-tenant production claim is valid.
 
 ## HTTP flow
+
+Before schedulers and delivery workers start, the backend reconciles interrupted runs.
+A run lease is acquired before publishing its record and held through execution cleanup;
+startup recovery skips leases still owned by another backend worker. Ownerless queued,
+running, permission-waiting, or paused runs become `failed` with `SDK_RUNTIME_FAILED`;
+interrupted cancellation becomes `cancelled`. Existing evidence, artifacts, provider/Skill
+snapshots and SDK session IDs are retained, pending permission prompts are expired, and
+the terminal event is replayable. Recovery does not automatically rerun the Agent or
+reapply commercial actions. The existing retry API can resume the saved SDK session or
+start a new branch after user review. Normal shutdown cancels and drains owned run tasks.
+When first upgrading from a version without run leases, stop the old backend workers
+before starting the new version so untracked live workers cannot be mistaken for orphans.
 
 1. `POST /api/projects` creates the shared opportunity ledger.
 2. `POST /api/projects/{project_id}/runs` starts a single main-Agent run and returns `202` with a run record (optional `mode: "deep_research"`, `provider_profile_id`, `resume_session_id`). The run record pins immutable provider and skill snapshots.

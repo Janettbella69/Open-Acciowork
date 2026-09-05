@@ -62,7 +62,7 @@ async def test_runtime_provider_status_never_returns_the_key(tmp_path: Path) -> 
         ),
         runtime=FakeRuntime(),
     )
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://localhost") as client:
         response = await client.get("/api/runtime/provider")
 
     assert response.status_code == 200
@@ -79,7 +79,7 @@ async def test_runtime_provider_status_never_returns_the_key(tmp_path: Path) -> 
 async def test_project_run_and_protocol_api(tmp_path: Path) -> None:
     runtime = FakeRuntime()
     app = create_app(Settings(data_dir=tmp_path), runtime=runtime)
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://localhost") as client:
         response = await client.get("/api/meta/protocol")
         assert response.status_code == 200
         protocol = response.json()
@@ -144,7 +144,7 @@ async def test_project_run_and_protocol_api(tmp_path: Path) -> None:
 async def test_cancel_interrupts_runtime_and_reaches_terminal_state(tmp_path: Path) -> None:
     runtime = BlockingRuntime()
     app = create_app(Settings(data_dir=tmp_path), runtime=runtime)
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://localhost") as client:
         project = await client.post(
             "/api/projects",
             json={"name": "Kettle", "objective": "Validate"},
@@ -184,7 +184,7 @@ async def test_binary_uploads_reject_declared_oversize_before_buffering(
     path: str,
 ) -> None:
     app = create_app(Settings(data_dir=tmp_path), runtime=FakeRuntime())
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://localhost") as client:
         response = await client.post(
             path,
             content=b"small",
@@ -199,7 +199,7 @@ async def test_skill_history_and_rollback_are_available_through_the_api(
     tmp_path: Path,
 ) -> None:
     app = create_app(Settings(data_dir=tmp_path), runtime=FakeRuntime())
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://localhost") as client:
         first = await client.post(
             "/api/skills/install",
             content=_skill_archive("1.0.0", "Use the first reviewed method."),
@@ -246,7 +246,7 @@ async def test_skill_history_api_distinguishes_input_conflict_and_integrity_erro
     tmp_path: Path,
 ) -> None:
     app = create_app(Settings(data_dir=tmp_path), runtime=FakeRuntime())
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://localhost") as client:
         invalid_id = await client.get("/api/skills/not-a-skill-id/versions")
         missing = await client.get("/api/skills/ophira-tenant:missing/versions")
         application_conflict = await client.post(
@@ -289,7 +289,7 @@ async def test_skill_install_hides_corrupted_registry_state_details(tmp_path: Pa
     app = create_app(Settings(data_dir=tmp_path), runtime=FakeRuntime())
     app.state.skills.registry_state_path.write_text("[]\n", encoding="utf-8")
 
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://localhost") as client:
         response = await client.post(
             "/api/skills/install",
             content=_skill_archive("1.0.0", "Reviewed package."),

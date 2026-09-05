@@ -24,6 +24,7 @@ from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from pathlib import Path
 from typing import Final, Literal
+from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -505,6 +506,69 @@ def _is_loopback(client_host: str | None) -> bool:
         return ipaddress.ip_address(normalized).is_loopback
     except ValueError:
         return False
+
+
+def _http_origin(value: str, *, allow_path: bool = False) -> str:
+    if not value.isascii() or any(char.isspace() for char in value) or "\\" in value:
+        raise AuthenticationError("invalid browser origin")
+    try:
+        parts = urlsplit(value)
+        port = parts.port
+    except ValueError as exc:
+        raise AuthenticationError("invalid browser origin") from exc
+    if (
+        parts.scheme not in {"http", "https"}
+        or not parts.hostname
+        or parts.username is not None
+        or parts.password is not None
+        or "%" in parts.netloc
+        or port == 0
+        or (not allow_path and (parts.path or parts.query or parts.fragment))
+    ):
+        raise AuthenticationError("invalid browser origin")
+    host = parts.hostname
+    if ":" in host:
+        host = f"[{host}]"
+    default_port = 443 if parts.scheme == "https" else 80
+    return f"{parts.scheme}://{host}" + (
+        f":{port}" if port is not None and port != default_port else ""
+    )
+
+
+def validate_local_request_source(
+    headers: Iterable[tuple[str, str]],
+    *,
+    scheme: str,
+    allowed_origins: list[str],
+) -> None:
+    """Check browser authority before CORS or any local control-plane side effect."""
+
+    values: dict[str, str] = {}
+    for name, value in headers:
+        name = name.casefold()
+        if name not in {"host", "origin", "referer", "sec-fetch-site"}:
+            continue
+        if name in values:
+            raise AuthenticationError("duplicate request source header")
+        values[name] = value
+    request_origin = _http_origin(f"{scheme}://{values.get('host', '')}")
+    if not _is_loopback(urlsplit(request_origin).hostname):
+        raise AuthenticationError("local-only control plane requires a loopback Host")
+    trusted_origins = {request_origin}
+    for origin in allowed_origins:
+        # A CORS wildcard must never become a local control-plane trust grant.
+        if origin != "*":
+            trusted_origins.add(_http_origin(origin))
+    if "origin" in values:
+        source = _http_origin(values["origin"])
+    elif "referer" in values:
+        source = _http_origin(values["referer"], allow_path=True)
+    elif values.get("sec-fetch-site") == "cross-site":
+        raise AuthenticationError("local-only control plane rejects cross-site requests")
+    else:
+        return  # Direct local CLI clients have no browser source headers.
+    if source not in trusted_origins:
+        raise AuthenticationError("local-only control plane rejects untrusted origins")
 
 
 class ProjectMembership(BaseModel):

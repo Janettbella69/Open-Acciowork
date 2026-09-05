@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import fcntl
 import hashlib
+import os
 from collections.abc import Callable
 from typing import Protocol
 
@@ -19,12 +21,17 @@ from .constants import (
 from .distill import distill_run
 from .events import EventPublisher, redact
 from .memory import FileMemoryProvider
-from .models import EventActor, PrincipalBinding, PrincipalContext, RunRecord, utc_now
+from .models import EventActor, PrincipalBinding, PrincipalContext, RunRecord, new_id, utc_now
 from .permissions import PermissionBroker
 from .policy import OrgPolicyStore, PolicyDeniedError
 from .providers import ProviderConfigurationError, ProviderRegistry, classify_provider_error
 from .skills import SkillRegistry
 from .storage import FileLedger
+
+INTERRUPTED_RUN_MESSAGE = (
+    "The backend stopped before this run finished. Saved evidence, artifacts "
+    "and SDK session are preserved. Review the saved work before retrying."
+)
 
 
 class AgentRuntime(Protocol):
@@ -68,6 +75,120 @@ class RunManager:
         self.settings = settings
         self.channel_delivery = channel_delivery
         self._tasks: dict[str, asyncio.Task[None]] = {}
+
+    def _acquire_run_lease(self, run_id: str) -> int | None:
+        # The lease exists before run.json is published and is held until the
+        # execution task has finished, including its cancellation cleanup.
+        directory = self.ledger.root / "run-leases"
+        directory.mkdir(exist_ok=True)
+        path = directory / f"{self.ledger._safe_id(run_id)}.lock"
+        descriptor = os.open(path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+        try:
+            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            os.close(descriptor)
+            return None
+        except BaseException:
+            os.close(descriptor)
+            raise
+        return descriptor
+
+    async def recover_interrupted(self) -> None:
+        """Make ownerless runs retryable without replaying any model or external action."""
+
+        for candidate in self.ledger.list_runs():
+            if (
+                candidate.status in TERMINAL_RUN_STATUSES
+                and candidate.error != INTERRUPTED_RUN_MESSAGE
+            ):
+                continue
+            lease = self._acquire_run_lease(candidate.id)
+            if lease is None:
+                continue  # Another live worker still owns this run.
+            try:
+                run = self.ledger.get_run(candidate.id)
+                if run.status in TERMINAL_RUN_STATUSES:
+                    # Complete the crash window between the recovery snapshot
+                    # and its terminal event, without rewriting existing history.
+                    if (
+                        run.status == RunStatus.FAILED
+                        and run.error == INTERRUPTED_RUN_MESSAGE
+                        and not any(
+                            event.type == EventType.RUN_FAILED.value
+                            for event in self.ledger.list_events(run.id)
+                        )
+                    ):
+                        await self.events.publish(
+                            run.id,
+                            EventType.RUN_FAILED,
+                            {
+                                "status": run.status,
+                                "error": run.error,
+                                "error_code": run.error_code,
+                            },
+                            actor=EventActor(type="system", name="run-manager"),
+                        )
+                    continue
+                message = INTERRUPTED_RUN_MESSAGE
+                # Close historical permission prompts whose in-memory futures
+                # disappeared with the worker; never restore an old approval.
+                pending: set[str] = set()
+                for event in self.ledger.list_events(run.id):
+                    request_id = event.data.get("request_id")
+                    if not isinstance(request_id, str):
+                        continue
+                    if event.type == EventType.PERMISSION_REQUESTED.value:
+                        pending.add(request_id)
+                    elif event.type in {
+                        EventType.PERMISSION_RESOLVED.value,
+                        EventType.PERMISSION_TIMED_OUT.value,
+                    }:
+                        pending.discard(request_id)
+                for request_id in sorted(pending):
+                    await self.events.publish(
+                        run.id,
+                        EventType.PERMISSION_TIMED_OUT,
+                        {"request_id": request_id, "reason": message},
+                        actor=EventActor(type="system", name="run-manager"),
+                    )
+                if run.status == RunStatus.CANCELLING:
+                    await self._finalize_cancel(run.id)
+                    continue
+                await self._capture_artifacts(run.id)
+                self.ledger.update_run(
+                    run.id,
+                    status=RunStatus.FAILED,
+                    error=message,
+                    error_code=ProviderErrorCode.SDK_RUNTIME_FAILED,
+                    finished_at=utc_now(),
+                )
+                await self.events.publish(
+                    run.id,
+                    EventType.RUN_FAILED,
+                    {
+                        "status": RunStatus.FAILED,
+                        "error": message,
+                        "error_code": ProviderErrorCode.SDK_RUNTIME_FAILED,
+                    },
+                    actor=EventActor(type="system", name="run-manager"),
+                )
+                self._write_diary(run.id, RunStatus.FAILED, message)
+                self._notify_schedule_failure(run.id, message, ProviderErrorCode.SDK_RUNTIME_FAILED)
+            finally:
+                os.close(lease)
+
+    async def stop(self) -> None:
+        # Schedulers stop first so no new run can race with this snapshot.
+        owned = list(self._tasks.items())
+        for _, task in owned:
+            task.cancel()
+        if owned:
+            await asyncio.gather(*(task for _, task in owned), return_exceptions=True)
+        for run_id, _ in owned:
+            if self.ledger.get_run(run_id).status not in TERMINAL_RUN_STATUSES:
+                # A queued task cancelled before its first instruction never
+                # enters _execute's cancellation handler.
+                await self._finalize_cancel(run_id)
 
     async def create_and_start(
         self,
@@ -125,67 +246,81 @@ class RunManager:
             provider_profile_id=provider_profile_id,
             principal=principal,
         )
-        run = self.ledger.create_run(
-            project_id,
-            prompt,
-            agent_id=agent_id,
-            schedule_id=schedule_id,
-            standing_intent_id=standing_intent_id,
-            automation_claim_id=automation_claim_id,
-            resume_session_id=resume_session_id,
-            resume_source_run_id=resume_source.id if resume_source else None,
-            session_compaction_epoch=(
-                resume_source.session_compaction_epoch if resume_source else 0
-            ),
-            mode=mode,
-            provider_profile_id=provider_profile_id,
-            provider_snapshot=provider_snapshot,
-            skill_snapshot=skill_snapshot,
-            max_budget_usd=max_budget_usd,
-            principal=principal,
-        )
-        await self.events.publish(
-            run.id,
-            EventType.RUN_CREATED,
-            {
-                "status": run.status,
-                "prompt": run.prompt,
-                "mode": run.mode,
-                "provider_profile_id": run.provider_profile_id,
-                "skill_snapshot": run.skill_snapshot,
-                "standing_intent_id": run.standing_intent_id,
-                "max_budget_usd": run.max_budget_usd,
-                "resume_source_run_id": run.resume_source_run_id,
-            },
-            actor=EventActor(type="system", name="run-manager"),
-        )
-        if channel_reply_target is not None:
-            try:
-                if self.channel_delivery is None:
-                    raise RuntimeError("channel delivery service unavailable")
-                self.channel_delivery.bind_run(run, channel_reply_target)
-            except Exception as exc:
-                safe_error = (
-                    "Verified channel reply target could not be persisted; "
-                    "the Agent run was not started."
-                )
-                self.ledger.update_run(
-                    run.id,
-                    status=RunStatus.FAILED,
-                    error=safe_error,
-                    finished_at=utc_now(),
-                )
-                await self.events.publish(
-                    run.id,
-                    EventType.RUN_FAILED,
-                    {"status": RunStatus.FAILED, "error": safe_error},
-                    actor=EventActor(type="system", name="run-manager"),
-                )
-                raise RuntimeError(safe_error) from exc
-        task = asyncio.create_task(self._execute(run.id), name=f"ophira:{run.id}")
-        self._tasks[run.id] = task
-        task.add_done_callback(lambda _task: self._tasks.pop(run.id, None))
-        return run
+        run_id = new_id("run")
+        lease = self._acquire_run_lease(run_id)
+        if lease is None:
+            raise RuntimeError("Unable to acquire a new run lease")
+        try:
+            run = self.ledger.create_run(
+                project_id,
+                prompt,
+                agent_id=agent_id,
+                schedule_id=schedule_id,
+                standing_intent_id=standing_intent_id,
+                automation_claim_id=automation_claim_id,
+                resume_session_id=resume_session_id,
+                resume_source_run_id=resume_source.id if resume_source else None,
+                session_compaction_epoch=(
+                    resume_source.session_compaction_epoch if resume_source else 0
+                ),
+                mode=mode,
+                provider_profile_id=provider_profile_id,
+                provider_snapshot=provider_snapshot,
+                skill_snapshot=skill_snapshot,
+                max_budget_usd=max_budget_usd,
+                principal=principal,
+                run_id=run_id,
+            )
+            await self.events.publish(
+                run.id,
+                EventType.RUN_CREATED,
+                {
+                    "status": run.status,
+                    "prompt": run.prompt,
+                    "mode": run.mode,
+                    "provider_profile_id": run.provider_profile_id,
+                    "skill_snapshot": run.skill_snapshot,
+                    "standing_intent_id": run.standing_intent_id,
+                    "max_budget_usd": run.max_budget_usd,
+                    "resume_source_run_id": run.resume_source_run_id,
+                },
+                actor=EventActor(type="system", name="run-manager"),
+            )
+            if channel_reply_target is not None:
+                try:
+                    if self.channel_delivery is None:
+                        raise RuntimeError("channel delivery service unavailable")
+                    self.channel_delivery.bind_run(run, channel_reply_target)
+                except Exception as exc:
+                    safe_error = (
+                        "Verified channel reply target could not be persisted; "
+                        "the Agent run was not started."
+                    )
+                    self.ledger.update_run(
+                        run.id,
+                        status=RunStatus.FAILED,
+                        error=safe_error,
+                        finished_at=utc_now(),
+                    )
+                    await self.events.publish(
+                        run.id,
+                        EventType.RUN_FAILED,
+                        {"status": RunStatus.FAILED, "error": safe_error},
+                        actor=EventActor(type="system", name="run-manager"),
+                    )
+                    raise RuntimeError(safe_error) from exc
+            task = asyncio.create_task(self._execute(run.id), name=f"ophira:{run.id}")
+            self._tasks[run.id] = task
+
+            def release_run(_task: asyncio.Task[None]) -> None:
+                self._tasks.pop(run.id, None)
+                os.close(lease)
+
+            task.add_done_callback(release_run)
+            return run
+        except BaseException:
+            os.close(lease)
+            raise
 
     def _resolve_resume_source(
         self,

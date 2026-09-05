@@ -48,7 +48,7 @@ async def test_pending_permission_api_returns_redacted_input_and_scope_flags(
             break
         await asyncio.sleep(0.01)
 
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://localhost") as client:
         response = await client.get("/api/permissions/pending")
 
     assert response.status_code == 200
@@ -66,7 +66,7 @@ async def test_pending_permission_api_returns_redacted_input_and_scope_flags(
 @pytest.mark.asyncio
 async def test_shipped_skills_pass_the_package_test(tmp_path: Path) -> None:
     app = make_app(tmp_path)
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://localhost") as client:
         response = await client.post(
             "/api/skills/ophira-core:landed-cost-analysis/test"
         )
@@ -103,7 +103,7 @@ async def test_skill_test_flags_secrets_and_fake_permission_frontmatter(
 
     app = make_app(tmp_path)
     app.state.skills.plugin_dir = plugin_dir
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://localhost") as client:
         response = await client.post("/api/skills/tenant-pack:bad-skill/test")
 
     body = response.json()
@@ -118,7 +118,7 @@ async def test_skill_test_flags_secrets_and_fake_permission_frontmatter(
 @pytest.mark.asyncio
 async def test_skill_test_unknown_skill_is_404(tmp_path: Path) -> None:
     app = make_app(tmp_path)
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://localhost") as client:
         response = await client.post("/api/skills/ophira-core:missing/test")
     assert response.status_code == 404
 
@@ -151,7 +151,7 @@ def test_connector_registry_round_trip_and_secret_presence(tmp_path: Path) -> No
 @pytest.mark.asyncio
 async def test_connector_endpoints_list_and_health(tmp_path: Path) -> None:
     app = make_app(tmp_path)
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://localhost") as client:
         listing = await client.get("/api/connectors")
         assert listing.status_code == 200
         ids = {item["id"] for item in listing.json()}
@@ -172,7 +172,7 @@ async def test_schedule_patch_updates_and_recomputes_next_fire(tmp_path: Path) -
     app = make_app(tmp_path)
     ledger = app.state.ledger
     project = ledger.create_project(ProjectCreate(name="Kettle", objective="Validate"))
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://localhost") as client:
         created = await client.post(
             "/api/schedules",
             json={
@@ -284,7 +284,7 @@ async def test_schedule_run_with_missing_provider_pauses_and_notifies(tmp_path: 
     app = make_app(tmp_path)
     ledger = app.state.ledger
     project = ledger.create_project(ProjectCreate(name="Kettle", objective="Validate"))
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://localhost") as client:
         created = await client.post(
             "/api/schedules",
             json={

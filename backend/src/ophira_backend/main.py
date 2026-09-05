@@ -28,6 +28,7 @@ from .auth import (
     ProjectAccessRecord,
     ProjectAccessStore,
     ProjectPermission,
+    validate_local_request_source,
 )
 from .automation import (
     IntentNotFoundError,
@@ -355,6 +356,7 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+        await runs.recover_interrupted()
         await channel_delivery.start()
         try:
             await scheduler.start()
@@ -367,7 +369,10 @@ def create_app(
             finally:
                 await scheduler.stop()
         finally:
-            await channel_delivery.stop()
+            try:
+                await runs.stop()
+            finally:
+                await channel_delivery.stop()
 
     application = FastAPI(title="OPHIRA API", version="0.1.0", lifespan=lifespan)
     application.state.ledger = ledger
@@ -507,6 +512,18 @@ def create_app(
                 status_code=status.HTTP_403_FORBIDDEN,
                 content={"detail": "local-only control plane rejects proxied requests"},
             )
+        if settings.auth_mode == "local_only":
+            try:
+                validate_local_request_source(
+                    request.headers.items(),
+                    scheme=request.url.scheme,
+                    allowed_origins=settings.cors_origins,
+                )
+            except AuthenticationError:
+                return JSONResponse(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    content={"detail": "local-only request source is not trusted"},
+                )
         raw_path_value = request.scope.get("raw_path")
         try:
             raw_path = (

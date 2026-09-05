@@ -268,7 +268,7 @@ async def test_failed_scheduled_run_lands_in_the_inbox(tmp_path: Path) -> None:
     ledger = app.state.ledger
     project = ledger.create_project(ProjectCreate(name="Sched", objective="x"))
 
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://localhost") as client:
         created = await client.post("/api/schedules", json={
             "project_id": project.id, "prompt": "heartbeat", "cron": "0 8 * * *",
             "timezone": "UTC",
@@ -310,7 +310,7 @@ async def test_transient_scheduled_run_failure_does_not_pause_schedule(tmp_path:
     ledger = app.state.ledger
     project = ledger.create_project(ProjectCreate(name="Sched", objective="x"))
 
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://localhost") as client:
         created = await client.post(
             "/api/schedules",
             json={
@@ -350,7 +350,7 @@ async def test_intent_api_create_list_pause(tmp_path: Path) -> None:
     app = create_app(Settings(data_dir=tmp_path), runtime=IdleRuntime())
     project = app.state.ledger.create_project(ProjectCreate(name="I", objective="x"))
 
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://localhost") as client:
         missing = await client.post("/api/intents", json={
             "project_id": "project_missing", "intent": "x",
         })
@@ -440,7 +440,7 @@ async def test_intent_check_api_dispatches_bound_budgeted_main_agent_run(
 
     async with AsyncClient(
         transport=ASGITransport(app=app),
-        base_url="http://test",
+        base_url="http://localhost",
     ) as client:
         created = await client.post(
             "/api/intents",

@@ -202,7 +202,7 @@ async def test_app_wires_receipt_first_mcp_and_authenticated_cancel(
         )
         async with AsyncClient(
             transport=ASGITransport(app=app),
-            base_url="http://test",
+            base_url="http://localhost",
         ) as client:
             denied = await client.post(
                 cancel_path,

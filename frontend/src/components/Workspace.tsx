@@ -39,6 +39,7 @@ export default function Workspace() {
   const [retrying, setRetrying] = useState<RunRetryStrategy | null>(null)
   const [retryFailure, setRetryFailure] = useState<{ runId: string; message: string } | null>(null)
   const retryInFlightRef = useRef(false)
+  const navigationRef = useRef(0)
 
   useEffect(() => {
     let active = true
@@ -52,6 +53,7 @@ export default function Workspace() {
     event.preventDefault()
     const brief = briefInput.trim()
     if (!brief) return
+    const navigation = ++navigationRef.current
     if (providerProfileId) {
       const selectedProvider = providers.find((provider) => provider.id === providerProfileId)
       if (!selectedProvider || !providerIsRunnable(selectedProvider)) {
@@ -63,17 +65,18 @@ export default function Workspace() {
     setNotice('Starting TradeMind…')
     setRetryFailure(null)
     try {
-      if (runtime.project) {
-        await runtime.continueProject(brief, attachedFiles, runMode, agentId, providerProfileId)
-      } else {
-        await runtime.start(brief, attachedFiles, runMode, agentId, providerProfileId)
-      }
+      const started = runtime.project
+        ? await runtime.continueProject(brief, attachedFiles, runMode, agentId, providerProfileId)
+        : await runtime.start(brief, attachedFiles, runMode, agentId, providerProfileId)
+      if (!started || navigationRef.current !== navigation) return
       normalizeWorkspaceUrl()
       setBriefInput('')
       setAttachedFiles([])
       setNotice('Backend connected. Live activity is streaming into this conversation.')
     } catch {
-      setNotice('The research run could not start. Your brief is still here so you can try again.')
+      if (navigationRef.current === navigation) {
+        setNotice('The research run could not start. Your brief is still here so you can try again.')
+      }
     }
   }
 
@@ -157,7 +160,9 @@ export default function Workspace() {
   }
 
   const startNewResearch = async () => {
+    const navigation = ++navigationRef.current
     if (runtime.isActive) await runtime.cancel()
+    if (navigationRef.current !== navigation) return
     runtime.reset()
     setRetryFailure(null)
     setBriefInput('')
@@ -168,18 +173,22 @@ export default function Workspace() {
   const selectSavedProject = async (projectId: string) => {
     const project = runtime.projects.find((item) => item.id === projectId)
     if (!project) return
+    const navigation = ++navigationRef.current
     setBriefInput('')
     setRetryFailure(null)
     normalizeWorkspaceUrl()
     setNotice('Loading the saved project truth and run history…')
     try {
       const loadedRun = await runtime.selectProject(project)
+      if (navigationRef.current !== navigation) return
       setProviderProfileId(loadedRun?.provider_profile_id ?? null)
       setNotice(loadedRun
         ? ''
         : 'This project has no recorded run yet. Send a message to begin.')
     } catch {
-      setNotice('The recorded run history could not be loaded. The project truth below is still current.')
+      if (navigationRef.current === navigation) {
+        setNotice('The recorded run history could not be loaded. The project truth below is still current.')
+      }
     }
   }
 
