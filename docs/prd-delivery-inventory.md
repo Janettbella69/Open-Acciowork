@@ -53,8 +53,8 @@
 | §3.9 性能 | deferred：Run 创建 P95 < 500ms，queued/started < 2s，取消 < 2s 的实测报告 |
 | §3.9 / §3.10 | deferred：按 Provider/model/Skill/tool 的指标汇总、业务成功指标、区域与数据流披露 |
 | §3.11 / §6.6 | deferred：当前 L2 基线、人亲自标注的 gold、judge 校准与 TPR/TNR 门槛；不能由 AI 伪造标注 |
-| 教材审计 / CLAUDE.md | deferred：核验当前 OCR 摄取实现是否符合 PDF/图片先转 Markdown 的要求 |
-| P2-feedback-loop-spec.md | deferred：三类反馈入口与评测候选回流；按既定前置等待本人 gold 标注与口径定版 |
+| 教材审计 / CLAUDE.md | delivered：上传 PDF/图片生成 Markdown 伴随文件，pypdf/Tesseract 降级；deferred：当前 `_try_paddle` 使用 `PaddleOCR` 却标为 `paddleocr-vl`，需正确实现并验收 VL 摄取、明确提取失败边界 |
+| P2-feedback-loop-spec.md | delivered：反馈存取 API、对话结果级按钮；deferred：消息/证据精确锚点、失败/取消自动采集、评测候选回流和人审处置；gold 本人标注与口径定版仍需负责人完成 |
 | §4.13 / §6.4 | deferred：生产多租户隔离、跨宿主 SessionStore、密钥/备份恢复及攻击面验收 |
 | §6.2 / §6.3 | delivered：已归档 DeepSeek 三连过及首批合约；其他组合不可借此宣称认证 |
 
@@ -94,3 +94,8 @@ Run 先持久化 claim 再启动、已有 Run 的审计/计划收尾恢复、条
 
 边界：这不是多租户认证，也不证明外部副作用 exactly-once、远程文件系统锁语义、
 断电/磁盘损坏恢复或真实长期运行。旧版本 worker 不参与新锁协议，升级时须先全部停止。
+
+后续代码复核：`MobilePage.tsx` 的控制/保活开关仍只写浏览器本地设置，
+不构成认证、设备绑定、推送或系统保活实现。FR-25 不能因存在该页面而标为已完成。
+`ingest.py` 和 `feedback.py` 已有部分代码，不能沿用历史审计的“完全未实现”描述，
+上表已据现有实现细化其剩余缺口。
