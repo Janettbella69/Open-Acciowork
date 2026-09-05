@@ -40,6 +40,21 @@ start a new branch after user review. Normal shutdown cancels and drains owned r
 When first upgrading from a version without run leases, stop the old backend workers
 before starting the new version so untracked live workers cannot be mistaken for orphans.
 
+Automatic schedule occurrences also hold a non-blocking, per-schedule process lease.
+Their stable `automation_claim_id` derives from the schedule ID and UTC due time and
+is persisted in the Run before execution. If the worker exits before `schedule.fired`
+or schedule advancement, another worker completes that bookkeeping for the existing
+Run without launching it again, including under the `skip` missed-run policy. Event
+audit data includes `scheduled_for` and `automation_claim_id`. Conditional advancement
+preserves a concurrent pause or trigger edit. These locks require a local filesystem
+with POSIX advisory-lock semantics; stop all older workers before upgrading.
+
+Ledger transactions serialize record updates across API workers. Run summaries include
+`event_log_bytes`, a derived JSONL checkpoint: missing/stale summaries rebuild from the
+Run and complete event records before allocating another event sequence. Incomplete or
+inconsistent event logs fail closed and are not silently truncated. Neither this recovery
+nor schedule dispatch asserts exactly-once behavior for an external service.
+
 1. `POST /api/projects` creates the shared opportunity ledger.
 2. `POST /api/projects/{project_id}/runs` starts a single main-Agent run and returns `202` with a run record (optional `mode: "deep_research"`, `provider_profile_id`, `resume_session_id`). The run record pins immutable provider and skill snapshots.
 3. `GET /api/runs/{run_id}/events` opens a replayable Server-Sent Events stream.
@@ -74,7 +89,7 @@ before starting the new version so untracked live workers cannot be mistaken for
    finished run also appends a dated work-journal entry to the agent's (or project's)
    `diary/YYYY-MM-DD.md`. See [`memory-governance.md`](memory-governance.md) for exact
    lifetime, retrieval, export, deletion, and infrastructure-backup boundaries.
-10. `POST /api/schedules` (exactly one of `cron` or `run_once_at`, plus `timezone` and `missed_run_policy`) creates an automation; `POST /api/schedules/{id}/pause|resume|run` manage it. Missed fires while the app was down reconcile at startup: `catch_up` fires once (coalesced), `skip` advances. A schedule never overlaps its own still-active run. Scheduled runs use the same permission broker; unapproved high-risk calls time out into denial.
+10. `POST /api/schedules` (exactly one of `cron` or `run_once_at`, plus `timezone` and `missed_run_policy`) creates an automation; `POST /api/schedules/{id}/pause|resume|run` manage it. Missed fires while the app was down reconcile at startup: `catch_up` fires once (coalesced), `skip` advances. Automatic due fires skip while their recorded previous Run remains active. The manual `/run` test operation is separate and does not change fire bookkeeping. Scheduled runs use the same permission broker; unapproved high-risk calls time out into denial.
 11. `GET /api/providers` lists Anthropic-compatible Provider profiles (never the key; `secret_configured` only). `PUT /api/providers/{id}` upserts a profile — the payload replaces the whole profile, so clients must round-trip tier mappings and capabilities; include `secret` only when rotating the key. `POST /api/providers/{id}/preflight` runs the real-SDK preflight (skill discovery + MCP health + 8-class error diagnosis, bounded by a timeout) and persists `last_verified_at` / `last_error_code`.
 12. `GET /api/skills` lists versioned Plugin skills (namespace, content hash, enabled); `POST /api/skills/{id}/enable?enabled=` toggles discovery for future runs. `GET /api/skills/{id}/versions` lists immutable package history, and `POST /api/skills/{id}/rollback` selects one reviewed tenant version by exact `content_hash` (or by an unambiguous, exact declared `version` string). Rollback never deletes history, reruns package review, and preserves the current enablement state.
 13. `POST /api/projects/{project_id}/files?filename=&mime=` uploads raw bytes into the project workspace `uploads/` and registers an Artifact; `GET /api/projects/{project_id}/artifacts` lists artifacts and `.../artifacts/{artifact_id}/download` streams one.

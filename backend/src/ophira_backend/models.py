@@ -546,6 +546,9 @@ class RunSummary(APIModel):
     trace_id: str
     status: RunStatus
     last_sequence: int = 0
+    # Derived index checkpoint, not an event authority. A mismatch repairs the
+    # summary from the durable JSONL before another writer allocates a sequence.
+    event_log_bytes: int = Field(default=0, ge=0)
     event_counts: dict[str, int] = Field(default_factory=dict)
     created_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=utc_now)

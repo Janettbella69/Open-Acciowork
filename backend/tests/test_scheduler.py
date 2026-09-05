@@ -291,6 +291,103 @@ async def test_paused_schedule_does_not_fire(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_two_workers_cannot_dispatch_the_same_occurrence(tmp_path: Path) -> None:
+    ledger, runtime, first, project = build_service(tmp_path)
+    _, _, second, _ = build_service(tmp_path)
+    ledger.create_schedule(
+        make_schedule(project.id, next_fire_at=utc_now() - timedelta(seconds=1))
+    )
+    started = asyncio.Event()
+    release = asyncio.Event()
+    original = first._start_run
+
+    async def delayed_start(*args, **kwargs):
+        run = await original(*args, **kwargs)
+        started.set()
+        await release.wait()
+        return run
+
+    first._start_run = delayed_start
+    task = asyncio.create_task(first.tick())
+    try:
+        await asyncio.wait_for(started.wait(), timeout=2)
+        await asyncio.wait_for(second.tick(), timeout=2)
+    finally:
+        release.set()
+        await task
+
+    await wait_for_runs(runtime)
+    assert len(ledger.list_runs(project.id)) == 1
+
+
+@pytest.mark.parametrize("after_publish", [False, True])
+@pytest.mark.parametrize("policy", list(MissedRunPolicy))
+@pytest.mark.asyncio
+async def test_restart_finishes_dispatch_without_repeating_a_persisted_run(
+    tmp_path: Path, after_publish: bool, policy: MissedRunPolicy,
+) -> None:
+    ledger, runtime, first, project = build_service(tmp_path)
+    schedule = ledger.create_schedule(make_schedule(
+        project.id, policy=policy, next_fire_at=utc_now() - timedelta(seconds=1),
+    ))
+    publish = first.events.publish
+
+    async def interrupted_publish(run_id, event_type, *args, **kwargs):
+        if event_type == EventType.SCHEDULE_FIRED:
+            if after_publish:
+                await publish(run_id, event_type, *args, **kwargs)
+            raise OSError("simulated crash before schedule bookkeeping")
+        return await publish(run_id, event_type, *args, **kwargs)
+
+    first.events.publish = interrupted_publish
+    await first.tick()
+    await wait_for_runs(runtime)
+    initial_runs = ledger.list_runs(project.id)
+    assert len(initial_runs) == 1
+    # A new service with a new publisher represents process restart. Neither
+    # CATCH_UP nor SKIP may launch a second Agent for an existing occurrence.
+    _, _, restarted, _ = build_service(tmp_path)
+    await restarted.reconcile()
+    await restarted.tick()
+
+    assert len(ledger.list_runs(project.id)) == 1
+    current = ledger.get_schedule(schedule.id)
+    assert current.last_run_id == initial_runs[0].id
+    assert current.next_fire_at > utc_now()
+    fired = [e for e in ledger.list_events(initial_runs[0].id)
+             if e.type == EventType.SCHEDULE_FIRED.value]
+    assert len(fired) == 1
+
+
+@pytest.mark.asyncio
+async def test_dispatch_bookkeeping_does_not_overwrite_a_concurrent_schedule_edit(
+    tmp_path: Path,
+) -> None:
+    ledger, runtime, service, project = build_service(tmp_path)
+    schedule = ledger.create_schedule(make_schedule(
+        project.id, next_fire_at=utc_now() - timedelta(seconds=1),
+    ))
+    changed_next = utc_now() + timedelta(days=2)
+    original = service._start_run
+
+    async def edit_during_start(*args, **kwargs):
+        run = await original(*args, **kwargs)
+        FileLedger(tmp_path).update_schedule(
+            schedule.id, cron="0 12 * * *", next_fire_at=changed_next, enabled=False,
+        )
+        return run
+
+    service._start_run = edit_during_start
+    await service.tick()
+    await wait_for_runs(runtime)
+
+    current = ledger.get_schedule(schedule.id)
+    assert current.next_fire_at == changed_next
+    assert current.enabled is False
+    assert current.last_run_id == runtime.runs[0]
+
+
+@pytest.mark.asyncio
 async def test_tick_continues_after_one_due_schedule_is_denied(tmp_path: Path) -> None:
     ledger = FileLedger(tmp_path)
     events = EventPublisher(ledger)

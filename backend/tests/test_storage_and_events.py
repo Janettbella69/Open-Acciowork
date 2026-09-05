@@ -108,3 +108,67 @@ async def test_stream_waits_for_new_event(tmp_path: Path) -> None:
     assert event is not None
     assert event.type == EventType.RUN_STARTED.value
     await stream.aclose()
+
+
+@pytest.mark.asyncio
+async def test_append_recovers_summary_after_event_was_durable_before_crash(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    ledger = FileLedger(tmp_path)
+    project = ledger.create_project(ProjectCreate(name="Crash", objective="Keep event ordering"))
+    run = ledger.create_run(project.id, "Start")
+    original = ledger._atomic_write
+
+    def fail_summary(path, model):
+        if path.name == "summary.json":
+            raise OSError("summary persistence interrupted")
+        return original(path, model)
+
+    monkeypatch.setattr(ledger, "_atomic_write", fail_summary)
+    with pytest.raises(OSError, match="summary persistence"):
+        await EventPublisher(ledger).publish(run.id, EventType.RUN_STARTED)
+    restarted = FileLedger(tmp_path)
+    await EventPublisher(restarted).publish(run.id, EventType.TOOL_COMPLETED)
+
+    assert [event.sequence for event in restarted.list_events(run.id)] == [1, 2]
+    summary = restarted.get_run_summary(run.id)
+    assert summary.last_sequence == 2
+    assert summary.event_counts == {"run.started": 1, "tool.completed": 1}
+
+
+@pytest.mark.asyncio
+async def test_run_without_summary_is_recoverable_after_partial_creation(tmp_path, monkeypatch):
+    ledger = FileLedger(tmp_path)
+    project = ledger.create_project(ProjectCreate(name="Crash", objective="Recover queued claim"))
+    original = ledger._atomic_write
+
+    def fail_summary(path, model):
+        if path.name == "summary.json":
+            raise OSError("run published before summary")
+        return original(path, model)
+
+    monkeypatch.setattr(ledger, "_atomic_write", fail_summary)
+    with pytest.raises(OSError):
+        ledger.create_run(project.id, "Not yet executed", automation_claim_id="claim_test")
+    restarted = FileLedger(tmp_path)
+    run = restarted.list_runs(project.id)[0]
+    assert run.automation_claim_id == "claim_test"
+    restarted.update_run(run.id, status=RunStatus.FAILED)
+    await EventPublisher(restarted).publish(run.id, EventType.RUN_FAILED)
+    summary = restarted.get_run_summary(run.id)
+    assert summary.status == RunStatus.FAILED
+    assert summary.last_sequence == 1
+
+
+def test_failed_atomic_replace_keeps_old_record_and_cleans_temporary(tmp_path, monkeypatch):
+    ledger = FileLedger(tmp_path)
+    project = ledger.create_project(ProjectCreate(name="Stable", objective="Preserve old data"))
+
+    def fail_replace(*args):
+        raise OSError("replacement interrupted")
+
+    monkeypatch.setattr("ophira_backend.storage.os.replace", fail_replace)
+    with pytest.raises(OSError):
+        ledger.update_project(project.id, lambda record: record.model_copy(update={"name": "New"}))
+    assert ledger.get_project(project.id).name == "Stable"
+    assert not list(ledger._project_path(project.id).parent.glob("*.tmp"))

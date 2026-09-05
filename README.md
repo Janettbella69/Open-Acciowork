@@ -93,6 +93,9 @@ npm run build
 
 ### Current verification boundary
 
+The full PRD delivery inventory, including unimplemented and externally unverified
+requirements, is tracked in [`docs/prd-delivery-inventory.md`](docs/prd-delivery-inventory.md).
+
 - The current nine-case DeepSeek Provider contract matrix was rerun against the real endpoint on
   2026-09-04 with Claude Agent SDK 0.2.143: text streaming, served-model identity,
   file tools, Bash, MCP, Plugin Skill discovery, and native WebSearch passed. Vision

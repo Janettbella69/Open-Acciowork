@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import fcntl
 import hashlib
 import json
 import mimetypes
 import os
 import re
+import tempfile
 import threading
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -84,12 +87,38 @@ class FileLedger:
         self.agents_dir.mkdir(parents=True, exist_ok=True)
         self.schedules_dir.mkdir(parents=True, exist_ok=True)
         self.receipts_dir.mkdir(parents=True, exist_ok=True)
+        self._locks_dir = self.root / ".ledger-locks"
+        self._locks_dir.mkdir(mode=0o700, exist_ok=True)
+        if self._locks_dir.is_symlink():
+            raise ValueError("ledger lock directory must not be a symlink")
         self._locks: dict[str, threading.RLock] = {}
         self._locks_guard = threading.Lock()
+        self._held_locks = threading.local()
 
-    def _lock_for(self, key: str) -> threading.RLock:
+    @contextmanager
+    def _lock_for(self, key: str) -> Iterator[None]:
+        """Short, synchronous record transaction, shared by every API worker.
+
+        Never hold this lock across an await. Dispatch leases are separate, so
+        pausing/editing a schedule does not wait for an Agent or network request.
+        """
         with self._locks_guard:
-            return self._locks.setdefault(key, threading.RLock())
+            lock = self._locks.setdefault(key, threading.RLock())
+        with lock:
+            held = getattr(self._held_locks, "keys", set())
+            if key in held:
+                yield
+                return
+            lock_path = self._locks_dir / f"{hashlib.sha256(key.encode()).hexdigest()}.lock"
+            flags = os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW | os.O_CLOEXEC
+            descriptor = os.open(lock_path, flags, 0o600)
+            try:
+                fcntl.flock(descriptor, fcntl.LOCK_EX)
+                self._held_locks.keys = held | {key}
+                yield
+            finally:
+                self._held_locks.keys = held
+                os.close(descriptor)
 
     @staticmethod
     def _safe_id(value: str) -> str:
@@ -108,9 +137,30 @@ class FileLedger:
 
     def _atomic_write(self, path: Path, model: Any) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
-        temporary = path.with_suffix(f"{path.suffix}.tmp")
-        temporary.write_text(f"{self._dump(model)}\n", encoding="utf-8")
-        os.replace(temporary, path)
+        # Unique, private temporary files prevent unrelated store instances from
+        # clobbering each other's staging path. Persist before publishing a run:
+        # its automation claim must survive before any Agent can have effects.
+        with tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", dir=path.parent,
+            prefix=f".{path.name}.", suffix=".tmp", delete=False,
+        ) as handle:
+            temporary = Path(handle.name)
+            try:
+                handle.write(f"{self._dump(model)}\n")
+                handle.flush()
+                os.fsync(handle.fileno())
+            except BaseException:
+                temporary.unlink(missing_ok=True)
+                raise
+        try:
+            os.replace(temporary, path)
+            descriptor = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
+            try:
+                os.fsync(descriptor)
+            finally:
+                os.close(descriptor)
+        finally:
+            temporary.unlink(missing_ok=True)
 
     def _append_jsonl(self, path: Path, model: Any) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -650,10 +700,47 @@ class FileLedger:
             return updated
 
     def get_run_summary(self, run_id: str) -> RunSummary:
-        path = self._summary_path(run_id)
-        if not path.exists():
-            raise LedgerNotFoundError(run_id)
-        return RunSummary.model_validate_json(path.read_text(encoding="utf-8"))
+        with self._lock_for(run_id):
+            run = self.get_run(run_id)
+            path = self._summary_path(run_id)
+            events_path = self._events_path(run_id)
+            event_bytes = events_path.stat().st_size if events_path.exists() else 0
+            try:
+                summary = RunSummary.model_validate_json(path.read_text(encoding="utf-8"))
+            except (FileNotFoundError, ValueError):
+                summary = None
+            if (
+                summary is not None
+                and summary.run_id == run.id
+                and summary.project_id == run.project_id
+                and summary.trace_id == run.trace_id
+                and summary.status == run.status
+                and summary.event_log_bytes == event_bytes
+            ):
+                return summary
+            # run.json and events.jsonl are authoritative. Process death after
+            # either write but before summary.json must not duplicate sequences
+            # or make a persisted automation claim impossible to recover.
+            events = self._read_event_log(run_id)
+            counts: dict[str, int] = {}
+            for sequence, event in enumerate(events, start=1):
+                if (
+                    event.sequence != sequence
+                    or event.id != f"{run.id}:{sequence}"
+                    or event.run_id != run.id
+                    or event.project_id != run.project_id
+                    or event.trace_id != run.trace_id
+                ):
+                    raise ValueError("event log integrity check failed; refusing to append")
+                counts[event.type] = counts.get(event.type, 0) + 1
+            repaired = RunSummary(
+                run_id=run.id, project_id=run.project_id, trace_id=run.trace_id,
+                status=run.status, last_sequence=len(events), event_log_bytes=event_bytes,
+                event_counts=counts, created_at=run.created_at,
+                updated_at=events[-1].timestamp if events else run.created_at,
+            )
+            self._atomic_write(path, repaired)
+            return repaired
 
     def append_event(self, event: EventEnvelope) -> EventEnvelope:
         with self._lock_for(event.run_id):
@@ -668,6 +755,7 @@ class FileLedger:
             summary = summary.model_copy(
                 update={
                     "last_sequence": sequence,
+                    "event_log_bytes": self._events_path(event.run_id).stat().st_size,
                     "event_counts": counts,
                     "updated_at": utc_now(),
                 }
@@ -678,31 +766,39 @@ class FileLedger:
             return stored
 
     def list_events(self, run_id: str, after_sequence: int = 0) -> list[EventEnvelope]:
-        self.get_run(run_id)
+        with self._lock_for(run_id):
+            self.get_run(run_id)
+            return [event for event in self._read_event_log(run_id)
+                    if event.sequence > after_sequence]
+
+    def _read_event_log(self, run_id: str) -> list[EventEnvelope]:
         path = self._events_path(run_id)
         if not path.exists():
             return []
+        content = path.read_text(encoding="utf-8")
+        if content and not content.endswith("\n"):
+            raise ValueError("event log has an incomplete tail; refusing to append")
         events: list[EventEnvelope] = []
-        for line in path.read_text(encoding="utf-8").splitlines():
+        for line in content.splitlines():
             if not line.strip():
                 continue
             event = EventEnvelope.model_validate_json(line)
-            if event.sequence > after_sequence:
-                events.append(event)
+            events.append(event)
         return events
 
     def _append_manifest(self, run: RunRecord, last_sequence: int) -> None:
-        self._append_jsonl(
-            self.manifest_path,
-            {
-                "run_id": run.id,
-                "project_id": run.project_id,
-                "trace_id": run.trace_id,
-                "status": run.status,
-                "last_sequence": last_sequence,
-                "timestamp": utc_now().isoformat(),
-            },
-        )
+        with self._lock_for("manifest"):
+            self._append_jsonl(
+                self.manifest_path,
+                {
+                    "run_id": run.id,
+                    "project_id": run.project_id,
+                    "trace_id": run.trace_id,
+                    "status": run.status,
+                    "last_sequence": last_sequence,
+                    "timestamp": utc_now().isoformat(),
+                },
+            )
 
     def search_evidence(
         self,
@@ -997,5 +1093,30 @@ class FileLedger:
         with self._lock_for(schedule_id):
             schedule = self.get_schedule(schedule_id)
             updated = schedule.model_copy(update=changes)
+            self._atomic_write(self._schedule_path(schedule_id), updated)
+            return updated
+
+    def advance_schedule(
+        self,
+        schedule_id: str,
+        *,
+        expected_fire_at: datetime,
+        next_fire_at: datetime | None,
+        last_fire_at: datetime | None = None,
+        last_run_id: str | None = None,
+    ) -> Schedule:
+        """Finish an occurrence without overwriting a concurrent human edit."""
+        with self._lock_for(schedule_id):
+            current = self.get_schedule(schedule_id)
+            changes: dict[str, Any] = {}
+            if current.next_fire_at == expected_fire_at:
+                changes["next_fire_at"] = next_fire_at
+                if next_fire_at is None:
+                    changes["enabled"] = False
+            if last_fire_at is not None and (
+                current.last_fire_at is None or last_fire_at >= current.last_fire_at
+            ):
+                changes.update(last_fire_at=last_fire_at, last_run_id=last_run_id)
+            updated = current.model_copy(update=changes)
             self._atomic_write(self._schedule_path(schedule_id), updated)
             return updated

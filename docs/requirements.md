@@ -35,3 +35,20 @@ commercial, channel, media, or production acceptance requirements.
 Validation: backend 585 passed / 8 live-only skipped; frontend 97 passed; Ruff,
 ESLint, TypeScript and production build passed. The existing bundle-size warning
 remains. Real Provider and external connector E2Es were not rerun for these fixes.
+
+## Full PRD delivery tracking — 2026-09-05
+
+The active full-scope inventory is [prd-delivery-inventory.md](prd-delivery-inventory.md).
+It retains all FR-01–28 items, cross-cutting requirements and release gates, with
+explicit delivered/deferred/omitted boundaries; it does not replace the authoritative PRD.
+
+Automatic schedule dispatch now has per-schedule cross-process leases, stable
+occurrence claims persisted before Run execution, restart-safe audit/bookkeeping,
+and conditional advancement that preserves concurrent human edits. Ledger records
+have cross-process transactions and durable atomic snapshots. Missing/stale event
+summaries rebuild from the authoritative Run/JSONL instead of reusing event sequences.
+
+Validation: backend 599 passed / 8 live-only skipped, including actual subprocess
+death/takeover and concurrent event-writer tests; frontend 97 passed; eval tools 48;
+Snapshot 61/61; Ruff, ESLint, TypeScript and build passed. No live Provider,
+commercial send, IM, media or mobile-push acceptance is claimed by this increment.

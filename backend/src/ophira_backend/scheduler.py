@@ -1,7 +1,12 @@
 from __future__ import annotations
 
 import asyncio
+import fcntl
+import hashlib
 import logging
+import os
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -94,7 +99,7 @@ def wrap_schedule_prompt(schedule: Schedule) -> str:
 
 
 class ScheduleService:
-    """Local asyncio scheduler: due-scan loop plus missed-run reconciliation."""
+    """Due scanner with cross-process leases and durable occurrence identity."""
 
     def __init__(
         self,
@@ -105,6 +110,8 @@ class ScheduleService:
         notifications: NotificationStore | None = None,
         access: ProjectAccessStore | None = None,
     ) -> None:
+        if interval_seconds <= 0:
+            raise ValueError("scheduler interval must be positive")
         self.ledger = ledger
         self.runs = runs
         self.events = events
@@ -114,6 +121,8 @@ class ScheduleService:
         self._task: asyncio.Task[None] | None = None
 
     async def start(self) -> None:
+        if self._task is not None and not self._task.done():
+            return
         await self.reconcile()
         self._task = asyncio.create_task(self._loop(), name="ophira:scheduler")
 
@@ -134,42 +143,71 @@ class ScheduleService:
 
     async def reconcile(self) -> None:
         """On startup: overdue enabled schedules catch up once or skip ahead."""
-        now = utc_now()
-        for schedule in self.ledger.list_schedules():
-            if not schedule.enabled or schedule.next_fire_at is None:
-                continue
-            if schedule.next_fire_at > now:
-                continue
-            try:
-                if schedule.missed_run_policy == MissedRunPolicy.CATCH_UP:
-                    await self._fire(schedule, now, missed=True)
-                else:
-                    self._advance(schedule, now)
-            except Exception as exc:
-                # One invalid/denied schedule cannot block reconciliation for all others.
-                logger.error(
-                    "failed to reconcile schedule %s: %s",
-                    schedule.id,
-                    redact(str(exc)),
-                )
+        await self._scan(missed=True)
 
     async def tick(self) -> None:
+        await self._scan(missed=False)
+
+    @contextmanager
+    def _dispatch_lease(self, schedule_id: str) -> Iterator[bool]:
+        # Non-blocking and held across dispatch, including awaits. A peer worker
+        # skips immediately; OS process exit releases the lease automatically.
+        directory = self.ledger.schedules_dir / self.ledger._safe_id(schedule_id)
+        if directory.is_symlink():
+            raise ValueError("schedule directory must not be a symlink")
+        flags = os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW | os.O_CLOEXEC
+        descriptor = os.open(directory / ".dispatch.lock", flags, 0o600)
+        try:
+            try:
+                fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                yield False
+                return
+            yield True
+        finally:
+            os.close(descriptor)
+
+    async def _scan(self, *, missed: bool) -> None:
         now = utc_now()
-        for schedule in self.ledger.list_schedules():
-            if not schedule.enabled or schedule.next_fire_at is None:
-                continue
-            if schedule.next_fire_at <= now:
-                try:
-                    await self._fire(schedule, now)
-                except Exception as exc:
-                    # Keep this schedule due for a later retry, but continue scanning peers.
-                    logger.error(
-                        "failed to fire schedule %s: %s",
-                        schedule.id,
-                        redact(str(exc)),
-                    )
+        for snapshot in self.ledger.list_schedules():
+            try:
+                with self._dispatch_lease(snapshot.id) as acquired:
+                    if not acquired:
+                        continue
+                    # Never use the pre-lease snapshot to dispatch or advance.
+                    schedule = self.ledger.get_schedule(snapshot.id)
+                    if schedule.next_fire_at is None or schedule.next_fire_at > now:
+                        continue
+                    await self._fire(schedule, now, missed=missed)
+            except Exception as exc:
+                logger.error(
+                    "failed to dispatch schedule %s: %s", snapshot.id, redact(str(exc)),
+                )
+
+    @staticmethod
+    def _occurrence_id(schedule: Schedule) -> str:
+        assert schedule.next_fire_at is not None
+        moment = schedule.next_fire_at.astimezone(UTC).isoformat()
+        digest = hashlib.sha256(f"{schedule.id}:{moment}".encode()).hexdigest()
+        return f"schedule_fire_{digest}"
 
     async def _fire(self, schedule: Schedule, now: datetime, *, missed: bool = False) -> None:
+        claim_id = self._occurrence_id(schedule)
+        # RunManager persists this claim in run.json BEFORE starting the Agent.
+        # A crash between creation, audit and schedule advancement therefore
+        # recovers the same run, even if it already finished or failed. It never
+        # automatically repeats a possibly effectful Agent run.
+        existing = next((run for run in self.ledger.list_runs(schedule.project_id)
+                         if run.schedule_id == schedule.id
+                         and run.automation_claim_id == claim_id), None)
+        if existing is not None:
+            await self._finish_fire(schedule, existing, now, missed=missed)
+            return
+        if not schedule.enabled:
+            return
+        if missed and schedule.missed_run_policy == MissedRunPolicy.SKIP:
+            self._advance(schedule, now)
+            return
         if schedule.last_run_id:
             try:
                 last_run = self.ledger.get_run(schedule.last_run_id)
@@ -178,24 +216,33 @@ class ScheduleService:
             if last_run is not None and last_run.status not in TERMINAL_RUN_STATUSES:
                 self._advance(schedule, now)
                 return
-        run = await self._start_run(schedule)
-        await self.events.publish(
-            run.id,
-            EventType.SCHEDULE_FIRED,
-            {"schedule_id": schedule.id, "missed": missed},
-            actor=EventActor(type="system", name="scheduler"),
-        )
-        changes: dict = {"last_fire_at": now, "last_run_id": run.id}
-        if schedule.run_once_at is not None:
-            changes["enabled"] = False
-            changes["next_fire_at"] = None
-        else:
-            changes["next_fire_at"] = compute_next_fire(
-                schedule.cron, None, schedule.timezone, now
-            )
-        self.ledger.update_schedule(schedule.id, **changes)
+        run = await self._start_run(schedule, automation_claim_id=claim_id)
+        await self._finish_fire(schedule, run, now, missed=missed)
 
-    async def _start_run(self, schedule: Schedule) -> RunRecord:
+    async def _finish_fire(
+        self, schedule: Schedule, run: RunRecord, now: datetime, *, missed: bool,
+    ) -> None:
+        if not any(event.type == EventType.SCHEDULE_FIRED.value
+                   for event in self.ledger.list_events(run.id)):
+            await self.events.publish(
+                run.id,
+                EventType.SCHEDULE_FIRED,
+                {"schedule_id": schedule.id, "missed": missed,
+                 "scheduled_for": schedule.next_fire_at,
+                 "automation_claim_id": run.automation_claim_id},
+                actor=EventActor(type="system", name="scheduler"),
+            )
+        next_at = (None if schedule.run_once_at is not None else
+                   compute_next_fire(schedule.cron, None, schedule.timezone, now))
+        assert schedule.next_fire_at is not None
+        self.ledger.advance_schedule(
+            schedule.id, expected_fire_at=schedule.next_fire_at, next_fire_at=next_at,
+            last_fire_at=run.created_at, last_run_id=run.id,
+        )
+
+    async def _start_run(
+        self, schedule: Schedule, *, automation_claim_id: str | None = None,
+    ) -> RunRecord:
         try:
             binding = schedule.principal_binding
             project = self.ledger.get_project(schedule.project_id)
@@ -220,6 +267,7 @@ class ScheduleService:
                 wrap_schedule_prompt(schedule),
                 agent_id=schedule.agent_id,
                 schedule_id=schedule.id,
+                automation_claim_id=automation_claim_id,
                 mode=schedule.mode,
                 provider_profile_id=schedule.provider_profile_id,
                 principal=binding,
@@ -264,10 +312,10 @@ class ScheduleService:
         next_at = compute_next_fire(
             schedule.cron, schedule.run_once_at, schedule.timezone, now
         )
-        changes: dict = {"next_fire_at": next_at}
-        if next_at is None:
-            changes["enabled"] = False
-        self.ledger.update_schedule(schedule.id, **changes)
+        assert schedule.next_fire_at is not None
+        self.ledger.advance_schedule(
+            schedule.id, expected_fire_at=schedule.next_fire_at, next_fire_at=next_at,
+        )
 
     async def run_now(self, schedule_id: str) -> RunRecord:
         """Manual test run; does not change the schedule's fire bookkeeping."""
