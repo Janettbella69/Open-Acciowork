@@ -1,0 +1,33 @@
+{
+  "currency": "USD",
+  "start_date": "2026-01-01",
+  "end_date": "2026-01-02",
+  "opening_cash": "600",
+  "minimum_reserve": "200",
+  "movements": [
+    {
+      "id": "day1-payment",
+      "date": "2026-01-01",
+      "direction": "outflow",
+      "amount": "1000",
+      "activity": "operating",
+      "source_ref": "synthetic:payment"
+    },
+    {
+      "id": "day1-receipt",
+      "date": "2026-01-01",
+      "direction": "inflow",
+      "amount": "800",
+      "activity": "operating",
+      "source_ref": "synthetic:receipt"
+    },
+    {
+      "id": "day2-payment",
+      "date": "2026-01-02",
+      "direction": "outflow",
+      "amount": "600",
+      "activity": "operating",
+      "source_ref": "synthetic:second-payment"
+    }
+  ]
+}
