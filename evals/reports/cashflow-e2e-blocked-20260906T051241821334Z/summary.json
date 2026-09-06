@@ -1,0 +1,12 @@
+{
+  "passed": false,
+  "execution_started": false,
+  "provider": "deepseek",
+  "budget_usd_sdk_list_price": 2,
+  "timeout_seconds": 900,
+  "offline_verifier_tests_passed": 18,
+  "error": "Automatic approval review rejected the real DeepSeek invocation before execution.",
+  "reason": "The real DeepSeek run will transmit local project/Skill contents and fixture-derived data to an untrusted external provider, but the user did not explicitly authorize that payload and destination.",
+  "remaining": "Explicit destination/payload authorization evidence is required before the real run can begin. No tool or model events exist for this blocked attempt.",
+  "generated_at": "2026-09-06T05:12:41.821814+00:00"
+}
