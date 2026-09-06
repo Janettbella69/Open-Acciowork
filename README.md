@@ -56,6 +56,8 @@ whose factual fields are joined from the server ledger rather than authored by t
 
 All 13 built-in Skills include evidence guides and editable artifact templates that
 travel with the immutable package snapshot; see [`docs/skill-resources.md`](docs/skill-resources.md).
+The local [Skill backup and restore exercise](docs/skill-backup-exercise.md) verifies
+independent copies, historical pins, disabled versions, and rejected corrupt restores.
 The commerce MCP also calculates cash balances and peak funding gaps from explicit
 settlement schedules, distinguishing daily closing balances from a conservative
 intraday bound; see [`docs/cashflow.md`](docs/cashflow.md).
