@@ -35,6 +35,7 @@ from .models import (
 )
 from .permissions import PermissionBroker
 from .policy import OrgPolicyStore, PolicyDeniedError
+from .project_events import ProjectEventProjector
 from .providers import (
     ProviderConfigurationError,
     ProviderRegistry,
@@ -84,6 +85,7 @@ class RunManager:
         settings=None,
         channel_delivery: ChannelDeliveryService | None = None,
         feedback: FeedbackStore | None = None,
+        project_events: ProjectEventProjector | None = None,
     ) -> None:
         self.ledger = ledger
         self.events = events
@@ -97,6 +99,7 @@ class RunManager:
         self.settings = settings
         self.channel_delivery = channel_delivery
         self.feedback = feedback
+        self.project_events = project_events or ProjectEventProjector(ledger, events)
         self._tasks: dict[str, asyncio.Task[None]] = {}
 
     def _acquire_run_lease(self, run_id: str) -> int | None:
@@ -116,6 +119,14 @@ class RunManager:
             raise
         return descriptor
 
+    def is_executing(self, run_id: str) -> bool:
+        """Include cleanup after terminal status, even when another worker owns it."""
+        lease = self._acquire_run_lease(run_id)
+        if lease is None:
+            return True
+        os.close(lease)
+        return False
+
     async def recover_interrupted(self) -> None:
         """Make ownerless runs retryable without replaying any model or external action."""
 
@@ -124,6 +135,7 @@ class RunManager:
                 candidate.status in TERMINAL_RUN_STATUSES
                 and candidate.error != INTERRUPTED_RUN_MESSAGE
             ):
+                await self.project_events.reconcile_run(candidate.id)
                 continue
             lease = self._acquire_run_lease(candidate.id)
             if lease is None:
@@ -206,7 +218,10 @@ class RunManager:
                 self._notify_schedule_failure(run.id, message, ProviderErrorCode.SDK_RUNTIME_FAILED)
                 self._capture_terminal_feedback(run.id)
             finally:
-                os.close(lease)
+                try:
+                    await self.project_events.reconcile_run(candidate.id)
+                finally:
+                    os.close(lease)
 
     async def stop(self) -> None:
         # Schedulers stop first so no new run can race with this snapshot.
@@ -484,6 +499,14 @@ class RunManager:
         return source
 
     async def _execute(self, run_id: str) -> None:
+        try:
+            await self._execute_runtime(run_id)
+        finally:
+            # A committed record may outlive a failed notification or tool
+            # response. Repair observations without repeating business writes.
+            await self.project_events.reconcile_run(run_id)
+
+    async def _execute_runtime(self, run_id: str) -> None:
         run = self.ledger.update_run(
             run_id,
             status=RunStatus.RUNNING,

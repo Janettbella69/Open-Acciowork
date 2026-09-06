@@ -21,6 +21,7 @@ import { createAgent, getProtocol, listAgents } from '../api/client'
 const protocol = {
   version: '0.1.0',
   event_types: [],
+  stream_end_event: 'stream.completed',
   run_statuses: [],
   run_modes: [],
   provider_error_codes: [],

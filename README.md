@@ -48,6 +48,9 @@ Scheduled runs can retain scoped, traceable task experience without changing use
 policy or global memory; see [`docs/task-experience.md`](docs/task-experience.md).
 Manual and automatic schedule triggers now share cross-process overlap checks;
 see [`docs/schedule-overlap.md`](docs/schedule-overlap.md).
+Run-bound evidence and decisions now emit recoverable ledger observations; the
+workspace drains the complete Run event tail before closing its stream.
+See [`docs/project-events.md`](docs/project-events.md).
 
 Tenant Skills keep immutable, content-addressed package history with per-run snapshots,
 version inspection, reviewed rollback, bounded storage, and active-session-safe runtime

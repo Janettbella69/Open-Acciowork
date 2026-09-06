@@ -26,12 +26,28 @@ import type {
   RunRetryStrategy,
   RunStatus,
   RunTelemetry,
+  RunStreamEnd,
 } from './types'
 import { permissionConflict, permissionLifecycleState } from '../permissionLifecycle'
 
 type ConnectionState = 'idle' | 'connecting' | 'live' | 'reconnecting' | 'closed'
 
 const terminalStatuses = new Set<RunStatus>(['completed', 'failed', 'cancelled'])
+const runStatusEvents = new Set([
+  'run.created', 'run.started', 'run.status', 'run.completed', 'run.failed',
+  'run.cancel_requested', 'run.cancelled',
+])
+const projectRecordEvents = new Set(['evidence.added', 'decision.recorded'])
+const projectRefreshError = 'Could not refresh the saved project. Refresh before using this view.'
+const streamGapError = 'The runtime event stream has a gap. Reopen this project to restore its history.'
+
+type ProjectRefresh = {
+  projectId: string
+  selection: number
+  revision: number
+  controller: AbortController
+  promise: Promise<void>
+}
 
 export function useOpportunityRuntime() {
   const [projects, setProjects] = useState<OpportunityProject[]>([])
@@ -46,7 +62,8 @@ export function useOpportunityRuntime() {
   const [error, setError] = useState('')
   const [starting, setStarting] = useState(false)
   const eventSourceRef = useRef<EventSource | null>(null)
-  const terminalRef = useRef(false)
+  const projectRef = useRef<OpportunityProject | null>(null)
+  const projectRefreshRef = useRef<ProjectRefresh | null>(null)
   const sawTextDeltaRef = useRef(false)
   const sawReasoningDeltaRef = useRef(false)
   const runRef = useRef<RunRecord | null>(null)
@@ -63,14 +80,52 @@ export function useOpportunityRuntime() {
   const closeStream = useCallback(() => {
     eventSourceRef.current?.close()
     eventSourceRef.current = null
+    projectRefreshRef.current?.controller.abort()
+    projectRefreshRef.current = null
   }, [])
 
-  const refreshProject = useCallback(async (projectId: string) => {
+  const refreshProject = useCallback((projectId: string): Promise<void> => {
+    if (projectRef.current?.id !== projectId) return Promise.resolve()
     const selection = selectionRef.current
-    const updated = await getProject(projectId)
-    if (selectionRef.current !== selection) return
-    setProject((current) => current?.id === projectId ? updated : current)
-    setProjects((current) => [updated, ...current.filter((item) => item.id !== updated.id)])
+    const pending = projectRefreshRef.current
+    if (pending?.selection === selection && pending.projectId === projectId) {
+      pending.revision += 1
+      return pending.promise
+    }
+    const refresh: ProjectRefresh = {
+      projectId, selection, revision: 0, controller: new AbortController(),
+      promise: Promise.resolve(),
+    }
+    projectRefreshRef.current = refresh
+    const current = () => selectionRef.current === selection
+      && projectRef.current?.id === projectId && projectRefreshRef.current === refresh
+      && !refresh.controller.signal.aborted
+    refresh.promise = (async () => {
+      // One request runs at a time. Events received during that request require
+      // one fresh read before its result can become the displayed ledger view.
+      while (current()) {
+        const revision = refresh.revision
+        try {
+          const updated = await getProject(projectId, refresh.controller.signal)
+          if (!current()) return
+          if (revision !== refresh.revision) continue
+          if (updated.id !== projectId) throw new Error('Project response identity mismatch')
+          projectRef.current = updated
+          setProject(updated)
+          setProjects((items) => [updated, ...items.filter((item) => item.id !== updated.id)])
+          setError((message) => message === projectRefreshError ? '' : message)
+          return
+        } catch (cause) {
+          if (!current()) return
+          if (revision !== refresh.revision) continue
+          setError(projectRefreshError)
+          throw cause
+        }
+      }
+    })().finally(() => {
+      if (projectRefreshRef.current === refresh) projectRefreshRef.current = null
+    })
+    return refresh.promise
   }, [])
 
   const refreshPermissions = useCallback(async () => {
@@ -97,16 +152,17 @@ export function useOpportunityRuntime() {
     }
   }, [])
 
-  const handleEvent = useCallback((event: OphiraEvent) => {
-    if (event.run_id !== runRef.current?.id) return
+  const handleEvent = useCallback((event: OphiraEvent, validStatuses: Set<string>) => {
+    const currentRun = runRef.current
+    if (!currentRun || event.run_id !== currentRun.id || event.project_id !== currentRun.project_id) return
     const status = event.data.status
-    if (typeof status === 'string') {
+    if (runStatusEvents.has(event.type) && typeof status === 'string' && validStatuses.has(status)
+      && (!terminalStatuses.has(currentRun.status) || status === currentRun.status)) {
       runStatusRevisionRef.current += 1
-      setRun((current) => {
-        const next = current ? { ...current, status: status as RunStatus } : current
-        runRef.current = next
-        return next
-      })
+      const next = { ...currentRun, status: status as RunStatus }
+      runRef.current = next
+      setRun(next)
+      if (terminalStatuses.has(next.status)) setHistoryLoading(true)
     }
 
     if (event.type === 'assistant.text.delta' && typeof event.data.text === 'string') {
@@ -142,7 +198,8 @@ export function useOpportunityRuntime() {
       setAssistantText(event.data.result)
     }
 
-    if (event.type === 'permission.requested' && typeof event.data.request_id === 'string') {
+    if (event.type === 'permission.requested' && typeof event.data.request_id === 'string'
+      && !terminalStatuses.has(currentRun.status)) {
       permissionRevisionRef.current += 1
       setPermissions((current) => [
         ...current.filter((item) => item.id !== event.data.request_id),
@@ -181,7 +238,7 @@ export function useOpportunityRuntime() {
     const toolName = event.data.tool_name
     const replayingTerminalRun = runRef.current ? terminalStatuses.has(runRef.current.status) : false
     if (
-      event.type === 'run.completed'
+      projectRecordEvents.has(event.type)
       || (
         event.type === 'tool.completed'
         && typeof toolName === 'string'
@@ -192,55 +249,90 @@ export function useOpportunityRuntime() {
       void refreshProject(event.project_id).catch(() => undefined)
     }
 
-    if (['run.completed', 'run.failed', 'run.cancelled'].includes(event.type)) {
-      const selection = selectionRef.current
-      terminalRef.current = true
-      setConnection('closed')
-      setHistoryLoading(false)
-      eventSourceRef.current?.close()
-      void Promise.all([
-        refreshProject(event.project_id),
-        getRun(event.run_id).then((record) => {
-          if (selectionRef.current !== selection || runRef.current?.id !== record.id) return
-          runRef.current = record
-          setRun(record)
-        }),
-      ]).catch(
-        () => undefined,
-      )
-    }
   }, [refreshProject, refreshPermissions])
 
   const connectToRun = useCallback(async (nextRun: RunRecord) => {
     const selection = selectionRef.current
     closeStream()
-    terminalRef.current = false
     setConnection('connecting')
     const protocol = await getProtocol()
     if (selectionRef.current !== selection || runRef.current?.id !== nextRun.id) return
+    if (!protocol.stream_end_event || protocol.event_types.includes(protocol.stream_end_event)) {
+      throw new Error('The runtime stream completion protocol is unavailable.')
+    }
     const source = new EventSource(runEventUrl(nextRun.id))
     eventSourceRef.current = source
+    const validStatuses = new Set(protocol.run_statuses)
+    let lastSequence = 0
+    const selected = () => selectionRef.current === selection && runRef.current?.id === nextRun.id
+      && runRef.current.project_id === nextRun.project_id && projectRef.current?.id === nextRun.project_id
+    const current = () => selected() && eventSourceRef.current === source
 
-    const listener = (message: Event) => {
-      if (selectionRef.current !== selection || eventSourceRef.current !== source) return
+    const listener = (eventType: string) => (message: Event) => {
+      if (!current()) return
       try {
-        handleEvent(JSON.parse((message as MessageEvent<string>).data) as OphiraEvent)
+        const event = JSON.parse((message as MessageEvent<string>).data) as OphiraEvent
+        if (!event || event.run_id !== nextRun.id || event.project_id !== nextRun.project_id) return
+        if (event.type !== eventType || !Number.isSafeInteger(event.sequence) || event.sequence <= 0
+          || event.id !== `${nextRun.id}:${event.sequence}`
+          || !event.data || typeof event.data !== 'object' || Array.isArray(event.data)) {
+          throw new Error('Invalid runtime event envelope')
+        }
+        if (event.sequence <= lastSequence) return
+        if (event.sequence !== lastSequence + 1) {
+          setError(streamGapError)
+          return
+        }
+        handleEvent(event, validStatuses)
+        lastSequence = event.sequence
       } catch {
         setError('A runtime event could not be decoded.')
       }
     }
-    protocol.event_types.forEach((eventType) => source.addEventListener(eventType, listener))
-    source.onopen = () => {
-      if (selectionRef.current === selection && eventSourceRef.current === source) {
-        setConnection('live')
+    protocol.event_types.forEach((eventType) => source.addEventListener(eventType, listener(eventType)))
+    source.addEventListener(protocol.stream_end_event, (message: Event) => {
+      if (!current()) return
+      try {
+        const end = JSON.parse((message as MessageEvent<string>).data) as RunStreamEnd
+        if (!end || end.run_id !== nextRun.id || end.project_id !== nextRun.project_id) return
+        if (!Number.isSafeInteger(end.last_sequence) || end.last_sequence < 0
+          || end.last_sequence !== lastSequence) {
+          setError(streamGapError)
+          return
+        }
+      } catch {
+        setError('A runtime event could not be decoded.')
+        return
       }
+      // Execution may finish before ledger projections are appended. Only this
+      // transport frame confirms that the complete durable tail was consumed.
+      source.close()
+      eventSourceRef.current = null
+      setConnection('closed')
+      setHistoryLoading(true)
+      setError((message) => message === streamGapError ? '' : message)
+      void Promise.allSettled([
+        refreshProject(nextRun.project_id),
+        getRun(nextRun.id).then((record) => {
+          if (!selected()) return
+          if (record.id !== nextRun.id || record.project_id !== nextRun.project_id) {
+            throw new Error('Run response identity mismatch')
+          }
+          runStatusRevisionRef.current += 1
+          runRef.current = record
+          setRun(record)
+        }).catch(() => {
+          if (selected()) setError('Could not refresh the saved run. Reopen this project to retry.')
+        }),
+      ]).then(() => { if (selected()) setHistoryLoading(false) })
+    })
+    source.onopen = () => {
+      if (current()) setConnection('live')
     }
     source.onerror = () => {
-      if (selectionRef.current === selection && eventSourceRef.current === source && !terminalRef.current) {
-        setConnection('reconnecting')
-      }
+      if (current()) setConnection('reconnecting')
     }
-  }, [closeStream, handleEvent])
+  }, [closeStream, handleEvent, refreshProject])
 
   const start = useCallback(async (
     brief: string,
@@ -263,6 +355,7 @@ export function useOpportunityRuntime() {
     try {
       const nextProject = await createProject(brief)
       if (selectionRef.current !== selection) return null
+      projectRef.current = nextProject
       setProject(nextProject)
       setProjects((current) => [nextProject, ...current])
       if (files.length) await Promise.all(files.map((file) => uploadProjectFile(nextProject.id, file)))
@@ -437,6 +530,7 @@ export function useOpportunityRuntime() {
   const selectProject = useCallback(async (selected: OpportunityProject): Promise<RunRecord | null> => {
     const selection = ++selectionRef.current
     closeStream()
+    projectRef.current = selected
     setProject(selected)
     setRun(null)
     runRef.current = null
@@ -489,6 +583,7 @@ export function useOpportunityRuntime() {
   const reset = useCallback(() => {
     selectionRef.current += 1
     closeStream()
+    projectRef.current = null
     setProject(null)
     setRun(null)
     runRef.current = null

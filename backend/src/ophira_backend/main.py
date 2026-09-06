@@ -81,6 +81,7 @@ from .companion_routes import register_companion_routes, validate_companion_requ
 from .config import Settings, get_settings
 from .connectors import ConnectorNotFoundError, ConnectorRegistry
 from .constants import (
+    STREAM_END_EVENT,
     USER_SCOPE_ID,
     AgentTemplate,
     CommercialActionOperation,
@@ -174,6 +175,7 @@ from .models import (
 from .permissions import PermissionBroker, PermissionNotFoundError
 from .policy import OrgPolicyStore, PolicyDeniedError
 from .presentation_tools import PRESENTATION_COMPONENTS, PRESENTATION_SCHEMA_VERSION
+from .project_events import ProjectEventProjector
 from .project_metrics import (
     MAX_METRICS_DAYS,
     MAX_METRICS_RUNS,
@@ -290,6 +292,7 @@ def create_app(
     settings = settings or get_settings()
     ledger = FileLedger(settings.data_dir, ingest_config=IngestConfig.from_settings(settings))
     events = EventPublisher(ledger)
+    project_events = ProjectEventProjector(ledger, events)
     memory = FileMemoryProvider(
         settings.data_dir / "memory",
         agents_root=settings.data_dir / "agents",
@@ -363,6 +366,7 @@ def create_app(
         commercial_actions=commercial_actions,
         task_experiences=task_experiences,
         access=project_access,
+        project_events=project_events,
     )
     runs = RunManager(
         ledger,
@@ -377,6 +381,7 @@ def create_app(
         settings=settings,
         channel_delivery=channel_delivery,
         feedback=feedback,
+        project_events=project_events,
     )
     scheduler = ScheduleService(
         ledger,
@@ -421,6 +426,7 @@ def create_app(
     application = FastAPI(title="OPHIRA API", version="0.1.0", lifespan=lifespan)
     application.state.ledger = ledger
     application.state.events = events
+    application.state.project_events = project_events
     application.state.memory = memory
     application.state.permissions = permissions
     application.state.providers = providers
@@ -717,6 +723,7 @@ def create_app(
         return {
             "version": "0.1.0",
             "event_types": [item.value for item in EventType],
+            "stream_end_event": STREAM_END_EVENT,
             "run_statuses": [item.value for item in RunStatus],
             "run_modes": [item.value for item in RunMode],
             "provider_error_codes": [item.value for item in ProviderErrorCode],
@@ -1421,22 +1428,65 @@ def create_app(
         last_event_id: Annotated[str | None, Header(alias="Last-Event-ID")] = None,
     ) -> EventSourceResponse:
         try:
-            ledger.get_run(run_id)
+            run = ledger.get_run(run_id)
         except (LedgerNotFoundError, ValueError) as exc:
             raise HTTPException(status_code=404, detail="Run not found") from exc
-        after_sequence = _parse_last_event_id(last_event_id)
+        principal = getattr(request.state, "principal", None)
+        require_project_authorization(run.project_id, principal, ProjectPermission.RUN_READ)
+        after_sequence = _parse_last_event_id(last_event_id, run_id)
+        if not await project_events.reconcile_run(run_id):
+            raise HTTPException(status_code=503, detail="Project event reconciliation unavailable")
+        if after_sequence > ledger.get_run_summary(run_id).last_sequence:
+            raise HTTPException(status_code=400, detail="Last-Event-ID is ahead of the event log")
+
+        class StreamUnavailable(Exception):
+            """End this connection without acknowledging a complete replay."""
+
+        async def stream_is_visible() -> bool:
+            if await request.is_disconnected():
+                return False
+            try:
+                return project_is_visible(run.project_id, principal, ProjectPermission.RUN_READ)
+            except AuthenticationError:
+                # A valid assertion at connection time can expire during a Run.
+                return False
+
+        async def before_finish() -> bool:
+            if not await stream_is_visible():
+                raise StreamUnavailable
+            if runs.is_executing(run_id):
+                return False
+            if not await project_events.reconcile_run(run_id):
+                raise StreamUnavailable
+            return True
 
         async def event_generator():
-            async for event in events.stream(run_id, after_sequence):
-                if await request.is_disconnected():
-                    return
-                if event is None:
-                    yield {"comment": "keepalive"}
-                    continue
+            cursor = after_sequence
+            try:
+                async for event in events.stream(
+                    run_id, after_sequence, before_finish=before_finish,
+                ):
+                    if not await stream_is_visible():
+                        return
+                    if event is None:
+                        yield {"comment": "keepalive"}
+                        continue
+                    cursor = event.sequence
+                    yield {
+                        "event": event.type,
+                        "id": event.id,
+                        "data": json.dumps(event.model_dump(mode="json"), ensure_ascii=False),
+                    }
+            except StreamUnavailable:
+                return
+            if await stream_is_visible():
+                # Transport watermark only: no persisted row or synthetic SSE ID.
                 yield {
-                    "event": event.type,
-                    "id": event.id,
-                    "data": json.dumps(event.model_dump(mode="json"), ensure_ascii=False),
+                    "event": STREAM_END_EVENT,
+                    "data": json.dumps({
+                        "run_id": run_id, "project_id": run.project_id,
+                        "last_sequence": cursor,
+                    }),
                 }
 
         return EventSourceResponse(event_generator(), ping=None)
@@ -2344,12 +2394,17 @@ def create_app(
     return application
 
 
-def _parse_last_event_id(value: str | None) -> int:
+def _parse_last_event_id(value: str | None, run_id: str) -> int:
     if not value:
         return 0
-    raw_sequence = value.rsplit(":", maxsplit=1)[-1]
+    parts = value.rsplit(":", maxsplit=1)
+    raw_sequence = parts[-1]
+    if (len(parts) == 2 and parts[0] != run_id) or not raw_sequence.isascii():
+        raise HTTPException(status_code=400, detail="Invalid Last-Event-ID")
+    if not raw_sequence.isdigit():
+        raise HTTPException(status_code=400, detail="Invalid Last-Event-ID")
     try:
-        return max(0, int(raw_sequence))
+        return int(raw_sequence)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail="Invalid Last-Event-ID") from exc
 

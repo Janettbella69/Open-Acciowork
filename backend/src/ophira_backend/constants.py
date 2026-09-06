@@ -95,6 +95,9 @@ TERMINAL_RUN_STATUSES = {
     RunStatus.CANCELLED,
 }
 
+# Transport watermark only: never written into the durable event sequence.
+STREAM_END_EVENT = "stream.completed"
+
 
 class EventType(StrEnum):
     RUN_CREATED = "run.created"
@@ -132,6 +135,8 @@ class EventType(StrEnum):
     RUN_RESULT = "run.result"
 
     ARTIFACT_REGISTERED = "artifact.registered"
+    EVIDENCE_ADDED = "evidence.added"
+    DECISION_RECORDED = "decision.recorded"
     UI_PRESENTATION = "ui.presentation"
     PROVIDER_PREFLIGHT = "provider.preflight"
 

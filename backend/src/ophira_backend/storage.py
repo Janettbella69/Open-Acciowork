@@ -18,6 +18,7 @@ from urllib.parse import urlsplit, urlunsplit
 
 from .constants import (
     DecisionStatus,
+    EventType,
     EvidenceKind,
     EvidenceSourceType,
     EvidenceStatus,
@@ -810,6 +811,42 @@ class FileLedger:
             if stored.type.startswith("run."):
                 self._append_manifest(self.get_run(event.run_id), sequence)
             return stored
+
+    def append_event_once(self, event: EventEnvelope, resource_id: str) -> EventEnvelope:
+        """Project one committed resource exactly once within this Run's event log.
+
+        The durable business record remains authoritative. No second index is
+        written: a crash after the JSONL append can recover from that same log.
+        """
+        if event.type not in {EventType.EVIDENCE_ADDED.value, EventType.DECISION_RECORDED.value}:
+            raise ValueError("only committed project resource notifications can be deduplicated")
+        if not isinstance(resource_id, str) or not resource_id:
+            raise ValueError("resource_id must be a nonempty string")
+        self._safe_id(resource_id)
+        if event.data.get("resource_id") != resource_id:
+            raise ValueError("resource notification identity does not match")
+        with self._lock_for(event.run_id):
+            run = self.get_run(event.run_id)
+            if event.project_id != run.project_id or event.trace_id != run.trace_id:
+                raise ValueError("resource notification is outside the Run scope")
+            # Also repairs a crash between append and summary publication.
+            self.get_run_summary(run.id)
+            previous = self._read_event_log(run.id)
+            found = None
+            for sequence, stored in enumerate(previous, start=1):
+                if (stored.sequence != sequence or stored.id != f"{run.id}:{sequence}"
+                        or stored.run_id != run.id or stored.project_id != run.project_id
+                        or stored.trace_id != run.trace_id):
+                    raise ValueError("event log integrity check failed; refusing to project")
+                if stored.type == event.type and stored.data.get("resource_id") == resource_id:
+                    if found is not None:
+                        raise ValueError("resource notification has conflicting duplicate history")
+                    found = stored
+            if found is not None:
+                return found
+            # _lock_for is reentrant within this process; the cross-process lock
+            # remains held across the uniqueness check and append.
+            return self.append_event(event)
 
     def list_events(
         self,

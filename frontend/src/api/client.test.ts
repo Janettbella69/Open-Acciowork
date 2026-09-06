@@ -5,6 +5,7 @@ import {
   createSchedule,
   getCommercialAction,
   getProjectMetrics,
+  getProject,
   getRunTelemetry,
   retryRun,
   resumePermissionRun,
@@ -17,6 +18,15 @@ afterEach(() => {
 })
 
 describe('API client', () => {
+  it('re-reads the encoded project ledger without a cached response and forwards cancellation', async () => {
+    const payload = { id: 'project/one ?#' }
+    const controller = new AbortController()
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify(payload), { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+    await expect(getProject(payload.id, controller.signal)).resolves.toEqual(payload)
+    expect(fetchMock).toHaveBeenCalledWith('/api/projects/project%2Fone%20%3F%23',
+      expect.objectContaining({ signal: controller.signal, cache: 'no-store' }))
+  })
   it('encodes the exact project metrics path and forwards its cancellation signal', async () => {
     const payload = { schema_version: '1', project_id: 'project/one ?#' }
     const controller = new AbortController()

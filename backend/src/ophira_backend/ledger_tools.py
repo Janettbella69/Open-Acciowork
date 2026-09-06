@@ -53,6 +53,7 @@ from .untrusted import (
 if TYPE_CHECKING:
     from .commercial_actions import CommercialActionService
     from .connectors import ConnectorRegistry
+    from .project_events import ProjectEventProjector
 
 
 def _tool_result(value: Any, *, is_error: bool = False) -> dict[str, Any]:
@@ -114,6 +115,7 @@ def build_ledger_tools(
     memory: MemoryProvider | None = None,
     agent_id: str | None = None,
     run_id: str | None = None,
+    project_events: ProjectEventProjector | None = None,
 ):
     """Tool list for the ledger MCP server; exposed separately so tests can call
     handlers directly without going through a live SDK session."""
@@ -498,7 +500,10 @@ def build_ledger_tools(
         evidence_schema,
     )
     async def record_evidence(args: dict[str, Any]) -> dict[str, Any]:
-        return _tool_result(record_one_evidence(args))
+        result = record_one_evidence(args)
+        if project_events is not None:
+            await project_events.evidence_added(project_id, result.id)
+        return _tool_result(result)
 
     @tool(
         "record_evidence_batch",
@@ -519,7 +524,13 @@ def build_ledger_tools(
         },
     )
     async def record_evidence_batch(args: dict[str, Any]) -> dict[str, Any]:
-        return _tool_result([record_one_evidence(entry) for entry in args["entries"]])
+        results = []
+        for entry in args["entries"]:
+            result = record_one_evidence(entry)
+            if project_events is not None:
+                await project_events.evidence_added(project_id, result.id)
+            results.append(result)
+        return _tool_result(results)
 
     @tool(
         "record_decision",
@@ -595,6 +606,8 @@ def build_ledger_tools(
             project.decisions.append(decision)
 
         ledger.update_project(project_id, mutate)
+        if project_events is not None:
+            await project_events.decision_recorded(project_id, result.id)
         return _tool_result(result)
 
     @tool(
@@ -729,6 +742,7 @@ def build_ledger_mcp_server(
     memory: MemoryProvider | None = None,
     agent_id: str | None = None,
     run_id: str | None = None,
+    project_events: ProjectEventProjector | None = None,
 ):
     return create_sdk_mcp_server(
         name=LEDGER_MCP_SERVER_NAME,
@@ -739,6 +753,7 @@ def build_ledger_mcp_server(
             memory=memory,
             agent_id=agent_id,
             run_id=run_id,
+            project_events=project_events,
         ),
     )
 
@@ -1253,6 +1268,7 @@ def build_mcp_servers(
     policy: OrgPolicy | None = None,
     connectors: ConnectorRegistry | None = None,
     commercial_actions: CommercialActionService | None = None,
+    project_events: ProjectEventProjector | None = None,
 ) -> dict[str, Any]:
     from .presentation_tools import build_presentation_mcp_server
 
@@ -1263,6 +1279,7 @@ def build_mcp_servers(
             memory=memory,
             agent_id=agent_id,
             run_id=run_id,
+            project_events=project_events,
         ),
         SUPPLIER_MCP_SERVER_NAME: build_supplier_mcp_server(),
         CUSTOMER_MCP_SERVER_NAME: build_customer_mcp_server(ledger, project_id),
@@ -1299,6 +1316,7 @@ def build_mcp_servers(
                 connectors=connectors,
                 policy=org_policy,
                 run_id=run_id,
+                project_events=project_events,
             )
         servers[MEDIA_MCP_SERVER_NAME] = build_media_mcp_server(
             ledger,

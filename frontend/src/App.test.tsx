@@ -97,6 +97,13 @@ class MockEventSource {
     const message = { data: JSON.stringify(event) } as MessageEvent<string>
     this.listeners.get(type)?.forEach((listener) => listener(message))
   }
+
+  end() {
+    const message = { data: JSON.stringify({
+      run_id: run.id, project_id: project.id, last_sequence: eventSequence,
+    }) } as MessageEvent<string>
+    this.listeners.get('stream.completed')?.forEach((listener) => listener(message))
+  }
 }
 
 function runtimeEvent(type: string, data: Record<string, unknown>): OphiraEvent {
@@ -140,8 +147,9 @@ describe('TradeMind frontend', () => {
       if (url.endsWith('/api/meta/protocol')) {
         return jsonResponse({
           version: '0.1.0',
-          event_types: ['run.started', 'assistant.text.delta', 'tool.started', 'run.completed'],
-          run_statuses: [],
+          event_types: ['run.started', 'assistant.text.delta', 'tool.started', 'run.completed', 'evidence.added', 'decision.recorded'],
+          stream_end_event: 'stream.completed',
+          run_statuses: ['queued', 'running', 'waiting_permission', 'paused', 'cancelling', 'completed', 'failed', 'cancelled'],
           dimensions: [],
           project_stages: [],
           permission_decisions: [],
@@ -344,6 +352,7 @@ describe('TradeMind frontend', () => {
     const source = MockEventSource.instances[0]
     act(() => {
       source.emit('run.completed', runtimeEvent('run.completed', { status: 'completed' }))
+      source.end()
     })
     await waitFor(() => expect(screen.getByText(/ran for/i)).toBeInTheDocument())
 
@@ -376,9 +385,66 @@ describe('TradeMind frontend', () => {
     act(() => {
       source.emit('assistant.text.delta', runtimeEvent('assistant.text.delta', { text: 'Restored from the durable event log.' }))
       source.emit('run.completed', runtimeEvent('run.completed', { status: 'completed' }))
+      source.end()
     })
 
     expect(await screen.findByText('Restored from the durable event log.')).toBeInTheDocument()
     expect(screen.queryByText(/four dimensions, one decision/i)).not.toBeInTheDocument()
+  })
+
+  it('refreshes the actual project ledger from record events after historical run completion', async () => {
+    storedProjects = [project]
+    const originalFetch = vi.mocked(fetch).getMockImplementation()!
+    let ledgerProject = project
+    vi.mocked(fetch).mockImplementation((input, init) => {
+      if (String(input).endsWith(`/api/projects/${project.id}`)) return Promise.resolve(jsonResponse(ledgerProject))
+      return originalFetch(input, init)
+    })
+    render(<Workspace />)
+    fireEvent.click(await screen.findByRole('button', { name: new RegExp(project.name, 'i') }))
+    await screen.findByText(/restoring the recorded response/i)
+    const source = MockEventSource.instances[0]
+    act(() => {
+      source.emit('assistant.text.delta', runtimeEvent('assistant.text.delta', { text: 'Recorded analysis.' }))
+      source.emit('run.completed', runtimeEvent('run.completed', { status: 'completed' }))
+    })
+    expect(source.closed).toBe(false)
+    expect(screen.getByText(/restoring the recorded response/i)).toBeInTheDocument()
+
+    ledgerProject = {
+      ...project,
+      revision: 3,
+      evidence: [{
+        id: 'evidence_tail', dimension: null, tags: [], kind: 'user_statement',
+        claim: 'The buyer requested a sample.', source_title: 'User confirmation',
+        source_url: null, source_type: 'user', source_path: null, retrieved_at: timestamp,
+        observed_at: null, excerpt: null, location: null, freshness_note: null,
+        status: 'active', confidence: 1, supports_hypothesis_ids: [], recorded_by: 'main',
+        source_run_id: run.id, recorded_at: timestamp,
+      }],
+      decisions: [{
+        id: 'decision_tail', question: 'Next step?', outcome: 'Prepare a sample for human review.',
+        decision_type: 'test', rationale: 'Buyer interest requires validation.',
+        evidence_ids: ['evidence_tail'], hypothesis_ids: [], assumptions: [], conditions: [],
+        next_actions: [], status: 'active', made_by: 'main', review_at: null,
+        invalidated_by_evidence_ids: [], created_at: timestamp,
+      }],
+    }
+    await act(async () => {
+      source.emit('evidence.added', runtimeEvent('evidence.added', {
+        schema_version: 1, resource_id: 'evidence_tail', evidence_id: 'evidence_tail', recorded_at: timestamp,
+      }))
+      source.emit('decision.recorded', runtimeEvent('decision.recorded', {
+        schema_version: 1, resource_id: 'decision_tail', decision_id: 'decision_tail', recorded_at: timestamp,
+      }))
+      source.end()
+    })
+    await waitFor(() => expect(screen.queryByText(/restoring the recorded response/i)).not.toBeInTheDocument())
+    expect(source.closed).toBe(true)
+    fireEvent.click(screen.getByText('Project record'))
+    expect(screen.getByText('The buyer requested a sample.')).toBeVisible()
+    expect(screen.getByText('Prepare a sample for human review.')).toBeVisible()
+    expect(screen.getByText('Recorded analysis.')).toBeInTheDocument()
+    expect(screen.queryByText('Stream Completed')).not.toBeInTheDocument()
   })
 })

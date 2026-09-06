@@ -221,7 +221,28 @@ against an external browser environment.
 
 ## SSE replay
 
-Each event has a monotonically increasing ID such as `run_abcd:17`. Reconnect with the standard `Last-Event-ID` header; the server replays every later JSONL event before following live output. A terminal stream closes only after its final durable event has been sent.
+Each durable event has a monotonically increasing ID such as `run_abcd:17`.
+Reconnect with the standard `Last-Event-ID` header; the server replays every later
+JSONL event before following live output. A `run.completed`, `run.failed`, or
+`run.cancelled` event does not end this replay: observations of committed project
+records can follow it, including records recovered during subscription.
+
+After the terminal Run has finished execution, reconciliation has succeeded, and
+all durable events have been sent, the server sends one transport control frame:
+
+```text
+event: stream.completed
+data: {"run_id":"run_abcd","project_id":"project_abcd","last_sequence":17}
+
+```
+
+This frame has no `id` field, is not a JSONL event, and consumes no sequence number.
+Clients validate its Run, project, and `last_sequence` against the last durable
+sequence received, or the requested checkpoint when the replay is empty. Keep the
+durable event ID as the reconnect cursor. Missing, duplicate, or mismatched control
+frames are incomplete/invalid replay; EOF alone does not confirm completion. Eval
+consumers compare replay against a fresh ledger snapshot after this frame, since
+subscription may have added legitimate recovered observations.
 
 ```json
 {

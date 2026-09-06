@@ -82,6 +82,7 @@ from .native_hooks import NativeHookBridge
 from .permissions import PermissionBroker
 from .policy import OrgPolicyStore
 from .presentation_tools import presentation_event_response, presentation_frame_event
+from .project_events import ProjectEventProjector
 from .providers import (
     ProviderConfigurationError,
     ProviderRegistry,
@@ -247,12 +248,14 @@ class ClaudeAgentRuntime:
         commercial_actions: CommercialActionService | None = None,
         task_experiences=None,
         access=None,
+        project_events: ProjectEventProjector | None = None,
     ) -> None:
         from .auth import ProjectAccessStore
 
         self.settings = settings
         self.ledger = ledger
         self.events = events
+        self.project_events = project_events or ProjectEventProjector(ledger, events)
         self.permissions = permissions
         self.memory = memory
         self.providers = providers or ProviderRegistry(settings)
@@ -771,6 +774,7 @@ class ClaudeAgentRuntime:
             policy=org_policy,
             connectors=self.connectors,
             commercial_actions=self.commercial_actions,
+            project_events=self.project_events,
         )
         if self.intents is not None and self.notifications is not None:
             from .automation_tools import build_automation_mcp_server

@@ -1043,4 +1043,10 @@ export const zh: Record<string, string> = {
   'removed': '已移除',
   'needs_review': '待复核',
   'superseded': '已取代',
+  'Could not refresh the saved project. Refresh before using this view.': '无法刷新已保存的项目。请先刷新，再使用此视图。',
+  'Could not refresh the saved run. Reopen this project to retry.': '无法刷新已保存的运行记录。请重新打开此项目重试。',
+  'The runtime event stream has a gap. Reopen this project to restore its history.': '运行事件记录不完整。请重新打开此项目以恢复历史记录。',
+  'The runtime stream completion protocol is unavailable.': '运行事件流的结束协议不可用。',
+  'Evidence Added': '证据已记录',
+  'Decision Recorded': '决策已记录',
 }

@@ -264,6 +264,7 @@ export type OphiraEvent = {
 export type ProtocolMetadata = {
   version: string
   event_types: string[]
+  stream_end_event: string
   run_statuses: string[]
   run_modes: string[]
   provider_error_codes: string[]
@@ -284,6 +285,12 @@ export type ProtocolMetadata = {
   presentation_frame_types: PresentationFrameType[]
   presentation_schema_versions: PresentationSchemaVersion[]
   presentation_components: PresentationComponent[]
+}
+
+export type RunStreamEnd = {
+  run_id: string
+  project_id: string
+  last_sequence: number
 }
 
 export type AgentProfile = {

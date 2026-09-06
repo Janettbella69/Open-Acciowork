@@ -20,7 +20,7 @@ from typing import Any
 
 import httpx
 
-from .constants import EventType, EvidenceSourceType
+from .constants import STREAM_END_EVENT, EventType, EvidenceSourceType
 from .events import redact
 from .models import EventEnvelope, OpportunityProject
 
@@ -388,10 +388,60 @@ async def drive_run(
 
 
 async def sse_replay_sequences(
-    client: httpx.AsyncClient, run_id: str, from_sequence: int
+    client: httpx.AsyncClient, run_id: str, from_sequence: int, *, project_id: str,
 ) -> list[int]:
-    """Reconnect to the SSE endpoint with Last-Event-ID and collect replayed sequences."""
+    """Verify durable replay and its separate, ID-less completion watermark.
+
+    A terminal Run event does not end replay: committed project observations may
+    follow it. EOF alone is also insufficient proof of a complete response.
+    """
+    if (isinstance(from_sequence, bool) or not isinstance(from_sequence, int)
+            or from_sequence < 0):
+        raise ValueError("Green Path SSE checkpoint must be a nonnegative integer")
     sequences: list[int] = []
+    cursor = from_sequence
+    completed = False
+    fields: dict[str, str] = {}
+    data_lines: list[str] = []
+
+    def consume_frame() -> None:
+        nonlocal cursor, completed
+        if not fields and not data_lines:
+            return
+        if completed:
+            raise ValueError("Green Path SSE received a frame after completion")
+        if "event" not in fields or not data_lines:
+            raise ValueError("Green Path SSE frame is missing its event or data")
+        try:
+            payload = json.loads("\n".join(data_lines))
+        except ValueError as exc:
+            raise ValueError("Green Path SSE frame has invalid JSON") from exc
+        if not isinstance(payload, dict):
+            raise ValueError("Green Path SSE frame data must be an object")
+        if fields["event"] == STREAM_END_EVENT:
+            if "id" in fields:
+                raise ValueError("Green Path SSE completion must not have an event ID")
+            last_sequence = payload.get("last_sequence")
+            if (payload.get("run_id") != run_id or payload.get("project_id") != project_id
+                    or isinstance(last_sequence, bool) or not isinstance(last_sequence, int)
+                    or last_sequence != cursor):
+                raise ValueError("Green Path SSE completion identity or watermark mismatch")
+            completed = True
+            return
+        sequence = payload.get("sequence")
+        if isinstance(sequence, bool) or not isinstance(sequence, int):
+            raise ValueError("Green Path SSE durable sequence must be an integer")
+        try:
+            event = EventEnvelope.model_validate(payload)
+        except ValueError as exc:
+            raise ValueError("Green Path SSE durable event has an invalid envelope") from exc
+        if (event.run_id != run_id or event.project_id != project_id
+                or event.type != fields["event"] or event.sequence != cursor + 1
+                or event.id != f"{run_id}:{event.sequence}" or fields.get("id") != event.id):
+            raise ValueError("Green Path SSE durable event identity or sequence mismatch")
+        sequences.append(event.sequence)
+        cursor = event.sequence
+
     async with client.stream(
         "GET",
         f"/api/runs/{run_id}/events",
@@ -400,10 +450,23 @@ async def sse_replay_sequences(
     ) as response:
         response.raise_for_status()
         async for line in response.aiter_lines():
-            if line.startswith("id:"):
-                raw = line.split(":")[-1].strip()
-                if raw.isdigit():
-                    sequences.append(int(raw))
+            if not line:
+                consume_frame()
+                fields = {}
+                data_lines = []
+            elif not line.startswith(":"):
+                name, _, value = line.partition(":")
+                value = value.removeprefix(" ")
+                if name == "data":
+                    data_lines.append(value)
+                elif name in {"id", "event"}:
+                    if name in fields:
+                        raise ValueError("Green Path SSE frame repeats an identity field")
+                    fields[name] = value
+    if fields or data_lines:
+        raise ValueError("Green Path SSE ended within an incomplete frame")
+    if not completed:
+        raise ValueError("Green Path SSE is missing its completion watermark")
     return sequences
 
 
@@ -415,11 +478,15 @@ def write_bundle(
     events: list[EventEnvelope],
     project_missing: list[str],
     notes: dict[str, Any] | None = None,
+    *,
+    passed: bool | None = None,
 ) -> Path:
     """Persist an auditable, redacted run bundle for the eval reports archive."""
     bundle_dir = report_dir / name
     bundle_dir.mkdir(parents=True, exist_ok=True)
+    passed = verdict.ok and not project_missing and passed is not False
     summary = {
+        "passed": passed,
         "generated_at": datetime.now(UTC).isoformat(),
         "run": redact(
             {
@@ -448,12 +515,15 @@ def write_bundle(
     (bundle_dir / "summary.json").write_text(
         json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
     )
+    with (bundle_dir / "events.jsonl").open("w", encoding="utf-8") as handle:
+        for event in events:
+            handle.write(json.dumps(redact(event), ensure_ascii=False) + "\n")
     lines = [
         f"# Green Path bundle · {name}",
         "",
         f"- Run: `{run_payload.get('id')}` · status **{run_payload.get('status')}**"
         f" · provider `{run_payload.get('provider_profile_id')}`",
-        f"- 判定：{'✅ PASS' if verdict.ok and not project_missing else '❌ FAIL'}"
+        f"- 判定：{'✅ PASS' if passed else '❌ FAIL'}"
         f"{'（Web 原生工具降级，见 FR-23）' if verdict.web_degraded else ''}",
         f"- 成本（SDK Anthropic 牌价口径）：{verdict.total_cost_usd} USD · turns {verdict.num_turns}",
         f"- 实际服务模型：{', '.join(verdict.served_models) or 'n/a'}",

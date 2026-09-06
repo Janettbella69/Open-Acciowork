@@ -135,8 +135,11 @@ export function createProject(brief: string): Promise<OpportunityProject> {
   })
 }
 
-export function getProject(projectId: string): Promise<OpportunityProject> {
-  return request<OpportunityProject>(`/api/projects/${projectId}`)
+export function getProject(projectId: string, signal?: AbortSignal): Promise<OpportunityProject> {
+  return request<OpportunityProject>(`/api/projects/${encodeURIComponent(projectId)}`, {
+    signal,
+    cache: 'no-store',
+  })
 }
 
 export function listProjectRuns(projectId: string): Promise<RunRecord[]> {

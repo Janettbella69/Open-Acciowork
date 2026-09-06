@@ -70,7 +70,30 @@ async def run_round(client, ledger, provider_id: str, round_no: int, report_dir:
         provider_id=provider_id, policy=policy, timeout_s=timeout_s,
     )
     run_id = run_payload["id"]
+    initial_events = ledger.list_events(run_id)
+    checkpoint = max((event.sequence for event in initial_events), default=0) // 2
+    replayed = []
+    sse_replay_error = None
+    try:
+        # HTTP read timeouts restart on heartbeats; bound the entire replay too.
+        replayed = await asyncio.wait_for(
+            sse_replay_sequences(client, run_id, checkpoint, project_id=project_id),
+            timeout=timeout_s,
+        )
+    except TimeoutError:
+        sse_replay_error = f"SSE deadline exceeded after {timeout_s:g} seconds"
+    except Exception as exc:  # noqa: BLE001 - preserve the failed round's audit bundle
+        sse_replay_error = str(exc)
+
+    # Subscription/recovery can project committed records after an old terminal
+    # event. Verify and archive the final ledger, not the pre-subscription view.
+    run_payload = ledger.get_run(run_id).model_dump(mode="json")
     events = ledger.list_events(run_id)
+    max_sequence = max((event.sequence for event in events), default=0)
+    sse_replay_ok = (
+        sse_replay_error is None
+        and replayed == list(range(checkpoint + 1, max_sequence + 1))
+    )
     verdict = verify_events(events, expect_deny=True)
     verified_web_receipt_ids = {
         receipt.id
@@ -83,16 +106,13 @@ async def run_round(client, ledger, provider_id: str, round_no: int, report_dir:
         verified_web_receipt_ids=verified_web_receipt_ids,
     )
 
-    max_sequence = max((event.sequence for event in events), default=0)
-    checkpoint = max_sequence // 2
-    replayed = await sse_replay_sequences(client, run_id, checkpoint)
-    sse_replay_ok = replayed == list(range(checkpoint + 1, max_sequence + 1))
-
     resume_ok = False
     resume_run_id = None
     resume_error = None
     session_id = run_payload.get("sdk_session_id")
-    if session_id:
+    if not sse_replay_ok:
+        resume_error = "SSE replay verification failed before the resume check"
+    elif session_id:
         try:
             resume_payload = await drive_run(
                 client, ledger, project_id, RESUME_PROMPT,
@@ -115,16 +135,17 @@ async def run_round(client, ledger, provider_id: str, round_no: int, report_dir:
         "sse_replay_ok": sse_replay_ok,
         "sse_checkpoint": checkpoint,
         "sse_replayed_count": len(replayed),
+        "sse_last_sequence": max_sequence,
+        "sse_replay_error": sse_replay_error,
         "resume_run_id": resume_run_id,
         "resume_ok": resume_ok,
         "resume_error": resume_error,
         "policy_denied": policy.denied,
         "policy_allowed_count": len(policy.allowed),
     }
-    write_bundle(report_dir, f"round-{round_no}", run_payload, verdict, events,
-                 project_missing, notes)
-
     passed = verdict.ok and not project_missing and sse_replay_ok and resume_ok
+    write_bundle(report_dir, f"round-{round_no}", run_payload, verdict, events,
+                 project_missing, notes, passed=passed)
     summary = {
         "round": round_no,
         "run_id": run_id,
@@ -132,6 +153,7 @@ async def run_round(client, ledger, provider_id: str, round_no: int, report_dir:
         "verdict_missing": verdict.missing,
         "project_missing": project_missing,
         "sse_replay_ok": sse_replay_ok,
+        "sse_replay_error": sse_replay_error,
         "resume_ok": resume_ok,
         "resume_error": resume_error,
         "web_degraded": verdict.web_degraded,

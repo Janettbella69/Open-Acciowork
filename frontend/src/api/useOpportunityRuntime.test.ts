@@ -1,7 +1,7 @@
 import { act, cleanup, renderHook, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import * as api from './client'
-import type { OpportunityProject, OphiraEvent, PendingPermissionView, ProtocolMetadata, RunRecord } from './types'
+import type { OpportunityProject, OphiraEvent, PendingPermissionView, ProtocolMetadata, RunRecord, RunStreamEnd } from './types'
 import { useOpportunityRuntime } from './useOpportunityRuntime'
 
 vi.mock('./client')
@@ -17,7 +17,13 @@ const projectB = { id: 'project_b', name: 'B' } as OpportunityProject
 const runA = { id: 'run_a', project_id: projectA.id, status: 'running' } as RunRecord
 const runB = { id: 'run_b', project_id: projectB.id, status: 'running' } as RunRecord
 const protocol = {
-  event_types: ['run.completed', 'assistant.text.delta', 'tool.completed', 'permission.requested', 'permission.resolved'],
+  event_types: [
+    'run.created', 'run.started', 'run.status', 'run.completed', 'run.failed', 'run.cancelled',
+    'assistant.text.delta', 'tool.completed', 'permission.requested', 'permission.resolved',
+    'evidence.added', 'decision.recorded', 'task.completed', 'provider.preflight',
+  ],
+  stream_end_event: 'stream.completed',
+  run_statuses: ['queued', 'running', 'waiting_permission', 'paused', 'cancelling', 'completed', 'failed', 'cancelled'],
 } as ProtocolMetadata
 
 class MockEventSource {
@@ -26,13 +32,25 @@ class MockEventSource {
   onopen: (() => void) | null = null
   onerror: (() => void) | null = null
   closed = false
+  sequence = 0
 
   constructor(public url: string) { MockEventSource.instances.push(this) }
   addEventListener(type: string, listener: EventListener) { this.listeners.set(type, listener) }
   close() { this.closed = true }
-  emit(type: string, data: Record<string, unknown>) {
-    const event = { type, run_id: runA.id, project_id: projectA.id, data } as OphiraEvent
+  emit(type: string, data: Record<string, unknown>, override: Partial<OphiraEvent> = {}) {
+    const active = this.url.includes(runB.id) ? runB : runA
+    const sequence = override.sequence ?? this.sequence + 1
+    this.sequence = Math.max(this.sequence, sequence)
+    const event = {
+      type, run_id: active.id, project_id: active.project_id, data,
+      sequence, id: `${active.id}:${sequence}`, ...override,
+    } as OphiraEvent
     this.listeners.get(type)?.({ data: JSON.stringify(event) } as MessageEvent<string>)
+  }
+  end(override: Partial<RunStreamEnd> = {}) {
+    const active = this.url.includes(runB.id) ? runB : runA
+    const end = { run_id: active.id, project_id: active.project_id, last_sequence: this.sequence, ...override }
+    this.listeners.get(protocol.stream_end_event)?.({ data: JSON.stringify(end) } as MessageEvent<string>)
   }
 }
 
@@ -78,7 +96,10 @@ describe('project selection isolation', () => {
     const { result } = await setup()
     const refresh = deferred<RunRecord>()
     vi.mocked(api.getRun).mockReturnValueOnce(refresh.promise)
-    act(() => { MockEventSource.instances[0].emit('run.completed', { status: 'completed' }) })
+    act(() => {
+      MockEventSource.instances[0].emit('run.completed', { status: 'completed' })
+      MockEventSource.instances[0].end()
+    })
     await act(async () => { await result.current.selectProject(projectB) })
     await act(async () => { refresh.resolve({ ...runA, status: 'completed' }) })
     expect(result.current.run?.id).toBe(runB.id)
@@ -257,5 +278,219 @@ describe('durable approval reconciliation', () => {
     await act(async () => { MockEventSource.instances[0].emit('permission.resolved', { request_id: pending.id, durable: true, tool_use_id: 'tool_1' }) })
     expect(result.current.permissions[0].state).toBe('resolved')
     expect(api.resumePermissionRun).not.toHaveBeenCalled()
+  })
+})
+
+describe('project record events and complete durable tails', () => {
+  it.each(['evidence.added', 'decision.recorded', 'task.completed', 'provider.preflight', 'tool.completed'])(
+    'does not apply %s status to the Run', async (type) => {
+      const { result } = await setup()
+      await act(async () => { MockEventSource.instances[0].emit(type, { status: 'failed', resource_id: 'record_1' }) })
+      expect(result.current.run?.status).toBe('running')
+      expect(result.current.isActive).toBe(true)
+    },
+  )
+
+  it('accepts only valid lifecycle statuses and retains an authoritative terminal history status', async () => {
+    const { result } = await setup()
+    const source = MockEventSource.instances[0]
+    act(() => { source.emit('run.status', { status: 'validated' }) })
+    expect(result.current.run?.status).toBe('running')
+    act(() => { source.emit('run.status', { status: 'waiting_permission' }) })
+    expect(result.current.run?.status).toBe('waiting_permission')
+
+    vi.mocked(api.listProjectRuns).mockResolvedValueOnce([{ ...runA, status: 'completed' }])
+    await act(async () => { await result.current.selectProject(projectA) })
+    act(() => { MockEventSource.instances.at(-1)!.emit('run.started', { status: 'running' }) })
+    expect(result.current.run?.status).toBe('completed')
+    expect(result.current.isActive).toBe(false)
+    expect(result.current.historyLoading).toBe(true)
+  })
+
+  it('replays historical approval events without restoring actionable approvals on a terminal Run', async () => {
+    vi.mocked(api.listProjectRuns).mockResolvedValueOnce([{ ...runA, status: 'completed' }])
+    const { result } = await setup()
+    const source = MockEventSource.instances[0]
+    await act(async () => {
+      source.emit('run.started', { status: 'running' })
+      source.emit('permission.requested', { request_id: 'old_approval', tool_name: 'Bash', durable: true, state: 'pending' })
+      source.emit('permission.resolved', { request_id: 'old_approval', durable: true })
+      source.emit('run.completed', { status: 'completed' })
+      source.end()
+    })
+    expect(result.current.run?.status).toBe('completed')
+    expect(result.current.permissions).toEqual([])
+    expect(result.current.events.some((event) => event.type === 'permission.requested')).toBe(true)
+    expect(api.resolvePermission).not.toHaveBeenCalled()
+  })
+
+  it('ignores envelopes for another run or project before requesting any project ledger', async () => {
+    const { result } = await setup()
+    const source = MockEventSource.instances[0]
+    act(() => {
+      source.emit('evidence.added', { resource_id: 'foreign' }, { project_id: projectB.id })
+      source.emit('decision.recorded', { resource_id: 'foreign' }, { run_id: runB.id })
+    })
+    expect(api.getProject).not.toHaveBeenCalled()
+    expect(result.current.events).toEqual([])
+    expect(result.current.project).toEqual(projectA)
+  })
+
+  it('coalesces record notifications and discards the response captured before a newer event', async () => {
+    const { result } = await setup()
+    const older = deferred<OpportunityProject>()
+    const latest = deferred<OpportunityProject>()
+    vi.mocked(api.getProject).mockReturnValueOnce(older.promise).mockReturnValueOnce(latest.promise)
+    const source = MockEventSource.instances[0]
+    act(() => {
+      source.emit('evidence.added', { schema_version: 1, resource_id: 'evidence_1', status: 'validated' })
+      source.emit('decision.recorded', { schema_version: 1, resource_id: 'decision_1' })
+      source.emit('evidence.added', { schema_version: 1, resource_id: 'evidence_2' })
+    })
+    expect(api.getProject).toHaveBeenCalledTimes(1)
+    expect(result.current.project).toEqual(projectA)
+    await act(async () => { older.resolve({ ...projectA, name: 'Stale response' }) })
+    expect(api.getProject).toHaveBeenCalledTimes(2)
+    expect(result.current.project?.name).toBe('A')
+    await act(async () => { latest.resolve({ ...projectA, name: 'Authoritative ledger', revision: 3 }) })
+    expect(result.current.project?.name).toBe('Authoritative ledger')
+    expect(result.current.project?.revision).toBe(3)
+    expect(result.current.project?.evidence).toBeUndefined()
+    expect(result.current.run?.status).toBe('running')
+  })
+
+  it('aborts the old request and ignores it even after returning to the same project', async () => {
+    const { result } = await setup()
+    const older = deferred<OpportunityProject>()
+    vi.mocked(api.getProject).mockReturnValueOnce(older.promise)
+    act(() => { MockEventSource.instances[0].emit('evidence.added', { resource_id: 'old' }) })
+    const signal = vi.mocked(api.getProject).mock.calls[0][1]!
+    await act(async () => { await result.current.selectProject(projectB) })
+    expect(signal.aborted).toBe(true)
+    await act(async () => { await result.current.selectProject(projectA) })
+    vi.mocked(api.getProject).mockResolvedValueOnce({ ...projectA, name: 'Fresh A' })
+    await act(async () => { MockEventSource.instances.at(-1)!.emit('decision.recorded', { resource_id: 'new' }) })
+    await act(async () => { older.resolve({ ...projectA, name: 'Old A' }) })
+    expect(result.current.project?.name).toBe('Fresh A')
+    expect(result.current.projects.find((item) => item.id === projectA.id)?.name).toBe('Fresh A')
+  })
+
+  it('continues past an old terminal event and finishes history only after the complete tail is refreshed', async () => {
+    vi.mocked(api.listProjectRuns).mockResolvedValueOnce([{ ...runA, status: 'completed' }])
+    const { result } = await setup()
+    const source = MockEventSource.instances[0]
+    const first = deferred<OpportunityProject>()
+    const final = deferred<OpportunityProject>()
+    vi.mocked(api.getProject).mockReturnValueOnce(first.promise).mockReturnValueOnce(final.promise)
+    act(() => {
+      source.emit('run.completed', { status: 'completed' })
+      source.emit('evidence.added', { schema_version: 1, resource_id: 'evidence_1' })
+      source.emit('decision.recorded', { schema_version: 1, resource_id: 'decision_1' })
+    })
+    expect(source.closed).toBe(false)
+    expect(result.current.historyLoading).toBe(true)
+    expect(result.current.events.map((event) => event.type)).toEqual(['run.completed', 'evidence.added', 'decision.recorded'])
+    act(() => { source.end() })
+    expect(source.closed).toBe(true)
+    expect(result.current.historyLoading).toBe(true)
+    expect(result.current.events).toHaveLength(3)
+    await act(async () => { first.resolve(projectA) })
+    await act(async () => { final.resolve({ ...projectA, name: 'Complete business ledger' }) })
+    expect(result.current.historyLoading).toBe(false)
+    expect(result.current.connection).toBe('closed')
+    expect(result.current.project?.name).toBe('Complete business ledger')
+  })
+
+  it('keeps reconnecting after execution completion and consumes resumed notifications only once', async () => {
+    const { result } = await setup()
+    const source = MockEventSource.instances[0]
+    act(() => {
+      source.emit('assistant.text.delta', { text: 'Saved answer.' })
+      source.emit('run.completed', { status: 'completed' })
+      source.onerror?.()
+    })
+    expect(result.current.connection).toBe('reconnecting')
+    expect(source.closed).toBe(false)
+    await act(async () => {
+      source.onopen?.()
+      source.emit('assistant.text.delta', { text: 'Saved answer.' }, { sequence: 1 })
+      source.emit('run.completed', { status: 'completed' }, { sequence: 2 })
+      source.emit('evidence.added', { resource_id: 'after_resume' })
+    })
+    expect(result.current.assistantText).toBe('Saved answer.')
+    expect(result.current.events.map((event) => event.type)).toEqual(['run.completed', 'evidence.added'])
+    expect(api.getProject).toHaveBeenCalledTimes(1)
+    await act(async () => { source.end() })
+    expect(source.closed).toBe(true)
+  })
+
+  it('rejects mismatched or unconsumed completion boundaries without closing the source', async () => {
+    const { result } = await setup()
+    const source = MockEventSource.instances[0]
+    act(() => {
+      source.emit('run.completed', { status: 'completed' })
+      source.end({ run_id: runB.id })
+      source.end({ project_id: projectB.id })
+      source.end({ last_sequence: 2 })
+      source.end({ last_sequence: -1 })
+      source.end({ last_sequence: 1.5 })
+    })
+    expect(source.closed).toBe(false)
+    expect(api.getRun).not.toHaveBeenCalled()
+    expect(result.current.error).toContain('stream has a gap')
+    await act(async () => { source.end() })
+    expect(source.closed).toBe(true)
+  })
+
+  it('does not consider a higher sequence proof that missing events were consumed', async () => {
+    const { result } = await setup()
+    const source = MockEventSource.instances[0]
+    act(() => {
+      source.emit('assistant.text.delta', { text: 'First.' })
+      source.emit('evidence.added', { resource_id: 'gap' }, { sequence: 3 })
+      source.end()
+    })
+    expect(source.closed).toBe(false)
+    expect(api.getProject).not.toHaveBeenCalled()
+    expect(result.current.assistantText).toBe('First.')
+  })
+
+  it('finishes empty historical streams without inventing a completion event', async () => {
+    vi.mocked(api.listProjectRuns).mockResolvedValueOnce([{ ...runA, status: 'failed' }])
+    vi.mocked(api.getRun).mockResolvedValueOnce({ ...runA, status: 'failed' })
+    const { result } = await setup()
+    await act(async () => { MockEventSource.instances[0].end() })
+    expect(result.current.run?.status).toBe('failed')
+    expect(result.current.events).toEqual([])
+    expect(result.current.historyLoading).toBe(false)
+  })
+
+  it('preserves the last ledger view and reports a denied authoritative refresh', async () => {
+    const { result } = await setup()
+    vi.mocked(api.getProject).mockRejectedValueOnce(Object.assign(new Error('Denied'), { status: 403 }))
+    await act(async () => { MockEventSource.instances[0].emit('evidence.added', { resource_id: 'never_fabricate', text: 'untrusted' }) })
+    expect(result.current.project).toEqual(projectA)
+    expect(result.current.project?.evidence).toBeUndefined()
+    expect(result.current.error).toContain('Could not refresh the saved project')
+    expect(result.current.run?.status).toBe('running')
+  })
+
+  it('ignores stale end callbacks and final project/run responses after a selection change', async () => {
+    const { result } = await setup()
+    const oldProject = deferred<OpportunityProject>()
+    const oldRun = deferred<RunRecord>()
+    vi.mocked(api.getProject).mockReturnValueOnce(oldProject.promise)
+    vi.mocked(api.getRun).mockReturnValueOnce(oldRun.promise)
+    const source = MockEventSource.instances[0]
+    act(() => { source.end() })
+    await act(async () => { await result.current.selectProject(projectB) })
+    await act(async () => {
+      source.end()
+      oldProject.resolve({ ...projectA, name: 'Late A' })
+      oldRun.resolve({ ...runA, status: 'completed' })
+    })
+    expect(result.current.project).toEqual(projectB)
+    expect(result.current.run).toEqual(runB)
+    expect(MockEventSource.instances.at(-1)?.closed).toBe(false)
   })
 })

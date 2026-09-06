@@ -13,7 +13,7 @@ import base64
 import json
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from urllib.parse import urlsplit
 from uuid import uuid4
 
@@ -30,6 +30,9 @@ from .untrusted import (
     sanitize_untrusted_payload,
 )
 from .web_tools import check_public_http_url, send_pinned_public_request
+
+if TYPE_CHECKING:
+    from .project_events import ProjectEventProjector
 
 _BROWSER_RESPONSE_MAX_BYTES = 20_000_000
 _HOP_BY_HOP_HEADERS = {
@@ -889,6 +892,7 @@ def build_browser_tools(
     connectors: ConnectorRegistry | None = None,
     policy: OrgPolicy | None = None,
     run_id: str | None = None,
+    project_events: ProjectEventProjector | None = None,
 ):
     workspace = ledger.workspace_for_project(project_id)
     profile_dir = ledger.root / "browser-profiles" / project_id / "l1"
@@ -943,6 +947,11 @@ def build_browser_tools(
                     failure_type=type(exc).__name__,
                     screenshot_path=capture.get("screenshot_path"),
                 )
+            finally:
+                if project_events is not None and run_id is not None:
+                    # Artifact registration may fail after Evidence committed.
+                    # Project truth, not the combined tool result, drives notices.
+                    await project_events.reconcile_run(run_id)
         return _result(capture, is_error=not bool(capture.get("ok")))
 
     @tool(
@@ -995,6 +1004,7 @@ def build_browser_mcp_server(
     connectors: ConnectorRegistry | None = None,
     policy: OrgPolicy | None = None,
     run_id: str | None = None,
+    project_events: ProjectEventProjector | None = None,
 ):
     return create_sdk_mcp_server(
         name=BROWSER_MCP_SERVER_NAME,
@@ -1006,5 +1016,6 @@ def build_browser_mcp_server(
             connectors=connectors,
             policy=policy,
             run_id=run_id,
+            project_events=project_events,
         ),
     )
