@@ -23,6 +23,8 @@ import EvidenceDrawer from './EvidenceDrawer'
 import FeedbackForm from './FeedbackForm'
 import FeedbackReviewPanel from './FeedbackReviewPanel'
 import { PermissionDetails, PermissionQuestionCard } from './PermissionRequest'
+import DurablePermissionNotice from './DurablePermissionNotice'
+import { permissionLifecycleState } from '../permissionLifecycle'
 import PresentationCards, { extractPresentationFrames } from './PresentationCards'
 import WorkspaceNav from './WorkspaceNav'
 import './workspace-composer.css'
@@ -61,6 +63,9 @@ type WorkspaceComposerProps = {
     decision: PermissionDecision,
     answers?: PermissionAnswers,
   ) => void
+  permissionBusy?: boolean
+  onResumePermission?: (requestId: string) => void
+  onRefreshPermissions?: () => void
   retrying?: RunRetryStrategy | null
   retryError?: string
   onRetry?: (strategy: RunRetryStrategy) => void
@@ -318,6 +323,9 @@ export default function WorkspaceComposer({
   onSelectProject,
   onCancel,
   onDecision,
+  permissionBusy = false,
+  onResumePermission,
+  onRefreshPermissions,
   retrying = null,
   retryError = '',
   onRetry,
@@ -858,20 +866,28 @@ export default function WorkspaceComposer({
                 {project && <FeedbackReviewPanel key={project.id} projectId={project.id} />}
 
                 {permissions.map((permission) => {
+                  const lifecycle = <DurablePermissionNotice permission={permission} busy={permissionBusy} onResume={onResumePermission ? () => onResumePermission(permission.id) : undefined} onCancel={onCancel} onRefresh={onRefreshPermissions} />
+                  if (permissionLifecycleState(permission) !== 'pending') return <section className="conversation-permission" key={permission.id} aria-label={t('Approval for {tool}', { tool: permission.toolName })}>
+                    {lifecycle}
+                    <PermissionDetails toolName={permission.toolName} toolInput={permission.toolInput} scope={permission.scope} destructive={permission.destructive} persistable={false} />
+                  </section>
                   if (permission.toolName === 'AskUserQuestion') {
                     return (
+                      <div key={permission.id}>{lifecycle}
                       <PermissionQuestionCard
-                          key={permission.id}
                           toolInput={permission.toolInput}
                           scope={permission.scope}
                           timeoutSeconds={permission.timeoutSeconds}
+                          busy={permissionBusy}
                         onSubmit={(answers) => onDecision(permission.id, 'allow_once', answers)}
                         onDeny={() => onDecision(permission.id, 'deny')}
                       />
+                      </div>
                     )
                   }
                   return (
                     <section className="conversation-permission" key={permission.id} aria-label={t('Approval for {tool}', { tool: permission.toolName })}>
+                      {lifecycle}
                       <div><span>{t('Approval required')}</span><strong>{t('{actor} wants to use {tool}', { actor: permission.actor.name, tool: permission.toolName })}</strong></div>
                       <PermissionDetails
                         toolName={permission.toolName}
@@ -882,10 +898,10 @@ export default function WorkspaceComposer({
                         timeoutSeconds={permission.timeoutSeconds}
                       />
                       <div>
-                        <button type="button" onClick={() => onDecision(permission.id, 'allow_once')}>{t('Allow once')}</button>
-                        {permission.persistable && !permission.destructive && <button type="button" onClick={() => onDecision(permission.id, 'allow_run')}>{t('Allow for run')}</button>}
-                        {permission.persistable && !permission.destructive && <button type="button" onClick={() => onDecision(permission.id, 'allow_persistent')}>{t('Allow persistent')}</button>}
-                        <button type="button" onClick={() => onDecision(permission.id, 'deny')}>{t('Deny')}</button>
+                        <button type="button" disabled={permissionBusy} onClick={() => onDecision(permission.id, 'allow_once')}>{t('Allow once')}</button>
+                        {permission.persistable && !permission.destructive && <button type="button" disabled={permissionBusy} onClick={() => onDecision(permission.id, 'allow_run')}>{t('Allow for run')}</button>}
+                        {permission.persistable && !permission.destructive && <button type="button" disabled={permissionBusy} onClick={() => onDecision(permission.id, 'allow_persistent')}>{t('Allow persistent')}</button>}
+                        <button type="button" disabled={permissionBusy} onClick={() => onDecision(permission.id, 'deny')}>{t('Deny')}</button>
                       </div>
                     </section>
                   )

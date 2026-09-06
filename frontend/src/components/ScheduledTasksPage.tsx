@@ -17,6 +17,7 @@ import type {
   SchedulePermissionRule,
 } from '../api/types'
 import Brand from './Brand'
+import TaskExperiencePanel from './TaskExperiencePanel'
 import { useLanguage, useT } from '../i18n'
 import './scheduled-tasks-page.css'
 
@@ -328,6 +329,7 @@ export default function ScheduledTasksPage() {
                     {lastRun && lastRun.status !== 'failed' && (
                       <p className="schedules-run-ok">{t('Last run')} {t(lastRun.status)}</p>
                     )}
+                    <TaskExperiencePanel scheduleId={schedule.id} />
                   </div>
                   <div className="schedules-row-actions">
                     <button type="button" disabled={busy === schedule.id} onClick={() => void toggleEnabled(schedule)}>

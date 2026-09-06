@@ -33,6 +33,7 @@ import type {
   FeedbackStatus,
   CommercialActionRecord,
   CommercialReviewDecision,
+  TaskExperienceLedger,
 } from './types'
 
 const configuredBaseUrl = import.meta.env.VITE_OPHIRA_API_URL?.trim() ?? ''
@@ -385,6 +386,10 @@ export function resolvePermission(
   })
 }
 
+export function resumePermissionRun(runId: string): Promise<RunRecord> {
+  return request<RunRecord>(`/api/runs/${encodeURIComponent(runId)}/resume-permission`, { method: 'POST' })
+}
+
 export function listNotifications(unread = false): Promise<Notification[]> {
   return request<Notification[]>(`/api/notifications${unread ? '?unread=true' : ''}`)
 }
@@ -539,4 +544,19 @@ export function runEventUrl(runId: string): string {
 export function errorMessage(error: unknown): string {
   if (error instanceof Error) return error.message
   return 'The TradeMind backend returned an unknown error.'
+}
+
+export function listTaskExperiences(scheduleId: string): Promise<TaskExperienceLedger> {
+  return request<TaskExperienceLedger>(`/api/schedules/${encodeURIComponent(scheduleId)}/experiences`)
+}
+
+export function retireTaskExperience(
+  scheduleId: string,
+  entryId: string,
+  input: { expected_version: number; reason: string },
+): Promise<TaskExperienceLedger> {
+  return request<TaskExperienceLedger>(
+    `/api/schedules/${encodeURIComponent(scheduleId)}/experiences/${encodeURIComponent(entryId)}/retire`,
+    { method: 'POST', body: JSON.stringify(input) },
+  )
 }

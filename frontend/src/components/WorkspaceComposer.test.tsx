@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react'
 import { useState } from 'react'
 import { vi } from 'vitest'
-import type { ProviderProfile, RunRecord, RunTelemetry, TelemetryMetric } from '../api/types'
+import type { PendingPermission, ProviderProfile, RunRecord, RunTelemetry, TelemetryMetric } from '../api/types'
 import { I18nContext } from '../i18n'
 import WorkspaceComposer from './WorkspaceComposer'
 
@@ -56,6 +56,44 @@ function baseProps() {
     onDecision: vi.fn(),
   }
 }
+
+describe('durable approval presentation', () => {
+  const saved: PendingPermission = {
+    id: 'approval-1', toolName: 'Bash', toolInput: { command: 'touch report.txt' }, actor: { type: 'agent', name: 'TradeMind', agent_id: null },
+    destructive: false, persistable: false, scope: 'report.txt', durable: true, state: 'resolved', expiresAt: '2099-01-01T00:00:00Z',
+  }
+
+  it('shows saved decisions separately from approval buttons and resumes only when clicked', () => {
+    const props = baseProps()
+    const resume = vi.fn()
+    const refresh = vi.fn()
+    render(<WorkspaceComposer {...props} run={{ ...completedRun, status: 'waiting_permission' }} permissions={[saved]} onResumePermission={resume} onRefreshPermissions={refresh} />)
+    expect(screen.getByText(/Decision saved, awaiting continuation/)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Allow once' })).not.toBeInTheDocument()
+    expect(resume).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: 'Continue saved decision' }))
+    expect(resume).toHaveBeenCalledWith(saved.id)
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh approvals' }))
+    expect(refresh).toHaveBeenCalledOnce()
+  })
+
+  it('disables expired saved decisions, even when the last server snapshot still said resolved', () => {
+    const props = baseProps()
+    render(<WorkspaceComposer {...props} run={{ ...completedRun, status: 'waiting_permission' }} permissions={[{ ...saved, expiresAt: '2020-01-01T00:00:00Z' }]} />)
+    expect(screen.getByText(/This approval has expired/)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Continue saved decision' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Allow once' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel run' }))
+    expect(props.onCancel).toHaveBeenCalledOnce()
+  })
+
+  it('locks all approval actions while a decision or continuation is in flight', () => {
+    const props = baseProps()
+    render(<WorkspaceComposer {...props} run={{ ...completedRun, status: 'waiting_permission' }} permissions={[{ ...saved, state: 'pending' }]} permissionBusy />)
+    expect(screen.getByRole('button', { name: 'Allow once' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Deny' })).toBeDisabled()
+  })
+})
 
 function telemetryMetric<T>(value: T): TelemetryMetric<T> {
   return {

@@ -6,6 +6,7 @@ import {
   getCommercialAction,
   getRunTelemetry,
   retryRun,
+  resumePermissionRun,
   reviewCommercialAction,
   startRun,
 } from './client'
@@ -15,6 +16,13 @@ afterEach(() => {
 })
 
 describe('API client', () => {
+  it('resumes a saved approval with a bodyless POST to the exact encoded run', async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ id: 'run/1', status: 'queued' }), { status: 202 }))
+    vi.stubGlobal('fetch', fetchMock)
+    await expect(resumePermissionRun('run/1')).resolves.toEqual({ id: 'run/1', status: 'queued' })
+    expect(fetchMock).toHaveBeenCalledWith('/api/runs/run%2F1/resume-permission', expect.objectContaining({ method: 'POST' }))
+    expect((fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1].body).toBeUndefined()
+  })
   it('reads run telemetry from the encoded durable-run endpoint', async () => {
     const payload = { schema_version: '1', run_id: 'run/1' }
     const fetchMock = vi.fn(async () => ({

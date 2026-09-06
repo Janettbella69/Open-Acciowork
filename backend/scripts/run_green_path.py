@@ -163,7 +163,7 @@ async def main() -> int:
     summaries = []
     all_passed = True
     async with httpx.AsyncClient(
-        transport=transport, base_url="http://greenpath", timeout=httpx.Timeout(60),
+        transport=transport, base_url="http://localhost", timeout=httpx.Timeout(60),
     ) as client:
         for round_no in range(1, args.rounds + 1):
             print(f"\n=== Green Path round {round_no}/{args.rounds} on {args.provider} ===")

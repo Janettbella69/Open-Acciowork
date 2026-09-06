@@ -9,7 +9,7 @@ from urllib.parse import urlencode
 from fastapi import FastAPI, HTTPException, Request, Response
 from pydantic import Field, ValidationError
 
-from .auth import AuthorizationError, ProjectAccessStore, ProjectPermission
+from .auth import ProjectAccessStore, ProjectPermission
 from .automation import NotificationStore
 from .companion import (
     COMPANION_COOKIE,
@@ -25,12 +25,16 @@ from .companion import (
     PairingStatus,
     PairingView,
 )
+from .companion_authorization import authorize_companion_project
 from .config import Settings, companion_origin
 from .constants import PermissionDecision
+from .durable_permissions import DurablePermissionConflict
 from .models import APIModel, EventActor, PermissionResolution, RunRecord
 from .permissions import PermissionBroker, PermissionNotFoundError
 from .policy import PolicyDeniedError
 from .providers import ProviderConfigurationError, ProviderNotFoundError
+from .push_service import PushDeliveryService
+from .push_transport import PushSubscription
 from .runs import RunCancelConflictError, RunManager
 from .storage import FileLedger, LedgerNotFoundError
 
@@ -89,33 +93,16 @@ def register_companion_routes(
     application: FastAPI, *, settings: Settings, store: CompanionStore,
     ledger: FileLedger, runs: RunManager, permissions: PermissionBroker,
     notifications: NotificationStore, access: ProjectAccessStore,
+    push: PushDeliveryService,
     require_project_authorization,
 ) -> None:
     def principal(request: Request):
         return getattr(request.state, "principal", None)
 
     def owner_project_check(record: PairingRecord, permission: ProjectPermission, project_id: str):
-        if project_id not in record.project_ids:
-            raise HTTPException(status_code=403, detail="Project is outside device authorization")
         try:
-            project = ledger.get_project(project_id)
-            binding = record.principal_binding
-            if binding is None:
-                if settings.auth_mode != "local_only" or project.identity_binding != "local_only":
-                    raise AuthorizationError("device authority no longer matches deployment")
-            else:
-                if (
-                    settings.auth_mode != "trusted_gateway"
-                    or binding.tenant_id != settings.trusted_gateway_tenant_id
-                    or project.identity_binding != "authenticated_principal"
-                    or project.tenant_id != binding.tenant_id
-                ):
-                    raise AuthorizationError("device is outside deployment tenant")
-                access.authorize_bound(
-                    project_id, tenant_id=binding.tenant_id, principal_id=binding.principal_id,
-                    role=binding.role, permission=permission,
-                )
-        except (LedgerNotFoundError, AuthorizationError, ValueError) as exc:
+            authorize_companion_project(settings, ledger, access, record, permission, project_id)
+        except CompanionError as exc:
             raise HTTPException(
                 status_code=403, detail="Device project access was revoked",
             ) from exc
@@ -201,7 +188,9 @@ def register_companion_routes(
     @application.post("/api/mobile/pairings/{pairing_id}/revoke", response_model=PairingView)
     async def revoke(request: Request, pairing_id: str):
         try:
-            return store.revoke(pairing_id, principal(request))
+            result = store.revoke(pairing_id, principal(request))
+            push.store.unsubscribe(pairing_id, "device_authority_revoked")
+            return result
         except CompanionError as exc:
             raise HTTPException(status_code=404, detail="Device not found") from exc
 
@@ -264,12 +253,23 @@ def register_companion_routes(
         if payload.decision not in {PermissionDecision.ALLOW_ONCE, PermissionDecision.DENY}:
             raise HTTPException(status_code=403, detail="Companion approval is per invocation only")
         try:
-            await permissions.resolve(
+            await runs.resolve_permission(
                 run_id, request_id, payload,
                 actor=EventActor(type="user", name=f"paired-device:{record.id}"),
             )
+        except DurablePermissionConflict as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
         except PermissionNotFoundError as exc:
             raise HTTPException(status_code=404, detail="Permission request not found") from exc
+
+    @application.post("/api/companion/runs/{run_id}/resume-permission", response_model=RunRecord,
+                      status_code=202)
+    async def resume_permission(request: Request, run_id: str):
+        run_authority(request, run_id)
+        try:
+            return await runs.resume_permission(run_id)
+        except DurablePermissionConflict as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     @application.post("/api/companion/projects/{project_id}/runs", response_model=RunRecord,
                       status_code=202)
@@ -299,7 +299,32 @@ def register_companion_routes(
 
     @application.post("/api/companion/logout")
     async def logout(request: Request, response: Response):
-        authenticated(request, approved=False)
+        record = authenticated(request, approved=False)
         store.revoke_device(request.cookies[COMPANION_COOKIE])
+        push.store.unsubscribe(record.id, "device_authority_revoked")
         response.delete_cookie(COMPANION_COOKIE, secure=True, httponly=True, samesite="strict")
         return {}
+
+    @application.get("/api/companion/push/status")
+    async def push_status(request: Request):
+        record = authenticated(request)
+        return push.status(record.id)
+
+    @application.post("/api/companion/push/subscription")
+    async def push_subscribe(request: Request):
+        payload = await _payload(request, PushSubscription)
+        record = authenticated(request)
+        # A browser subscription never widens the paired device's current scope.
+        for project_id in record.project_ids:
+            owner_project_check(record, ProjectPermission.PROJECT_WRITE, project_id)
+        try:
+            return push.subscribe(record.id, payload)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail="Push subscription is unavailable") from exc
+
+    @application.post("/api/companion/push/unsubscribe")
+    async def push_unsubscribe(request: Request):
+        await _payload(request, APIModel)
+        record = authenticated(request)
+        push.store.unsubscribe(record.id)
+        return push.status(record.id)

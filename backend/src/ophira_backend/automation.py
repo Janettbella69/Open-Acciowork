@@ -90,7 +90,10 @@ class NotificationStore(_FileStore):
             raise NotificationNotFoundError(notification_id)
         return Notification.model_validate_json(path.read_text("utf-8"))
 
-    def list(self, *, unread_only: bool = False, limit: int = 200) -> list[Notification]:
+    def list(
+        self, *, unread_only: bool = False, limit: int = 200,
+        project_ids: set[str] | None = None,
+    ) -> list[Notification]:
         items: list[Notification] = []
         for path in self.root.glob("*.json"):
             try:
@@ -100,6 +103,8 @@ class NotificationStore(_FileStore):
         items.sort(key=lambda item: item.created_at, reverse=True)
         if unread_only:
             items = [item for item in items if not item.read]
+        if project_ids is not None:
+            items = [item for item in items if item.project_id in project_ids]
         return items[:limit]
 
     def mark_read(self, notification_id: str) -> Notification:

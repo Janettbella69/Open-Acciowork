@@ -435,6 +435,10 @@ export type PendingPermission = {
   persistable: boolean
   scope: string
   timeoutSeconds?: number
+  durable?: boolean
+  state?: string
+  toolUseId?: string | null
+  expiresAt?: string | null
 }
 
 export type AskUserQuestionOption = {
@@ -607,6 +611,52 @@ export type PermissionGrant = {
   revoked: boolean
 }
 
+export type TaskExperienceRevision = {
+  key: string
+  category: 'selector_failure' | 'threshold_observation' | 'retrieval_lesson'
+  observation: string
+  lesson: string
+  version: number
+  source_run_id: string
+  source_trace_id: string
+  source_session_id: string
+  source_event_ids: string[]
+  source_event_hashes: Record<string, string>
+  write_event_id: string
+  config_hash: string
+  content_hash: string
+  created_at: string
+  origin: 'agent_observation'
+  trust: 'untrusted_task_data'
+}
+
+export type TaskExperienceEntry = {
+  id: string
+  key: string
+  revisions: TaskExperienceRevision[]
+  pruned_versions: number
+  stale: boolean
+  retired_at: string | null
+  retired_by: string | null
+  retirement_reason: string | null
+}
+
+export type TaskExperienceLedger = {
+  schema_version: 1
+  project_id: string
+  schedule_id: string
+  revision: number
+  entries: TaskExperienceEntry[]
+  current_config_hash: string
+  evicted_retired_entries: number
+  limits: {
+    entries: number
+    versions_per_entry: number
+    writes_per_run: number
+    context_chars: number
+  }
+}
+
 export type PendingPermissionView = {
   id: string
   run_id: string
@@ -619,6 +669,10 @@ export type PendingPermissionView = {
   destructive: boolean
   persistable: boolean
   scope: string
+  durable?: boolean
+  state?: string
+  tool_use_id?: string | null
+  expires_at?: string | null
 }
 
 export type FeedbackKind = 'conclusion_wrong' | 'evidence_issue' | 'run_failure'

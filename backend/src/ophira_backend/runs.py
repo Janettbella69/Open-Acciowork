@@ -20,13 +20,27 @@ from .constants import (
     ScheduleKind,
 )
 from .distill import distill_run
+from .durable_permissions import DurablePermissionConflict
 from .events import EventPublisher, redact
 from .feedback import FeedbackStore
 from .memory import FileMemoryProvider
-from .models import EventActor, PrincipalBinding, PrincipalContext, RunRecord, new_id, utc_now
+from .models import (
+    EventActor,
+    PermissionResolution,
+    PrincipalBinding,
+    PrincipalContext,
+    RunRecord,
+    new_id,
+    utc_now,
+)
 from .permissions import PermissionBroker
 from .policy import OrgPolicyStore, PolicyDeniedError
-from .providers import ProviderConfigurationError, ProviderRegistry, classify_provider_error
+from .providers import (
+    ProviderConfigurationError,
+    ProviderRegistry,
+    classify_provider_error,
+    provider_readiness_failures,
+)
 from .skills import SkillRegistry
 from .storage import FileLedger
 
@@ -140,6 +154,12 @@ class RunManager:
                     self._capture_terminal_feedback(run.id)
                     continue
                 message = INTERRUPTED_RUN_MESSAGE
+                if self.permissions.durable.recover(run.id):
+                    # SDK confirmed the call never executed. Keep its approval
+                    # available across workers; recovery never dispatches tools.
+                    continue
+                if run.permission_waits:
+                    self.permissions.durable.invalidate(run.id)
                 # Close historical permission prompts whose in-memory futures
                 # disappeared with the worker; never restore an old approval.
                 pending: set[str] = set()
@@ -201,6 +221,67 @@ class RunManager:
                 # enters _execute's cancellation handler.
                 await self._finalize_cancel(run_id)
 
+    async def resolve_permission(
+        self, run_id: str, request_id: str, resolution: PermissionResolution,
+        *, actor: EventActor | None = None,
+    ) -> None:
+        if self.permissions.durable.lookup(run_id, request_id) is None:
+            await self.permissions.resolve(run_id, request_id, resolution, actor=actor)
+            return
+        if not getattr(self.runtime, "durable_resume_supported", False):
+            raise DurablePermissionConflict("This SDK runtime has no verified durable resume gate.")
+        lease = self._acquire_run_lease(run_id)
+        if lease is None:
+            raise DurablePermissionConflict(
+                "The SDK is still stopping; refresh and retry approval."
+            )
+        try:
+            validate = getattr(self.runtime, "validate_deferred_resume", None)
+            if validate is not None:
+                validate(self.ledger.get_run(run_id))
+            wait = self.permissions.durable.resolve(
+                run_id, request_id, resolution,
+                actor or EventActor(type="user", name="frontend-user"),
+            )
+            await self.events.publish(
+                run_id, EventType.PERMISSION_RESOLVED,
+                {"request_id": request_id, "tool_name": wait.tool_name,
+                 "decision": wait.resolution.decision, "reason": wait.resolution.reason,
+                 "durable": True, "tool_use_id": wait.tool_use_id},
+                actor=wait.actor,
+            )
+            self._start_deferred(run_id, lease)
+        except BaseException:
+            os.close(lease)
+            raise
+
+    async def resume_permission(self, run_id: str) -> RunRecord:
+        if not getattr(self.runtime, "durable_resume_supported", False):
+            raise DurablePermissionConflict("This SDK runtime has no verified durable resume gate.")
+        lease = self._acquire_run_lease(run_id)
+        if lease is None:
+            raise DurablePermissionConflict("Another worker owns this Run; refresh and retry.")
+        try:
+            return self._start_deferred(run_id, lease)
+        except BaseException:
+            os.close(lease)
+            raise
+
+    def _start_deferred(self, run_id: str, lease: int) -> RunRecord:
+        validate = getattr(self.runtime, "validate_deferred_resume", None)
+        if validate is not None:
+            validate(self.ledger.get_run(run_id))
+        run = self.permissions.durable.claim_resume(run_id)
+        task = asyncio.create_task(self._execute(run_id), name=f"ophira:resume:{run_id}")
+        self._tasks[run_id] = task
+
+        def release_run(_task: asyncio.Task[None]) -> None:
+            self._tasks.pop(run_id, None)
+            os.close(lease)
+
+        task.add_done_callback(release_run)
+        return run
+
     async def create_and_start(
         self,
         project_id: str,
@@ -208,6 +289,7 @@ class RunManager:
         *,
         agent_id: str | None = None,
         schedule_id: str | None = None,
+        task_experience_config_hash: str | None = None,
         standing_intent_id: str | None = None,
         automation_claim_id: str | None = None,
         companion_device_id: str | None = None,
@@ -221,6 +303,8 @@ class RunManager:
         channel_reply_target: FeishuReplyTarget | None = None,
         principal: PrincipalContext | PrincipalBinding | None = None,
     ) -> RunRecord:
+        if (schedule_id is None) != (task_experience_config_hash is None):
+            raise ValueError("scheduled dispatch requires its host experience configuration hash")
         if resolve_default_provider and provider_profile_id is None and self.providers is not None:
             provider_profile_id = self.providers.default_profile_id()
         if provider_profile_id is not None and not provider_profile_id.strip():
@@ -231,17 +315,7 @@ class RunManager:
             raise PolicyDeniedError("provider registry is unavailable")
         if provider_profile_id is not None and self.providers is not None:
             profile = self.providers.get(provider_profile_id)
-            readiness_failures: list[str] = []
-            if not profile.enabled:
-                readiness_failures.append("disabled")
-            if not profile.production_eligible:
-                readiness_failures.append("not production eligible")
-            if not profile.secret_configured:
-                readiness_failures.append("credential missing")
-            if profile.last_verified_at is None:
-                readiness_failures.append("preflight not completed")
-            if profile.last_error_code is not None:
-                readiness_failures.append(f"preflight failed ({profile.last_error_code})")
+            readiness_failures = provider_readiness_failures(profile)
             if readiness_failures:
                 raise PolicyDeniedError(
                     f"provider {provider_profile_id} is not ready for runs: "
@@ -284,6 +358,13 @@ class RunManager:
                 principal=principal,
                 run_id=run_id,
             )
+            if task_experience_config_hash is not None:
+                # Persist before publishing RUN_CREATED or starting the SDK task.
+                # A crash before this write cannot initialize experience later
+                # from a different, mutable Schedule definition.
+                run = self.ledger.update_run(
+                    run.id, task_experience_config_hash=task_experience_config_hash,
+                )
             await self.events.publish(
                 run.id,
                 EventType.RUN_CREATED,
@@ -383,6 +464,11 @@ class RunManager:
                 "This SDK session already has an active run and cannot be resumed concurrently."
             )
         source = bound[0]
+        if any(item.suspended_permission_id for item in bound):
+            raise RunResumeConflictError(
+                "A deferred or uncertain invocation must use its original approval checkpoint; "
+                "it cannot be replayed through a normal conversation or retry."
+            )
         if source.status not in TERMINAL_RUN_STATUSES:
             raise RunResumeConflictError("Only a terminal run session can be resumed.")
         if source.agent_id != agent_id:
@@ -401,7 +487,7 @@ class RunManager:
         run = self.ledger.update_run(
             run_id,
             status=RunStatus.RUNNING,
-            started_at=utc_now(),
+            started_at=self.ledger.get_run(run_id).started_at or utc_now(),
         )
         await self.events.publish(
             run_id,
@@ -415,6 +501,8 @@ class RunManager:
             await self._finalize_cancel(run_id)
             return
         except Exception as exc:
+            if self.ledger.get_run(run_id).permission_waits:
+                self.permissions.durable.invalidate(run_id)
             safe_error = str(redact(str(exc)))
             error_code = (
                 exc.code
@@ -444,10 +532,17 @@ class RunManager:
             self._capture_terminal_feedback(run_id)
             await self._finalize_channel_reply(run_id)
             return
+        current = self.ledger.get_run(run_id)
+        wait = self.permissions.durable.active(current)
+        if (current.status == RunStatus.WAITING_PERMISSION and wait is not None
+                and wait.state in {"pending", "resolved"} and wait.confirmed_at is not None):
+            # A successful SDK tool_deferred result is not a completed task.
+            return
         self.ledger.update_run(
             run_id,
             status=RunStatus.COMPLETED,
             finished_at=utc_now(),
+            suspended_permission_id=None,
         )
         await self.events.publish(
             run_id,

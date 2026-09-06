@@ -8,6 +8,7 @@ from typing import Any
 
 from .constants import EventType, PermissionDecision, RunStatus
 from .destructive import is_destructive_delete
+from .durable_permissions import DurablePermissionStore
 from .events import EventPublisher, redact
 from .grants import (
     PermissionGrantStore,
@@ -77,6 +78,7 @@ class PermissionBroker:
         self.events = events
         self.timeout_seconds = timeout_seconds
         self.grants = grants
+        self.durable = DurablePermissionStore(ledger, timeout_seconds)
         self._pending: dict[str, PendingPermission] = {}
         self._run_allowed_scopes: dict[str, set[tuple[str, str]]] = {}
         self._lock = asyncio.Lock()
@@ -105,9 +107,9 @@ class PermissionBroker:
                     created_at=pending.created_at,
                 )
             )
-        return views
+        return [*views, *self.durable.list_pending()]
 
-    async def request(
+    def automatic_resolution(
         self,
         run_id: str,
         tool_name: str,
@@ -115,7 +117,7 @@ class PermissionBroker:
         *,
         agent_id: str | None,
         context: dict[str, Any],
-    ) -> PermissionResolution:
+    ) -> PermissionResolution | None:
         scope = normalized_permission_scope(tool_input)
         destructive = is_destructive_delete(tool_name, tool_input)
         persistable = is_persistable_permission(tool_name, tool_input)
@@ -178,7 +180,29 @@ class PermissionBroker:
             for allowed_tool, allowed_scope in allowed_scopes
         ):
             return PermissionResolution(decision=PermissionDecision.ALLOW_RUN)
+        # A Run-scoped approval must survive SDK subprocess replacement too.
+        if persistable and run is not None and any(
+            wait.state == "consumed" and wait.tool_name == tool_name
+            and wait.resolution is not None
+            and wait.resolution.decision == PermissionDecision.ALLOW_RUN
+            and permission_scope_covers(wait.scope, scope)
+            for wait in run.permission_waits
+        ):
+            return PermissionResolution(decision=PermissionDecision.ALLOW_RUN)
+        return None
 
+    async def request(
+        self, run_id: str, tool_name: str, tool_input: dict[str, Any], *,
+        agent_id: str | None, context: dict[str, Any],
+    ) -> PermissionResolution:
+        automatic = self.automatic_resolution(
+            run_id, tool_name, tool_input, agent_id=agent_id, context=context,
+        )
+        if automatic is not None:
+            return automatic
+        scope = normalized_permission_scope(tool_input)
+        destructive = is_destructive_delete(tool_name, tool_input)
+        persistable = is_persistable_permission(tool_name, tool_input)
         request_id = new_id("permission")
         loop = asyncio.get_running_loop()
         pending = PendingPermission(
@@ -314,6 +338,7 @@ class PermissionBroker:
         )
 
     async def deny_all(self, run_id: str, reason: str) -> None:
+        self.durable.invalidate(run_id, cancelled=True)
         resolution = PermissionResolution(
             decision=PermissionDecision.DENY,
             reason=reason,

@@ -160,6 +160,9 @@ export default function Workspace() {
       onCancel={() => void runtime.cancel()}
       onDecision={(requestId, decision, answers) =>
         void runtime.decidePermission(requestId, decision, answers)}
+      permissionBusy={runtime.permissionBusy}
+      onResumePermission={(requestId) => void runtime.resumePermission(requestId)}
+      onRefreshPermissions={() => void runtime.refreshPermissions()}
       retrying={retrying}
       retryError={retryFailure && retryFailure.runId === runtime.run?.id
         ? retryFailure.message

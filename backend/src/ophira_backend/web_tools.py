@@ -12,6 +12,7 @@ Design rules (PRD §4.6 / §3.9):
 
 from __future__ import annotations
 
+import asyncio
 import html as html_module
 import ipaddress
 import json
@@ -140,7 +141,9 @@ async def send_pinned_public_request(
     stream: bool = False,
 ) -> tuple[httpx.Response | None, str | None]:
     """Send one request to its validated numeric IP while retaining Host/SNI."""
-    destination, reason = pin_public_http_url(url)
+    # Resolver calls can block independently of HTTP transport timeouts. Keep
+    # control-plane approval/cancel endpoints responsive during DNS resolution.
+    destination, reason = await asyncio.to_thread(pin_public_http_url, url)
     if destination is None:
         return None, reason or "URL 安全校验失败"
     request_headers = {**(headers or {}), "Host": destination.host_header}

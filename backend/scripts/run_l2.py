@@ -1064,7 +1064,7 @@ async def main() -> int:
     results = []
     async with httpx.AsyncClient(
         transport=transport,
-        base_url="http://ophira-l2",
+        base_url="http://localhost",
         timeout=httpx.Timeout(60),
     ) as client:
         for spec in tasks:

@@ -1,0 +1,11 @@
+.task-experience-panel { margin-top: 12px; }
+.task-experience-panel > div { padding: 12px 0; }
+.task-experience-panel p { white-space: pre-wrap; overflow-wrap: anywhere; }
+.task-experience-panel code { overflow-wrap: anywhere; }
+.task-experience-entry { margin: 12px 0; padding: 12px; border: 1px solid var(--line, #dfe2e8); border-radius: 8px; }
+.task-experience-entry h4, .task-experience-entry h5 { margin: 4px 0 8px; }
+.task-experience-entry details { margin: 8px 0; }
+.task-experience-entry summary { cursor: pointer; }
+.task-experience-panel form { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+.task-experience-retire-target { flex-basis: 100%; margin: 0; }
+.task-experience-panel input { margin: 4px 8px; max-width: 100%; }

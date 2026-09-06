@@ -4,7 +4,7 @@ export const mobileZh: Record<string, string> = {
   'Pair a trusted device to review requests, follow task status and start work in authorized projects.': '配对可信设备，在授权项目中审批请求、查看任务状态并发起工作。',
   'Retry connection': '重试连接',
   'Checking device session…': '正在检查设备会话…',
-  'This page refreshes while open. Background push notifications and OS sleep prevention are not enabled. GUI tasks still require the host computer to be online.': '本页面打开时会定时刷新。目前未启用后台推送或系统防休眠功能。GUI 任务仍需要主机保持在线。',
+  'This page refreshes while open. Approved devices can opt into Web Push when supported and configured. OS sleep prevention is not enabled; GUI tasks still require the host computer to be online.': '本页面打开时会定时刷新。已批准的设备可在浏览器支持且服务配置完成后选择启用 Web Push。未启用系统防休眠；GUI 任务仍需要主机保持在线。',
   'Open this one-time link on your phone. Do not share it with anyone else.': '请在你的手机上打开此一次性链接，不要分享给其他人。',
   'Device approved for the selected projects.': '设备已获准访问所选项目。',
   'Pairing rejected.': '已拒绝配对。',

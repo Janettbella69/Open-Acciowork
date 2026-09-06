@@ -15,11 +15,13 @@ from typing import Any
 
 from claude_agent_sdk import create_sdk_mcp_server, tool
 
+from .auth import AuthorizationError
 from .automation import IntentNotFoundError, IntentStore, NotificationStore
-from .constants import AUTOMATION_MCP_SERVER_NAME
-from .models import PrincipalBinding, ScheduleCreate, StandingIntentCreate
+from .constants import AUTOMATION_MCP_SERVER_NAME, TOOL_RECORD_SCHEDULE_EXPERIENCE
+from .models import PrincipalBinding, ScheduleCreate, StandingIntentCreate, TaskExperienceCreate
 from .scheduler import ScheduleValidationError, new_schedule
 from .storage import FileLedger, LedgerNotFoundError
+from .task_experience import TaskExperienceStore
 
 
 def _result(value: Any, *, is_error: bool = False) -> dict[str, Any]:
@@ -85,7 +87,40 @@ def build_automation_tools(
     run_id: str | None = None,
     schedule_id: str | None = None,
     bound_intent_id: str | None = None,
+    task_experiences: TaskExperienceStore | None = None,
 ):
+    @tool(
+        TOOL_RECORD_SCHEDULE_EXPERIENCE.rsplit("__", 1)[-1],
+        "Record one bounded observation/lesson for this scheduled task only. Main Agent "
+        "only; no human approval for notes. key is stable across runs, immutable within "
+        "one run. Never stores policy, changes triggers/thresholds, grants permissions "
+        "or writes global Memory. Cite source_event_ids from this run if known; omitted "
+        "IDs are host-bound to up to three recent tool results. Provenance is not fact "
+        "verification. Available only after the host freezes scheduled-run context.",
+        TaskExperienceCreate.model_json_schema(),
+    )
+    async def record_schedule_experience(args: dict[str, Any]) -> dict[str, Any]:
+        if task_experiences is None or run_id is None or schedule_id is None or bound_intent_id:
+            return _result(
+                {"error": "experience requires a host-bound schedule run"}, is_error=True,
+            )
+        try:
+            revision = task_experiences.record(
+                project_id=project_id, run_id=run_id, schedule_id=schedule_id,
+                payload=TaskExperienceCreate.model_validate(args),
+            )
+        except (ValueError, LedgerNotFoundError, AuthorizationError) as exc:
+            return _result({"error": str(exc)}, is_error=True)
+        # Return metadata only: prose remains low-trust data in the next run's
+        # explicit experience envelope, not a fresh instruction in this result.
+        return _result({
+            "recorded": True, "key": revision.key, "version": revision.version,
+            "content_hash": revision.content_hash, "config_hash": revision.config_hash,
+            "source_run_id": revision.source_run_id,
+            "source_event_ids": revision.source_event_ids,
+            "scope": "current_schedule_only", "trust": revision.trust,
+        })
+
     @tool(
         "create_schedule",
         "Create a recurring or one-off backend schedule for this project after the "
@@ -368,6 +403,7 @@ def build_automation_tools(
         list_standing_intents,
         trigger_standing_intent,
         send_notification,
+        record_schedule_experience,
     ]
 
 
@@ -380,6 +416,7 @@ def build_automation_mcp_server(
     run_id: str | None = None,
     schedule_id: str | None = None,
     bound_intent_id: str | None = None,
+    task_experiences: TaskExperienceStore | None = None,
 ):
     return create_sdk_mcp_server(
         name=AUTOMATION_MCP_SERVER_NAME,
@@ -389,5 +426,6 @@ def build_automation_mcp_server(
             run_id=run_id,
             schedule_id=schedule_id,
             bound_intent_id=bound_intent_id,
+            task_experiences=task_experiences,
         ),
     )

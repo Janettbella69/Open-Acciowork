@@ -38,8 +38,14 @@ The repository now contains two connected React surfaces:
 The product rail also opens Agents (`/app/agents`), a Plugins hub (`/app/plugins`)
 with Skills and Connectors sections, Scheduled tasks (`/app/schedules`), and Mobile
 trusted-device pairing (`/app/mobile`). Companion access is disabled until a
-same-origin HTTPS deployment is configured; background push is not yet available.
+same-origin HTTPS deployment is configured; optional Web Push additionally requires
+operator VAPID configuration and explicit browser subscription.
 See [`docs/mobile-companion.md`](docs/mobile-companion.md).
+
+Human approvals now persist through native SDK deferral and resume the original
+Run across control-plane workers; see [`docs/durable-approvals.md`](docs/durable-approvals.md).
+Scheduled runs can retain scoped, traceable task experience without changing user
+policy or global memory; see [`docs/task-experience.md`](docs/task-experience.md).
 
 Tenant Skills keep immutable, content-addressed package history with per-run snapshots,
 version inspection, reviewed rollback, bounded storage, and active-session-safe runtime

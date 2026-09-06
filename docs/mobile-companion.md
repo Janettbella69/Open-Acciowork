@@ -117,9 +117,10 @@ start/cancel, session polling, stale-response rejection, authorization failure,
 and logout.
 
 These local tests do **not** prove a real phone's HTTPS deployment or a complete
-FR-25 release. Background Web Push/native push, OS sleep prevention, and long-lived
-permission-wait behavior are not implemented by this frontend change. The page
-states those limits explicitly. GUI tasks still require the host device online.
+FR-25 release. Optional standard [Web Push](companion-web-push.md) now has a
+separate backend/frontend implementation and offline cryptographic/transport/UI
+tests. Real phone delivery remains unverified. Native application push and OS
+sleep prevention remain unimplemented. GUI tasks still require the host online.
 
 The current `PermissionBroker` and active SDK task handles belong to one API
 process. Route the owner and its companion to that same process; arbitrary

@@ -8,8 +8,10 @@ import {
   getRun,
   getRunTelemetry,
   listProjectRuns,
+  listPendingPermissions,
   listProjects,
   resolvePermission,
+  resumePermissionRun,
   retryRun as requestRunRetry,
   runEventUrl,
   startRun,
@@ -25,6 +27,7 @@ import type {
   RunStatus,
   RunTelemetry,
 } from './types'
+import { permissionConflict, permissionLifecycleState } from '../permissionLifecycle'
 
 type ConnectionState = 'idle' | 'connecting' | 'live' | 'reconnecting' | 'closed'
 
@@ -47,10 +50,15 @@ export function useOpportunityRuntime() {
   const sawTextDeltaRef = useRef(false)
   const sawReasoningDeltaRef = useRef(false)
   const runRef = useRef<RunRecord | null>(null)
+  const runStatusRevisionRef = useRef(0)
   const permissionInFlightRef = useRef(new Set<string>())
+  const permissionRevisionRef = useRef(0)
+  const [permissionBusy, setPermissionBusy] = useState(false)
   const retryInFlightRef = useRef(false)
   const selectionRef = useRef(0)
   const [historyLoading, setHistoryLoading] = useState(false)
+  const activeRunId = run?.id
+  const activeRunStatus = run?.status
 
   const closeStream = useCallback(() => {
     eventSourceRef.current?.close()
@@ -65,10 +73,35 @@ export function useOpportunityRuntime() {
     setProjects((current) => [updated, ...current.filter((item) => item.id !== updated.id)])
   }, [])
 
+  const refreshPermissions = useCallback(async () => {
+    const currentRun = runRef.current
+    if (!currentRun || terminalStatuses.has(currentRun.status) || permissionInFlightRef.current.size) return
+    const selection = selectionRef.current
+    const revision = ++permissionRevisionRef.current
+    const current = () => selectionRef.current === selection && runRef.current?.id === currentRun.id && revision === permissionRevisionRef.current
+    try {
+      const pending = await listPendingPermissions()
+      if (!current()) return
+      setPermissions(pending.filter((item) => item.run_id === currentRun.id).map((item) => ({
+        id: item.id, toolName: item.tool_name, toolInput: item.tool_input,
+        actor: { type: 'agent', name: item.agent_id ?? 'TradeMind', agent_id: item.agent_id },
+        destructive: item.destructive, persistable: item.persistable, scope: item.scope,
+        timeoutSeconds: item.timeout_seconds, durable: item.durable, state: item.state,
+        toolUseId: item.tool_use_id, expiresAt: item.expires_at,
+      })))
+    } catch {
+      if (current()) {
+        setPermissions((items) => items.map((item) => item.durable ? { ...item, state: 'unknown' } : item))
+        setError('Could not refresh approvals. The previous view may be stale; retry before deciding.')
+      }
+    }
+  }, [])
+
   const handleEvent = useCallback((event: OphiraEvent) => {
     if (event.run_id !== runRef.current?.id) return
     const status = event.data.status
     if (typeof status === 'string') {
+      runStatusRevisionRef.current += 1
       setRun((current) => {
         const next = current ? { ...current, status: status as RunStatus } : current
         runRef.current = next
@@ -110,8 +143,9 @@ export function useOpportunityRuntime() {
     }
 
     if (event.type === 'permission.requested' && typeof event.data.request_id === 'string') {
+      permissionRevisionRef.current += 1
       setPermissions((current) => [
-        ...current,
+        ...current.filter((item) => item.id !== event.data.request_id),
         {
           id: event.data.request_id as string,
           toolName: typeof event.data.tool_name === 'string' ? event.data.tool_name : 'Tool',
@@ -120,17 +154,24 @@ export function useOpportunityRuntime() {
           destructive: event.data.destructive === true,
           persistable: event.data.persistable === true,
           scope: typeof event.data.scope === 'string' ? event.data.scope : '',
+          durable: event.data.durable === true,
+          state: typeof event.data.state === 'string' ? event.data.state : undefined,
+          toolUseId: typeof event.data.tool_use_id === 'string' ? event.data.tool_use_id : null,
+          expiresAt: typeof event.data.expires_at === 'string' ? event.data.expires_at : null,
           timeoutSeconds: typeof event.data.timeout_seconds === 'number'
             ? event.data.timeout_seconds
             : undefined,
         },
       ])
+      if (event.data.durable === true) void refreshPermissions()
     }
     if (
       (event.type === 'permission.resolved' || event.type === 'permission.timed_out')
       && typeof event.data.request_id === 'string'
     ) {
-      setPermissions((current) => current.filter((item) => item.id !== event.data.request_id))
+      permissionRevisionRef.current += 1
+      if (event.data.durable === true) void refreshPermissions()
+      else setPermissions((current) => current.filter((item) => item.id !== event.data.request_id))
     }
 
     if (!event.type.endsWith('.delta')) {
@@ -168,7 +209,7 @@ export function useOpportunityRuntime() {
         () => undefined,
       )
     }
-  }, [refreshProject])
+  }, [refreshProject, refreshPermissions])
 
   const connectToRun = useCallback(async (nextRun: RunRecord) => {
     const selection = selectionRef.current
@@ -338,19 +379,60 @@ export function useOpportunityRuntime() {
     decision: 'allow_once' | 'allow_run' | 'allow_persistent' | 'deny',
     answers?: Record<string, string | string[]>,
   ) => {
-    if (!run || permissionInFlightRef.current.has(requestId)) return
+    const permission = permissions.find((item) => item.id === requestId)
+    if (!run || !permission || permissionLifecycleState(permission) !== 'pending' || permissionInFlightRef.current.size) return
     const selection = selectionRef.current
     permissionInFlightRef.current.add(requestId)
+    permissionRevisionRef.current += 1
+    setPermissionBusy(true)
+    setError('')
     try {
       await resolvePermission(run.id, requestId, decision, answers)
       if (selectionRef.current !== selection) return
       setPermissions((current) => current.filter((item) => item.id !== requestId))
     } catch (permissionError) {
-      if (selectionRef.current === selection) setError(errorMessage(permissionError))
+      if (selectionRef.current === selection) setError(permissionConflict(permissionError)
+        ? `The approval could not continue yet. Refresh approvals and retry when the runtime is ready. ${errorMessage(permissionError)}`
+        : errorMessage(permissionError))
     } finally {
       permissionInFlightRef.current.delete(requestId)
+      if (selectionRef.current === selection) {
+        setPermissionBusy(false)
+        if (permission.durable) await refreshPermissions()
+      }
     }
-  }, [run])
+  }, [run, permissions, refreshPermissions])
+
+  const resumePermission = useCallback(async (requestId: string) => {
+    const permission = permissions.find((item) => item.id === requestId)
+    if (!run || !permission || permissionLifecycleState(permission) !== 'resolved' || permissionInFlightRef.current.size) return
+    const selection = selectionRef.current
+    const statusRevision = runStatusRevisionRef.current
+    permissionInFlightRef.current.add(requestId)
+    permissionRevisionRef.current += 1
+    setPermissionBusy(true)
+    setError('')
+    try {
+      const next = await resumePermissionRun(run.id)
+      if (selectionRef.current !== selection) return
+      // The same stream can reach running, another approval, or completion
+      // before this queued acknowledgement arrives over HTTP.
+      if (runStatusRevisionRef.current === statusRevision) {
+        runRef.current = next
+        setRun(next)
+      }
+      setPermissions((items) => items.filter((item) => item.id !== requestId))
+      // The existing event stream stays on this same run; do not replay the
+      // entire SDK transcript or create a second run for a saved decision.
+    } catch (cause) {
+      if (selectionRef.current === selection) setError(permissionConflict(cause)
+        ? `The approval could not continue yet. Refresh approvals and retry when the runtime is ready. ${errorMessage(cause)}`
+        : errorMessage(cause))
+    } finally {
+      permissionInFlightRef.current.delete(requestId)
+      if (selectionRef.current === selection) { setPermissionBusy(false); await refreshPermissions() }
+    }
+  }, [run, permissions, refreshPermissions])
 
   const selectProject = useCallback(async (selected: OpportunityProject): Promise<RunRecord | null> => {
     const selection = ++selectionRef.current
@@ -421,6 +503,16 @@ export function useOpportunityRuntime() {
   }, [closeStream])
 
   useEffect(() => {
+    setPermissionBusy(false)
+    if (!activeRunId || !activeRunStatus || terminalStatuses.has(activeRunStatus)) { setPermissions([]); return }
+    void refreshPermissions()
+    const interval = window.setInterval(() => void refreshPermissions(), 5_000)
+    const focus = () => { void refreshPermissions() }
+    window.addEventListener('focus', focus)
+    return () => { permissionRevisionRef.current += 1; window.clearInterval(interval); window.removeEventListener('focus', focus) }
+  }, [activeRunId, activeRunStatus, refreshPermissions])
+
+  useEffect(() => {
     if (!run || !terminalStatuses.has(run.status)) {
       setTelemetry(null)
       return
@@ -463,6 +555,7 @@ export function useOpportunityRuntime() {
     assistantText,
     reasoningSummary,
     permissions,
+    permissionBusy,
     connection,
     error,
     starting,
@@ -473,6 +566,8 @@ export function useOpportunityRuntime() {
     retry,
     cancel,
     decidePermission,
+    resumePermission,
+    refreshPermissions,
     selectProject,
     refreshActiveProject,
     reset,

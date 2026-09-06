@@ -12,7 +12,8 @@ import dataclasses
 from pathlib import Path
 
 import pytest
-from claude_agent_sdk import PermissionResultAllow, PermissionResultDeny
+from claude_agent_sdk import PermissionResultAllow
+from native_permission_fixture import approve_native_fixture
 
 from ophira_backend.agent_core import assemble_default_prompt, assemble_system_prompt
 from ophira_backend.config import BACKEND_DIR, Settings
@@ -73,20 +74,13 @@ async def test_ask_user_question_answers_return_via_updated_input(tmp_path: Path
     ledger, permissions, runtime = build_runtime(tmp_path)
     project = ledger.create_project(ProjectCreate(name="Kettle", objective="Validate"))
     run = ledger.create_run(project.id, "Start")
-    options = runtime._build_options(run)
-
-    task = asyncio.create_task(
-        options.can_use_tool("AskUserQuestion", {"questions": QUESTIONS}, FakeToolContext())
-    )
-    await _resolve_first_pending(
-        permissions,
-        run.id,
+    result = await approve_native_fixture(
+        runtime, run, "AskUserQuestion", {"questions": QUESTIONS},
         PermissionResolution(
             decision=PermissionDecision.ALLOW_ONCE,
             answers={"重构的主要目的是什么？": "改善维护性"},
         ),
     )
-    result = await task
 
     assert isinstance(result, PermissionResultAllow)
     assert result.updated_input == {
@@ -102,18 +96,12 @@ async def test_ask_user_question_deny_tells_agent_to_proceed_with_assumptions(
     ledger, permissions, runtime = build_runtime(tmp_path)
     project = ledger.create_project(ProjectCreate(name="Kettle", objective="Validate"))
     run = ledger.create_run(project.id, "Start")
-    options = runtime._build_options(run)
-
-    task = asyncio.create_task(
-        options.can_use_tool("AskUserQuestion", {"questions": QUESTIONS}, FakeToolContext())
+    result = await approve_native_fixture(
+        runtime, run, "AskUserQuestion", {"questions": QUESTIONS},
+        PermissionResolution(decision=PermissionDecision.DENY)
     )
-    await _resolve_first_pending(
-        permissions, run.id, PermissionResolution(decision=PermissionDecision.DENY)
-    )
-    result = await task
-
-    assert isinstance(result, PermissionResultDeny)
-    assert "假设" in result.message
+    assert result["hookSpecificOutput"]["permissionDecision"] == "deny"
+    assert "假设" in result["hookSpecificOutput"]["permissionDecisionReason"]
 
 
 @pytest.mark.asyncio

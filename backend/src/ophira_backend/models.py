@@ -477,6 +477,10 @@ class RunRecord(APIModel):
     identity_binding: Literal["local_only", "authenticated_principal"] = "local_only"
     agent_id: str | None = None
     schedule_id: str | None = None
+    # Host fingerprint of the same Schedule snapshot used for the dispatch prompt.
+    task_experience_config_hash: str | None = Field(
+        default=None, pattern=r"^[0-9a-f]{64}$",
+    )
     standing_intent_id: str | None = None
     automation_claim_id: str | None = None
     # Set only by the authenticated companion control plane, never a model/request claim.
@@ -494,6 +498,14 @@ class RunRecord(APIModel):
     max_budget_usd: float | None = Field(default=None, gt=0, le=1_000)
     status: RunStatus = RunStatus.QUEUED
     sdk_session_id: str | None = None
+    # Native SDK deferred calls only. The invocation digest is bound to this
+    # Run's immutable identity; raw tool arguments stay in the SDK transcript.
+    permission_waits: list[DurablePermissionWait] = Field(default_factory=list)
+    suspended_permission_id: str | None = None
+    sdk_budget_usd: float | None = Field(default=None, gt=0)
+    sdk_turn_limit: int | None = Field(default=None, ge=1)
+    sdk_wall_clock_deadline: datetime | None = None
+    sdk_permission_mode: str | None = None
     context_refresh: ContextRefreshRecord | None = None
     # Count only confirmed SDK compact_boundary messages. The manifest records
     # the value at injection; a later mismatch forces a full refresh on resume.
@@ -564,6 +576,29 @@ class PermissionResolution(APIModel):
     expires_at: datetime | None = None
 
 
+class DurablePermissionWait(APIModel):
+    id: str = Field(default_factory=lambda: new_id("permission"))
+    session_id: str
+    tool_use_id: str
+    tool_name: str
+    input_digest: str
+    identity_digest: str
+    tool_input: dict[str, Any] = Field(default_factory=dict)
+    agent_id: str | None = None
+    scope: str
+    destructive: bool
+    persistable: bool
+    state: Literal[
+        "preparing", "pending", "resolved", "consumed", "uncertain", "expired", "cancelled"
+    ] = "preparing"
+    resolution: PermissionResolution | None = None
+    actor: EventActor | None = None
+    created_at: datetime = Field(default_factory=utc_now)
+    expires_at: datetime
+    confirmed_at: datetime | None = None
+    consumed_at: datetime | None = None
+
+
 class PendingPermissionView(APIModel):
     id: str
     run_id: str
@@ -576,6 +611,10 @@ class PendingPermissionView(APIModel):
     persistable: bool
     timeout_seconds: int = 300
     created_at: datetime = Field(default_factory=utc_now)
+    durable: bool = False
+    state: str = "pending"
+    tool_use_id: str | None = None
+    expires_at: datetime | None = None
 
 
 class PermissionGrant(APIModel):
@@ -1243,6 +1282,74 @@ class ScheduleCreate(APIModel):
         if (self.cron is None) == (self.run_once_at is None):
             raise ValueError("exactly one of cron or run_once_at is required")
         return self
+
+
+TASK_EXPERIENCE_MAX_ENTRIES = 24
+TASK_EXPERIENCE_MAX_VERSIONS = 4
+TASK_EXPERIENCE_MAX_RUN_WRITES = 8
+TASK_EXPERIENCE_CONTEXT_CHARS = 12_000
+
+
+class TaskExperienceCreate(APIModel):
+    """Observations only: scope, authority and provenance are host-owned."""
+
+    key: str = Field(min_length=1, max_length=80, pattern=r"^[a-z0-9][a-z0-9_.-]*$")
+    category: Literal["selector_failure", "threshold_observation", "retrieval_lesson"]
+    observation: str = Field(min_length=1, max_length=800)
+    lesson: str = Field(min_length=1, max_length=800)
+    source_event_ids: list[str] = Field(default_factory=list, max_length=5)
+
+    @model_validator(mode="after")
+    def substantive_note(self) -> TaskExperienceCreate:
+        if not self.observation.strip() or not self.lesson.strip():
+            raise ValueError("experience observation and lesson must not be blank")
+        if len(set(self.source_event_ids)) != len(self.source_event_ids):
+            raise ValueError("experience source events must be unique")
+        if any(len(value) > 200 for value in self.source_event_ids):
+            raise ValueError("experience event identifier is too long")
+        return self
+
+
+class TaskExperienceRevision(TaskExperienceCreate):
+    version: int = Field(ge=1)
+    origin: Literal["agent_observation"] = "agent_observation"
+    trust: Literal["untrusted_task_data"] = "untrusted_task_data"
+    source_run_id: str
+    source_trace_id: str
+    source_session_id: str
+    write_event_id: str
+    source_event_hashes: dict[str, str]
+    config_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    content_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    created_at: datetime = Field(default_factory=utc_now)
+
+
+class TaskExperienceRetire(APIModel):
+    expected_version: int = Field(ge=1)
+    reason: str = Field(min_length=1, max_length=500)
+
+
+class TaskExperienceEntry(APIModel):
+    id: str
+    key: str
+    revisions: list[TaskExperienceRevision] = Field(
+        min_length=1, max_length=TASK_EXPERIENCE_MAX_VERSIONS
+    )
+    pruned_versions: int = Field(default=0, ge=0)
+    retired_at: datetime | None = None
+    retired_by: str | None = None
+    retirement_reason: str | None = None
+
+
+class TaskExperienceLedger(APIModel):
+    schema_version: Literal[1] = 1
+    project_id: str
+    schedule_id: str
+    revision: int = Field(default=0, ge=0)
+    entries: list[TaskExperienceEntry] = Field(
+        default_factory=list, max_length=TASK_EXPERIENCE_MAX_ENTRIES
+    )
+    evicted_retired_entries: int = Field(default=0, ge=0)
 
 
 CommercialFieldPath = Annotated[

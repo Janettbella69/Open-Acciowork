@@ -672,7 +672,8 @@ def test_out_of_order_input_is_sorted_and_warned() -> None:
     assert telemetry.quality_warnings[0].code == "event_input_out_of_order"
 
 
-def test_latest_result_wins_without_summing_cumulative_values() -> None:
+@pytest.mark.parametrize("scope", [None, "run_cumulative"])
+def test_latest_result_wins_without_summing_cumulative_values(scope) -> None:
     run = make_run()
     telemetry = build_run_telemetry(
         run,
@@ -688,6 +689,7 @@ def test_latest_result_wins_without_summing_cumulative_values() -> None:
                     "num_turns": 2,
                     "total_cost_usd": 0.1,
                     "usage": {"input_tokens": 10},
+                    "result_scope": scope,
                 },
             ),
             event(
@@ -701,6 +703,7 @@ def test_latest_result_wins_without_summing_cumulative_values() -> None:
                     "num_turns": 5,
                     "total_cost_usd": 0.2,
                     "usage": {"input_tokens": 30},
+                    "result_scope": scope,
                 },
             ),
         ],
@@ -709,9 +712,10 @@ def test_latest_result_wins_without_summing_cumulative_values() -> None:
     assert telemetry.outcome.turn_count.value == 5
     assert telemetry.tokens.input_tokens.value == 30
     assert telemetry.cost.estimated_cost_usd.value == pytest.approx(0.2)
-    assert "multiple_run_results" in {
+    assert ("multiple_run_results" in {
         warning.code for warning in telemetry.quality_warnings
-    }
+    }) == (scope is None)
+    assert telemetry.outcome.turn_count.scope == (scope or "sdk_query")
 
 
 def test_foreign_run_events_are_rejected() -> None:

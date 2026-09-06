@@ -315,7 +315,10 @@ async def drive_run(
     timeout_s: float = 900,
     poll_s: float = 0.5,
 ) -> dict[str, Any]:
-    """Start a run over the HTTP API and resolve permission requests as they appear."""
+    """Drive current approval state, including durable confirmation/resume races."""
+    from .constants import TERMINAL_RUN_STATUSES, RunStatus
+    from .models import PendingPermissionView
+
     payload: dict[str, Any] = {"prompt": prompt, "provider_profile_id": provider_id}
     if resume_session_id:
         payload["resume_session_id"] = resume_session_id
@@ -324,38 +327,63 @@ async def drive_run(
     run = response.json()
     run_id = run["id"]
 
-    handled: set[str] = set()
-    cursor = 0
-    deadline = asyncio.get_event_loop().time() + timeout_s
+    # A conflict is not an acknowledgement. Keep the same policy decision when
+    # retrying, so repeated HTTP attempts do not inflate the deny probe count.
+    decisions: dict[str, dict[str, str]] = {}
+    acknowledged: set[str] = set()
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout_s
     while True:
-        events = ledger.list_events(run_id, cursor)
-        for event in events:
-            cursor = max(cursor, event.sequence)
-            if event.type == EventType.PERMISSION_REQUESTED.value:
-                request_id = event.data.get("request_id")
-                tool_name = event.data.get("tool_name")
-                tool_input = event.data.get("tool_input")
-                if not isinstance(request_id, str) or request_id in handled:
-                    continue
-                handled.add(request_id)
-                decision = policy.decide(
-                    str(tool_name), tool_input if isinstance(tool_input, dict) else {}
-                )
-                await client.post(
-                    f"/api/runs/{run_id}/permissions/{request_id}",
-                    json={
-                        "decision": decision,
-                        "reason": "Green Path policy: marker command denied."
-                        if decision == "deny"
-                        else "",
-                    },
-                )
-        status = ledger.get_run(run_id).status.value
-        if status in {"completed", "failed", "cancelled"}:
-            return ledger.get_run(run_id).model_dump(mode="json")
-        if asyncio.get_event_loop().time() > deadline:
-            await client.post(f"/api/runs/{run_id}/cancel")
+        current = ledger.get_run(run_id)
+        if current.status in TERMINAL_RUN_STATUSES:
+            return current.model_dump(mode="json")
+        if loop.time() > deadline:
+            cancellation = await client.post(f"/api/runs/{run_id}/cancel")
+            cancellation.raise_for_status()
             raise TimeoutError(f"Green Path run {run_id} exceeded {timeout_s}s")
+
+        # permission.requested can precede durable SDK confirmation and release
+        # of the old worker's execution lease. The pending API exposes only
+        # confirmed checkpoints and also recovers already-resolved approvals.
+        response = await client.get("/api/permissions/pending")
+        response.raise_for_status()
+        pending = response.json()
+        if not isinstance(pending, list):
+            raise ValueError("The pending-permission API did not return a list")
+        for item in pending:
+            if not isinstance(item, dict) or item.get("run_id") != run_id:
+                continue
+            request = PendingPermissionView.model_validate(item)
+            if request.project_id not in {None, project_id}:
+                continue
+            if ledger.get_run(run_id).status != RunStatus.WAITING_PERMISSION:
+                break
+            if request.state == "expired":
+                raise RuntimeError(f"Green Path approval {request.id} expired before continuation")
+            if request.durable and request.state == "resolved":
+                # The saved decision is authoritative. Resume its checkpoint;
+                # do not ask policy to decide again or overwrite the approval.
+                resumed = await client.post(f"/api/runs/{run_id}/resume-permission")
+                if resumed.status_code == 409:
+                    continue  # Re-read the same checkpoint on the next poll.
+                resumed.raise_for_status()
+                continue
+            if request.state != "pending" or request.id in acknowledged:
+                continue
+            if request.id not in decisions:
+                decision = policy.decide(request.tool_name, request.tool_input)
+                decisions[request.id] = {
+                    "decision": decision,
+                    "reason": "Green Path policy: marker command denied."
+                    if decision == "deny" else "",
+                }
+            resolution = await client.post(
+                f"/api/runs/{run_id}/permissions/{request.id}", json=decisions[request.id],
+            )
+            if resolution.status_code == 409:
+                continue  # May still be stopping, or may now be resolved.
+            resolution.raise_for_status()
+            acknowledged.add(request.id)
         await asyncio.sleep(poll_s)
 
 

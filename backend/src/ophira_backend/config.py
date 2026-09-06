@@ -140,6 +140,17 @@ class Settings(BaseSettings):
     auth_assertion_future_skew_seconds: int = Field(default=5, ge=0, le=30)
     companion_enabled: bool = False
     companion_public_origin: str | None = Field(default=None, max_length=500)
+    push_enabled: bool = False
+    push_vapid_private_key: SecretStr | None = Field(default=None, max_length=2_000)
+    push_vapid_subject: str | None = Field(default=None, max_length=500)
+    # Operator-owned exact origins, never a client-provided destination allowlist.
+    push_allowed_origins: Annotated[list[str], NoDecode] = [
+        "https://fcm.googleapis.com", "https://updates.push.services.mozilla.com",
+        "https://web.push.apple.com",
+    ]
+    push_worker_interval_seconds: float = Field(default=5, ge=1, le=60)
+    push_min_interval_seconds: int = Field(default=15, ge=1, le=300)
+    push_max_attempts_per_day: int = Field(default=100, ge=1, le=1_000)
     media_endpoint: str | None = Field(default=None, max_length=2_000)
     media_api_key: SecretStr | None = None
     channel_webhook_url: str | None = Field(default=None, max_length=2_000)
@@ -196,6 +207,8 @@ class Settings(BaseSettings):
         "feishu_bot_open_id",
         "feishu_app_id",
         "feishu_app_secret",
+        "push_vapid_private_key",
+        "push_vapid_subject",
         mode="before",
     )
     @classmethod
@@ -205,7 +218,7 @@ class Settings(BaseSettings):
             return normalized or None
         return value
 
-    @field_validator("cors_origins", mode="before")
+    @field_validator("cors_origins", "push_allowed_origins", mode="before")
     @classmethod
     def parse_origins(cls, value: object) -> object:
         if isinstance(value, str):
@@ -214,6 +227,9 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def trusted_gateway_requires_a_signing_secret(self) -> Settings:
+        if len(self.push_allowed_origins) > 20:
+            raise ValueError("at most 20 push service origins may be configured")
+        self.push_allowed_origins = [companion_origin(item) for item in self.push_allowed_origins]
         if self.companion_public_origin is not None:
             self.companion_public_origin = companion_origin(self.companion_public_origin)
         if self.companion_enabled and self.companion_public_origin is None:

@@ -75,7 +75,7 @@ export default function MobilePage() {
         </section>}
         {surface === 'owner' && <MobilePairingManager />}
         {surface === 'companion' && <MobileCompanion initialSession={session} entry={entry.current ?? { kind: 'none' }} />}
-        <p className="mobile-service-note">{t('This page refreshes while open. Background push notifications and OS sleep prevention are not enabled. GUI tasks still require the host computer to be online.')}</p>
+        <p className="mobile-service-note">{t('This page refreshes while open. Approved devices can opt into Web Push when supported and configured. OS sleep prevention is not enabled; GUI tasks still require the host computer to be online.')}</p>
       </main>
     </div>
   )

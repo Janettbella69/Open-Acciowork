@@ -153,6 +153,12 @@ class CompanionStore:
         except (OSError, ValueError) as exc:
             raise CompanionError("pairing is unavailable") from exc
 
+    def approved_record(self, pairing_id: str) -> PairingRecord:
+        record = self._get(pairing_id)
+        if record.view().status != PairingStatus.APPROVED or not record.cookie_activated:
+            raise CompanionError("device is not approved or has expired")
+        return record
+
     def _write(self, record: PairingRecord) -> None:
         with tempfile.NamedTemporaryFile(
             mode="w", encoding="utf-8", dir=self.root, prefix=".pair-", delete=False,

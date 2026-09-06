@@ -33,6 +33,23 @@ export type CompanionOverview = {
   runs: RunRecord[]
 }
 
+export type CompanionPushStatus = {
+  enabled: boolean
+  public_key: string | null
+  subscribed: boolean
+  subscription_fingerprint: string | null
+  reason: string | null
+}
+
+export class CompanionRequestError extends Error {
+  readonly status: number
+  constructor(message: string, status: number) {
+    super(message)
+    this.name = 'CompanionRequestError'
+    this.status = status
+  }
+}
+
 export type PairingInput = { pairing_id: string; secret: string }
 export type PairingFragment = { kind: 'none' } | { kind: 'invalid' } | { kind: 'pairing'; input: PairingInput }
 
@@ -61,15 +78,15 @@ export function consumePairingFragment(): PairingFragment {
   return { kind: 'pairing', input: { pairing_id: id, secret } }
 }
 
-async function request<T>(path: string, body?: unknown): Promise<T> {
+async function request<T>(path: string, body?: unknown, method = body === undefined ? 'GET' : 'POST'): Promise<T> {
   const response = await fetch(`${apiBaseUrl}${path}`, {
-    method: body === undefined ? 'GET' : 'POST',
+    method,
     credentials: 'include',
     cache: 'no-store',
     headers: {
       Accept: 'application/json',
       'X-Ophira-Companion': '1',
-      ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
+      ...(method === 'GET' ? {} : { 'Content-Type': 'application/json' }),
     },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   })
@@ -80,7 +97,7 @@ async function request<T>(path: string, body?: unknown): Promise<T> {
       if (typeof data.detail === 'string') message = data.detail
       // Never render validation inputs: a rejected pairing body contains a secret.
     } catch { /* A gateway can return a non-JSON failure. */ }
-    throw new Error(message)
+    throw new CompanionRequestError(message, response.status)
   }
   return response.status === 204 ? undefined as T : response.json() as Promise<T>
 }
@@ -136,6 +153,22 @@ export function cancelCompanionRun(id: string): Promise<RunRecord> {
   return request(`/api/companion/runs/${encodeURIComponent(id)}/cancel`, {})
 }
 
+export function resumeCompanionPermissionRun(id: string): Promise<RunRecord> {
+  return request(`/api/companion/runs/${encodeURIComponent(id)}/resume-permission`, undefined, 'POST')
+}
+
 export function logoutCompanion(): Promise<Record<string, never>> {
   return request('/api/companion/logout', {})
+}
+
+export function getCompanionPushStatus(): Promise<CompanionPushStatus> {
+  return request('/api/companion/push/status')
+}
+
+export function subscribeCompanionPush(subscription: PushSubscriptionJSON): Promise<CompanionPushStatus> {
+  return request('/api/companion/push/subscription', subscription)
+}
+
+export function unsubscribeCompanionPush(): Promise<CompanionPushStatus> {
+  return request('/api/companion/push/unsubscribe', {})
 }

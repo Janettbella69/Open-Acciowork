@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   companionModeStorageKey, consumePairingFragment, getCompanionOverview, pairCompanion,
   resolveCompanionPermission, startCompanionRun,
+  getCompanionPushStatus, subscribeCompanionPush, unsubscribeCompanionPush,
+  resumeCompanionPermissionRun,
 } from './companion'
 
 beforeEach(() => {
@@ -19,6 +21,29 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals())
 
 describe('companion transport', () => {
+  it('resumes only the saved permission for the exact run via a protected bodyless POST', async () => {
+    const fetchMock = vi.fn(async () => new Response('{}', { status: 202 }))
+    vi.stubGlobal('fetch', fetchMock)
+    await resumeCompanionPermissionRun('run/1')
+    expect(fetchMock).toHaveBeenCalledWith('/api/companion/runs/run%2F1/resume-permission', expect.objectContaining({
+      method: 'POST', credentials: 'include', headers: { Accept: 'application/json', 'Content-Type': 'application/json', 'X-Ophira-Companion': '1' },
+    }))
+    expect((fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1].body).toBeUndefined()
+  })
+  it('uses scoped cookie authentication for push status and subscription writes, without JavaScript bearer storage', async () => {
+    const fetchMock = vi.fn(async () => new Response('{}', { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+    const subscription = { endpoint: 'https://push.example/private-capability', keys: { p256dh: 'private-key', auth: 'private-auth' } }
+    await getCompanionPushStatus()
+    await subscribeCompanionPush(subscription)
+    await unsubscribeCompanionPush()
+    expect(fetchMock.mock.calls).toEqual([
+      ['/api/companion/push/status', expect.objectContaining({ method: 'GET', credentials: 'include', cache: 'no-store' })],
+      ['/api/companion/push/subscription', expect.objectContaining({ method: 'POST', credentials: 'include', body: JSON.stringify(subscription), headers: { Accept: 'application/json', 'Content-Type': 'application/json', 'X-Ophira-Companion': '1' } })],
+      ['/api/companion/push/unsubscribe', expect.objectContaining({ method: 'POST', credentials: 'include', body: '{}' })],
+    ])
+    expect(window.localStorage.length).toBe(0)
+  })
   it('uses the HttpOnly credential via include, never a JavaScript bearer, and protects JSON writes', async () => {
     const fetchMock = vi.fn(async () => new Response('{}', { status: 200, headers: { 'Content-Type': 'application/json' } }))
     vi.stubGlobal('fetch', fetchMock)

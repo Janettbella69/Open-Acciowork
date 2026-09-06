@@ -18,6 +18,7 @@ dependencies = [
   "pydantic-settings>=2.7,<3",
   "Pillow>=10,<13",
   "pypdf>=5,<7",
+  "pywebpush==2.5.0",
   "httpx>=0.28,<1",
   "openpyxl>=3.1,<4",
   "python-docx>=1.1,<2",

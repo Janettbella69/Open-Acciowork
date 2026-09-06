@@ -1,0 +1,12 @@
+{
+  "name": "TradeMind Companion",
+  "short_name": "Companion",
+  "description": "Review authorized projects and requests on your trusted device.",
+  "id": "/app/mobile",
+  "start_url": "/app/mobile",
+  "scope": "/app/mobile",
+  "display": "standalone",
+  "background_color": "#fbf5e9",
+  "theme_color": "#fbf5e9",
+  "icons": [{ "src": "/trademind-mark.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }]
+}

@@ -150,6 +150,7 @@ describe('TradeMind frontend', () => {
       }
       if (url.endsWith('/api/agents') && !init?.method) return jsonResponse([])
       if (url.endsWith('/api/providers') && !init?.method) return jsonResponse([])
+      if (url.endsWith('/api/permissions/pending') && !init?.method) return jsonResponse([])
       if (url.endsWith('/api/connectors') && !init?.method) return jsonResponse([])
       if (url.endsWith('/api/skills') && !init?.method) return jsonResponse([])
       if (url.endsWith('/api/projects') && !init?.method) return jsonResponse(storedProjects)
@@ -253,7 +254,7 @@ describe('TradeMind frontend', () => {
     const source = MockEventSource.instances[0]
     expect(source.url).toContain(`/api/runs/${run.id}/events`)
 
-    act(() => {
+    await act(async () => {
       source.onopen?.()
       source.emit('run.started', runtimeEvent('run.started', { status: 'running' }))
       source.emit('assistant.text.delta', runtimeEvent('assistant.text.delta', { text: 'Validating demand evidence.' }))

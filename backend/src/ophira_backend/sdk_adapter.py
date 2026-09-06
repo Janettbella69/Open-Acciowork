@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
+from contextlib import AsyncExitStack
+from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
@@ -22,13 +24,16 @@ from claude_agent_sdk import (
     TaskStartedMessage,
     TextBlock,
     ThinkingBlock,
+    ToolResultBlock,
     ToolUseBlock,
+    UserMessage,
     create_sdk_mcp_server,
     tool,
 )
 
 from .agent_core import MAX_MEMORY_ITEMS
 from .agents import build_deep_research_agents
+from .auth import AuthorizationError, ProjectPermission
 from .commercial_actions import CommercialActionService
 from .config import BACKEND_DIR, Settings
 from .connectors import ConnectorRegistry
@@ -39,6 +44,7 @@ from .constants import (
     DELEGATION_TOOL,
     DELETE_BUILTIN_TOOLS,
     ENVELOPE_APPROVED_MCP_TOOL_NAMES,
+    OPHIRA_TOOL_NAMES,
     PRESENTATION_TOOL_NAMES,
     READ_ONLY_BUILTIN_TOOLS,
     READ_ONLY_MCP_TOOL_NAMES,
@@ -59,17 +65,20 @@ from .constants import (
     PresentationFrameType,
     ProviderErrorCode,
     RunMode,
+    RunStatus,
 )
 from .context_protocol import (
     PreparedRunContext,
     prepare_run_context,
 )
 from .destructive import is_destructive_delete
+from .durable_permissions import DurablePermissionConflict
 from .events import EventPublisher, redact
 from .ingest import file_needs_markdown_companion
 from .ledger_tools import build_mcp_servers
 from .memory import MemoryProvider
 from .models import EventActor, ProviderPreflightResult, RunRecord, utc_now
+from .native_hooks import NativeHookBridge
 from .permissions import PermissionBroker
 from .policy import OrgPolicyStore
 from .presentation_tools import presentation_event_response, presentation_frame_event
@@ -78,14 +87,16 @@ from .providers import (
     ProviderRegistry,
     classify_provider_error,
     provider_error_message,
+    provider_readiness_failures,
     successful_preflight,
 )
+from .run_accounting import cumulative_result, latest_result
 from .skills import SkillRegistry, SkillRuntimeView
 from .source_receipts import (
     attach_source_receipts,
     model_visible_source_receipt_context,
 )
-from .storage import FileLedger
+from .storage import FileLedger, LedgerNotFoundError
 from .untrusted import (
     UNTRUSTED_DATA_NOTICE,
     UntrustedSource,
@@ -104,6 +115,7 @@ _CONTROL_PLANE_SECRET_ENV_NAMES = (
     "OPHIRA_FEISHU_APP_ID",
     "OPHIRA_FEISHU_APP_SECRET",
     "OPHIRA_FEISHU_ENCRYPT_KEY",
+    "OPHIRA_PUSH_VAPID_PRIVATE_KEY",
 )
 
 
@@ -215,6 +227,8 @@ _STANDING_INTENT_ALLOWED_TOOLS = frozenset(
 class ClaudeAgentRuntime:
     """Adapter from Claude Agent SDK's native stream to OPHIRA's event contract."""
 
+    durable_resume_supported = True
+
     def __init__(
         self,
         settings: Settings,
@@ -229,7 +243,11 @@ class ClaudeAgentRuntime:
         connectors: ConnectorRegistry | None = None,
         policy: OrgPolicyStore | None = None,
         commercial_actions: CommercialActionService | None = None,
+        task_experiences=None,
+        access=None,
     ) -> None:
+        from .auth import ProjectAccessStore
+
         self.settings = settings
         self.ledger = ledger
         self.events = events
@@ -242,6 +260,8 @@ class ClaudeAgentRuntime:
         )
         self.intents = intents
         self.notifications = notifications
+        self.task_experiences = task_experiences
+        self.access = access or ProjectAccessStore(settings.data_dir / "auth" / "projects")
         self.connectors = connectors
         self.policy = policy or OrgPolicyStore(settings.data_dir / "org" / "policy.json")
         self.commercial_actions = commercial_actions or CommercialActionService(
@@ -252,9 +272,29 @@ class ClaudeAgentRuntime:
         self._clients: dict[str, ClaudeSDKClient] = {}
         self._clients_lock = asyncio.Lock()
         self._prepared_contexts: dict[str, PreparedRunContext] = {}
+        self._single_tool_calls: dict[str, dict[str, tuple[str, dict[str, Any]]]] = {}
+        self._stream_tool_batch: dict[str, list[str]] = {}
+        self._closed_tool_batches: dict[str, dict[str, int]] = {}
+        self._batch_ready: dict[tuple[str, str], asyncio.Event] = {}
+        self._approved_invocations: dict[str, dict[str, tuple[str, dict, Any]]] = {}
 
     async def run(self, run: RunRecord) -> None:
+        if (pending := self.permissions.durable.active(run)) is not None:
+            if pending.state == "resolved":
+                self.validate_deferred_resume(run)
         self._require_provider(run)
+        deadline = None
+        if run.mode == RunMode.DEEP_RESEARCH:
+            with self.ledger._lock_for(run.id):
+                current = self.ledger.get_run(run.id)
+                deadline = current.sdk_wall_clock_deadline
+                if deadline is None:
+                    deadline = (current.started_at or utc_now()) + timedelta(
+                        seconds=self.settings.deep_research_timeout_seconds,
+                    )
+                    self.ledger.update_run(run.id, sdk_wall_clock_deadline=deadline)
+            if deadline <= utc_now():
+                raise AgentRunError("Deep Research exceeded its original wall-clock limit.")
         snapshot = self._policy_skill_snapshot(run.skill_snapshot)
         self._prepare_context(run, snapshot)
         try:
@@ -270,7 +310,7 @@ class ClaudeAgentRuntime:
                 )
                 try:
                     done, _pending = await asyncio.wait(
-                        {task}, timeout=self.settings.deep_research_timeout_seconds
+                        {task}, timeout=max(0, (deadline - utc_now()).total_seconds())
                     )
                 except asyncio.CancelledError:
                     task.cancel()
@@ -282,25 +322,92 @@ class ClaudeAgentRuntime:
                 task.cancel()
                 await asyncio.gather(task, return_exceptions=True)
                 raise AgentRunError(
-                    "Deep Research exceeded its wall-clock limit "
-                    f"({self.settings.deep_research_timeout_seconds}s) and was stopped."
+                    "Deep Research exceeded its original wall-clock limit and was stopped."
                 )
         finally:
             self._prepared_contexts.pop(run.id, None)
+            self._single_tool_calls.pop(run.id, None)
+            self._stream_tool_batch.pop(run.id, None)
+            self._closed_tool_batches.pop(run.id, None)
+            self._approved_invocations.pop(run.id, None)
+            for key in [key for key in self._batch_ready if key[0] == run.id]:
+                self._batch_ready.pop(key, None)
 
     async def _run_sdk_session(
         self,
         run: RunRecord,
         options: ClaudeAgentOptions,
     ) -> None:
+        pending = self.permissions.durable.active(run)
+        if (pending is not None and pending.state == "resolved"
+                and not self.durable_resume_supported):
+            raise AgentRunError("Native deferred replay requires a verified startup approval gate.")
         result_error: str | None = None
-        async with ClaudeSDKClient(options=options) as client:
+        async with AsyncExitStack() as stack:
+            if self.durable_resume_supported:
+                bridge = await stack.enter_async_context(NativeHookBridge(
+                    self._permission_hook(run, self.ledger.workspace_for_project(run.project_id)),
+                ))
+                # Register exactly one policy entry point. The documented
+                # --settings command hooks load before native deferred replay,
+                # unlike the Python hooks registered by SDK initialize.
+                ask_tools = sorted({
+                    *READ_ONLY_BUILTIN_TOOLS, *WRITE_BUILTIN_TOOLS, *DELETE_BUILTIN_TOOLS,
+                    *SHELL_BUILTIN_TOOLS, *OPHIRA_TOOL_NAMES, CLARIFYING_TOOL, DELEGATION_TOOL,
+                    "Task", "NotebookEdit", "Skill", "ToolSearch", "TaskCreate", "TaskUpdate",
+                    "TaskGet", "TaskList", "TaskOutput", "TaskStop", "EnterPlanMode",
+                    "ExitPlanMode",
+                    "EnterWorktree", "ExitWorktree", "ListMcpResourcesTool", "ReadMcpResourceTool",
+                    "Monitor", *([pending.tool_name] if pending is not None else []),
+                })
+                options = dataclasses.replace(
+                    options, hooks={}, settings=bridge.settings(ask_tools=ask_tools),
+                )
+            client = await stack.enter_async_context(ClaudeSDKClient(options=options))
             async with self._clients_lock:
                 self._clients[run.id] = client
             try:
-                await client.query(self._query_prompt(run))
+                wait = self.permissions.durable.active(run)
+                if wait is None or wait.state != "resolved":
+                    prompt = self._query_prompt(run)
+                    if self.task_experiences is not None:
+                        prompt += self.task_experiences.context_for_run(run)
+                    await client.query(prompt)
+                # A deferred transcript resumes its pending native call on
+                # connection. Do not append a prompt or synthetic tool result.
                 async for message in client.receive_response():
                     await self._map_message(run.id, message)
+                    if (isinstance(message, ResultMessage)
+                            and message.stop_reason == "tool_deferred_unavailable"
+                            and message.deferred_tool_use is not None):
+                        missing = message.deferred_tool_use
+                        self.permissions.durable.retain_unavailable(
+                            run.id, message.session_id, missing.id, missing.name, missing.input,
+                        )
+                        continue
+                    if (isinstance(message, ResultMessage)
+                            and message.stop_reason == "tool_deferred"):
+                        deferred = message.deferred_tool_use
+                        if deferred is None or message.is_error:
+                            raise AgentRunError("The SDK did not confirm a durable deferred call.")
+                        pending = self.permissions.durable.confirm(
+                            run.id, message.session_id, deferred.id, deferred.name, deferred.input,
+                        )
+                        await self.events.publish(
+                            run.id, EventType.PERMISSION_REQUESTED,
+                            {"request_id": pending.id, "tool_name": pending.tool_name,
+                             "tool_input": pending.tool_input, "scope": pending.scope,
+                             "destructive": pending.destructive, "persistable": pending.persistable,
+                             "timeout_seconds": self.permissions.timeout_seconds,
+                             "durable": True, "state": "pending",
+                             "tool_use_id": pending.tool_use_id,
+                             "expires_at": pending.expires_at.isoformat()},
+                            actor=EventActor(type="agent", name="sdk-permission"),
+                            tool_use_id=pending.tool_use_id,
+                        )
+                        await self.events.publish(
+                            run.id, EventType.RUN_STATUS, {"status": "waiting_permission"},
+                        )
                     if isinstance(message, ResultMessage) and message.is_error:
                         details = message.errors or [message.result or message.subtype]
                         result_error = "; ".join(details)
@@ -309,6 +416,15 @@ class ClaudeAgentRuntime:
                     self._clients.pop(run.id, None)
         if result_error:
             raise AgentRunError(result_error)
+        current = self.ledger.get_run(run.id)
+        active = self.permissions.durable.active(current)
+        if active is not None and active.state == "preparing":
+            raise AgentRunError("The SDK did not confirm the requested durable suspension.")
+        if (active is not None and active.state == "resolved"
+                and current.status != "waiting_permission"):
+            raise AgentRunError(
+                "The resumed SDK call did not consume its approval; review the native tool error."
+            )
 
     async def preflight(self, provider_profile_id: str) -> ProviderPreflightResult:
         """Exercise the real Claude Agent SDK path; never substitutes a direct model client."""
@@ -536,14 +652,41 @@ class ClaudeAgentRuntime:
                 return PermissionResultDeny(
                     message="Unsandboxed Bash is disabled by OPHIRA policy."
                 )
-            context_data = dataclasses.asdict(context)
-            resolution = await self.permissions.request(
-                run.id,
-                tool_name,
-                tool_input,
-                agent_id=context.agent_id,
-                context=context_data,
+            handoff = self._approved_invocations.get(run.id, {}).pop(
+                getattr(context, "tool_use_id", None), None,
             )
+            if handoff is not None:
+                approved_tool, approved_input, resolution = handoff
+                if approved_tool != tool_name or approved_input != tool_input:
+                    return PermissionResultDeny(message="Approved invocation input changed.")
+                if tool_name == CLARIFYING_TOOL and resolution is not None:
+                    answers = resolution.answers or {}
+                    self._record_constraints(run.project_id, answers)
+                    return PermissionResultAllow(
+                        updated_input={**approved_input, "answers": answers},
+                    )
+                return PermissionResultAllow(updated_input=approved_input)
+            context_data = dataclasses.asdict(context)
+            # Any unapproved call reaching this callback escaped the native
+            # deferred hook (unsupported batch/tool or a missing anchor). Never
+            # turn it into a process-local, timeout-based approval or allow it.
+            if self.durable_resume_supported:
+                resolution = self.permissions.automatic_resolution(
+                    run.id, tool_name, tool_input,
+                    agent_id=context.agent_id, context=context_data,
+                )
+            else:
+                # Compatibility path, not durable approval. Keep existing live
+                # requests working until the native startup gate is verified.
+                resolution = await self.permissions.request(
+                    run.id, tool_name, tool_input,
+                    agent_id=context.agent_id, context=context_data,
+                )
+            if resolution is None:
+                return PermissionResultDeny(message=(
+                    "This call has no consumable durable approval. Request a single tool "
+                    "call so OPHIRA can suspend it safely for human approval."
+                ))
             if resolution.decision in {
                 PermissionDecision.ALLOW_ONCE,
                 PermissionDecision.ALLOW_RUN,
@@ -567,7 +710,7 @@ class ClaudeAgentRuntime:
                 message=resolution.reason or "The user denied this tool call.",
             )
 
-        hook = self._hook(run.id, workspace)
+        hook = self._permission_hook(run, workspace)
         hooks = {
             "PreToolUse": [HookMatcher(hooks=[hook])],
             "PostToolUse": [HookMatcher(hooks=[hook])],
@@ -584,6 +727,23 @@ class ClaudeAgentRuntime:
         elif agent and agent.model:
             model = agent.model
         org_policy = self.policy.get()
+        permission_mode = (
+            "auto" if org_policy.permission_mode == PermissionModePolicy.AUTO else "default"
+        )
+        with self.ledger._lock_for(run.id):
+            current = self.ledger.get_run(run.id)
+            if current.sdk_budget_usd is None:
+                self.ledger.update_run(
+                    run.id,
+                    sdk_budget_usd=min(
+                        self.settings.max_budget_usd,
+                        run.max_budget_usd if run.max_budget_usd is not None
+                        else self.settings.max_budget_usd,
+                    ) * budget_scale,
+                    sdk_turn_limit=self.settings.max_turns,
+                    sdk_permission_mode=permission_mode,
+                )
+        budget, turns = self._remaining_budget(run.id)
         if skill_view is None:
             # Inspection/tests may build options without starting a session. A
             # real run passes a leased view that remains pinned until SDK exit.
@@ -612,6 +772,7 @@ class ClaudeAgentRuntime:
                 run_id=run.id,
                 schedule_id=run.schedule_id,
                 bound_intent_id=run.standing_intent_id,
+                task_experiences=self.task_experiences,
             )
         unattended_intent = run.standing_intent_id is not None
         return ClaudeAgentOptions(
@@ -646,24 +807,15 @@ class ClaudeAgentRuntime:
             skills=skill_view.skill_ids,
             mcp_servers=mcp_servers,
             strict_mcp_config=True,
-            permission_mode=(
-                "auto"
-                if org_policy.permission_mode == PermissionModePolicy.AUTO
-                else "default"
-            ),
+            permission_mode=permission_mode,
             can_use_tool=can_use_tool,
             hooks=hooks,
             include_partial_messages=True,
             include_hook_events=True,
             agents=build_deep_research_agents() if deep_research else None,
             model=model,
-            max_turns=self.settings.max_turns,
-            max_budget_usd=(
-                min(self.settings.max_budget_usd, run.max_budget_usd)
-                if run.max_budget_usd is not None
-                else self.settings.max_budget_usd
-            )
-            * budget_scale,
+            max_turns=turns,
+            max_budget_usd=budget,
             cwd=workspace,
             env=self._provider_env(run),
             setting_sources=[],
@@ -677,7 +829,12 @@ class ClaudeAgentRuntime:
             },
             enable_file_checkpointing=True,
             thinking={"type": "adaptive", "display": "summarized"},
-            resume=run.resume_session_id,
+            resume=(
+                run.sdk_session_id
+                if self.permissions.durable.active(run) is not None
+                and self.permissions.durable.active(run).state == "resolved"
+                else run.resume_session_id
+            ),
         )
 
     def _policy_skill_snapshot(
@@ -698,6 +855,94 @@ class ClaudeAgentRuntime:
             )
         )
         return [dict(item) for item in snapshot if item.get("id") in allowed_ids]
+
+    def _remaining_budget(self, run_id: str) -> tuple[float, int | None]:
+        run = self.ledger.get_run(run_id)
+        if run.sdk_budget_usd is None:
+            raise DurablePermissionConflict("This Run has no frozen SDK budget.")
+        previous = latest_result(self.ledger, run_id)
+        cost = previous.get("total_cost_usd") if previous else 0
+        turns = previous.get("num_turns") if previous else 0
+        if not isinstance(cost, int | float) or (
+            run.sdk_turn_limit is not None and not isinstance(turns, int)
+        ):
+            raise DurablePermissionConflict(
+                "SDK spend is unknown; automatic continuation is unsafe."
+            )
+        budget = run.sdk_budget_usd - cost
+        # PRD v2.2: None is the frozen unlimited-turn policy, including on resume.
+        # Only explicit bounded probes consume a turn allowance; cost always accrues.
+        remaining_turns = (
+            run.sdk_turn_limit - turns if run.sdk_turn_limit is not None else None
+        )
+        if budget <= 0 or (remaining_turns is not None and remaining_turns <= 0):
+            raise DurablePermissionConflict(
+                "The logical Run's SDK cost or turn budget is exhausted."
+            )
+        return budget, remaining_turns
+
+    def _validate_run_principal(self, run: RunRecord) -> None:
+        """A frozen identity is an anchor, not a perpetual membership grant."""
+        try:
+            project = self.ledger.get_project(run.project_id)
+            if run.identity_binding == "local_only":
+                if (self.settings.auth_mode != "local_only"
+                        or project.identity_binding != "local_only"):
+                    raise AuthorizationError("Run authority no longer matches deployment.")
+                return
+            if (
+                self.settings.auth_mode != "trusted_gateway"
+                or run.identity_binding != "authenticated_principal"
+                or project.identity_binding != "authenticated_principal"
+                or run.tenant_id != self.settings.trusted_gateway_tenant_id
+                or project.tenant_id != run.tenant_id
+                or not run.principal_id or run.principal_role is None
+            ):
+                raise AuthorizationError("Run authority is outside deployment tenant.")
+            self.access.authorize_bound(
+                run.project_id, tenant_id=run.tenant_id, principal_id=run.principal_id,
+                role=run.principal_role, permission=ProjectPermission.TOOL_USE,
+            )
+        except (AuthorizationError, LedgerNotFoundError, OSError, ValueError) as exc:
+            raise DurablePermissionConflict(
+                "The Run's principal or project authority is no longer valid."
+            ) from exc
+
+    def validate_deferred_resume(self, run: RunRecord) -> None:
+        self._validate_run_principal(run)
+        if (run.sdk_wall_clock_deadline is not None
+                and run.sdk_wall_clock_deadline <= utc_now()):
+            raise DurablePermissionConflict("Deep Research's original wall-clock limit expired.")
+        if not self.policy.allows_provider(run.provider_profile_id):
+            raise DurablePermissionConflict("Provider is no longer allowed by organization policy.")
+        if run.provider_profile_id:
+            readiness_failures = provider_readiness_failures(
+                self.providers.get(run.provider_profile_id),
+            )
+            if readiness_failures:
+                raise DurablePermissionConflict(
+                    f"provider {run.provider_profile_id} is not ready for runs: "
+                    + ", ".join(readiness_failures)
+                )
+        self._remaining_budget(run.id)
+        mode = (
+            "auto" if self.policy.get().permission_mode == PermissionModePolicy.AUTO else "default"
+        )
+        if mode != run.sdk_permission_mode:
+            raise DurablePermissionConflict(
+                "Permission policy changed while the Run was suspended."
+            )
+        if run.provider_profile_id and run.provider_snapshot:
+            current = self.providers.snapshot(run.provider_profile_id)
+            immutable = {
+                "model", "base_url", "auth_env_name", "budget_scale", "provider",
+                "default_haiku_model", "default_sonnet_model", "default_opus_model",
+                "subagent_model",
+            }
+            if any(current.get(key) != run.provider_snapshot.get(key) for key in immutable):
+                raise DurablePermissionConflict("Provider configuration changed during suspension.")
+        if self._policy_skill_snapshot(run.skill_snapshot) != run.skill_snapshot:
+            raise DurablePermissionConflict("A suspended Run Skill is no longer allowed by policy.")
 
     def _hook(self, run_id: str, workspace: Path):
         run = self.ledger.get_run(run_id)
@@ -1096,6 +1341,134 @@ class ClaudeAgentRuntime:
 
         return handle
 
+    def _permission_hook(self, run: RunRecord, workspace: Path):
+        policy_hook = self._hook(run.id, workspace)
+        if not self.durable_resume_supported:
+            return policy_hook
+        approved = {
+            *READ_ONLY_BUILTIN_TOOLS, *READ_ONLY_MCP_TOOL_NAMES,
+            *ENVELOPE_APPROVED_MCP_TOOL_NAMES, DELEGATION_TOOL,
+        }
+
+        async def handle(input_data: dict[str, Any], callback_tool_use_id, context):
+            current = self.ledger.get_run(run.id)
+            supplied_session = input_data.get("session_id")
+            if (current.sdk_session_id is not None
+                    and supplied_session != current.sdk_session_id):
+                return {"continue_": False,
+                        "stopReason": "The hook does not belong to this Run's SDK session."}
+            raw_id = input_data.get("tool_use_id") or callback_tool_use_id
+            previous = next((item for item in current.permission_waits
+                             if item.session_id == supplied_session and item.tool_use_id == raw_id),
+                            None)
+            if (input_data.get("hook_event_name") == "PreToolUse" and previous is not None
+                    and previous.state in {"consumed", "uncertain", "expired", "cancelled"}):
+                return {"hookSpecificOutput": {"hookEventName": "PreToolUse",
+                        "permissionDecision": "deny",
+                        "permissionDecisionReason": "Approval cannot be consumed twice."}}
+            policy_result = await policy_hook(input_data, callback_tool_use_id, context)
+            if input_data.get("hook_event_name") != "PreToolUse":
+                return policy_result
+            # Policy/audit callbacks can yield. Re-read immediately before the
+            # approval is consumed or an automatic tool is allowed to execute.
+            current = self.ledger.get_run(run.id)
+            if current.status != RunStatus.RUNNING:
+                return {"continue_": False, "stopReason": "This Run is no longer running."}
+            try:
+                self._validate_run_principal(current)
+            except DurablePermissionConflict as exc:
+                return {"continue_": False, "stopReason": str(exc)}
+            specific = policy_result.get("hookSpecificOutput", {})
+            if specific.get("permissionDecision") == "deny":
+                return policy_result
+            tool_name = str(input_data.get("tool_name") or "")
+            tool_input = input_data.get("tool_input", {})
+            tool_id = input_data.get("tool_use_id") or callback_tool_use_id
+            session_id = input_data.get("session_id")
+
+            def deny(reason: str):
+                return {"hookSpecificOutput": {"hookEventName": "PreToolUse",
+                        "permissionDecision": "deny", "permissionDecisionReason": reason}}
+
+            if not isinstance(tool_input, dict):
+                return deny("Tool input is not a structured invocation.")
+            if previous is not None and previous.state == "resolved":
+                try:
+                    resolution = self.permissions.durable.consume(
+                        run.id, session_id, tool_id, tool_name, tool_input,
+                        input_data.get("agent_id"),
+                    )
+                except DurablePermissionConflict as exc:
+                    return deny(str(exc))
+                if resolution.decision == PermissionDecision.DENY:
+                    if tool_name == CLARIFYING_TOOL:
+                        return deny("用户跳过了这些问题。按现有信息继续，并明确说明你所做的假设。")
+                    return deny(resolution.reason or "The user denied this tool call.")
+                if (resolution.decision == PermissionDecision.ALLOW_PERSISTENT
+                        and self.permissions.grants is not None):
+                    self.permissions.grants.record(
+                        tool_name=tool_name, tool_input=tool_input, project_id=run.project_id,
+                    )
+                self._approved_invocations.setdefault(run.id, {})[tool_id] = (
+                    tool_name, tool_input, resolution,
+                )
+                return {"hookSpecificOutput": {"hookEventName": "PreToolUse",
+                        "permissionDecision": "allow"}}
+            gated = specific.get("permissionDecision") == "ask" or tool_name not in approved
+            if tool_name == "Bash" and not is_destructive_delete(tool_name, tool_input):
+                gated = False  # Preserve native sandbox auto-approval.
+            if not gated:
+                if isinstance(tool_id, str):
+                    self._approved_invocations.setdefault(run.id, {})[tool_id] = (
+                        tool_name, tool_input, None,
+                    )
+                return {"hookSpecificOutput": {"hookEventName": "PreToolUse",
+                        "permissionDecision": "allow"}}
+            automatic = self.permissions.automatic_resolution(
+                run.id, tool_name, tool_input, agent_id=input_data.get("agent_id"), context={},
+            )
+            if automatic is not None:
+                if automatic.decision != PermissionDecision.DENY and isinstance(tool_id, str):
+                    self._approved_invocations.setdefault(run.id, {})[tool_id] = (
+                        tool_name, tool_input, automatic,
+                    )
+                return {"hookSpecificOutput": {"hookEventName": "PreToolUse",
+                        "permissionDecision": (
+                            "deny" if automatic.decision == PermissionDecision.DENY else "allow"
+                        ),
+                        "permissionDecisionReason": automatic.reason}}
+            if not isinstance(tool_id, str) or not isinstance(session_id, str):
+                return deny("The SDK did not provide a complete invocation anchor.")
+            # SDK AssistantMessage can arrive per content block. Only the
+            # message_stop stream frame proves this turn's complete tool batch.
+            ready = self._batch_ready.setdefault((run.id, tool_id), asyncio.Event())
+            if tool_id not in self._closed_tool_batches.get(run.id, {}):
+                try:
+                    await asyncio.wait_for(ready.wait(), timeout=2)
+                except TimeoutError:
+                    return deny(
+                        "Cannot prove a completed single-tool batch; request one tool at a time."
+                    )
+            if self._closed_tool_batches.get(run.id, {}).get(tool_id) != 1:
+                return deny(
+                    "Native durable approval supports single-tool turns only; split this batch."
+                )
+            if self._single_tool_calls.get(run.id, {}).get(tool_id) != (tool_name, tool_input):
+                return deny("The tool call does not match the completed SDK assistant message.")
+            try:
+                pending = self.permissions.durable.prepare(
+                    run.id, session_id, tool_id, tool_name, tool_input, input_data.get("agent_id"),
+                )
+            except DurablePermissionConflict as exc:
+                return deny(str(exc))
+            if pending.state not in {"preparing", "pending"}:
+                return deny("This invocation's approval was already consumed or is unavailable.")
+            return {"hookSpecificOutput": {"hookEventName": "PreToolUse",
+                    "permissionDecision": "defer",
+                    "permissionDecisionReason": "Awaiting durable human approval in OPHIRA."}}
+
+        return handle
+
     @staticmethod
     def _hook_actor(input_data: dict[str, Any]) -> EventActor:
         agent_id = input_data.get("agent_id")
@@ -1119,10 +1492,47 @@ class ClaudeAgentRuntime:
         return EventActor(type="agent", name="ophira")
 
     async def _map_message(self, run_id: str, message: Any) -> None:
+        if isinstance(message, UserMessage):
+            # AskUserQuestion can finish through the native permission callback
+            # without firing PostToolUse. Audit its SDK-emitted result; never
+            # synthesize a result to feed back into the conversation.
+            if message.parent_tool_use_id is None and isinstance(message.content, list):
+                run = self.ledger.get_run(run_id)
+                for block in message.content:
+                    if not isinstance(block, ToolResultBlock):
+                        continue
+                    invocation = self._single_tool_calls.get(run_id, {}).get(block.tool_use_id)
+                    if invocation is None:
+                        wait = next((w for w in run.permission_waits
+                                     if w.tool_use_id == block.tool_use_id
+                                     and w.session_id == run.sdk_session_id
+                                     and w.state == "consumed"), None)
+                        if wait is not None:
+                            invocation = (wait.tool_name, wait.tool_input)
+                    if invocation is None or invocation[0] != CLARIFYING_TOOL:
+                        continue
+                    if any(e.tool_use_id == block.tool_use_id and e.type in {
+                        EventType.TOOL_COMPLETED.value, EventType.TOOL_FAILED.value,
+                    } for e in self.ledger.list_events(run_id)):
+                        continue
+                    await self.events.publish(
+                        run_id,
+                        EventType.TOOL_FAILED if block.is_error else EventType.TOOL_COMPLETED,
+                        {"tool_name": CLARIFYING_TOOL, "tool_input": invocation[1],
+                         "error" if block.is_error else "tool_response": block.content},
+                        tool_use_id=block.tool_use_id,
+                    )
+            return
         if isinstance(message, StreamEvent):
             await self._map_stream_event(run_id, message)
             return
         if isinstance(message, AssistantMessage):
+            if message.parent_tool_use_id is None:
+                for block in message.content:
+                    if isinstance(block, ToolUseBlock):
+                        self._single_tool_calls.setdefault(run_id, {})[block.id] = (
+                            block.name, block.input,
+                        )
             await self._map_assistant_message(run_id, message)
             return
         if isinstance(message, TaskStartedMessage):
@@ -1164,11 +1574,16 @@ class ClaudeAgentRuntime:
             )
             return
         if isinstance(message, ResultMessage):
+            if message.uuid is not None and any(
+                event.type == EventType.RUN_RESULT.value
+                and event.data.get("sdk_result_uuid") == message.uuid
+                for event in self.ledger.list_events(run_id)
+            ):
+                return
             self.ledger.update_run(run_id, sdk_session_id=message.session_id)
-            await self.events.publish(
-                run_id,
-                EventType.RUN_RESULT,
+            result_data = cumulative_result(latest_result(self.ledger, run_id),
                 {
+                    "sdk_result_uuid": message.uuid,
                     "subtype": message.subtype,
                     "is_error": message.is_error,
                     "result": message.result,
@@ -1182,7 +1597,17 @@ class ClaudeAgentRuntime:
                     "model_usage": message.model_usage,
                     "permission_denials": message.permission_denials,
                     "errors": message.errors,
+                    "stop_reason": message.stop_reason,
+                    "deferred_tool_use": (
+                        dataclasses.asdict(message.deferred_tool_use)
+                        if message.deferred_tool_use is not None else None
+                    ),
                 },
+            )
+            await self.events.publish(
+                run_id,
+                EventType.RUN_RESULT,
+                result_data,
             )
             return
         if isinstance(message, RateLimitEvent):
@@ -1220,6 +1645,19 @@ class ClaudeAgentRuntime:
     async def _map_stream_event(self, run_id: str, message: StreamEvent) -> None:
         event = message.event
         event_name = event.get("type")
+        if message.parent_tool_use_id is not None:
+            pass  # Delegated streams must not delimit a main-Agent permission batch.
+        elif event_name == "message_start":
+            self._stream_tool_batch[run_id] = []
+        elif event_name == "content_block_start":
+            block = event.get("content_block", {})
+            if block.get("type") == "tool_use" and isinstance(block.get("id"), str):
+                self._stream_tool_batch.setdefault(run_id, []).append(block["id"])
+        elif event_name == "message_stop":
+            batch = self._stream_tool_batch.pop(run_id, [])
+            for tool_id in batch:
+                self._closed_tool_batches.setdefault(run_id, {})[tool_id] = len(batch)
+                self._batch_ready.setdefault((run_id, tool_id), asyncio.Event()).set()
         actor = self._message_actor(message.parent_tool_use_id)
         if event_name == "message_start":
             await self.events.publish(

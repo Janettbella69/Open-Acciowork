@@ -704,7 +704,9 @@ def build_run_telemetry(
 
     result_events = [event for event in ordered if event.type == EventType.RUN_RESULT.value]
     result_event = result_events[-1] if result_events else None
-    if len(result_events) > 1:
+    if len(result_events) > 1 and not all(
+        event.data.get("result_scope") == "run_cumulative" for event in result_events
+    ):
         warnings.append(
             TelemetryWarning(
                 code="multiple_run_results",
@@ -716,6 +718,9 @@ def build_run_telemetry(
             )
         )
     result_data = result_event.data if result_event is not None else {}
+    result_metric_scope = (
+        "run_cumulative" if result_data.get("result_scope") == "run_cumulative" else "sdk_query"
+    )
     result_sequence = result_event.sequence if result_event is not None else None
     result_sequences = [result_sequence] if result_sequence is not None else []
 
@@ -997,14 +1002,14 @@ def build_run_telemetry(
             unit="milliseconds",
             source="run.result.duration_ms",
             sequences=result_sequences,
-            scope="sdk_query",
+            scope=result_metric_scope,
         )
     else:
         sdk_duration = _unavailable(
             unit="milliseconds",
             source="run.result.duration_ms",
             sequences=result_sequences,
-            scope="sdk_query",
+            scope=result_metric_scope,
             reason="the SDK result did not record a valid duration",
         )
     sdk_api_duration_value = result_data.get("duration_api_ms")
@@ -1032,14 +1037,14 @@ def build_run_telemetry(
             unit="turns",
             source="run.result.num_turns",
             sequences=result_sequences,
-            scope="sdk_query",
+            scope=result_metric_scope,
         )
     else:
         turns = _unavailable(
             unit="turns",
             source="run.result.num_turns",
             sequences=result_sequences,
-            scope="sdk_query",
+            scope=result_metric_scope,
             reason="the SDK result did not record a valid turn count",
         )
 

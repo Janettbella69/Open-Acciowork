@@ -416,6 +416,7 @@ TOOL_CREATE_STANDING_INTENT = "mcp__ophira_automation__create_standing_intent"
 TOOL_LIST_STANDING_INTENTS = "mcp__ophira_automation__list_standing_intents"
 TOOL_TRIGGER_STANDING_INTENT = "mcp__ophira_automation__trigger_standing_intent"
 TOOL_SEND_NOTIFICATION = "mcp__ophira_automation__send_notification"
+TOOL_RECORD_SCHEDULE_EXPERIENCE = "mcp__ophira_automation__record_schedule_experience"
 
 AUTOMATION_TOOL_NAMES = [
     TOOL_CREATE_SCHEDULE,
@@ -424,6 +425,7 @@ AUTOMATION_TOOL_NAMES = [
     TOOL_LIST_STANDING_INTENTS,
     TOOL_TRIGGER_STANDING_INTENT,
     TOOL_SEND_NOTIFICATION,
+    TOOL_RECORD_SCHEDULE_EXPERIENCE,
 ]
 
 # §4.10 envelope principle: inbox delivery and budget-throttled intent firing are
@@ -434,6 +436,8 @@ ENVELOPE_APPROVED_MCP_TOOL_NAMES = [
     TOOL_LIST_STANDING_INTENTS,
     TOOL_TRIGGER_STANDING_INTENT,
     TOOL_SEND_NOTIFICATION,
+    # Observational data for the current schedule only; never a policy change.
+    TOOL_RECORD_SCHEDULE_EXPERIENCE,
 ]
 
 OPHIRA_TOOL_NAMES = [

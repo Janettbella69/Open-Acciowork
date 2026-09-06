@@ -22,19 +22,19 @@
 | FR-10 决策 | delivered：证据关联与失效联动 | 开放任务质量另行验收 |
 | FR-11 领域 MCP | delivered：确定性商业计算、用户记录加工 | deferred：真实供应商/客户/市场/法规/物流/汇率授权数据适配、现金流模型 |
 | FR-12 Skill 生命周期 | delivered：发现/启停/扫描/不可变版本/配额/租约/回滚 | deferred：真端点回滚重跑、备份恢复演练、每个内置 Skill 的证据参考与输出模板 |
-| FR-13 权限 | delivered：范围/有效期/审计、删除确认、沙箱拒绝逃逸；可信设备单次审批与重复决议拒绝 | deferred：跨进程持久等待与真实远程审批验收 |
+| FR-13 权限 | delivered：范围/有效期/审计、删除确认、沙箱拒绝逃逸；可信设备单次审批；原生SDK持久等待、原Run恢复、跨进程决议竞争、消费前撤销复验 | deferred：真实远程审批与生产故障矩阵；原生多工具批次须拆为单次审批 |
 | FR-14 记忆 | delivered：提案人审、TTL/过期/检索/导出/删除恢复 | deferred：真实蒸馏质量、生产备份删除边界与恢复演练 |
 | FR-15 自动化 | delivered：计划/心跳/收件箱本地链路；跨进程自动调度租约和崩溃幂等 | deferred：手动运行并发治理、真实长期运行与渠道投递 |
 | FR-16 产物 | delivered：版本化台账/下载、Office 文件结构 | deferred：真实编辑流程、Office 渲染目视 QA、布局回归 |
 | FR-17 可观测性 | delivered：trace、三层日志、脱敏、类型化卡片 | deferred：细分事件与统一指标/性能验收 |
 | FR-18 恢复 | delivered：保存产物、错误分类、重试与重启恢复 | deferred：Bash 文件修改快照恢复与真实进程崩溃演练 |
-| FR-19 Deep Research | delivered：恰好三个只读研究子代理、预算/取消/墙钟限制 | deferred：真实 SDK 执行、完整资源 UI 与合并证据验收 |
+| FR-19 Deep Research | delivered：恰好三个只读研究子代理、预算/取消/墙钟限制；恢复沿用原起始时间、金额/turn预算及墙钟截止时间 | deferred：真实 SDK Deep Research 执行、完整资源 UI 与合并证据验收 |
 | FR-20 GUI | delivered：L1/L2 真实浏览器 smoke | deferred：真实攻击/恢复矩阵；L3 桌面桥与 OS 权限治理未实现 |
 | FR-21 Connector | delivered：Catalog/Vault/health/revoke、HTTPS JSON send_message | deferred：邮箱/店铺/CRM/社媒垂直 adapter，真实授权 test-account 外发全链 |
 | FR-22 组织治理 | delivered：单部署租户 principal/membership/策略 | deferred：租户分区、隔离 runner、共享项目/评论/模板、组织私有 Skill 仓库 |
 | FR-23 Web 兜底 | delivered：Serper/Tavily 适配与 SSRF 防护 | deferred：真实配置搜索服务和 Provider 降级 E2E |
 | FR-24 IM | delivered：飞书签名入站/身份绑定/同 Agent/持久回复重试 | deferred：真实飞书/Lark 租户 E2E；微信适配未实现 |
-| FR-25 移动 | delivered：项目范围配对、双端验证码批准、私有 cookie 与设备撤销/过期；单次审批、可选任务发起与状态轮询 | deferred：Web/native push、跨进程持久等待、真实手机 HTTPS/长期运行验收；OS 防休眠未实现 |
+| FR-25 移动 | delivered：项目范围配对、双端验证码批准、私有 cookie 与设备撤销/过期；单次持久审批、可选任务发起；Web Push订阅/加密VAPID/授权复验/持久重试与状态UI | deferred：native push、真实手机 HTTPS/外部Push/长期运行验收；OS 防休眠未实现 |
 | FR-26 主动服务 | delivered：授权 standing intent、只读 watcher、预算与持久 claim | deferred：真实数据/Provider 长时判断质量、有效变化触达 |
 | FR-27 媒体 | delivered：安全二进制接入与 Artifact/Evidence | deferred：真实图像/视频厂商适配、授权配置及验收 |
 | FR-28 澄清表单 | delivered：结构化问题与同任务约束回传 | 保持 UI/API 回归 |
@@ -46,7 +46,7 @@
 | §3.5 A–G / §6.5 | deferred：需求/供给/客户多起点真实基准、可编辑产物和连续对话验收 |
 | §3.7 / §4.7 | deferred：由重复任务提出新 Skill，pending 人审 + 不可绕过扫描；不能自动发布 |
 | §3.7 P2 | deferred：项目知识库索引；团队评论、模板和私有 Skill 管理 |
-| §4.16 任务经验 | deferred：Schedule 专属经验积累，隔离于策略/全局记忆，不提升权限 |
+| §4.16 任务经验 | delivered：专属工具与版本/来源账本、创建时配置指纹、低信任检索注入、容量/事务恢复与人工停用UI；deferred：真实Provider自主调用及长期判断质量 |
 | §4.12 事件 | deferred：产物更新、证据/决策/记忆和 schedule/preflight 细分事件 |
 | §3.9 / §4.10 | delivered：自动调度跨进程抢占与事件汇总恢复；deferred：其余事件故障矩阵、Bash 修改恢复、CPU/内存/进程/输出限制 |
 | §3.9 数据主权 | deferred：项目/会话/凭据的完整授权导出与删除（记忆已交付）；恢复策略及 UI |
@@ -134,3 +134,33 @@ FR-25 不能因存在该页面或局部配对功能而标为全部完成。
 Browser 插件运行时引用已不存在的版本路径，连接失败；没有绕过该工具边界或声称目视通过。
 真实 VL/版式质量、TextIn、生产 OCR 解码隔离、Web/native push、跨进程持久审批等待、
 组织物理隔离及其余上表 deferred 保持开放；全 PRD 目标尚未完成。
+
+## 2026-09-05：持久审批、Web Push 与任务经验
+
+新增交付合同：[持久审批](durable-approvals.md)、[Web Push](companion-web-push.md)、
+[Schedule 任务经验](task-experience.md)。保持同一主 Agent 与原生 SDK 工具执行。
+
+- 原生审批确认后暂停并退出 CLI，另一个控制平面可保存决议并恢复原 Run/session/tool；
+  审批消费跨进程原子化，重放、过期、撤销与不确定结果不能绕开 checkpoint。
+  真实 SDK 探针发现并修复 AskUserQuestion 输入交接与完成审计；分支 stream 不再污染
+  主 Agent 的完整工具批次。恢复重新核验成员、Provider 资格/配置和原预算/墙钟。
+- 可选 Web Push 接入私有订阅、VAPID 与加密、当前设备/项目权限复验、跨进程投递租约、
+  有界尝试和设备级持久 Retry-After；HTTP-date、通知取消/过期及订阅替换不会提前重试。
+- 任务经验独立于全局 Memory 和用户策略；来源绑定 Run/trace/session 的实际工具事件，
+  dispatch 配置指纹与 prompt 同快照，取消/配置变更不能写入旧经验，人工可按版本停用。
+- 前端修复迟到续接响应覆盖 SSE 完成状态、停用冲突后复用旧版本确认、拒绝被误称批准。
+  SDK 分段用量累计保留未知成本语义，避免崩溃/缺失字段被当成零消耗。
+- Green Path/L2 驱动使用受信本地 Host；审批以当前 pending API 为准，409重新读取后重试，
+  已保存决议经恢复接口继续，其他 HTTP 失败不能冒充成功。原 prompt 与验收器未降级。
+
+本批代码冻结后的验证（现金流是下一项独立开发，不在本批范围）：
+
+- 后端 `pytest backend/tests -q --ignore=backend/tests/test_cashflow.py`：**923 passed / 8 live-only skipped**。
+- 前端 **188 passed**；lint、TypeScript、build通过；主包607.89 kB，既有体积警告保留。
+- Ruff、`git diff --check`通过；eval tools **59 passed**；Snapshot **61/61**。
+- 固定SDK 0.2.143的4个真实CLI离线集成场景通过并归档至
+  `evals/reports/native-approval-20260905/`；另有真实两个spawn进程争用审批/消费测试。
+
+真实 DeepSeek Green Path 正在单独重验，最终结果与边界另行记录。真实手机浏览器验收
+尝试返回 `No browser is available`，Browser列表为空；没有绕过工具边界或声称目视通过。
+原生手机推送、外部Push服务、系统防休眠、长期运行及其余 deferred 继续保留在全量目标中。

@@ -32,6 +32,22 @@ class ProviderConfigurationError(RuntimeError):
         self.code = code
 
 
+def provider_readiness_failures(profile: ProviderProfile) -> list[str]:
+    """The same current registry gate applies to creation and native continuation."""
+    failures: list[str] = []
+    if not profile.enabled:
+        failures.append("disabled")
+    if not profile.production_eligible:
+        failures.append("not production eligible")
+    if not profile.secret_configured:
+        failures.append("credential missing")
+    if profile.last_verified_at is None:
+        failures.append("preflight not completed")
+    if profile.last_error_code is not None:
+        failures.append(f"preflight failed ({profile.last_error_code})")
+    return failures
+
+
 class FileSecretVault:
     """Local key-vault port. The file is never served and is mode 0600."""
 

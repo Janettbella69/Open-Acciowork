@@ -1,0 +1,14 @@
+{
+  "sdk_version": "0.2.143",
+  "integrated": true,
+  "decision": "allow_once",
+  "verification": "passed",
+  "boundary": "offline model fixture, two control planes, native CLI subprocesses",
+  "api_calls": 2,
+  "tool_count": 1,
+  "tool_kind": "write",
+  "fixture_calls": [],
+  "startup_decision": "none",
+  "startup_hooks": "",
+  "timeline": []
+}

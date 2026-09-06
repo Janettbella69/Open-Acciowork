@@ -29,6 +29,7 @@ from .policy import PolicyDeniedError
 from .providers import ProviderConfigurationError, ProviderNotFoundError
 from .runs import RunManager
 from .storage import FileLedger, LedgerNotFoundError
+from .task_experience import schedule_experience_config_hash
 
 logger = logging.getLogger(__name__)
 
@@ -267,6 +268,7 @@ class ScheduleService:
                 wrap_schedule_prompt(schedule),
                 agent_id=schedule.agent_id,
                 schedule_id=schedule.id,
+                task_experience_config_hash=schedule_experience_config_hash(schedule),
                 automation_claim_id=automation_claim_id,
                 mode=schedule.mode,
                 provider_profile_id=schedule.provider_profile_id,

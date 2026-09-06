@@ -106,6 +106,7 @@ from .constants import (
     RunStatus,
     ScheduleKind,
 )
+from .durable_permissions import DurablePermissionConflict
 from .events import EventPublisher
 from .feedback import FeedbackStore
 from .feedback_routes import register_feedback_routes
@@ -126,6 +127,7 @@ from .models import (
     Connector,
     ConnectorUpsert,
     ConstraintAppend,
+    EventActor,
     Evidence,
     EvidenceStatusChange,
     EvidenceStatusUpdate,
@@ -173,6 +175,9 @@ from .permissions import PermissionBroker, PermissionNotFoundError
 from .policy import OrgPolicyStore, PolicyDeniedError
 from .presentation_tools import PRESENTATION_COMPONENTS, PRESENTATION_SCHEMA_VERSION
 from .providers import FileSecretVault, ProviderNotFoundError, ProviderRegistry
+from .push_service import PushDeliveryService
+from .push_store import PushStore
+from .push_transport import WebPushAdapter
 from .runs import (
     AgentRuntime,
     RunCancelConflictError,
@@ -197,6 +202,8 @@ from .storage import (
     SourceReceiptIntegrityError,
     SourceReceiptNotFoundError,
 )
+from .task_experience import TaskExperienceStore
+from .task_experience_routes import register_task_experience_routes
 from .telemetry import RunTelemetry, build_run_telemetry
 from .templates import TEMPLATE_SPECS
 
@@ -266,6 +273,7 @@ def create_app(
     settings: Settings | None = None,
     runtime: AgentRuntime | None = None,
     channel_reply_adapter: ChannelReplyAdapter | None = None,
+    push_adapter: WebPushAdapter | None = None,
 ) -> FastAPI:
     settings = settings or get_settings()
     ledger = FileLedger(settings.data_dir, ingest_config=IngestConfig.from_settings(settings))
@@ -283,6 +291,7 @@ def create_app(
         AuthNonceStore(settings.data_dir / "auth" / "nonces"),
     )
     project_access = ProjectAccessStore(settings.data_dir / "auth" / "projects")
+    task_experiences = TaskExperienceStore(ledger, access=project_access)
     channel_identity_bindings = FeishuIdentityBindingStore(
         settings.data_dir / "channels" / "feishu-bindings",
         project_access,
@@ -307,6 +316,11 @@ def create_app(
     providers = ProviderRegistry(settings)
     skills = SkillRegistry(settings.capability_plugin_dir, settings.data_dir / "skills")
     notifications = NotificationStore(settings.data_dir / "notifications")
+    companion_push = PushDeliveryService(
+        settings, PushStore(settings.data_dir / "companion-push"),
+        push_adapter or WebPushAdapter(settings), companions, ledger, project_access,
+        permissions, notifications,
+    )
     intents = IntentStore(settings.data_dir / "intents")
     connectors = ConnectorRegistry(
         settings.data_dir / "connectors",
@@ -335,6 +349,8 @@ def create_app(
         connectors=connectors,
         policy=policy,
         commercial_actions=commercial_actions,
+        task_experiences=task_experiences,
+        access=project_access,
     )
     runs = RunManager(
         ledger,
@@ -375,7 +391,11 @@ def create_app(
             try:
                 await intent_watcher.start()
                 try:
-                    yield
+                    await companion_push.start()
+                    try:
+                        yield
+                    finally:
+                        await companion_push.stop()
                 finally:
                     await intent_watcher.stop()
             finally:
@@ -404,6 +424,8 @@ def create_app(
     application.state.policy = policy
     application.state.feedback = feedback
     application.state.companions = companions
+    application.state.task_experiences = task_experiences
+    application.state.companion_push = companion_push
     application.state.authenticator = authenticator
     application.state.project_access = project_access
     application.state.channel_identity_bindings = channel_identity_bindings
@@ -512,9 +534,15 @@ def create_app(
         require_project_authorization=require_project_authorization,
         project_is_visible=project_is_visible,
     )
+    register_task_experience_routes(
+        application, experiences=task_experiences, ledger=ledger,
+        require_project_authorization=require_project_authorization,
+        project_is_visible=project_is_visible,
+    )
     register_companion_routes(
         application, settings=settings, store=companions, ledger=ledger, runs=runs,
         permissions=permissions, notifications=notifications, access=project_access,
+        push=companion_push,
         require_project_authorization=require_project_authorization,
     )
 
@@ -1366,14 +1394,42 @@ def create_app(
         status_code=status.HTTP_204_NO_CONTENT,
     )
     async def resolve_permission(
+        request: Request,
         run_id: str,
         request_id: str,
         payload: PermissionResolution,
     ) -> None:
         try:
-            await permissions.resolve(run_id, request_id, payload)
+            principal = _request_principal(request)
+            require_project_authorization(
+                ledger.get_run(run_id).project_id, principal, ProjectPermission.PROJECT_WRITE,
+            )
+            await runs.resolve_permission(
+                run_id, request_id, payload,
+                actor=EventActor(type="user", name=(
+                    f"principal:{principal.principal_id}" if principal else "frontend-user"
+                )),
+            )
+        except DurablePermissionConflict as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
         except PermissionNotFoundError as exc:
             raise HTTPException(status_code=404, detail="Permission request not found") from exc
+        except (LedgerNotFoundError, ValueError) as exc:
+            raise HTTPException(status_code=404, detail="Run not found") from exc
+
+    @application.post("/api/runs/{run_id}/resume-permission", response_model=RunRecord,
+                      status_code=202)
+    async def resume_permission(request: Request, run_id: str) -> RunRecord:
+        try:
+            require_project_authorization(
+                ledger.get_run(run_id).project_id, _request_principal(request),
+                ProjectPermission.PROJECT_WRITE,
+            )
+            return await runs.resume_permission(run_id)
+        except DurablePermissionConflict as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except (LedgerNotFoundError, ValueError) as exc:
+            raise HTTPException(status_code=404, detail="Run not found") from exc
 
     @application.post("/api/runs/{run_id}/cancel", response_model=RunRecord)
     async def cancel_run(run_id: str) -> RunRecord:

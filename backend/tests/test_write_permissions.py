@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 from claude_agent_sdk import PermissionResultAllow, PermissionResultDeny
+from native_permission_fixture import approve_native_fixture
 
 from ophira_backend.config import Settings
 from ophira_backend.constants import TOOL_SNAPSHOT_PAGE, AgentTemplate, PermissionDecision
@@ -76,22 +77,10 @@ async def test_write_inside_workspace_requires_and_honors_user_permission(
     agent = ledger.create_agent(AgentCreate(name="通用", template=AgentTemplate.GENERAL))
     project = ledger.create_project(ProjectCreate(name="Kettle", objective="Validate"))
     run = ledger.create_run(project.id, "Start", agent_id=agent.id)
-    options = runtime._build_options(run)
-
-    task = asyncio.create_task(
-        options.can_use_tool("Write", {"file_path": "report.md"}, FakeToolContext())
-    )
-    for _ in range(200):
-        if permissions._pending:
-            break
-        await asyncio.sleep(0.01)
-    request_id = next(iter(permissions._pending))
-    await permissions.resolve(
-        run.id,
-        request_id,
+    result = await approve_native_fixture(
+        runtime, run, "Write", {"file_path": "report.md"},
         PermissionResolution(decision=PermissionDecision.ALLOW_ONCE),
     )
-    result = await task
 
     assert isinstance(result, PermissionResultAllow)
     assert permissions._pending == {}
@@ -300,20 +289,11 @@ async def test_subagent_ledger_writes_are_denied_code_level(tmp_path: Path) -> N
     )
     assert hook_result["hookSpecificOutput"]["permissionDecision"] == "deny"
 
-    # 同名调用来自主 Agent（无 agent_id）则照常进入 broker 等人审。
-    task = asyncio.create_task(
-        options.can_use_tool("mcp__ophira_ledger__record_evidence", {}, FakeToolContext())
+    # A main-Agent invocation is deferred for review; a subagent is rejected above.
+    await approve_native_fixture(
+        runtime, run, "mcp__ophira_ledger__record_evidence", {},
+        PermissionResolution(decision=PermissionDecision.DENY),
     )
-    for _ in range(200):
-        if permissions._pending:
-            break
-        await asyncio.sleep(0.01)
-    assert permissions._pending
-    request_id = next(iter(permissions._pending))
-    await permissions.resolve(
-        run.id, request_id, PermissionResolution(decision=PermissionDecision.DENY)
-    )
-    await task
 
 
 @pytest.mark.asyncio

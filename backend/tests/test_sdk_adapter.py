@@ -100,6 +100,7 @@ def test_default_sdk_options_keep_the_agent_general_and_observable(tmp_path: Pat
     assert options.env["OPHIRA_TRUSTED_GATEWAY_AUTH_SECRET"] == ""
     assert options.env["OPHIRA_FEISHU_APP_SECRET"] == ""
     assert options.env["OPHIRA_FEISHU_ENCRYPT_KEY"] == ""
+    assert options.env["OPHIRA_PUSH_VAPID_PRIVATE_KEY"] == ""
     assert options.setting_sources == []
     assert isinstance(options.skills, list)
     assert len(options.skills) == 13
@@ -732,6 +733,7 @@ def test_sdk_uses_anthropic_compatible_gateway_configuration(tmp_path: Path) -> 
         "OPHIRA_FEISHU_APP_ID": "",
         "OPHIRA_FEISHU_APP_SECRET": "",
         "OPHIRA_FEISHU_ENCRYPT_KEY": "",
+        "OPHIRA_PUSH_VAPID_PRIVATE_KEY": "",
     }
     assert ledger.list_events(run.id) == []
 

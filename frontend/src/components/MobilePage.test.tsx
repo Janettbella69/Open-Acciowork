@@ -16,7 +16,7 @@ vi.mock('../api/companion', async (importOriginal) => ({
   getMobileStatus: vi.fn(), listMobilePairings: vi.fn(), createMobilePairing: vi.fn(),
   decideMobilePairing: vi.fn(), revokeMobilePairing: vi.fn(), getCompanionSession: vi.fn(),
   getCompanionOverview: vi.fn(), pairCompanion: vi.fn(), resolveCompanionPermission: vi.fn(),
-  startCompanionRun: vi.fn(), cancelCompanionRun: vi.fn(), logoutCompanion: vi.fn(),
+  startCompanionRun: vi.fn(), cancelCompanionRun: vi.fn(), logoutCompanion: vi.fn(), resumeCompanionPermissionRun: vi.fn(),
 }))
 
 import { listProjects } from '../api/client'
@@ -24,6 +24,7 @@ import {
   cancelCompanionRun, companionModeStorageKey, createMobilePairing, decideMobilePairing,
   getCompanionOverview, getCompanionSession, getMobileStatus, listMobilePairings, logoutCompanion,
   pairCompanion, resolveCompanionPermission, revokeMobilePairing, startCompanionRun,
+  resumeCompanionPermissionRun, CompanionRequestError,
 } from '../api/companion'
 
 const project = { id: 'project_1', name: 'Market launch', objective: 'Validate Japan demand' } as OpportunityProject
@@ -79,6 +80,7 @@ beforeEach(() => {
   vi.mocked(startCompanionRun).mockResolvedValue(run)
   vi.mocked(cancelCompanionRun).mockResolvedValue({ ...run, status: 'cancelling' })
   vi.mocked(logoutCompanion).mockResolvedValue({})
+  vi.mocked(resumeCompanionPermissionRun).mockResolvedValue({ ...run, status: 'queued' })
 })
 
 function remote(nextOverview = overview) {
@@ -87,6 +89,19 @@ function remote(nextOverview = overview) {
 }
 
 describe('desktop pairing management', () => {
+  it('uses a mobile-only installation manifest in companion mode and restores the owner manifest on exit', async () => {
+    const link = document.createElement('link')
+    link.rel = 'manifest'
+    link.href = '/manifest.webmanifest'
+    document.head.append(link)
+    remote()
+    const result = render(<MobilePage />)
+    await screen.findByText('Trusted device: My phone')
+    expect(link.getAttribute('href')).toBe('/ophira-companion.webmanifest')
+    result.unmount()
+    expect(link.getAttribute('href')).toBe('/manifest.webmanifest')
+    link.remove()
+  })
   it.each([403, 503])('uses the normal authenticated status probe when local companion detection fails with %s', async (status) => {
     vi.mocked(getCompanionSession).mockRejectedValue(new Error(`Request failed (${status})`))
     vi.mocked(getMobileStatus).mockResolvedValue({ enabled: false, public_origin: null, pairing_ttl_seconds: 600, device_max_age_seconds: 2592000 })
@@ -115,7 +130,7 @@ describe('desktop pairing management', () => {
     expect(screen.queryByRole('button', { name: 'Create pairing link' })).not.toBeInTheDocument()
     expect(listProjects).not.toHaveBeenCalled()
     expect(listMobilePairings).not.toHaveBeenCalled()
-    expect(screen.getByText(/background push notifications and os sleep prevention are not enabled/i)).toBeInTheDocument()
+    expect(screen.getByText(/OS sleep prevention is not enabled/i)).toBeInTheDocument()
   })
 
   it('creates a one-time link only for explicitly selected projects and capabilities', async () => {
@@ -167,6 +182,55 @@ describe('desktop pairing management', () => {
 })
 
 describe('trusted companion', () => {
+  it('keeps a durable decision after 409, reconciles its saved state, and resumes only on another explicit click', async () => {
+    const pending = { ...destructivePermission, destructive: false, durable: true, state: 'pending', tool_use_id: 'tool_1', expires_at: new Date(Date.now() + 60_000).toISOString() }
+    remote({ ...overview, pending_permissions: [pending] })
+    vi.mocked(resolveCompanionPermission).mockRejectedValueOnce(new CompanionRequestError('Runtime still stopping', 409))
+    render(<MobilePage />)
+    const allow = await screen.findByRole('button', { name: 'Allow once' })
+    vi.mocked(getCompanionOverview).mockResolvedValue({ ...overview, pending_permissions: [{ ...pending, state: 'resolved' }] })
+    fireEvent.click(allow)
+    expect(await screen.findByText(/Decision saved, awaiting continuation/)).toBeInTheDocument()
+    expect(screen.getByRole('alert')).toHaveTextContent('Runtime still stopping')
+    expect(screen.queryByRole('button', { name: 'Allow once' })).not.toBeInTheDocument()
+    expect(resumeCompanionPermissionRun).not.toHaveBeenCalled()
+    vi.mocked(resumeCompanionPermissionRun).mockRejectedValueOnce(new CompanionRequestError('Continuation unavailable', 409))
+    fireEvent.click(screen.getByRole('button', { name: 'Continue saved decision' }))
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('Continuation unavailable'))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Continue saved decision' })).toBeEnabled())
+    vi.mocked(getCompanionOverview).mockResolvedValue(overview)
+    fireEvent.click(screen.getByRole('button', { name: 'Continue saved decision' }))
+    await screen.findByText('The run was queued to continue with the saved decision.')
+    expect(resumeCompanionPermissionRun).toHaveBeenCalledTimes(2)
+    expect(resumeCompanionPermissionRun).toHaveBeenCalledWith('run_1')
+    expect(resolveCompanionPermission).toHaveBeenCalledTimes(1)
+    expect(getMobileStatus).not.toHaveBeenCalled()
+  })
+
+  it.each(['pending', 'resolved', 'expired'])('blocks %s durable approvals after expiry and allows cancelling without resubmitting a decision', async (state) => {
+    const expired = { ...questionPermission, durable: true, state, expires_at: new Date(Date.now() - 1000).toISOString() }
+    remote({ ...overview, pending_permissions: [expired] })
+    render(<MobilePage />)
+    await screen.findByText(/This approval has expired/)
+    expect(screen.queryByRole('button', { name: 'Submit answers' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Continue saved decision' })).not.toBeInTheDocument()
+    vi.mocked(getCompanionOverview).mockResolvedValue(overview)
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel run' }))
+    await waitFor(() => expect(cancelCompanionRun).toHaveBeenCalledWith('run_1'))
+    expect(resolveCompanionPermission).not.toHaveBeenCalled()
+    expect(resumeCompanionPermissionRun).not.toHaveBeenCalled()
+  })
+
+  it('does not send a durable approval that expires between rendering and the click', async () => {
+    const expires = Date.now() + 60_000
+    remote({ ...overview, pending_permissions: [{ ...destructivePermission, destructive: false, durable: true, state: 'pending', expires_at: new Date(expires).toISOString() }] })
+    render(<MobilePage />)
+    const allow = await screen.findByRole('button', { name: 'Allow once' })
+    vi.spyOn(Date, 'now').mockReturnValue(expires + 1)
+    fireEvent.click(allow)
+    expect(resolveCompanionPermission).not.toHaveBeenCalled()
+  })
+
   it.each([403, 503])('never probes owner APIs for a remembered companion whose session fails with %s', async (status) => {
     window.localStorage.setItem(companionModeStorageKey, 'true')
     vi.mocked(getCompanionSession).mockRejectedValue(new Error(`Request failed (${status})`))

@@ -7,6 +7,7 @@ import {
   logoutCompanion,
   pairCompanion,
   resolveCompanionPermission,
+  resumeCompanionPermissionRun,
   startCompanionRun,
   type CompanionOverview,
   type CompanionSession,
@@ -14,7 +15,10 @@ import {
 } from '../api/companion'
 import type { PendingPermissionView, PermissionAnswers, RunRecord } from '../api/types'
 import { useT } from '../i18n'
+import CompanionPushControls from './CompanionPushControls'
+import DurablePermissionNotice from './DurablePermissionNotice'
 import { PermissionDetails, PermissionQuestionCard } from './PermissionRequest'
+import { permissionConflict, permissionLifecycleState } from '../permissionLifecycle'
 
 function canCancel(run: RunRecord): boolean {
   return ['queued', 'running', 'waiting_permission', 'paused'].includes(run.status)
@@ -43,7 +47,22 @@ export default function MobileCompanion({ initialSession, entry }: {
   const polling = useRef<object | null>(null)
   const mutation = useRef(false)
 
-  const refresh = useCallback(async () => {
+  useEffect(() => {
+    // A Home Screen companion must reopen the companion, not the owner UI.
+    const existing = document.querySelector<HTMLLinkElement>('link[rel="manifest"]')
+    const link = existing ?? document.createElement('link')
+    const previous = link.getAttribute('href')
+    link.rel = 'manifest'
+    link.href = '/ophira-companion.webmanifest'
+    if (!existing) document.head.append(link)
+    return () => {
+      if (!existing) link.remove()
+      else if (previous === null) link.removeAttribute('href')
+      else link.setAttribute('href', previous)
+    }
+  }, [])
+
+  const refresh = useCallback(async (preserveError = false) => {
     if (mutation.current || polling.current) return
     const token = {}
     const generation = lifecycle.current
@@ -69,7 +88,7 @@ export default function MobileCompanion({ initialSession, entry }: {
         setOverview(null)
         setConfirmed({})
       }
-      if (current()) setError('')
+      if (current() && !preserveError) setError('')
     } catch (cause) {
       if (current()) {
         setError(errorMessage(cause))
@@ -89,7 +108,7 @@ export default function MobileCompanion({ initialSession, entry }: {
     polling.current = null
     if (!needsPairing && entry.kind !== 'invalid') void refresh()
     const timer = window.setInterval(() => {
-      if (!invitation.current && entry.kind !== 'invalid') void refresh()
+      if (!invitation.current && entry.kind !== 'invalid') void refresh(true)
     }, 5_000)
     return () => {
       mounted.current = false
@@ -98,7 +117,7 @@ export default function MobileCompanion({ initialSession, entry }: {
     }
   }, [entry.kind, needsPairing, refresh])
 
-  const perform = async <T,>(key: string, action: () => Promise<T>, apply: (result: T) => void) => {
+  const perform = async <T,>(key: string, action: () => Promise<T>, apply: (result: T) => void, reconcile = false) => {
     if (mutation.current) return
     mutation.current = true
     revision.current += 1
@@ -106,14 +125,21 @@ export default function MobileCompanion({ initialSession, entry }: {
     const generation = lifecycle.current
     setBusy(key)
     setError('')
+    let failed = false
     try {
       const result = await action()
       if (mounted.current && lifecycle.current === generation) apply(result)
     } catch (cause) {
-      if (mounted.current && lifecycle.current === generation) setError(errorMessage(cause))
+      failed = true
+      if (mounted.current && lifecycle.current === generation) setError(permissionConflict(cause)
+        ? `${t('The approval could not continue yet. Refresh approvals and retry when the runtime is ready.')} ${errorMessage(cause)}`
+        : errorMessage(cause))
     } finally {
       mutation.current = false
-      if (mounted.current && lifecycle.current === generation) { setBusy(''); setRefreshing(false) }
+      if (mounted.current && lifecycle.current === generation) {
+        setBusy(''); setRefreshing(false)
+        if (reconcile) void refresh(failed)
+      }
     }
   }
 
@@ -131,12 +157,30 @@ export default function MobileCompanion({ initialSession, entry }: {
 
   const decide = (item: PendingPermissionView, decision: 'allow_once' | 'deny', answers?: PermissionAnswers) => {
     if (!overview || session?.status !== 'approved' || !overview.pending_permissions.some((value) => value.id === item.id)) return
+    if (permissionLifecycleState({ ...item, expiresAt: item.expires_at }) !== 'pending') return
     if (decision !== 'deny' && (item.tool_name === 'AskUserQuestion' ? !answers : item.destructive && !confirmed[item.id])) return
     void perform(item.id, () => resolveCompanionPermission(item.run_id, item.id, decision, answers), () => {
       setOverview((value) => value ? { ...value, pending_permissions: value.pending_permissions.filter((permission) => permission.id !== item.id) } : null)
       setConfirmed((values) => ({ ...values, [item.id]: false }))
       setNotice(t('Decision sent'))
-    })
+    }, item.durable)
+  }
+
+  const resumePermission = (item: PendingPermissionView) => {
+    if (!overview || session?.status !== 'approved' || !overview.pending_permissions.some((value) => value.id === item.id)
+      || permissionLifecycleState({ ...item, expiresAt: item.expires_at }) !== 'resolved') return
+    void perform(item.id, () => resumeCompanionPermissionRun(item.run_id), (result) => {
+      setOverview((value) => value ? { ...value, runs: [result, ...value.runs.filter((run) => run.id !== result.id)], pending_permissions: value.pending_permissions.filter((permission) => permission.id !== item.id) } : null)
+      setNotice(t('The run was queued to continue with the saved decision.'))
+    }, true)
+  }
+
+  const cancelPermission = (item: PendingPermissionView) => {
+    if (session?.status !== 'approved' || !overview?.pending_permissions.some((value) => value.id === item.id)) return
+    void perform(item.id, () => cancelCompanionRun(item.run_id), (result) => {
+      setOverview((value) => value ? { ...value, runs: [result, ...value.runs.filter((run) => run.id !== result.id)], pending_permissions: value.pending_permissions.filter((permission) => permission.run_id !== result.id) } : null)
+      setNotice(t('Cancellation requested. Completed side effects are not undone.'))
+    }, true)
   }
 
   const launch = (event: FormEvent) => {
@@ -191,6 +235,7 @@ export default function MobileCompanion({ initialSession, entry }: {
         {session?.device && <button className="mobile-disconnect" type="button" disabled={Boolean(busy)} onClick={disconnect}>{t('Disconnect this device')}</button>}
       </>}
     </section>
+    <CompanionPushControls sessionStatus={session?.status ?? null} deviceId={session?.device?.id ?? null} />
     {overview && session?.status === 'approved' && <>
       <section className="mobile-settings" aria-labelledby="mobile-projects-heading"><h2 id="mobile-projects-heading">{t('Authorized projects')}</h2>
         {overview.projects.map((project) => <article className="mobile-device-card" key={project.id}><h3>{project.name}</h3><p>{project.objective}</p></article>)}
@@ -198,7 +243,9 @@ export default function MobileCompanion({ initialSession, entry }: {
       <section className="mobile-settings" aria-labelledby="mobile-pending-heading">
         <h2 id="mobile-pending-heading">{t('Pending approvals')}</h2>
         <p className="mobile-service-note">{t('Mobile approvals apply once only. Persistent grants are managed from the desktop.')}</p>
-        {overview.pending_permissions.length ? overview.pending_permissions.map((item) => item.tool_name === 'AskUserQuestion' ? <PermissionQuestionCard
+        {overview.pending_permissions.length ? overview.pending_permissions.map((item) => <div key={item.id}>
+          <DurablePermissionNotice permission={{ ...item, expiresAt: item.expires_at }} busy={Boolean(busy)} onResume={() => resumePermission(item)} onCancel={() => cancelPermission(item)} onRefresh={() => void refresh()} />
+          {permissionLifecycleState({ ...item, expiresAt: item.expires_at }) !== 'pending' ? <PermissionDetails toolName={item.tool_name} toolInput={item.tool_input} scope={item.scope} destructive={item.destructive} persistable={false} /> : item.tool_name === 'AskUserQuestion' ? <PermissionQuestionCard
           key={item.id} toolInput={item.tool_input} scope={item.scope} timeoutSeconds={item.timeout_seconds} busy={Boolean(busy)}
           onSubmit={(answers) => decide(item, 'allow_once', answers)} onDeny={() => decide(item, 'deny')}
         /> : <article className="mobile-permission" key={item.id}>
@@ -206,7 +253,7 @@ export default function MobileCompanion({ initialSession, entry }: {
           <PermissionDetails toolName={item.tool_name} toolInput={item.tool_input} scope={item.scope} destructive={item.destructive} persistable={false} timeoutSeconds={item.timeout_seconds} />
           {item.destructive && <label className="mobile-check-row mobile-destructive-confirm"><input type="checkbox" checked={confirmed[item.id] ?? false} disabled={Boolean(busy)} onChange={(event) => setConfirmed((values) => ({ ...values, [item.id]: event.target.checked }))} /><span>{t('I reviewed the exact target and confirm this destructive action.')}</span></label>}
           <div className="mobile-actions"><button type="button" disabled={Boolean(busy) || (item.destructive && !confirmed[item.id])} onClick={() => decide(item, 'allow_once')}>{t('Allow once')}</button><button type="button" disabled={Boolean(busy)} onClick={() => decide(item, 'deny')}>{t('Deny')}</button></div>
-        </article>) : <p className="mobile-empty">{t('No pending permissions.')}</p>}
+        </article>}</div>) : <p className="mobile-empty">{t('No pending permissions.')}</p>}
       </section>
       <section className="mobile-settings" aria-labelledby="mobile-run-heading"><h2 id="mobile-run-heading">{t('Start a remote run')}</h2>
         {overview.device.allow_run_start ? <form className="mobile-run-form" onSubmit={launch}>
