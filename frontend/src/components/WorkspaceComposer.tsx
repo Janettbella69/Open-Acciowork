@@ -26,6 +26,7 @@ import { PermissionDetails, PermissionQuestionCard } from './PermissionRequest'
 import DurablePermissionNotice from './DurablePermissionNotice'
 import { permissionLifecycleState } from '../permissionLifecycle'
 import PresentationCards, { extractPresentationFrames } from './PresentationCards'
+import ProjectMetricsPanel from './ProjectMetricsPanel'
 import WorkspaceNav from './WorkspaceNav'
 import './workspace-composer.css'
 
@@ -863,6 +864,7 @@ export default function WorkspaceComposer({
                 {run && ['failed', 'cancelled'].includes(run.status) && !historyLoading && (
                   <FeedbackForm key={run.id} target={{ project_id: run.project_id, run_id: run.id, kind: 'run_failure' }} label="Flag run failure" />
                 )}
+                {project && <ProjectMetricsPanel key={`metrics:${project.id}`} projectId={project.id} />}
                 {project && <FeedbackReviewPanel key={project.id} projectId={project.id} />}
 
                 {permissions.map((permission) => {

@@ -58,6 +58,10 @@ The commerce MCP also calculates cash balances and peak funding gaps from explic
 settlement schedules, distinguishing daily closing balances from a conservative
 intraday bound; see [`docs/cashflow.md`](docs/cashflow.md).
 
+Open **Project run metrics** in a saved workspace to inspect recent execution,
+latency, observed cost estimates, and Provider/Skill/tool groups. Missing data stays
+explicit; see [`docs/project-metrics.md`](docs/project-metrics.md).
+
 PDF/image uploads produce bounded Markdown companions with honest extraction
 diagnostics; optional local PaddleOCR-VL setup and remaining quality checks are in
 [`docs/ocr-ingestion.md`](docs/ocr-ingestion.md). Result/evidence feedback now has

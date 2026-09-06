@@ -5,7 +5,7 @@ import hashlib
 import json
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Annotated
 
 import uvicorn
@@ -174,6 +174,12 @@ from .models import (
 from .permissions import PermissionBroker, PermissionNotFoundError
 from .policy import OrgPolicyStore, PolicyDeniedError
 from .presentation_tools import PRESENTATION_COMPONENTS, PRESENTATION_SCHEMA_VERSION
+from .project_metrics import (
+    MAX_METRICS_DAYS,
+    MAX_METRICS_RUNS,
+    ProjectMetrics,
+    read_project_metrics,
+)
 from .providers import FileSecretVault, ProviderNotFoundError, ProviderRegistry
 from .push_service import PushDeliveryService
 from .push_store import PushStore
@@ -230,7 +236,7 @@ def _project_route_permission(method: str, path: str) -> ProjectPermission:
         return ProjectPermission.COMMERCIAL_READ
     if "/source-receipts" in path:
         return ProjectPermission.SOURCE_RECEIPT_READ
-    if path.endswith("/runs"):
+    if path.endswith(("/runs", "/metrics")):
         return (
             ProjectPermission.RUN_READ
             if method == "GET"
@@ -997,6 +1003,46 @@ def create_app(
             return ledger.list_runs(project_id)
         except (LedgerNotFoundError, ValueError) as exc:
             raise HTTPException(status_code=404, detail="Project not found") from exc
+
+    @application.get("/api/projects/{project_id}/metrics", response_model=ProjectMetrics)
+    def get_project_metrics(
+        request: Request,
+        response: Response,
+        project_id: str,
+        days: Annotated[int, Query(ge=1, le=MAX_METRICS_DAYS)] = 7,
+        max_runs: Annotated[int, Query(ge=1, le=MAX_METRICS_RUNS)] = MAX_METRICS_RUNS,
+        until: datetime | None = None,
+    ) -> ProjectMetrics:
+        # File-backed replay runs in the normal sync-route thread pool. Recheck
+        # current membership at the handler boundary, after middleware parsing.
+        require_project_authorization(
+            project_id, _request_principal(request), ProjectPermission.RUN_READ,
+        )
+        observed_at = utc_now()
+        until = until or observed_at
+        if until.tzinfo is None or until.utcoffset() is None:
+            raise HTTPException(status_code=422, detail="until must include a timezone")
+        until = until.astimezone(UTC)
+        if until > observed_at:
+            raise HTTPException(status_code=422, detail="until must not be in the future")
+        response.headers["Cache-Control"] = "no-store"
+        try:
+            result = read_project_metrics(
+                ledger, project_id, created_since=until - timedelta(days=days),
+                created_until=until, observed_at=observed_at, max_runs=max_runs,
+            )
+            # A bounded replay still runs long enough for another worker to
+            # revoke membership. Check again before releasing the aggregate.
+            require_project_authorization(
+                project_id, _request_principal(request), ProjectPermission.RUN_READ,
+            )
+            return result
+        except LedgerNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="Project not found") from exc
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=500, detail="Project metrics source is inconsistent",
+            ) from exc
 
     @application.post(
         "/api/projects/{project_id}/files",

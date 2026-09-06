@@ -35,6 +35,7 @@ import type {
   CommercialReviewDecision,
   TaskExperienceLedger,
 } from './types'
+import type { ProjectMetrics } from './projectMetrics'
 
 const configuredBaseUrl = import.meta.env.VITE_OPHIRA_API_URL?.trim() ?? ''
 export const apiBaseUrl = configuredBaseUrl.replace(/\/$/, '')
@@ -364,6 +365,10 @@ export function getRun(runId: string): Promise<RunRecord> {
 
 export function getRunTelemetry(runId: string): Promise<RunTelemetry> {
   return request<RunTelemetry>(`/api/runs/${encodeURIComponent(runId)}/telemetry`)
+}
+
+export function getProjectMetrics(projectId: string, days: number, signal?: AbortSignal): Promise<ProjectMetrics> {
+  return request<ProjectMetrics>(`/api/projects/${encodeURIComponent(projectId)}/metrics?days=${days}`, { signal })
 }
 
 export function cancelRun(runId: string): Promise<RunRecord> {

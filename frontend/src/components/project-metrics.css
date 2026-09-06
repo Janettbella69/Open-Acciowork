@@ -1,0 +1,28 @@
+.project-metrics { margin-top: 24px; border-top: 1px solid #e2e7e2; padding-top: 12px; color: #263b34; font-size: 13px; }
+.project-metrics button, .project-metrics select { font: inherit; color: inherit; background: #fff; border: 1px solid #dce0dd; border-radius: 7px; padding: 7px 10px; }
+.project-metrics button, .project-metrics summary { cursor: pointer; }
+.project-metrics button:focus-visible, .project-metrics select:focus-visible, .project-metrics summary:focus-visible { outline: 2px solid #367857; outline-offset: 3px; }
+.project-metrics .project-metrics-toggle { display: flex; align-items: center; justify-content: space-between; width: 100%; border: 0; padding: 8px 0; font-weight: 600; text-align: left; }
+.project-metrics-controls { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin: 14px 0; }
+.project-metrics-controls label { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.project-metrics small { display: block; margin-top: 5px; color: #596a62; font-size: 11px; line-height: 1.5; }
+.project-metrics-coverage { font-weight: 500; }
+.project-metrics-incomplete { padding: 9px 12px; border-left: 3px solid #bd9753; background: #fcf9f1; line-height: 1.6; }
+.project-metrics-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(165px, 1fr)); gap: 10px; margin: 18px 0; }
+.project-metrics-summary > div { padding: 14px; border: 1px solid #e1e6e2; border-radius: 9px; background: #fafbf9; }
+.project-metrics-summary dt { color: #596a62; }
+.project-metrics-summary dd { margin: 9px 0 0; font-size: 22px; font-variant-numeric: tabular-nums; }
+.project-metrics-note { color: #596a62; line-height: 1.6; }
+.project-metrics-group { margin-top: 12px; padding-top: 8px; border-top: 1px solid #e2e7e2; }
+.project-metrics-group summary { padding: 6px 0; font-weight: 600; }
+.project-metrics-group summary span { margin-left: 8px; font-weight: 400; color: #596a62; }
+.project-metrics-group > p { color: #596a62; line-height: 1.6; }
+.project-metrics-table { max-width: 100%; overflow-x: auto; }
+.project-metrics table { border-collapse: collapse; width: 100%; margin-top: 10px; text-align: left; font-variant-numeric: tabular-nums; }
+.project-metrics caption { padding: 8px 0; text-align: left; color: #596a62; }
+.project-metrics th, .project-metrics td { padding: 10px 8px; border-bottom: 1px solid #e2e7e2; vertical-align: top; }
+.project-metrics tbody th { overflow-wrap: anywhere; min-width: 100px; max-width: 230px; font-weight: 500; }
+.project-metrics td { min-width: 55px; }
+.project-metrics [role=alert] { color: #963c32; }
+.project-metrics-group li { margin: 7px 0; overflow-wrap: anywhere; }
+.project-metrics-group li strong { margin-left: 12px; }

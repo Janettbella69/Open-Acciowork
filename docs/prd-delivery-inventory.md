@@ -26,7 +26,7 @@
 | FR-14 记忆 | delivered：提案人审、TTL/过期/检索/导出/删除恢复 | deferred：真实蒸馏质量、生产备份删除边界与恢复演练 |
 | FR-15 自动化 | delivered：计划/心跳/收件箱本地链路；跨进程自动调度租约和崩溃幂等 | deferred：手动运行并发治理、真实长期运行与渠道投递 |
 | FR-16 产物 | delivered：版本化台账/下载、Office 文件结构 | deferred：真实编辑流程、Office 渲染目视 QA、布局回归 |
-| FR-17 可观测性 | delivered：trace、三层日志、脱敏、类型化卡片 | deferred：细分事件与统一指标/性能验收 |
+| FR-17 可观测性 | delivered：trace、三层日志、脱敏、类型化卡片；项目范围Provider/模型/Skill/MCP/错误分组指标与工作区面板 | deferred：细分事件与生产指标/性能验收 |
 | FR-18 恢复 | delivered：保存产物、错误分类、重试与重启恢复 | deferred：Bash 文件修改快照恢复与真实进程崩溃演练 |
 | FR-19 Deep Research | delivered：恰好三个只读研究子代理、预算/取消/墙钟限制；恢复沿用原起始时间、金额/turn预算及墙钟截止时间 | deferred：真实 SDK Deep Research 执行、完整资源 UI 与合并证据验收 |
 | FR-20 GUI | delivered：L1/L2 真实浏览器 smoke | deferred：真实攻击/恢复矩阵；L3 桌面桥与 OS 权限治理未实现 |
@@ -51,7 +51,7 @@
 | §3.9 / §4.10 | delivered：自动调度跨进程抢占与事件汇总恢复；deferred：其余事件故障矩阵、Bash 修改恢复、CPU/内存/进程/输出限制 |
 | §3.9 数据主权 | deferred：项目/会话/凭据的完整授权导出与删除（记忆已交付）；恢复策略及 UI |
 | §3.9 性能 | delivered：本地ASGI单/4并发各100样本，创建/首事件持久化/离线task取消P95基线；deferred：真实SDK进程、网络/SSE运输、多worker与生产负载验收 |
-| §3.9 / §3.10 | deferred：按 Provider/model/Skill/tool 的指标汇总、业务成功指标、区域与数据流披露 |
+| §3.9 / §3.10 | delivered：项目范围按Provider/model/Skill/tool/错误的有界指标汇总；deferred：业务成功指标、区域与数据流披露 |
 | §3.11 / §6.6 | deferred：当前 L2 基线、人亲自标注的 gold、judge 校准与 TPR/TNR 门槛；不能由 AI 伪造标注 |
 | 教材审计 / CLAUDE.md | delivered：有界 PDF/图片 Markdown 伴随文件、正确可选本地 PaddleOCRVL 适配、pypdf/Tesseract 明确降级、缺页/失败/截断提示与上传原件 Read 门禁；deferred：真实 VL 识别与版式质量、TextIn 坐标、生产解码容器和 OS 资源隔离；当前未安装 VL 模型或 Tesseract |
 | P2-feedback-loop-spec.md | delivered：消息/证据精确锚点、原始 why、失败/取消幂等自动采集和启动补采、人审 revision/history、Skill 版本/L2 人工确认记录、显式无标签候选导出与抽样；deferred：本人 gold/FM 定版、真实 Skill 改善与 L2 验收、生产长期回流、负责人尚未定值的积压通知 |
@@ -230,3 +230,20 @@ fixture 的明确授权。已请求批准；`cashflow-e2e-blocked-20260906T05124
 边界：ASGI进程内运输、local_only、每组一个增长中的项目、不启动lifespan后台服务；
 没有SDK/模型/Provider、socket/TLS/代理/SSE客户端、多worker或生产负载。
 首事件持久化不等于客户端已收到；离线task退出不等于SDK子进程中断。相应验收继续开放。
+
+## 2026-09-05：项目运行指标与工作区统计
+
+[项目指标合同](project-metrics.md)：有界只读API与近7/30天统计面板，复用既有事件和
+RunTelemetry，不新增日志管道、不调用模型。项目/当前成员范围在读取前后重新核验，
+按创建时间选窗并说明遗漏、超限/损坏日志、未知标识和无法配对的工具事件。
+
+Provider取冻结快照，模型取SDK已报告标识；真正开始的Skill/MCP调用才计入。
+每Run只计最新累计成本，未知费用不当零，不向多个参与模型/Skill重复分摊全Run费用。
+MCP camelCase/snake_case错误标记都严格解析，冲突/非法值归未知；分位数保留样本覆盖，
+运行完成不代表业务有用。前端按需加载、撤销旧请求，切项目和403刷新不会泄漏旧结果。
+
+完整冻结验证：后端 **1112 passed / 8 skipped**；前端 **201 passed**；Ruff、ESLint、
+TypeScript、build、diff-check通过。主JS619.11kB，既有bundle体积警告保留。
+含真实非空ASGI路由的项目费用/隐私隔离，以及日志预算、撤权、重复事件和未知数据回归。
+Browser验收尝试返回 `No browser is available`，列表为空；未声称目视通过。
+真实SDK现金流仍等待向DeepSeek发送具体载荷的批准，其余全量deferred保持开放。

@@ -4,6 +4,7 @@ import {
   cancelCommercialAction,
   createSchedule,
   getCommercialAction,
+  getProjectMetrics,
   getRunTelemetry,
   retryRun,
   resumePermissionRun,
@@ -16,6 +17,36 @@ afterEach(() => {
 })
 
 describe('API client', () => {
+  it('encodes the exact project metrics path and forwards its cancellation signal', async () => {
+    const payload = { schema_version: '1', project_id: 'project/one ?#' }
+    const controller = new AbortController()
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify(payload), { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(getProjectMetrics('project/one ?#', 30, controller.signal)).resolves.toEqual(payload)
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/projects/project%2Fone%20%3F%23/metrics?days=30',
+      expect.objectContaining({ signal: controller.signal }),
+    )
+    const init = (fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1]
+    expect(init.body).toBeUndefined()
+    expect(init.method ?? 'GET').toBe('GET')
+  })
+
+  it('preserves metrics access-denied status and native request cancellation', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(
+      JSON.stringify({ detail: 'Project access denied' }), { status: 403 },
+    )))
+    await expect(getProjectMetrics('project_1', 7)).rejects.toMatchObject({
+      status: 403, message: 'Project access denied',
+    })
+
+    const aborted = new DOMException('The request was aborted.', 'AbortError')
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(aborted))
+    await expect(getProjectMetrics('project_1', 7, new AbortController().signal)).rejects.toBe(aborted)
+  })
+
   it('resumes a saved approval with a bodyless POST to the exact encoded run', async () => {
     const fetchMock = vi.fn(async () => new Response(JSON.stringify({ id: 'run/1', status: 'queued' }), { status: 202 }))
     vi.stubGlobal('fetch', fetchMock)

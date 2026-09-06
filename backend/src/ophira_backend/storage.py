@@ -10,6 +10,7 @@ import tempfile
 import threading
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -49,6 +50,44 @@ class LedgerNotFoundError(KeyError):
 
 class LedgerIdentityScopeError(RuntimeError):
     """A durable object was accessed or created outside its principal scope."""
+
+
+class EventReplayLimitError(ValueError):
+    """A bounded replay exhausted its per-run or shared request allowance."""
+
+    def __init__(self, reason: str) -> None:
+        self.reason = reason
+        super().__init__(reason)
+
+
+def _validate_replay_limit(value: int | None, name: str) -> None:
+    if value is not None and (
+        not isinstance(value, int) or isinstance(value, bool) or value < 0
+    ):
+        raise ValueError(f"{name} must be a non-negative integer")
+
+
+@dataclass
+class EventReplayBudget:
+    """Request-local work counters; failed reads and parse attempts remain charged."""
+
+    max_bytes: int
+    max_events: int
+    bytes_read: int = 0
+    events_read: int = 0
+
+    def __post_init__(self) -> None:
+        for name in ("max_bytes", "max_events", "bytes_read", "events_read"):
+            value = getattr(self, name)
+            if value is None:
+                raise ValueError(f"{name} must be a non-negative integer")
+            _validate_replay_limit(value, name)
+
+    def ensure_available(self) -> None:
+        if self.bytes_read >= self.max_bytes:
+            raise EventReplayLimitError("request_byte_limit")
+        if self.events_read >= self.max_events:
+            raise EventReplayLimitError("request_event_limit")
 
 
 class SourceReceiptError(RuntimeError):
@@ -650,13 +689,17 @@ class FileLedger:
             raise LedgerNotFoundError(run_id)
         return RunRecord.model_validate_json(path.read_text(encoding="utf-8"))
 
-    def list_runs(self, project_id: str | None = None) -> list[RunRecord]:
+    def list_runs(
+        self, project_id: str | None = None, *, sort_by_created_at: bool = True,
+    ) -> list[RunRecord]:
         if project_id is not None:
             self.get_project(project_id)
         runs = [
             run for run in self._iter_runs()
             if project_id is None or run.project_id == project_id
         ]
+        if not sort_by_created_at:
+            return runs
         return sorted(runs, key=lambda run: run.created_at, reverse=True)
 
     def _iter_runs(self) -> list[RunRecord]:
@@ -768,23 +811,71 @@ class FileLedger:
                 self._append_manifest(self.get_run(event.run_id), sequence)
             return stored
 
-    def list_events(self, run_id: str, after_sequence: int = 0) -> list[EventEnvelope]:
+    def list_events(
+        self,
+        run_id: str,
+        after_sequence: int = 0,
+        *,
+        max_bytes: int | None = None,
+        max_events: int | None = None,
+        budget: EventReplayBudget | None = None,
+    ) -> list[EventEnvelope]:
+        _validate_replay_limit(max_bytes, "max_bytes")
+        _validate_replay_limit(max_events, "max_events")
+        if budget is not None:
+            # Do not open another record or log after the request allowance is
+            # exhausted, including after a one-byte overflow probe.
+            budget.ensure_available()
         with self._lock_for(run_id):
             self.get_run(run_id)
-            return [event for event in self._read_event_log(run_id)
-                    if event.sequence > after_sequence]
+            events = self._read_event_log(
+                run_id, max_bytes=max_bytes, max_events=max_events, budget=budget,
+            )
+            return [event for event in events if event.sequence > after_sequence]
 
-    def _read_event_log(self, run_id: str) -> list[EventEnvelope]:
+    def _read_event_log(
+        self,
+        run_id: str,
+        *,
+        max_bytes: int | None = None,
+        max_events: int | None = None,
+        budget: EventReplayBudget | None = None,
+    ) -> list[EventEnvelope]:
         path = self._events_path(run_id)
         if not path.exists():
             return []
-        content = path.read_text(encoding="utf-8")
+        byte_limit, byte_reason = max_bytes, "run_byte_limit"
+        if budget is not None:
+            remaining = budget.max_bytes - budget.bytes_read
+            if byte_limit is None or remaining <= byte_limit:
+                byte_limit, byte_reason = remaining, "request_byte_limit"
+        if byte_limit is None:
+            content = path.read_text(encoding="utf-8")
+        else:
+            # An unbuffered read avoids prefetching beyond the bounded probe.
+            # Charge before decoding or parsing so corrupt logs still consume
+            # the request budget. An oversized file is never read in full.
+            with path.open("rb", buffering=0) as handle:
+                raw = handle.read(byte_limit + 1)
+            if budget is not None:
+                budget.bytes_read += len(raw)
+            if len(raw) > byte_limit:
+                raise EventReplayLimitError(byte_reason)
+            # Match read_text's universal-newline behavior, including old logs
+            # that use CR-only line endings; byte accounting remains raw UTF-8.
+            content = raw.decode("utf-8").replace("\r\n", "\n").replace("\r", "\n")
         if content and not content.endswith("\n"):
             raise ValueError("event log has an incomplete tail; refusing to append")
         events: list[EventEnvelope] = []
         for line in content.splitlines():
             if not line.strip():
                 continue
+            if budget is not None and budget.events_read >= budget.max_events:
+                raise EventReplayLimitError("request_event_limit")
+            if max_events is not None and len(events) >= max_events:
+                raise EventReplayLimitError("run_event_limit")
+            if budget is not None:
+                budget.events_read += 1
             event = EventEnvelope.model_validate_json(line)
             events.append(event)
         return events
