@@ -1,0 +1,513 @@
+{
+  "schema_version": 1,
+  "started_at": "2026-09-06T05:16:26.509531+00:00",
+  "environment": {
+    "os": "Darwin",
+    "os_release": "25.6.0",
+    "machine": "arm64",
+    "logical_cpu_count": 18,
+    "python": "3.11.15",
+    "git_head": "aba912898fa339a851dd9767c65ae1242ef1f1b1",
+    "packages": {
+      "fastapi": "0.141.1",
+      "starlette": "1.6.0",
+      "httpx": "0.28.1",
+      "pydantic": "2.13.4",
+      "claude-agent-sdk": "0.2.143"
+    },
+    "clock": "time.perf_counter_ns; offsets relative to each case start",
+    "clock_resolution_seconds": 4.166666666666667e-08,
+    "load": "Shared development machine; other workloads were not isolated or paused."
+  },
+  "configuration": {
+    "samples_per_case": 100,
+    "warmup_per_case": 10,
+    "concurrency": [
+      1,
+      4
+    ],
+    "timeout_seconds": 10.0
+  },
+  "limits_ms": {
+    "create_api": 500.0,
+    "first_event_persisted": 2000.0,
+    "cancel_effective": 2000.0
+  },
+  "percentile_method": "nearest rank: sorted[ceil(N*p/100)-1]; incomplete = +infinity",
+  "scope": {
+    "transport": "in-process HTTPX ASGI; no network or SSE client transport",
+    "runtime": "OfflineWaitingRuntime; no SDK execution, model or Provider",
+    "storage": "real temporary FileLedger; one growing project per concurrency case",
+    "skills": "real SkillRegistry over a temporary copy of the bundled Plugin",
+    "auth": "local_only; no trusted gateway or remote worker",
+    "lifespan": "background scheduler/channel/push services not started",
+    "create_api": "immediately before client.post through complete ASGI HTTP response",
+    "first_event_persisted": "create start through first queued/started publish return",
+    "cancel_effective": "before cancel POST through later of task done callback, runtime exit, and cancelled publish return; terminal ledger verified afterwards",
+    "excluded": "socket/TLS/proxy/SSE delivery, SDK process interruption, model first token, multiple workers, remote filesystems, production load"
+  },
+  "source_before": {
+    "backend/src/ophira_backend/__init__.py": "0ab68087e5e8b9115c919640be9ca62ad7a47ed633c8bd688eeadaf7546b1bee",
+    "backend/src/ophira_backend/agent_core.py": "b53682846c29e1b52164104cde68160fc317cbb87d858e97d64af51e503f48ab",
+    "backend/src/ophira_backend/agents.py": "066b5497007b014230d4d5c9f2c99d87a83564eea054e675d5f6ec778c883a4a",
+    "backend/src/ophira_backend/auth.py": "3a9700e7ac8cfeafdad0f5ce52c50061e6a742f0233e8b436ceda5541fcabf91",
+    "backend/src/ophira_backend/automation.py": "eadf7008692977111725fbcba94662f2212ef83bbc37c49e21f6aaaaf6ab42e9",
+    "backend/src/ophira_backend/automation_tools.py": "94505d1f93e71244192eb73601a2f9c0a855900d8711b447368b6fb679ddbbde",
+    "backend/src/ophira_backend/browser_tools.py": "67e76f597670c93e1ddf6054fff0656ab1dc7cf66a926b6d578e40923b0497e5",
+    "backend/src/ophira_backend/cashflow.py": "d6e007350edb696401e1b579a07a74bb8d7069d83a0abe31a51112d4e12d4646",
+    "backend/src/ophira_backend/channel_delivery.py": "2b2b289680cdd08830e54dfcfef7e060642569b6365d98acf7d4dd901f9791ae",
+    "backend/src/ophira_backend/channel_identity.py": "e10386854e042551cee7e5c25d46a5f942763bcc216d37d5a1c30f37d019ceda",
+    "backend/src/ophira_backend/channels.py": "075b7b2dd982e6a5addd5183db9f85e7e55f8772033970abc43d17e092409812",
+    "backend/src/ophira_backend/commercial_action_tools.py": "b8ea8b78d6d25ed73c0debc37d282c532b5c482fb3b52dad1e1d2579ae107fda",
+    "backend/src/ophira_backend/commercial_actions.py": "4f0ac0c5156c675df2383865400b5d56eb824f0f2f962d2bccc60abc8de27bf6",
+    "backend/src/ophira_backend/commercial_adapters.py": "14f3d6c8c57fc5123f5b9c9e3951df445c12d9d67967ff3b420c043421ab883a",
+    "backend/src/ophira_backend/companion.py": "51d4ec6cd2d765632f4ea090ff5884fa8504fae14c82aa6fe5c205d31774be30",
+    "backend/src/ophira_backend/companion_authorization.py": "23950f0c31d212cea42a30e692f3c27489c1535ff37141628c14fe2536a2b96c",
+    "backend/src/ophira_backend/companion_routes.py": "3659222cf4db8f40e98b1abf2d82ab3915e57047dc101789d1216890a6142950",
+    "backend/src/ophira_backend/compliance_tools.py": "a136ea8787f31d0807cd23282c05009527e29f4670586888576551c6c8a05b0b",
+    "backend/src/ophira_backend/config.py": "569c391ee714d123315921bead629a72102bb7c0a1e1fb4ba3ac03c382e805fa",
+    "backend/src/ophira_backend/connectors.py": "2180878737bcfbf9da9d1df0685f35edc1c6df0bf5d2dd1caeb2cb948e486b14",
+    "backend/src/ophira_backend/constants.py": "260f73e399d403bdf543eb7d0edac24cfa7925dffa457893201ec1906e889be0",
+    "backend/src/ophira_backend/context_protocol.py": "9ef5790460c46087e8ec3ba2893fc5cf0fc710f6e408b3c65e48b821edd8c445",
+    "backend/src/ophira_backend/destructive.py": "14d79e635eb64f4caa3332dbe9f5844cda33c0db88e4b45e83afe83b8db3f699",
+    "backend/src/ophira_backend/distill.py": "0ea79b5b4543955506a7dde4450b14830dbdcad9e769934179dc0f3b471e8860",
+    "backend/src/ophira_backend/durable_permissions.py": "4b61e399891d20da6913a107bc40cf1bc16b8ae55d0039a559367efdf8f9f7d8",
+    "backend/src/ophira_backend/events.py": "2ad214c0fb4fb95df0019023249382fe31009665197c77aace1caea438b20faa",
+    "backend/src/ophira_backend/feedback.py": "6d0e3c979d273b3a0b02f3674bcb18fb65639370f6950a2fb8c65345f322d69e",
+    "backend/src/ophira_backend/feedback_routes.py": "bcd520e1175f44a553de3a40b2696e4ef6367ab8cddfa2734c97f6647fc67391",
+    "backend/src/ophira_backend/grants.py": "b1a5cf01e01010f4d136981ca2132aec77c240a693f4f7f3ac63c0bf6fa9f94c",
+    "backend/src/ophira_backend/greenpath.py": "a8e6c43c2778fed84ca05fe4f798c580fd572674ac70f447d1ecba8e47150865",
+    "backend/src/ophira_backend/ingest.py": "d90bc8157612bc8b9580407d8e79bae8cdf9d5488f94f8f5c1de177a125415d6",
+    "backend/src/ophira_backend/ingest_worker.py": "49cbad194000ac686c55bf36e120a84cfda1414e35b159f157a6fa74a1662aeb",
+    "backend/src/ophira_backend/intent_watcher.py": "98bf95e6b126a6d65730d27cf970b0dc372038b2dfb57b6218ff6d7a3d952216",
+    "backend/src/ophira_backend/ledger_tools.py": "e2dc19fba879e0ada77c5226a29e648c4c1fb51a862047eceace85ad4634432e",
+    "backend/src/ophira_backend/main.py": "212fb9943087d3c4060f3e0f41b5eb960a0f4d885e9a08da30c3a7a4b37372db",
+    "backend/src/ophira_backend/media_tools.py": "88caf5b8bf43b69e613106c9b4c7db874bc9ecccb4d35eac716d7262e3d13d3d",
+    "backend/src/ophira_backend/memory.py": "e123b7482c859190c285d18fdaece4e1287ccd84a027afb69329dd4e2416e069",
+    "backend/src/ophira_backend/models.py": "a533fcdde9d9fbf11ee14d1d0d025c0926a2366cd33bffcf22e5cc4452d89958",
+    "backend/src/ophira_backend/native_hook_client.py": "63aa4c138b5d4fec113d919be768918733fb6edaf133b54d488aaeddb1e4c019",
+    "backend/src/ophira_backend/native_hooks.py": "392ffc30eb940d407cb7b1bbac2138f470f75bea75c6678c8faf7d1bc9c436d5",
+    "backend/src/ophira_backend/office_export.py": "8d541cc0ce07eebe78bab7dfa5c991aed97698adc16f4961bf49591fbd327dcf",
+    "backend/src/ophira_backend/permissions.py": "242b67a2645fc5a0fd3e4e0bb539ff6156e430b971d59b059f7baa3c9fd6a22b",
+    "backend/src/ophira_backend/policy.py": "31c81c3eb76561840b90777c40449db1bacceda626bdaadf8b4bd9e2756cb77c",
+    "backend/src/ophira_backend/presentation_tools.py": "c7bf1657dc1d6df2cc312a2313ca8c25ee49b5cb0751e6d7175f1da86608fcd0",
+    "backend/src/ophira_backend/providers.py": "5f4287865e5fb944b7b47e6db567f89388e8b8b668729b90864e406214db51de",
+    "backend/src/ophira_backend/push_service.py": "1dd405d2d71bccede19f85fe057f3882434a1432596aa8d8a1e8f640b6ca69eb",
+    "backend/src/ophira_backend/push_store.py": "d31e9ae6f5327cd2d3da7e0926f8c3ebecbfda62eff387634cb85e81a09e1e8a",
+    "backend/src/ophira_backend/push_transport.py": "5d9e424b267632f23349c5eee5c52cb5b1377b3d2d90b43442d11cff48cca2c9",
+    "backend/src/ophira_backend/run_accounting.py": "560ff1a1a3dedef651f7b4f86a3bc5b8b5d2648f1e1d322c08b55c005b8fb21e",
+    "backend/src/ophira_backend/runs.py": "7ca5e9638b9013f0033c1582e325effe5d661bbb9b1a6d72b91f7a92d8b1913d",
+    "backend/src/ophira_backend/scheduler.py": "e4e2d8c3eba3acc0949ed6b102e9dc8472e723a5c464df67d54a5df66e0653e2",
+    "backend/src/ophira_backend/sdk_adapter.py": "80dd9e4304547281ec938d87b59527c683845f9a21c3b07697e5cd66998b1fbc",
+    "backend/src/ophira_backend/skills.py": "097b5fda2caf7f782c7a2c9e868a9694504f45f0c906c7ae01d53f4316c0fa56",
+    "backend/src/ophira_backend/source_receipts.py": "cbedec2b7fe4030219c2739103a7eff06ff3fa6310a18f390eb8721da13d4a29",
+    "backend/src/ophira_backend/storage.py": "b19fae9e453c84f9b633f9147b3b0df3f9e0739e47403fe7066af374a8cba827",
+    "backend/src/ophira_backend/task_experience.py": "2bcf3a573204e9d897571426a56390c159f602cd088c182b4e90e24b144d4a84",
+    "backend/src/ophira_backend/task_experience_routes.py": "162375320a42d9d01f2dace4a30bb4baf1e3a1206022aec3cbb128fb0b2b80d1",
+    "backend/src/ophira_backend/telemetry.py": "0b95c23d6b4ae06731fcef2e3753b2033dc97ba75b2d146172cdfe547a0e7e76",
+    "backend/src/ophira_backend/templates.py": "124af136f77f25bdef10a9eacf8e6eb0525c00c48b800cb417f6108cedbe1342",
+    "backend/src/ophira_backend/untrusted.py": "d2fa35e548e7c9c26aab26f3373f3e6baee43983d8155add74f050a4c086e30a",
+    "backend/src/ophira_backend/web_tools.py": "2e67c04d00c59001b8598566bcc0938829f47c08cc7a4743769808fd3ddffeab",
+    "backend/scripts/benchmark_control_plane.py": "8ac443994e435b5ca4a7271b72c0448666fc9065b0adfd0db69619a035ed50f2"
+  },
+  "cases": [
+    {
+      "concurrency": 1,
+      "project_count": 1,
+      "skill_snapshot": [
+        {
+          "id": "ophira-core:compliance-claims",
+          "version": "1.2.0",
+          "content_hash": "26b766be66b108f0e41fa467dfefa4d783b5cf3301713d96cdca3a71d4691710",
+          "enabled": true
+        },
+        {
+          "id": "ophira-core:content-marketing",
+          "version": "1.2.0",
+          "content_hash": "146d0e07d2341d5399257430f0cdf60cb39801a2be05c52d724e99715d4f262a",
+          "enabled": true
+        },
+        {
+          "id": "ophira-core:customer-development",
+          "version": "1.1.0",
+          "content_hash": "c42eeab8a25a5552df7daa532d21754a952872913e4b031fb4fb209fa0fdc11d",
+          "enabled": true
+        },
+        {
+          "id": "ophira-core:customer-path",
+          "version": "1.1.0",
+          "content_hash": "aaab32727a92b4f94a47a403ec145c3463378cc386422f8bc02a5c94de9b529e",
+          "enabled": true
+        },
+        {
+          "id": "ophira-core:global-opportunity-execution",
+          "version": "1.1.0",
+          "content_hash": "319c1a2b59f4eb1cc05531a6aad20ece74b8023e36329934f1f39fca4ed95718",
+          "enabled": true
+        },
+        {
+          "id": "ophira-core:inquiry-negotiation",
+          "version": "1.2.0",
+          "content_hash": "2db992563e7e87c064e85488b3eb7fd0c1717e451473d0ba2b2dd5a7c8a97007",
+          "enabled": true
+        },
+        {
+          "id": "ophira-core:landed-cost-analysis",
+          "version": "1.2.0",
+          "content_hash": "7149a7a3fd37ec5ec0a853fe5fef0870ae75a53ccc048854a033f4e25d411153",
+          "enabled": true
+        },
+        {
+          "id": "ophira-core:listing-experiment",
+          "version": "1.2.0",
+          "content_hash": "c413093fafbfed3c6835345bc4e1187db320105c2bd1138264110baea38c9d10",
+          "enabled": true
+        },
+        {
+          "id": "ophira-core:logistics-customs",
+          "version": "1.1.0",
+          "content_hash": "fd0327f0f79a1cedf3eca745e0cfeb8f97fec01b67e88fa8380524c747d28224",
+          "enabled": true
+        },
+        {
+          "id": "ophira-core:market-research",
+          "version": "1.2.0",
+          "content_hash": "cbe52a46e99cf5c760c4707f0f84b25000de0ccb400f0a73e3a56487589c7061",
+          "enabled": true
+        },
+        {
+          "id": "ophira-core:monitoring-patrol",
+          "version": "1.1.0",
+          "content_hash": "c086b67e492cdc90a172f71a910c11c77bbedd9bacd4716e2eeb8398b566a455",
+          "enabled": true
+        },
+        {
+          "id": "ophira-core:office-documents",
+          "version": "1.2.0",
+          "content_hash": "66c45e24ee88be3b280b702bf3220be45aa3de5510467bc56b0374db5a900fbc",
+          "enabled": true
+        },
+        {
+          "id": "ophira-core:supplier-due-diligence",
+          "version": "1.1.0",
+          "content_hash": "a778a2364c1b2347afba14398add52e52ff3b25fe27c11bed58b840028d2e372",
+          "enabled": true
+        }
+      ],
+      "warmup": {
+        "sample_count": 10,
+        "failed_sample_count": 0,
+        "metrics": {
+          "create_api": {
+            "sample_count": 10,
+            "incomplete_count": 0,
+            "limit_ms": 500.0,
+            "p50_ms": 10.238416,
+            "p95_ms": 29.154792,
+            "p99_ms": 29.154792,
+            "p100_ms": 29.154792,
+            "p95_unbounded": false,
+            "passed": true
+          },
+          "first_event_persisted": {
+            "sample_count": 10,
+            "incomplete_count": 0,
+            "limit_ms": 2000.0,
+            "p50_ms": 8.952583,
+            "p95_ms": 27.643208,
+            "p99_ms": 27.643208,
+            "p100_ms": 27.643208,
+            "p95_unbounded": false,
+            "passed": true
+          },
+          "cancel_effective": {
+            "sample_count": 10,
+            "incomplete_count": 0,
+            "limit_ms": 2000.0,
+            "p50_ms": 3.61075,
+            "p95_ms": 4.1585,
+            "p99_ms": 4.1585,
+            "p100_ms": 4.1585,
+            "p95_unbounded": false,
+            "passed": true
+          }
+        },
+        "passed": true
+      },
+      "measured": {
+        "sample_count": 100,
+        "failed_sample_count": 0,
+        "metrics": {
+          "create_api": {
+            "sample_count": 100,
+            "incomplete_count": 0,
+            "limit_ms": 500.0,
+            "p50_ms": 10.228917,
+            "p95_ms": 11.158084,
+            "p99_ms": 12.206333,
+            "p100_ms": 13.144792,
+            "p95_unbounded": false,
+            "passed": true
+          },
+          "first_event_persisted": {
+            "sample_count": 100,
+            "incomplete_count": 0,
+            "limit_ms": 2000.0,
+            "p50_ms": 8.864625,
+            "p95_ms": 9.7575,
+            "p99_ms": 10.898958,
+            "p100_ms": 11.541333,
+            "p95_unbounded": false,
+            "passed": true
+          },
+          "cancel_effective": {
+            "sample_count": 100,
+            "incomplete_count": 0,
+            "limit_ms": 2000.0,
+            "p50_ms": 3.6115,
+            "p95_ms": 4.271708,
+            "p99_ms": 4.381875,
+            "p100_ms": 4.886542,
+            "p95_unbounded": false,
+            "passed": true
+          }
+        },
+        "passed": true
+      }
+    },
+    {
+      "concurrency": 4,
+      "project_count": 1,
+      "skill_snapshot": [
+        {
+          "id": "ophira-core:compliance-claims",
+          "version": "1.2.0",
+          "content_hash": "26b766be66b108f0e41fa467dfefa4d783b5cf3301713d96cdca3a71d4691710",
+          "enabled": true
+        },
+        {
+          "id": "ophira-core:content-marketing",
+          "version": "1.2.0",
+          "content_hash": "146d0e07d2341d5399257430f0cdf60cb39801a2be05c52d724e99715d4f262a",
+          "enabled": true
+        },
+        {
+          "id": "ophira-core:customer-development",
+          "version": "1.1.0",
+          "content_hash": "c42eeab8a25a5552df7daa532d21754a952872913e4b031fb4fb209fa0fdc11d",
+          "enabled": true
+        },
+        {
+          "id": "ophira-core:customer-path",
+          "version": "1.1.0",
+          "content_hash": "aaab32727a92b4f94a47a403ec145c3463378cc386422f8bc02a5c94de9b529e",
+          "enabled": true
+        },
+        {
+          "id": "ophira-core:global-opportunity-execution",
+          "version": "1.1.0",
+          "content_hash": "319c1a2b59f4eb1cc05531a6aad20ece74b8023e36329934f1f39fca4ed95718",
+          "enabled": true
+        },
+        {
+          "id": "ophira-core:inquiry-negotiation",
+          "version": "1.2.0",
+          "content_hash": "2db992563e7e87c064e85488b3eb7fd0c1717e451473d0ba2b2dd5a7c8a97007",
+          "enabled": true
+        },
+        {
+          "id": "ophira-core:landed-cost-analysis",
+          "version": "1.2.0",
+          "content_hash": "7149a7a3fd37ec5ec0a853fe5fef0870ae75a53ccc048854a033f4e25d411153",
+          "enabled": true
+        },
+        {
+          "id": "ophira-core:listing-experiment",
+          "version": "1.2.0",
+          "content_hash": "c413093fafbfed3c6835345bc4e1187db320105c2bd1138264110baea38c9d10",
+          "enabled": true
+        },
+        {
+          "id": "ophira-core:logistics-customs",
+          "version": "1.1.0",
+          "content_hash": "fd0327f0f79a1cedf3eca745e0cfeb8f97fec01b67e88fa8380524c747d28224",
+          "enabled": true
+        },
+        {
+          "id": "ophira-core:market-research",
+          "version": "1.2.0",
+          "content_hash": "cbe52a46e99cf5c760c4707f0f84b25000de0ccb400f0a73e3a56487589c7061",
+          "enabled": true
+        },
+        {
+          "id": "ophira-core:monitoring-patrol",
+          "version": "1.1.0",
+          "content_hash": "c086b67e492cdc90a172f71a910c11c77bbedd9bacd4716e2eeb8398b566a455",
+          "enabled": true
+        },
+        {
+          "id": "ophira-core:office-documents",
+          "version": "1.2.0",
+          "content_hash": "66c45e24ee88be3b280b702bf3220be45aa3de5510467bc56b0374db5a900fbc",
+          "enabled": true
+        },
+        {
+          "id": "ophira-core:supplier-due-diligence",
+          "version": "1.1.0",
+          "content_hash": "a778a2364c1b2347afba14398add52e52ff3b25fe27c11bed58b840028d2e372",
+          "enabled": true
+        }
+      ],
+      "warmup": {
+        "sample_count": 10,
+        "failed_sample_count": 0,
+        "metrics": {
+          "create_api": {
+            "sample_count": 10,
+            "incomplete_count": 0,
+            "limit_ms": 500.0,
+            "p50_ms": 41.523,
+            "p95_ms": 62.232375,
+            "p99_ms": 62.232375,
+            "p100_ms": 62.232375,
+            "p95_unbounded": false,
+            "passed": true
+          },
+          "first_event_persisted": {
+            "sample_count": 10,
+            "incomplete_count": 0,
+            "limit_ms": 2000.0,
+            "p50_ms": 26.861625,
+            "p95_ms": 54.82475,
+            "p99_ms": 54.82475,
+            "p100_ms": 54.82475,
+            "p95_unbounded": false,
+            "passed": true
+          },
+          "cancel_effective": {
+            "sample_count": 10,
+            "incomplete_count": 0,
+            "limit_ms": 2000.0,
+            "p50_ms": 13.644334,
+            "p95_ms": 15.1035,
+            "p99_ms": 15.1035,
+            "p100_ms": 15.1035,
+            "p95_unbounded": false,
+            "passed": true
+          }
+        },
+        "passed": true
+      },
+      "measured": {
+        "sample_count": 100,
+        "failed_sample_count": 0,
+        "metrics": {
+          "create_api": {
+            "sample_count": 100,
+            "incomplete_count": 0,
+            "limit_ms": 500.0,
+            "p50_ms": 40.395833,
+            "p95_ms": 42.10825,
+            "p99_ms": 42.55725,
+            "p100_ms": 42.614917,
+            "p95_unbounded": false,
+            "passed": true
+          },
+          "first_event_persisted": {
+            "sample_count": 100,
+            "incomplete_count": 0,
+            "limit_ms": 2000.0,
+            "p50_ms": 18.941542,
+            "p95_ms": 35.08125,
+            "p99_ms": 36.49525,
+            "p100_ms": 36.87275,
+            "p95_unbounded": false,
+            "passed": true
+          },
+          "cancel_effective": {
+            "sample_count": 100,
+            "incomplete_count": 0,
+            "limit_ms": 2000.0,
+            "p50_ms": 14.062875,
+            "p95_ms": 15.281208,
+            "p99_ms": 30.567042,
+            "p100_ms": 30.75325,
+            "p95_unbounded": false,
+            "passed": true
+          }
+        },
+        "passed": true
+      }
+    }
+  ],
+  "source_after": {
+    "backend/src/ophira_backend/__init__.py": "0ab68087e5e8b9115c919640be9ca62ad7a47ed633c8bd688eeadaf7546b1bee",
+    "backend/src/ophira_backend/agent_core.py": "b53682846c29e1b52164104cde68160fc317cbb87d858e97d64af51e503f48ab",
+    "backend/src/ophira_backend/agents.py": "066b5497007b014230d4d5c9f2c99d87a83564eea054e675d5f6ec778c883a4a",
+    "backend/src/ophira_backend/auth.py": "3a9700e7ac8cfeafdad0f5ce52c50061e6a742f0233e8b436ceda5541fcabf91",
+    "backend/src/ophira_backend/automation.py": "eadf7008692977111725fbcba94662f2212ef83bbc37c49e21f6aaaaf6ab42e9",
+    "backend/src/ophira_backend/automation_tools.py": "94505d1f93e71244192eb73601a2f9c0a855900d8711b447368b6fb679ddbbde",
+    "backend/src/ophira_backend/browser_tools.py": "67e76f597670c93e1ddf6054fff0656ab1dc7cf66a926b6d578e40923b0497e5",
+    "backend/src/ophira_backend/cashflow.py": "d6e007350edb696401e1b579a07a74bb8d7069d83a0abe31a51112d4e12d4646",
+    "backend/src/ophira_backend/channel_delivery.py": "2b2b289680cdd08830e54dfcfef7e060642569b6365d98acf7d4dd901f9791ae",
+    "backend/src/ophira_backend/channel_identity.py": "e10386854e042551cee7e5c25d46a5f942763bcc216d37d5a1c30f37d019ceda",
+    "backend/src/ophira_backend/channels.py": "075b7b2dd982e6a5addd5183db9f85e7e55f8772033970abc43d17e092409812",
+    "backend/src/ophira_backend/commercial_action_tools.py": "b8ea8b78d6d25ed73c0debc37d282c532b5c482fb3b52dad1e1d2579ae107fda",
+    "backend/src/ophira_backend/commercial_actions.py": "4f0ac0c5156c675df2383865400b5d56eb824f0f2f962d2bccc60abc8de27bf6",
+    "backend/src/ophira_backend/commercial_adapters.py": "14f3d6c8c57fc5123f5b9c9e3951df445c12d9d67967ff3b420c043421ab883a",
+    "backend/src/ophira_backend/companion.py": "51d4ec6cd2d765632f4ea090ff5884fa8504fae14c82aa6fe5c205d31774be30",
+    "backend/src/ophira_backend/companion_authorization.py": "23950f0c31d212cea42a30e692f3c27489c1535ff37141628c14fe2536a2b96c",
+    "backend/src/ophira_backend/companion_routes.py": "3659222cf4db8f40e98b1abf2d82ab3915e57047dc101789d1216890a6142950",
+    "backend/src/ophira_backend/compliance_tools.py": "a136ea8787f31d0807cd23282c05009527e29f4670586888576551c6c8a05b0b",
+    "backend/src/ophira_backend/config.py": "569c391ee714d123315921bead629a72102bb7c0a1e1fb4ba3ac03c382e805fa",
+    "backend/src/ophira_backend/connectors.py": "2180878737bcfbf9da9d1df0685f35edc1c6df0bf5d2dd1caeb2cb948e486b14",
+    "backend/src/ophira_backend/constants.py": "260f73e399d403bdf543eb7d0edac24cfa7925dffa457893201ec1906e889be0",
+    "backend/src/ophira_backend/context_protocol.py": "9ef5790460c46087e8ec3ba2893fc5cf0fc710f6e408b3c65e48b821edd8c445",
+    "backend/src/ophira_backend/destructive.py": "14d79e635eb64f4caa3332dbe9f5844cda33c0db88e4b45e83afe83b8db3f699",
+    "backend/src/ophira_backend/distill.py": "0ea79b5b4543955506a7dde4450b14830dbdcad9e769934179dc0f3b471e8860",
+    "backend/src/ophira_backend/durable_permissions.py": "4b61e399891d20da6913a107bc40cf1bc16b8ae55d0039a559367efdf8f9f7d8",
+    "backend/src/ophira_backend/events.py": "2ad214c0fb4fb95df0019023249382fe31009665197c77aace1caea438b20faa",
+    "backend/src/ophira_backend/feedback.py": "6d0e3c979d273b3a0b02f3674bcb18fb65639370f6950a2fb8c65345f322d69e",
+    "backend/src/ophira_backend/feedback_routes.py": "bcd520e1175f44a553de3a40b2696e4ef6367ab8cddfa2734c97f6647fc67391",
+    "backend/src/ophira_backend/grants.py": "b1a5cf01e01010f4d136981ca2132aec77c240a693f4f7f3ac63c0bf6fa9f94c",
+    "backend/src/ophira_backend/greenpath.py": "a8e6c43c2778fed84ca05fe4f798c580fd572674ac70f447d1ecba8e47150865",
+    "backend/src/ophira_backend/ingest.py": "d90bc8157612bc8b9580407d8e79bae8cdf9d5488f94f8f5c1de177a125415d6",
+    "backend/src/ophira_backend/ingest_worker.py": "49cbad194000ac686c55bf36e120a84cfda1414e35b159f157a6fa74a1662aeb",
+    "backend/src/ophira_backend/intent_watcher.py": "98bf95e6b126a6d65730d27cf970b0dc372038b2dfb57b6218ff6d7a3d952216",
+    "backend/src/ophira_backend/ledger_tools.py": "e2dc19fba879e0ada77c5226a29e648c4c1fb51a862047eceace85ad4634432e",
+    "backend/src/ophira_backend/main.py": "212fb9943087d3c4060f3e0f41b5eb960a0f4d885e9a08da30c3a7a4b37372db",
+    "backend/src/ophira_backend/media_tools.py": "88caf5b8bf43b69e613106c9b4c7db874bc9ecccb4d35eac716d7262e3d13d3d",
+    "backend/src/ophira_backend/memory.py": "e123b7482c859190c285d18fdaece4e1287ccd84a027afb69329dd4e2416e069",
+    "backend/src/ophira_backend/models.py": "a533fcdde9d9fbf11ee14d1d0d025c0926a2366cd33bffcf22e5cc4452d89958",
+    "backend/src/ophira_backend/native_hook_client.py": "63aa4c138b5d4fec113d919be768918733fb6edaf133b54d488aaeddb1e4c019",
+    "backend/src/ophira_backend/native_hooks.py": "392ffc30eb940d407cb7b1bbac2138f470f75bea75c6678c8faf7d1bc9c436d5",
+    "backend/src/ophira_backend/office_export.py": "8d541cc0ce07eebe78bab7dfa5c991aed97698adc16f4961bf49591fbd327dcf",
+    "backend/src/ophira_backend/permissions.py": "242b67a2645fc5a0fd3e4e0bb539ff6156e430b971d59b059f7baa3c9fd6a22b",
+    "backend/src/ophira_backend/policy.py": "31c81c3eb76561840b90777c40449db1bacceda626bdaadf8b4bd9e2756cb77c",
+    "backend/src/ophira_backend/presentation_tools.py": "c7bf1657dc1d6df2cc312a2313ca8c25ee49b5cb0751e6d7175f1da86608fcd0",
+    "backend/src/ophira_backend/providers.py": "5f4287865e5fb944b7b47e6db567f89388e8b8b668729b90864e406214db51de",
+    "backend/src/ophira_backend/push_service.py": "1dd405d2d71bccede19f85fe057f3882434a1432596aa8d8a1e8f640b6ca69eb",
+    "backend/src/ophira_backend/push_store.py": "d31e9ae6f5327cd2d3da7e0926f8c3ebecbfda62eff387634cb85e81a09e1e8a",
+    "backend/src/ophira_backend/push_transport.py": "5d9e424b267632f23349c5eee5c52cb5b1377b3d2d90b43442d11cff48cca2c9",
+    "backend/src/ophira_backend/run_accounting.py": "560ff1a1a3dedef651f7b4f86a3bc5b8b5d2648f1e1d322c08b55c005b8fb21e",
+    "backend/src/ophira_backend/runs.py": "7ca5e9638b9013f0033c1582e325effe5d661bbb9b1a6d72b91f7a92d8b1913d",
+    "backend/src/ophira_backend/scheduler.py": "e4e2d8c3eba3acc0949ed6b102e9dc8472e723a5c464df67d54a5df66e0653e2",
+    "backend/src/ophira_backend/sdk_adapter.py": "80dd9e4304547281ec938d87b59527c683845f9a21c3b07697e5cd66998b1fbc",
+    "backend/src/ophira_backend/skills.py": "097b5fda2caf7f782c7a2c9e868a9694504f45f0c906c7ae01d53f4316c0fa56",
+    "backend/src/ophira_backend/source_receipts.py": "cbedec2b7fe4030219c2739103a7eff06ff3fa6310a18f390eb8721da13d4a29",
+    "backend/src/ophira_backend/storage.py": "b19fae9e453c84f9b633f9147b3b0df3f9e0739e47403fe7066af374a8cba827",
+    "backend/src/ophira_backend/task_experience.py": "2bcf3a573204e9d897571426a56390c159f602cd088c182b4e90e24b144d4a84",
+    "backend/src/ophira_backend/task_experience_routes.py": "162375320a42d9d01f2dace4a30bb4baf1e3a1206022aec3cbb128fb0b2b80d1",
+    "backend/src/ophira_backend/telemetry.py": "0b95c23d6b4ae06731fcef2e3753b2033dc97ba75b2d146172cdfe547a0e7e76",
+    "backend/src/ophira_backend/templates.py": "124af136f77f25bdef10a9eacf8e6eb0525c00c48b800cb417f6108cedbe1342",
+    "backend/src/ophira_backend/untrusted.py": "d2fa35e548e7c9c26aab26f3373f3e6baee43983d8155add74f050a4c086e30a",
+    "backend/src/ophira_backend/web_tools.py": "2e67c04d00c59001b8598566bcc0938829f47c08cc7a4743769808fd3ddffeab",
+    "backend/scripts/benchmark_control_plane.py": "8ac443994e435b5ca4a7271b72c0448666fc9065b0adfd0db69619a035ed50f2"
+  },
+  "source_unchanged_during_measurement": true,
+  "acceptance_eligible": true,
+  "passed": true,
+  "finished_at": "2026-09-06T05:16:30.084509+00:00",
+  "raw_samples_file": "samples.jsonl",
+  "raw_samples_sha256": "468d94882ceccfccaa04a9d58577d1862a9471ee0abb68819afcadcdd5eaf433"
+}

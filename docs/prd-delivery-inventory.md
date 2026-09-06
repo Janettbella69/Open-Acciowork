@@ -50,7 +50,7 @@
 | §4.12 事件 | deferred：产物更新、证据/决策/记忆和 schedule/preflight 细分事件 |
 | §3.9 / §4.10 | delivered：自动调度跨进程抢占与事件汇总恢复；deferred：其余事件故障矩阵、Bash 修改恢复、CPU/内存/进程/输出限制 |
 | §3.9 数据主权 | deferred：项目/会话/凭据的完整授权导出与删除（记忆已交付）；恢复策略及 UI |
-| §3.9 性能 | deferred：Run 创建 P95 < 500ms，queued/started < 2s，取消 < 2s 的实测报告 |
+| §3.9 性能 | delivered：本地ASGI单/4并发各100样本，创建/首事件持久化/离线task取消P95基线；deferred：真实SDK进程、网络/SSE运输、多worker与生产负载验收 |
 | §3.9 / §3.10 | deferred：按 Provider/model/Skill/tool 的指标汇总、业务成功指标、区域与数据流披露 |
 | §3.11 / §6.6 | deferred：当前 L2 基线、人亲自标注的 gold、judge 校准与 TPR/TNR 门槛；不能由 AI 伪造标注 |
 | 教材审计 / CLAUDE.md | delivered：有界 PDF/图片 Markdown 伴随文件、正确可选本地 PaddleOCRVL 适配、pypdf/Tesseract 明确降级、缺页/失败/截断提示与上传原件 Read 门禁；deferred：真实 VL 识别与版式质量、TextIn 坐标、生产解码容器和 OS 资源隔离；当前未安装 VL 模型或 Tesseract |
@@ -209,3 +209,24 @@ SSE精确序号回放和会话续接均通过，missing列表为空，Web未降�
 实际启动被自动审批审查拒绝，原因是缺少向 DeepSeek 发送本地 Skill/上下文和合成
 fixture 的明确授权。已请求批准；`cashflow-e2e-blocked-20260906T051241821334Z` 记录
 `execution_started=false`，没有模型开销，也没有把未执行验收标为通过。
+
+## 2026-09-05：本地控制面性能基线
+
+[测量合同与结果](control-plane-performance.md)，原始归档
+`evals/reports/control-plane-20260906T051626Z/`。实际FastAPI中间件/路由、FileLedger、
+13包SkillRegistry与RunManager；只将模型运行替换成显式离线等待任务。正式样本单
+并发100、4并发100，各另留10个预热；220个原始样本零失败，测量期间源码指纹不变。
+
+| 正式P95 / ms | 单并发 | 4并发 | PRD门槛 |
+|---|---:|---:|---:|
+| 创建API | 11.158 | 42.108 | <500 |
+| 首排队/启动事件持久化 | 9.758 | 35.081 | <2000 |
+| 离线任务取消生效 | 4.272 | 15.281 | <2000 |
+
+根代理独立复算全部原始时间公式、12个P95及归档SHA-256，均与报告一致。
+测量器11项回归和Ruff通过，覆盖完整生命周期、时间点、失败分母与异常归档留存。
+仅一次正式基线；不调整阈值、不暂停同机负载、不重复选取最快报告。
+
+边界：ASGI进程内运输、local_only、每组一个增长中的项目、不启动lifespan后台服务；
+没有SDK/模型/Provider、socket/TLS/代理/SSE客户端、多worker或生产负载。
+首事件持久化不等于客户端已收到；离线task退出不等于SDK子进程中断。相应验收继续开放。
