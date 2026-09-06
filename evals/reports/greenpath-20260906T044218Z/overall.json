@@ -1,0 +1,13 @@
+{
+  "provider": "deepseek",
+  "rounds_requested": 3,
+  "all_passed": false,
+  "generated_at": "2026-09-06T04:42:18.329343+00:00",
+  "summaries": [
+    {
+      "round": 1,
+      "passed": false,
+      "error": "Client error '403 Forbidden' for url 'http://greenpath/api/projects'\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/403"
+    }
+  ]
+}

@@ -110,6 +110,11 @@ npm run build
 The full PRD delivery inventory, including unimplemented and externally unverified
 requirements, is tracked in [`docs/prd-delivery-inventory.md`](docs/prd-delivery-inventory.md).
 
+- The native durable-approval path passed three consecutive real DeepSeek Green Path
+  rounds on 2026-09-05 (local time), archived at
+  `evals/reports/greenpath-20260906T044246Z/`. This includes same-Run deferred tools,
+  denial followed by continuation, exact SSE replay, and conversation resume.
+
 - The current nine-case DeepSeek Provider contract matrix was rerun against the real endpoint on
   2026-09-04 with Claude Agent SDK 0.2.143: text streaming, served-model identity,
   file tools, Bash, MCP, Plugin Skill discovery, and native WebSearch passed. Vision

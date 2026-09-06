@@ -161,6 +161,23 @@ Browser 插件运行时引用已不存在的版本路径，连接失败；没有
 - 固定SDK 0.2.143的4个真实CLI离线集成场景通过并归档至
   `evals/reports/native-approval-20260905/`；另有真实两个spawn进程争用审批/消费测试。
 
-真实 DeepSeek Green Path 正在单独重验，最终结果与边界另行记录。真实手机浏览器验收
+代码提交：`96d8062`。真实 DeepSeek Green Path 已完成下面的三轮重验。真实手机浏览器验收
 尝试返回 `No browser is available`，Browser列表为空；没有绕过工具边界或声称目视通过。
 原生手机推送、外部Push服务、系统防休眠、长期运行及其余 deferred 继续保留在全量目标中。
+
+### 同日真实 DeepSeek Green Path 三连过
+
+归档：`evals/reports/greenpath-20260906T044246Z/`（UTC日期09-06，当地09-05）。
+固定 SDK 0.2.143，服务模型 `deepseek-v4-pro`，三轮全部 passed；每轮13个SDK turn，
+Read/Web/Skill/MCP/Bash/Write/Edit、持久审批拒绝后继续、同 Run/session 来源收据、
+SSE精确序号回放和会话续接均通过，missing列表为空，Web未降级。
+三轮主任务SDK标价估算分别为1.781746、1.763105、1.778922美元；这不是厂商实际账单，
+也不含另行会话续接Run的费用。审批恢复没有重置每个逻辑Run的累计用量。
+
+命令：`PYTHONPATH=backend/src .venv/bin/python -u backend/scripts/run_green_path.py --provider deepseek --rounds 3 --budget-usd 2 --timeout-s 900`。
+初次调用被旧测试Host `greenpath` 的本地来源检查拒绝，尚未创建项目或调用模型；失败记录
+保留在 `greenpath-20260906T044218Z/`。修正验收脚本为合法loopback Host后完成上述三连过，
+没有放宽应用鉴权、改写prompt或降低验收器。
+
+这些是合成商业材料上的真实模型/工具路径，不是真实商业Connector外发、Deep Research
+质量、手机HTTPS/Push、生产多租户或人工gold/judge校准验收；对应deferred继续开放。

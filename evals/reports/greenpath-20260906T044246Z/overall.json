@@ -1,0 +1,56 @@
+{
+  "provider": "deepseek",
+  "rounds_requested": 3,
+  "all_passed": true,
+  "generated_at": "2026-09-06T04:48:32.616273+00:00",
+  "summaries": [
+    {
+      "round": 1,
+      "run_id": "run_ed44bd5c148440368bea7dd775d02df1",
+      "passed": true,
+      "verdict_missing": [],
+      "project_missing": [],
+      "sse_replay_ok": true,
+      "resume_ok": true,
+      "resume_error": null,
+      "web_degraded": false,
+      "cost_usd_list_price": 1.781746,
+      "num_turns": 13,
+      "served_models": [
+        "deepseek-v4-pro"
+      ]
+    },
+    {
+      "round": 2,
+      "run_id": "run_db4a91058cce4e439d8d614ac92aa38e",
+      "passed": true,
+      "verdict_missing": [],
+      "project_missing": [],
+      "sse_replay_ok": true,
+      "resume_ok": true,
+      "resume_error": null,
+      "web_degraded": false,
+      "cost_usd_list_price": 1.7631050000000004,
+      "num_turns": 13,
+      "served_models": [
+        "deepseek-v4-pro"
+      ]
+    },
+    {
+      "round": 3,
+      "run_id": "run_9647fde01a25465faf8a432bb57b2477",
+      "passed": true,
+      "verdict_missing": [],
+      "project_missing": [],
+      "sse_replay_ok": true,
+      "resume_ok": true,
+      "resume_error": null,
+      "web_degraded": false,
+      "cost_usd_list_price": 1.7789220000000001,
+      "num_turns": 13,
+      "served_models": [
+        "deepseek-v4-pro"
+      ]
+    }
+  ]
+}
