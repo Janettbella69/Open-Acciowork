@@ -15,6 +15,7 @@ from typing import Any
 from .agent_core import (
     DEFAULT_AGENT_PROMPT,
     SECURITY_PREAMBLE,
+    SKILL_PROPOSAL_GUIDANCE,
     assemble_default_prompt,
     assemble_system_prompt,
     read_core_file,
@@ -145,6 +146,7 @@ def _agent_core_material(ledger: FileLedger, run: RunRecord) -> dict[str, Any]:
             "kind": "default",
             "security_preamble": SECURITY_PREAMBLE,
             "agent_prompt": DEFAULT_AGENT_PROMPT,
+            "skill_proposal_guidance": SKILL_PROPOSAL_GUIDANCE,
             "mode_rules": mode_rules(
                 run.mode,
                 standing_intent=run.standing_intent_id is not None,
@@ -168,6 +170,7 @@ def _agent_core_material(ledger: FileLedger, run: RunRecord) -> dict[str, Any]:
             "revision": agent.revision,
         },
         "security_preamble": SECURITY_PREAMBLE,
+        "skill_proposal_guidance": SKILL_PROPOSAL_GUIDANCE,
         "mode_rules": mode_rules(
             run.mode,
             standing_intent=run.standing_intent_id is not None,

@@ -92,6 +92,7 @@ from .providers import (
     successful_preflight,
 )
 from .run_accounting import cumulative_result, latest_result
+from .skill_proposals import SkillProposalService
 from .skills import SkillRegistry, SkillRuntimeView
 from .source_receipts import (
     attach_source_receipts,
@@ -249,6 +250,7 @@ class ClaudeAgentRuntime:
         task_experiences=None,
         access=None,
         project_events: ProjectEventProjector | None = None,
+        skill_proposals: SkillProposalService | None = None,
     ) -> None:
         from .auth import ProjectAccessStore
 
@@ -267,6 +269,9 @@ class ClaudeAgentRuntime:
         self.notifications = notifications
         self.task_experiences = task_experiences
         self.access = access or ProjectAccessStore(settings.data_dir / "auth" / "projects")
+        self.skill_proposals = skill_proposals or SkillProposalService(
+            ledger, self.skills, access=self.access, auth_mode=settings.auth_mode,
+        )
         self.connectors = connectors
         self.policy = policy or OrgPolicyStore(settings.data_dir / "org" / "policy.json")
         self.commercial_actions = commercial_actions or CommercialActionService(
@@ -775,6 +780,7 @@ class ClaudeAgentRuntime:
             connectors=self.connectors,
             commercial_actions=self.commercial_actions,
             project_events=self.project_events,
+            skill_proposals=self.skill_proposals,
         )
         if self.intents is not None and self.notifications is not None:
             from .automation_tools import build_automation_mcp_server

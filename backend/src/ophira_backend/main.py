@@ -201,6 +201,8 @@ from .scheduler import (
     new_schedule,
 )
 from .sdk_adapter import ClaudeAgentRuntime
+from .skill_proposal_routes import register_skill_proposal_routes
+from .skill_proposals import SkillProposalService
 from .skills import (
     MAX_SKILL_ARCHIVE_BYTES,
     SkillConflictError,
@@ -330,6 +332,9 @@ def create_app(
     )
     providers = ProviderRegistry(settings)
     skills = SkillRegistry(settings.capability_plugin_dir, settings.data_dir / "skills")
+    skill_proposals = SkillProposalService(
+        ledger, skills, access=project_access, auth_mode=settings.auth_mode,
+    )
     notifications = NotificationStore(settings.data_dir / "notifications")
     companion_push = PushDeliveryService(
         settings, PushStore(settings.data_dir / "companion-push"),
@@ -367,6 +372,7 @@ def create_app(
         task_experiences=task_experiences,
         access=project_access,
         project_events=project_events,
+        skill_proposals=skill_proposals,
     )
     runs = RunManager(
         ledger,
@@ -401,6 +407,7 @@ def create_app(
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         await runs.recover_interrupted()
+        skill_proposals.recover()
         feedback.reconcile_terminal(ledger)
         await channel_delivery.start()
         try:
@@ -431,6 +438,7 @@ def create_app(
     application.state.permissions = permissions
     application.state.providers = providers
     application.state.skills = skills
+    application.state.skill_proposals = skill_proposals
     application.state.runtime = runtime
     application.state.runs = runs
     application.state.scheduler = scheduler
@@ -547,6 +555,11 @@ def create_app(
             PrincipalRole.ADMIN,
         }
 
+    register_skill_proposal_routes(
+        application, proposals=skill_proposals, ledger=ledger, skills=skills,
+        require_project_authorization=require_project_authorization,
+        project_is_visible=project_is_visible,
+    )
     register_feedback_routes(
         application, feedback=feedback, ledger=ledger, skills=skills,
         require_project_authorization=require_project_authorization,

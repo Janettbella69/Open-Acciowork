@@ -208,7 +208,7 @@ def compact_skill(skill) -> dict:
 
 def registry_inventory_unlocked(registry: SkillRegistry) -> tuple[dict, list[dict]]:
     """Inspect every historical revision and every live application Skill."""
-    enabled, current = registry._registry_state_unlocked()
+    canonical = registry._canonical_state_unlocked()
     live = registry._list_unlocked()
     history, scans = [], []
     rows, directories = tree_inventory(registry.versions_dir)
@@ -237,8 +237,12 @@ def registry_inventory_unlocked(registry: SkillRegistry) -> tuple[dict, list[dic
             scans.append({"scope": "application", **compact_skill(skill), "ok": review.ok})
             if not review.ok:
                 raise BackupError("application_scan_failed")
+    addresses = {(item["id"], item["content_hash"]) for item in history}
+    for receipt in canonical.get("publication_receipts", {}).values():
+        if (receipt["skill_id"], receipt["content_hash"]) not in addresses:
+            raise BackupError("publication_history_missing")
     return {
-        "canonical_state": {"schema_version": 1, "enabled": enabled, "current": current},
+        "canonical_state": canonical,
         "skills": sorted(map(compact_skill, live), key=lambda row: row["id"]),
         "history": history,
     }, scans
@@ -503,16 +507,25 @@ def check_rollback(target: Path) -> list[dict]:
         result = registry.rollback(identifier, version="1.0.0")
         if result.version != "1.0.0" or result.enabled is not enabled:
             raise BackupError("rollback_state_mismatch")
-        expected = {**canonical_before, "current": {
-            **canonical_before["current"], identifier: result.content_hash,
-        }}
+        expected = {
+            **canonical_before, "schema_version": 2,
+            "current": {**canonical_before["current"], identifier: result.content_hash},
+            "generations": {
+                **canonical_before.get("generations", {}),
+                identifier: canonical_before.get("generations", {}).get(identifier, 0) + 1,
+            },
+            "publication_receipts": canonical_before.get("publication_receipts", {}),
+        }
         if parse_json(registry.registry_state_path.read_bytes()) != expected:
             raise BackupError("rollback_canonical_mismatch")
         registry.rollback(identifier, content_hash=before.content_hash)
-        if parse_json(registry.registry_state_path.read_bytes()) != canonical_before:
+        expected["current"][identifier] = before.content_hash
+        expected["generations"][identifier] += 1
+        if parse_json(registry.registry_state_path.read_bytes()) != expected:
             raise BackupError("rollback_canonical_mismatch")
         results.append({"id": identifier, "reviewed": True, "enabled_preserved": enabled,
                         "canonical_preserved": True,
+                        "generation_advanced": 2,
                         "from": "2.0.0", "to": "1.0.0", "reset_to": "2.0.0"})
     return results
 

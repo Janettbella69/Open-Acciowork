@@ -766,6 +766,36 @@ class SkillVersion(SkillVersionResponse):
     path: str = Field(min_length=1, max_length=4_096)
 
 
+class SkillSelectionToken(APIModel):
+    """A complete selection revision, including changes away and back again."""
+
+    model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
+
+    current_hash: str | None = Field(pattern=r"^[0-9a-f]{64}$")
+    enabled: bool | None
+    generation: int = Field(ge=0)
+
+
+class SkillPublicationReceipt(APIModel):
+    """Durable proof that one reviewed proposal committed its selection once."""
+
+    model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
+
+    proposal_id: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")
+    skill_id: str = Field(pattern=r"^ophira-tenant:[a-z0-9][a-z0-9_-]{0,63}$")
+    content_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    review_revision: int = Field(ge=1)
+    reviewer_binding: str = Field(pattern=r"^[0-9a-f]{64}$")
+    previous_selection: SkillSelectionToken
+    published_at: datetime
+
+    @model_validator(mode="after")
+    def timestamp_has_timezone(self) -> SkillPublicationReceipt:
+        if self.published_at.utcoffset() is None:
+            raise ValueError("publication timestamp must include a timezone")
+        return self
+
+
 class SkillRollbackRequest(APIModel):
     version: str | None = Field(default=None, min_length=1, max_length=100)
     content_hash: str | None = Field(

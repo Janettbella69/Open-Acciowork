@@ -11,13 +11,20 @@ import stat
 import tempfile
 import threading
 import zipfile
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import IO, Any, Literal
 
-from .models import SkillCheck, SkillTestResult, SkillVersion
+from .models import (
+    SkillCheck,
+    SkillPublicationReceipt,
+    SkillSelectionToken,
+    SkillTestResult,
+    SkillVersion,
+    utc_now,
+)
 
 
 class SkillNotFoundError(KeyError):
@@ -59,6 +66,7 @@ MAX_SKILL_UNPACKED_BYTES = 5_000_000
 # version. New tenant publications fail closed at these supply-chain quotas.
 MAX_TENANT_SKILL_VERSIONS_PER_SKILL = 32
 MAX_TENANT_SKILL_HISTORY_BYTES = 256 * 1024 * 1024
+MAX_SKILL_PUBLICATION_RECEIPTS = 512
 # Runtime views are reproducible caches backed by immutable history, so inactive
 # entries may be reclaimed. Active SDK sessions hold cross-process shared leases.
 MAX_RUNTIME_SKILL_CACHE_ENTRIES = 32
@@ -67,6 +75,7 @@ TENANT_PLUGIN_NAMESPACE = "ophira-tenant"
 SKILL_NAME_PATTERN = re.compile(r"[a-z0-9][a-z0-9_-]{0,63}")
 PLUGIN_NAMESPACE_PATTERN = re.compile(r"[a-z0-9][a-z0-9-]{0,99}")
 CONTENT_HASH_PATTERN = re.compile(r"[0-9a-f]{64}")
+PROPOSAL_ID_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,127}")
 
 
 @dataclass(frozen=True)
@@ -214,8 +223,17 @@ class SkillRegistry:
             raise SkillIntegrityError("Skill registry state must not be a symlink")
         if not path.exists():
             return {}
+
+        def unique_pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+            result: dict[str, Any] = {}
+            for key, value in pairs:
+                if key in result:
+                    raise ValueError("Duplicate Skill state field")
+                result[key] = value
+            return result
+
         try:
-            value = json.loads(path.read_text(encoding="utf-8"))
+            value = json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=unique_pairs)
         except (OSError, ValueError) as exc:
             raise SkillIntegrityError("Skill registry state is unreadable") from exc
         if not isinstance(value, dict):
@@ -258,44 +276,145 @@ class SkillRegistry:
         return current
 
     def _write_registry_state_unlocked(
-        self, enabled: dict[str, bool], current: dict[str, str]
+        self,
+        enabled: dict[str, bool],
+        current: dict[str, str],
+        *,
+        receipt: SkillPublicationReceipt | None = None,
     ) -> None:
-        self._atomic_json_write(
-            self.registry_state_path,
-            {
-                "schema_version": 1,
-                "enabled": enabled,
-                "current": current,
-            },
-        )
+        """Commit selections, generations and publication proof in one replace.
+
+        Callers hold _exclusive. Existing receipts are append-only, including for
+        ordinary install/enable/rollback operations; a no-op never advances CAS.
+        """
+        before = self._canonical_state_unlocked()
+        state = {
+            "schema_version": 2,
+            "enabled": dict(enabled),
+            "current": dict(current),
+            "generations": dict(before.get("generations", {})),
+            "publication_receipts": dict(before.get("publication_receipts", {})),
+        }
+        changed = {
+            key for key in set(enabled) | set(current) | set(before["enabled"])
+            | set(before["current"])
+            if self._selection_values(key, before) != self._selection_values(key, state)
+        }
+        for key in changed:
+            state["generations"][key] = state["generations"].get(key, 0) + 1
+        if receipt is not None:
+            if receipt.proposal_id in state["publication_receipts"]:
+                raise SkillConflictError("Skill publication receipt already exists")
+            if len(state["publication_receipts"]) >= MAX_SKILL_PUBLICATION_RECEIPTS:
+                raise SkillConflictError("Skill publication receipt quota exceeded")
+            if receipt.skill_id not in changed:
+                state["generations"][receipt.skill_id] = (
+                    state["generations"].get(receipt.skill_id, 0) + 1
+                )
+            state["publication_receipts"][receipt.proposal_id] = receipt.model_dump(mode="json")
+        self._validate_canonical_state(state)
+        if changed or receipt is not None:
+            self._atomic_json_write(self.registry_state_path, state)
+
+    @staticmethod
+    def _selection_values(skill_id: str, state: dict[str, Any]) -> tuple[str | None, bool | None]:
+        current = state["current"].get(skill_id)
+        default_enabled = (
+            False if current is not None else None
+        ) if skill_id.startswith(f"{TENANT_PLUGIN_NAMESPACE}:") else True
+        return current, state["enabled"].get(skill_id, default_enabled)
+
+    def _validate_canonical_state(self, state: dict[str, Any]) -> dict[str, Any]:
+        version = state.get("schema_version")
+        if type(version) is not int or version not in {1, 2}:
+            raise SkillIntegrityError("Skill registry state has an unsupported schema version")
+        keys = {"schema_version", "enabled", "current"}
+        if version == 2:
+            keys |= {"generations", "publication_receipts"}
+        if set(state) != keys:
+            raise SkillIntegrityError("Skill registry state has an invalid schema")
+        if any(not isinstance(state[key], dict) for key in keys - {"schema_version"}):
+            raise SkillIntegrityError("Skill registry state selections must be objects")
+        self._validate_enabled_state(state["enabled"])
+        self._validate_current_state(state["current"])
+        if version == 2:
+            try:
+                for key in state["enabled"] | state["generations"]:
+                    self._parse_skill_id(key)
+            except (SkillIdentifierError, AttributeError, TypeError) as exc:
+                raise SkillIntegrityError(
+                    "Skill registry state contains an invalid Skill ID"
+                ) from exc
+            if any(type(value) is not int or value < 0
+                   for value in state["generations"].values()):
+                raise SkillIntegrityError(
+                    "Skill selection generations must be nonnegative integers"
+                )
+            receipts = state["publication_receipts"]
+            if len(receipts) > MAX_SKILL_PUBLICATION_RECEIPTS:
+                raise SkillIntegrityError("Skill publication receipt quota exceeded")
+            for key, value in receipts.items():
+                try:
+                    receipt = SkillPublicationReceipt.model_validate_json(json.dumps(value))
+                except (ValueError, TypeError) as exc:
+                    raise SkillIntegrityError("Skill publication receipt is invalid") from exc
+                if key != receipt.proposal_id:
+                    raise SkillIntegrityError("Skill publication receipt key does not match its ID")
+                if receipt.previous_selection.generation >= state["generations"].get(
+                    receipt.skill_id, 0
+                ):
+                    raise SkillIntegrityError("Skill publication receipt has a future selection")
+        return state
+
+    def _canonical_state_unlocked(self) -> dict[str, Any]:
+        """Read either canonical schema without upgrading a read-only caller."""
+        if self.registry_state_path.exists() or self.registry_state_path.is_symlink():
+            return self._validate_canonical_state(self._read_mapping(self.registry_state_path))
+        # The sole legacy migration remains a combined, atomic schema-1 write.
+        state = {
+            "schema_version": 1,
+            "enabled": self._validate_enabled_state(self._read_mapping(self.state_path)),
+            "current": self._validate_current_state(self._read_mapping(self.current_path)),
+        }
+        self._atomic_json_write(self.registry_state_path, state)
+        return state
 
     def _registry_state_unlocked(self) -> tuple[dict[str, bool], dict[str, str]]:
-        if self.registry_state_path.exists() or self.registry_state_path.is_symlink():
-            state = self._read_mapping(self.registry_state_path)
-            if set(state) != {"schema_version", "enabled", "current"}:
-                raise SkillIntegrityError("Skill registry state has an invalid schema")
-            if type(state["schema_version"]) is not int or state["schema_version"] != 1:
-                raise SkillIntegrityError(
-                    "Skill registry state has an unsupported schema version"
-                )
-            enabled_value = state["enabled"]
-            current_value = state["current"]
-            if not isinstance(enabled_value, dict) or not isinstance(current_value, dict):
-                raise SkillIntegrityError(
-                    "Skill registry state selections must be objects"
-                )
-            return (
-                self._validate_enabled_state(enabled_value),
-                self._validate_current_state(current_value),
-            )
+        state = self._canonical_state_unlocked()
+        return dict(state["enabled"]), dict(state["current"])
 
-        # One-time migration from the former two-file state. Publishing the
-        # combined document is atomic; legacy files remain untouched as a
-        # recovery aid and are ignored after this point.
-        enabled = self._validate_enabled_state(self._read_mapping(self.state_path))
-        current = self._validate_current_state(self._read_mapping(self.current_path))
-        self._write_registry_state_unlocked(enabled, current)
-        return enabled, current
+    def _selection_token_unlocked(
+        self, skill_id: str, state: dict[str, Any]
+    ) -> SkillSelectionToken:
+        content_hash, enabled = self._selection_values(skill_id, state)
+        if not skill_id.startswith(f"{TENANT_PLUGIN_NAMESPACE}:"):
+            skill = next((item for item in self._collect_application_unlocked(state["enabled"])
+                          if item.id == skill_id), None)
+            if skill is None:
+                content_hash, enabled = None, state["enabled"].get(skill_id)
+            else:
+                content_hash, enabled = skill.content_hash, skill.enabled
+        return SkillSelectionToken(current_hash=content_hash, enabled=enabled,
+                                   generation=state.get("generations", {}).get(skill_id, 0))
+
+    def selection_token(self, skill_id: str) -> SkillSelectionToken:
+        self._parse_skill_id(skill_id)
+        with self._exclusive():
+            return self._selection_token_unlocked(skill_id, self._canonical_state_unlocked())
+
+    @staticmethod
+    def _validate_proposal_id(proposal_id: str) -> None:
+        if not isinstance(proposal_id, str) or not PROPOSAL_ID_PATTERN.fullmatch(proposal_id):
+            raise SkillIdentifierError("Skill proposal ID is invalid")
+
+    def publication_receipt(self, proposal_id: str) -> SkillPublicationReceipt | None:
+        self._validate_proposal_id(proposal_id)
+        with self._exclusive():
+            receipts = self._canonical_state_unlocked().get("publication_receipts", {})
+            value = receipts.get(proposal_id)
+            return None if value is None else SkillPublicationReceipt.model_validate_json(
+                json.dumps(value)
+            )
 
     def _namespace(self) -> str:
         manifest = self.plugin_dir / ".claude-plugin" / "plugin.json"
@@ -636,15 +755,27 @@ class SkillRegistry:
         target.parent.mkdir(parents=True, exist_ok=True)
         with tempfile.TemporaryDirectory(prefix=".archive-", dir=self.staging_dir) as temporary:
             candidate = Path(temporary) / "package"
-            shutil.copytree(source, candidate, symlinks=False)
-            copied_hash = self._hash_directory(candidate)
-            if copied_hash != skill.content_hash:
-                raise SkillIntegrityError("Skill changed while being archived")
-            metadata = self._frontmatter(candidate / "SKILL.md")
-            if metadata["name"] != skill.name:
-                raise SkillIntegrityError("Skill package directory/name mismatch")
-            os.replace(candidate, target)
-            self._make_read_only(target)
+            try:
+                shutil.copytree(source, candidate, symlinks=False)
+                # copytree preserves a frozen source's 0555 mode. Moving a
+                # directory to a different parent needs write permission on it;
+                # change only this private copy, then seal the published tree.
+                candidate.chmod(0o700)
+                copied_hash = self._hash_directory(candidate)
+                if copied_hash != skill.content_hash:
+                    raise SkillIntegrityError("Skill changed while being archived")
+                metadata = self._frontmatter(candidate / "SKILL.md")
+                if metadata["name"] != skill.name:
+                    raise SkillIntegrityError("Skill package directory/name mismatch")
+                os.replace(candidate, target)
+                self._make_read_only(target)
+            finally:
+                # An interrupted copy can already contain sealed subdirectories.
+                # Restore permissions only on the unpublished, owned staging tree
+                # so TemporaryDirectory can clean it without touching the source.
+                if candidate.is_dir() and not candidate.is_symlink():
+                    for directory, _children, _files in os.walk(candidate, followlinks=False):
+                        Path(directory).chmod(0o700)
         return self._skill_from_history_unlocked(
             skill.namespace,
             skill.name,
@@ -716,6 +847,145 @@ class SkillRegistry:
     def test(self, skill_id: str) -> SkillTestResult:
         """Run deterministic review checks without any model call."""
         return self._test_skill(self.get(skill_id))
+
+    def _candidate_skill(self, package_dir: Path) -> SkillVersion:
+        """Read bounded candidate metadata without following links or publishing."""
+        directory = Path(os.path.abspath(package_dir))
+        if any(path.is_symlink() for path in (directory, *directory.parents)):
+            raise ValueError("Skill candidate path contains a symbolic link")
+        if not directory.is_dir():
+            raise ValueError("Skill candidate must be a directory")
+        pending = [directory]
+        paths: set[str] = set()
+        total = 0
+        skill_files: list[str] = []
+        digest = hashlib.sha256()
+        contents: dict[str, bytes] = {}
+        while pending:
+            with os.scandir(pending.pop()) as entries:
+                for entry in entries:
+                    relative = Path(entry.path).relative_to(directory).as_posix()
+                    normalized = relative.casefold()
+                    if "\\" in relative or len(relative) > 1024 or normalized in paths:
+                        raise ValueError("Skill candidate contains unsafe or duplicate paths")
+                    paths.add(normalized)
+                    if len(paths) > MAX_SKILL_ARCHIVE_ENTRIES:
+                        raise ValueError("Skill candidate contains too many entries")
+                    metadata = entry.stat(follow_symlinks=False)
+                    if stat.S_ISDIR(metadata.st_mode):
+                        pending.append(Path(entry.path))
+                        continue
+                    if not stat.S_ISREG(metadata.st_mode):
+                        raise ValueError("Skill candidate contains a symbolic link or special file")
+                    if metadata.st_size > MAX_SKILL_UNPACKED_BYTES - total:
+                        raise ValueError("Skill candidate exceeds unpacked byte limit")
+                    flags = os.O_RDONLY | os.O_NONBLOCK | getattr(os, "O_NOFOLLOW", 0)
+                    descriptor = os.open(entry.path, flags)
+                    with os.fdopen(descriptor, "rb", buffering=0) as handle:
+                        if not stat.S_ISREG(os.fstat(handle.fileno()).st_mode):
+                            raise ValueError("Skill candidate contains a special file")
+                        content = handle.read(MAX_SKILL_UNPACKED_BYTES - total + 1)
+                    total += len(content)
+                    if total > MAX_SKILL_UNPACKED_BYTES:
+                        raise ValueError("Skill candidate exceeds unpacked byte limit")
+                    contents[relative] = content
+                    if entry.name == "SKILL.md":
+                        skill_files.append(relative)
+        if skill_files != ["SKILL.md"]:
+            raise ValueError("Skill candidate must contain exactly one root SKILL.md")
+        for relative, content in sorted(contents.items()):
+            digest.update(relative.encode())
+            digest.update(b"\0")
+            digest.update(content)
+            digest.update(b"\0")
+        metadata = self._frontmatter(directory / "SKILL.md")
+        name = metadata["name"]
+        if not SKILL_NAME_PATTERN.fullmatch(name):
+            raise ValueError("Skill candidate name is invalid")
+        return SkillVersion(
+            id=f"{TENANT_PLUGIN_NAMESPACE}:{name}", namespace=TENANT_PLUGIN_NAMESPACE,
+            name=name, description=metadata["description"],
+            version=metadata.get("version", "0.0.0"), content_hash=digest.hexdigest(),
+            source="tenant", enabled=False, path=str(directory / "SKILL.md"),
+        )
+    def inspect_candidate(self, package_dir: Path) -> tuple[SkillVersion, SkillTestResult]:
+        """Inspect a host-frozen package without changing any registry state.
+
+        Candidate storage and ownership belong to the host proposal service. No
+        candidate is discoverable or executable until publication commits.
+        """
+        candidate = self._candidate_skill(package_dir)
+        review = self._test_skill(candidate)
+        if self._hash_directory(Path(candidate.path).parent) != candidate.content_hash:
+            raise SkillConflictError("Skill candidate changed during inspection")
+        return candidate, review
+
+    def publish_reviewed_candidate(
+        self,
+        package_dir: Path,
+        *,
+        proposal_id: str,
+        content_hash: str,
+        review_revision: int,
+        reviewer_binding: str,
+        expected_token: SkillSelectionToken,
+        before_commit: Callable[[], None] | None = None,
+    ) -> SkillPublicationReceipt:
+        """CAS a reviewed candidate and its receipt in one canonical commit.
+
+        A receipt makes retries independent of the candidate files and of later
+        enable/rollback/install actions. The host can recheck authorization after
+        all package IO through before_commit; a committed retry bypasses it.
+        """
+        self._validate_proposal_id(proposal_id)
+        if type(review_revision) is not int or review_revision < 1:
+            raise ValueError("Skill review revision must be a positive integer")
+        if any(not isinstance(value, str) or not CONTENT_HASH_PATTERN.fullmatch(value)
+               for value in (content_hash, reviewer_binding)):
+            raise ValueError("Skill publication hashes must be lowercase SHA-256 digests")
+        if not isinstance(expected_token, SkillSelectionToken):
+            raise ValueError("Skill publication requires a selection token")
+        if before_commit is not None and not callable(before_commit):
+            raise ValueError("Skill publication commit guard must be callable")
+        expected_token = SkillSelectionToken.model_validate(expected_token.model_dump())
+        with self._exclusive():
+            state = self._canonical_state_unlocked()
+            receipts = state.get("publication_receipts", {})
+            if proposal_id in receipts:
+                receipt = SkillPublicationReceipt.model_validate_json(
+                    json.dumps(receipts[proposal_id])
+                )
+                if (receipt.content_hash != content_hash
+                        or receipt.review_revision != review_revision
+                        or receipt.reviewer_binding != reviewer_binding
+                        or receipt.previous_selection != expected_token):
+                    raise SkillConflictError("Skill publication receipt does not match review")
+                return receipt
+            if len(receipts) >= MAX_SKILL_PUBLICATION_RECEIPTS:
+                raise SkillConflictError("Skill publication receipt quota exceeded")
+            skill = self._candidate_skill(package_dir)
+            if self._selection_token_unlocked(skill.id, state) != expected_token:
+                raise SkillConflictError("Skill selection changed since review")
+            if skill.content_hash != content_hash:
+                raise SkillConflictError("Skill candidate does not match frozen content hash")
+            review = self._test_skill(skill)
+            if not review.ok:
+                failures = "; ".join(check.detail for check in review.checks
+                                     if check.status == "failed")
+                raise SkillConflictError(f"skill review failed: {failures}")
+            archived = self._publish_version_unlocked(skill)
+            receipt = SkillPublicationReceipt(
+                proposal_id=proposal_id, skill_id=skill.id, content_hash=archived.content_hash,
+                review_revision=review_revision, reviewer_binding=reviewer_binding,
+                previous_selection=expected_token, published_at=utc_now(),
+            )
+            enabled, current = dict(state["enabled"]), dict(state["current"])
+            enabled[skill.id] = False
+            current[skill.id] = archived.content_hash
+            if before_commit is not None:
+                before_commit()
+            self._write_registry_state_unlocked(enabled, current, receipt=receipt)
+            return receipt
 
     def _test_skill(self, skill: SkillVersion) -> SkillTestResult:
         skill_dir = Path(skill.path).parent

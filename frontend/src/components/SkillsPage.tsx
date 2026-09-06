@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   errorMessage,
   installSkill,
@@ -10,6 +10,7 @@ import {
 } from '../api/client'
 import type { SkillTestResult, SkillVersion } from '../api/types'
 import { useT } from '../i18n'
+import SkillProposalsPanel from './SkillProposalsPanel'
 import './skills-page.css'
 
 function initials(name: string): string {
@@ -28,14 +29,41 @@ export default function SkillsPage() {
   const [historyLoading, setHistoryLoading] = useState('')
   const [versions, setVersions] = useState<Record<string, SkillVersion[]>>({})
   const [rollingBack, setRollingBack] = useState('')
+  const [view, setView] = useState<'installed' | 'proposals'>('installed')
+  const [proposalsOpened, setProposalsOpened] = useState(false)
+  const active = useRef(false)
+  const listRevision = useRef(0)
+  const registryEpoch = useRef(0)
+
+  const refreshSkills = useCallback(async () => {
+    const revision = ++listRevision.current
+    try {
+      const items = await listSkills()
+      if (active.current && revision === listRevision.current) { setSkills(items); setError('') }
+    } catch (cause) {
+      if (active.current && revision === listRevision.current) setError(errorMessage(cause))
+      throw cause
+    }
+  }, [])
+
+  const published = useCallback(async () => {
+    if (!active.current) return
+    registryEpoch.current += 1
+    setVersions({})
+    setTestResults({})
+    setHistoryOpen('')
+    setHistoryLoading('')
+    setUpdating('')
+    setTesting('')
+    setRollingBack('')
+    await refreshSkills()
+  }, [refreshSkills])
 
   useEffect(() => {
-    let active = true
-    void listSkills()
-      .then((items) => { if (active) setSkills(items) })
-      .catch((loadError) => { if (active) setError(errorMessage(loadError)) })
-    return () => { active = false }
-  }, [])
+    active.current = true
+    void refreshSkills().catch(() => undefined)
+    return () => { active.current = false; listRevision.current += 1 }
+  }, [refreshSkills])
 
   const visibleSkills = useMemo(() => {
     const normalized = query.trim().toLowerCase()
@@ -46,28 +74,32 @@ export default function SkillsPage() {
   }, [query, skills])
 
   const toggleSkill = async (skill: SkillVersion) => {
+    const epoch = registryEpoch.current
+    const current = () => active.current && epoch === registryEpoch.current
     setUpdating(skill.id)
     setError('')
     try {
       const updated = await setSkillEnabled(skill.id, !skill.enabled)
-      setSkills((current) => current.map((item) => item.id === updated.id ? updated : item))
+      if (current()) setSkills((items) => items.map((item) => item.id === updated.id ? updated : item))
     } catch (toggleError) {
-      setError(errorMessage(toggleError))
+      if (current()) setError(errorMessage(toggleError))
     } finally {
-      setUpdating('')
+      if (current()) setUpdating('')
     }
   }
 
   const runSkillTest = async (skill: SkillVersion) => {
+    const epoch = registryEpoch.current
+    const current = () => active.current && epoch === registryEpoch.current
     setTesting(skill.id)
     setError('')
     try {
       const result = await testSkill(skill.id)
-      setTestResults((current) => ({ ...current, [skill.id]: result }))
+      if (current()) setTestResults((items) => ({ ...items, [skill.id]: result }))
     } catch (testError) {
-      setError(errorMessage(testError))
+      if (current()) setError(errorMessage(testError))
     } finally {
-      setTesting('')
+      if (current()) setTesting('')
     }
   }
 
@@ -76,32 +108,36 @@ export default function SkillsPage() {
       setHistoryOpen('')
       return
     }
+    const epoch = registryEpoch.current
+    const current = () => active.current && epoch === registryEpoch.current
     setHistoryOpen(skill.id)
     setHistoryLoading(skill.id)
     setError('')
     try {
       const items = await listSkillVersions(skill.id)
-      setVersions((current) => ({ ...current, [skill.id]: items }))
+      if (current()) setVersions((previous) => ({ ...previous, [skill.id]: items }))
     } catch (historyError) {
-      setError(errorMessage(historyError))
-      setHistoryOpen('')
+      if (current()) { setError(errorMessage(historyError)); setHistoryOpen('') }
     } finally {
-      setHistoryLoading('')
+      if (current()) setHistoryLoading('')
     }
   }
 
   const restoreVersion = async (skill: SkillVersion, contentHash: string) => {
+    const epoch = registryEpoch.current
+    const current = () => active.current && epoch === registryEpoch.current
     setRollingBack(contentHash)
     setError('')
     try {
       const updated = await rollbackSkill(skill.id, { content_hash: contentHash })
-      setSkills((current) => current.map((item) => item.id === updated.id ? updated : item))
+      if (!current()) return
+      setSkills((items) => items.map((item) => item.id === updated.id ? updated : item))
       const items = await listSkillVersions(skill.id)
-      setVersions((current) => ({ ...current, [skill.id]: items }))
+      if (current()) setVersions((previous) => ({ ...previous, [skill.id]: items }))
     } catch (rollbackError) {
-      setError(errorMessage(rollbackError))
+      if (current()) setError(errorMessage(rollbackError))
     } finally {
-      setRollingBack('')
+      if (current()) setRollingBack('')
     }
   }
 
@@ -112,9 +148,14 @@ export default function SkillsPage() {
         <header className="skills-header">
           <div className="skills-title-group"><p>{t('Runtime capability registry')}</p><h1 id="skills-page-heading">{t('Skills')}</h1></div>
           <div className="skills-view-switch" role="group" aria-label={t('Skill view')}>
-            <button type="button" data-active="true">{t('Installed')} <span>{skills.length}</span></button>
+            <button type="button" data-active={view === 'installed'} aria-pressed={view === 'installed'} onClick={() => {
+              setView('installed'); void refreshSkills().catch(() => undefined)
+            }}>{t('Installed')} <span>{skills.length}</span></button>
+            <button type="button" data-active={view === 'proposals'} aria-pressed={view === 'proposals'} onClick={() => {
+              setProposalsOpened(true); setView('proposals')
+            }}>{t('Proposals')}</button>
           </div>
-          <div className="skills-actions">
+          {view === 'installed' && <div className="skills-actions">
             <label className="skills-search">
               <span aria-hidden="true">⌕</span>
               <input type="search" aria-label={t('Search skills')} value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t('Search skills')} />
@@ -129,9 +170,12 @@ export default function SkillsPage() {
                   const file = event.target.files?.[0]
                   event.target.value = ''
                   if (!file) return
+                  const epoch = registryEpoch.current
+                  const current = () => active.current && epoch === registryEpoch.current
                   setError('')
                   void installSkill(file)
                     .then((uploaded) => {
+                      if (!current()) return
                       setSkills((current) => [uploaded, ...current.filter((item) => item.id !== uploaded.id)])
                       setVersions((current) => {
                         const next = { ...current }
@@ -139,14 +183,17 @@ export default function SkillsPage() {
                         return next
                       })
                     })
-                    .catch((uploadError) => setError(errorMessage(uploadError)))
+                    .catch((uploadError) => { if (current()) setError(errorMessage(uploadError)) })
                 }}
               />
             </label>
-          </div>
+          </div>}
         </header>
 
-        {error && <p className="conversation-error" role="alert">{error}</p>}
+        {error && <p className="conversation-error" role="alert">{t(error)}</p>}
+
+        {proposalsOpened && <div hidden={view !== 'proposals'}><SkillProposalsPanel onPublished={published} /></div>}
+        {view === 'installed' && <>
 
         {featured && !query && (
           <section className="skills-feature" aria-labelledby="featured-skill-heading">
@@ -263,6 +310,7 @@ export default function SkillsPage() {
             </div>
           )}
         </section>
+        </>}
     </section>
   )
 }

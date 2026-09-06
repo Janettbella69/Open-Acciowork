@@ -21,7 +21,7 @@
 | FR-09 来源账本 | delivered：同 Run/session 的服务器 source receipt | 保持来源、失效、回放和内容完整性回归 |
 | FR-10 决策 | delivered：证据关联与失效联动 | 开放任务质量另行验收 |
 | FR-11 领域 MCP | delivered：确定性商业计算、用户记录加工、显式结算计划的现金流/日末与保守日内资金缺口 | deferred：真实供应商/客户/市场/法规/物流/汇率授权数据适配 |
-| FR-12 Skill 生命周期 | delivered：发现/启停/扫描/不可变版本/配额/租约/回滚；13个内置Skill的证据参考与输出模板、固定包原生只读访问；本地独立备份与新进程恢复演练 | deferred：真端点回滚重跑、跨宿主/生产备份恢复 |
+| FR-12 Skill 生命周期 | delivered：发现/启停/扫描/不可变版本/配额/租约/回滚；13个内置Skill的证据参考与输出模板、固定包原生只读访问；Agent候选冻结、人审发布默认关闭、凭证恢复与独立审阅UI；本地独立备份与新进程恢复演练 | deferred：真实模型提案质量、真端点回滚重跑、含候选库的完整应用备份及跨宿主/生产恢复 |
 | FR-13 权限 | delivered：范围/有效期/审计、删除确认、沙箱拒绝逃逸；可信设备单次审批；原生SDK持久等待、原Run恢复、跨进程决议竞争、消费前撤销复验 | deferred：真实远程审批与生产故障矩阵；原生多工具批次须拆为单次审批 |
 | FR-14 记忆 | delivered：提案人审、TTL/过期/检索/导出/删除恢复 | deferred：真实蒸馏质量、生产备份删除边界与恢复演练 |
 | FR-15 自动化 | delivered：计划/心跳/收件箱本地链路；跨进程自动调度租约和崩溃幂等；手动/自动触发共用租约与持久Run重叠检查、页面并发操作治理 | deferred：真实长期运行与渠道投递 |
@@ -44,7 +44,7 @@
 | PRD 落点 | 状态及剩余工作 |
 |---|---|
 | §3.5 A–G / §6.5 | deferred：需求/供给/客户多起点真实基准、可编辑产物和连续对话验收 |
-| §3.7 / §4.7 | deferred：由重复任务提出新 Skill，pending 人审 + 不可绕过扫描；不能自动发布 |
+| §3.7 / §4.7 | delivered：原生文件工具 + 显式Artifact提交候选，独立pending冻结包、人审revision/hash/当前目标CAS、静态扫描强制检查、不可变发布默认关闭和独立审阅UI；deferred：真实Provider自主提案质量、人工使用效果与生产隔离验收 |
 | §3.7 P2 | deferred：项目知识库索引；团队评论、模板和私有 Skill 管理 |
 | §4.16 任务经验 | delivered：专属工具与版本/来源账本、创建时配置指纹、低信任检索注入、容量/事务恢复与人工停用UI；deferred：真实Provider自主调用及长期判断质量 |
 | §4.12 事件 | delivered：有真实Run归属的evidence.added/decision.recorded、持久幂等补发与完整SSE尾部消费；deferred：产物更新、记忆、无Run项目变更和 schedule/preflight 细分事件 |
@@ -322,3 +322,37 @@ ASGI流回放/权限变化，以及无真实Provider的完整验收脚本归档�
 网络代理/生产负载仍未验证。记录修改、无Run归属的项目变更、`artifact.updated`、
 `memory.proposed`、schedule/preflight细分继续deferred。Skill提案人审等其他全量PRD
 要求保持开放。真实DeepSeek现金流仍因自动审批审核要求明确外发载荷/目的地授权而等待。
+
+## 2026-09-06：Skill 自创建提案、人审与发布恢复
+
+[Skill 提案契约](skill-proposals.md) 接通主 Agent 原生 Write/Edit 与现有
+`register_artifact`。仅显式登记保留路径的版本化 manifest 会提交候选；普通文件、
+上传和运行收尾扫描不会提交。来源绑定同项目真实 Run/Artifact/已初始化 SDK session；
+历史 Run 引用可选，宿主不以重复次数或业务关键词代替 Agent 和人的判断。
+
+候选 manifest、SKILL.md 与资源冻结到独立只读包，受路径、软硬链接、特殊文件、大小、
+条目和总量配额检查。初始 pending 不进入运行时 Plugin；静态扫描通过仍须人审，
+失败候选可拒绝但不能强制发布。独立 Proposals 页提供来源、扫描、冻结文本预览、
+二进制原件下载、人工确认和完整审阅记录；发布后保持禁用，既有 Run 保留固定快照。
+
+人审绑定 revision、包哈希和当前目标的 hash/enabled/generation，防止旧审批覆盖
+升级、回滚或启停。发布前在 Registry 复扫、归档之后再次核验当前项目管理员及断言
+有效期；撤销或过期不提交。canonical schema 2 原子保存选择、禁用状态和发布凭证，
+重试使用精确凭证。进程中断后，有凭证只修复候选状态，没有凭证回到 pending 新版本
+并要求重新人审；不自动重跑发布，也不覆盖后续启用或回滚。
+
+HTTP 先只读确认项目权限再进行恢复；隐藏候选不会因无权请求发生持久变更。无法确认
+范围的坏元数据在列表中跳过并记录安全错误类型，不拖垮其他项目列表。预览与下载核验
+整个冻结包及文件哈希，并在返回前复验权限。前端处理候选切换、迟到响应、分页版本、
+409 后重新确认、403/404 清空，以及旧安装操作不能覆盖新发布状态。
+
+最终冻结验证：后端 **1470 passed / 8 live-only skipped**（58.12s）；前端
+**260 passed / 25 files**；Ruff、ESLint、TypeScript、Vite build、diff-check 通过。
+测试包括生产 FastAPI/原生 MCP 分发、真实 spawn 并发和进程终止、提交前权限撤销/过期、
+候选字节攻击、Registry schema 1/2 兼容及发布凭证备份保留。沿用 Vite 大于 500 kB 的
+主包提示；浏览器不可用，未新增可视验收或真实 Provider 提案质量声明。
+
+边界：静态检查不是恶意代码或业务质量的完整证明。旧正式 Skill 备份报告仍只对应
+当时 schema 1；本次 schema 2/receipt 备份兼容仅经 pytest 验证，候选库与项目账本的
+一致备份、真实模型提案质量、生产控制面/worker/租户隔离仍 deferred。
+没有新增 MCP 工具，也未绕过待批的 DeepSeek 外发验收。

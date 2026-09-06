@@ -20,6 +20,7 @@ from .constants import (
     MEDIA_MCP_SERVER_NAME,
     PRESENTATION_MCP_SERVER_NAME,
     SUPPLIER_MCP_SERVER_NAME,
+    TERMINAL_RUN_STATUSES,
     TOOL_CASHFLOW_PEAK,
     USER_SCOPE_ID,
     WEB_MCP_SERVER_NAME,
@@ -33,8 +34,10 @@ from .constants import (
     MemorySensitivity,
     MemorySource,
 )
+from .events import redact
 from .memory import MemoryProvider, gather_approved
 from .models import Decision, Evidence, Hypothesis, OrgPolicy, utc_now
+from .skill_proposal_files import is_skill_proposal_manifest
 from .storage import (
     FileLedger,
     LedgerNotFoundError,
@@ -54,6 +57,7 @@ if TYPE_CHECKING:
     from .commercial_actions import CommercialActionService
     from .connectors import ConnectorRegistry
     from .project_events import ProjectEventProjector
+    from .skill_proposals import SkillProposalService
 
 
 def _tool_result(value: Any, *, is_error: bool = False) -> dict[str, Any]:
@@ -116,6 +120,7 @@ def build_ledger_tools(
     agent_id: str | None = None,
     run_id: str | None = None,
     project_events: ProjectEventProjector | None = None,
+    skill_proposals: SkillProposalService | None = None,
 ):
     """Tool list for the ledger MCP server; exposed separately so tests can call
     handlers directly without going through a live SDK session."""
@@ -131,6 +136,27 @@ def build_ledger_tools(
     async def read_project_context(_args: dict[str, Any]) -> dict[str, Any]:
         data = ledger.get_project(project_id).model_dump(mode="json")
         data["evidence"] = [_preview_excerpt(item) for item in data.get("evidence", [])]
+        if skill_proposals is not None:
+            related = [
+                item for item in ledger.list_runs(project_id)
+                if item.id != run_id and item.status in TERMINAL_RUN_STATUSES
+                and item.started_at is not None
+            ][:20]
+            data["skill_proposal_context"] = {
+                "current_run_id": run_id,
+                "related_runs": [
+                    {
+                        "id": item.id,
+                        "status": item.status.value,
+                        "prompt_excerpt": str(redact(item.prompt))[:240],
+                        "started_at": item.started_at.isoformat(),
+                        "finished_at": (
+                            item.finished_at.isoformat() if item.finished_at else None
+                        ),
+                    }
+                    for item in related
+                ],
+            }
         return _project_data_result(data)
 
     @tool(
@@ -649,6 +675,22 @@ def build_ledger_tools(
             source_ids=args["source_ids"],
             mime=args.get("mime") or None,
         )
+        if (
+            skill_proposals is not None
+            and is_skill_proposal_manifest(args["path"])
+        ):
+            if run_id is None:
+                raise ValueError("Skill proposal submission requires a bound SDK Run")
+            proposal = skill_proposals.submit_artifact(run_id, artifact.id)
+            return _tool_result({
+                **artifact.model_dump(mode="json"),
+                "skill_proposal": {
+                    "id": proposal.id,
+                    "state": proposal.state,
+                    "skill_id": proposal.skill_id,
+                    "content_hash": proposal.content_hash,
+                },
+            })
         return _tool_result(artifact)
 
     tools = [
@@ -743,6 +785,7 @@ def build_ledger_mcp_server(
     agent_id: str | None = None,
     run_id: str | None = None,
     project_events: ProjectEventProjector | None = None,
+    skill_proposals: SkillProposalService | None = None,
 ):
     return create_sdk_mcp_server(
         name=LEDGER_MCP_SERVER_NAME,
@@ -754,6 +797,7 @@ def build_ledger_mcp_server(
             agent_id=agent_id,
             run_id=run_id,
             project_events=project_events,
+            skill_proposals=skill_proposals,
         ),
     )
 
@@ -1269,6 +1313,7 @@ def build_mcp_servers(
     connectors: ConnectorRegistry | None = None,
     commercial_actions: CommercialActionService | None = None,
     project_events: ProjectEventProjector | None = None,
+    skill_proposals: SkillProposalService | None = None,
 ) -> dict[str, Any]:
     from .presentation_tools import build_presentation_mcp_server
 
@@ -1280,6 +1325,7 @@ def build_mcp_servers(
             agent_id=agent_id,
             run_id=run_id,
             project_events=project_events,
+            skill_proposals=skill_proposals,
         ),
         SUPPLIER_MCP_SERVER_NAME: build_supplier_mcp_server(),
         CUSTOMER_MCP_SERVER_NAME: build_customer_mcp_server(ledger, project_id),

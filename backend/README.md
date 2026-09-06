@@ -105,6 +105,21 @@ is idempotent only before an external attempt: staged, approved, and queued
 `not_executed` actions can be withdrawn with actor/reason audit; attempting,
 retryable/ambiguous, and successful executions cannot be hidden by cancellation.
 
+Agent-created [Skill proposals](../docs/skill-proposals.md) reuse native file tools
+and explicit `register_artifact` submission of
+`skill-proposals/<name>/manifest.json`; ordinary artifacts and workspace scanning
+do not submit candidates. The host freezes and scans the package outside the
+installed registry. The Skills page provides a separate proposal queue with frozen
+text previews, original downloads, source provenance, scan results and review history.
+Only a current project owner/admin (or the fixed local owner in local-only mode)
+can publish or reject through `/api/skill-proposals/{id}/review`. Publication binds
+the candidate hash, review revision and current selection generation, then commits
+an immutable version and receipt with enablement off. Interrupted review recovery
+uses the exact receipt; absent a receipt, a new human decision is required.
+Existing Run snapshots retain their pinned Skills, and enablement remains separate.
+This feature is verified with offline native MCP/HTTP, UI and process tests; it does
+not establish live model proposal quality or production isolation.
+
 Project/action reads and human review/apply/cancel are available through HTTP. In
 `trusted_gateway` mode, every normal control-plane API request requires a short-lived,
 request-bound HMAC

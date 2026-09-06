@@ -83,6 +83,77 @@ def test_backup_excludes_runtime_leases_staging_and_legacy_caches(prepared):
     assert exercise.validate_backup(backup) == created["manifest"]
 
 
+def test_v2_backup_preserves_receipts_and_only_rollback_generations_advance(prepared, tmp_path):
+    registry, pins, _, _ = prepared
+    skill = registry.get(exercise.TENANT_ID)
+    receipt = registry.publish_reviewed_candidate(
+        Path(skill.path).parent, proposal_id="backup_publication", content_hash=skill.content_hash,
+        review_revision=1, reviewer_binding="a" * 64,
+        expected_token=registry.selection_token(skill.id),
+    )
+    registry.set_enabled(skill.id, True)
+    canonical_bytes = registry.registry_state_path.read_bytes()
+    canonical = json.loads(canonical_bytes)
+    backup = tmp_path / "v2-backup"
+    created = exercise.create_backup(registry, backup, pins)
+    assert created["manifest"]["inventory"]["canonical_state"] == canonical
+    target = tmp_path / "v2-restored"
+    exercise.restore_backup(backup, target)
+    restored = exercise.SkillRegistry(target / "application-plugin", target / "state")
+    assert restored.registry_state_path.read_bytes() == canonical_bytes
+    assert restored.publication_receipt(receipt.proposal_id) == receipt
+    exercise.check_rollback(target)
+    after = json.loads(restored.registry_state_path.read_bytes())
+    expected = json.loads(canonical_bytes)
+    for identifier in (exercise.TENANT_ID, exercise.DISABLED_ID):
+        expected["generations"][identifier] += 2
+    assert after == expected
+    assert restored.publication_receipt(receipt.proposal_id) == receipt
+
+
+def test_schema_one_backup_is_not_upgraded_until_restored_rollback(prepared, tmp_path):
+    registry, pins, _, _ = prepared
+    canonical = json.loads(registry.registry_state_path.read_bytes())
+    legacy = {key: canonical[key] for key in ("enabled", "current")}
+    legacy["schema_version"] = 1
+    registry.registry_state_path.write_text(json.dumps(legacy))
+    before = registry.registry_state_path.read_bytes()
+    backup, target = tmp_path / "v1-backup", tmp_path / "v1-restored"
+    exercise.create_backup(registry, backup, pins)
+    assert registry.registry_state_path.read_bytes() == before
+    exercise.restore_backup(backup, target)
+    restored = exercise.SkillRegistry(target / "application-plugin", target / "state")
+    assert restored.registry_state_path.read_bytes() == before
+    exercise.check_rollback(target)
+    canonical = json.loads(restored.registry_state_path.read_bytes())
+    assert canonical["schema_version"] == 2
+    assert canonical["publication_receipts"] == {}
+    assert canonical["generations"] == {exercise.TENANT_ID: 2, exercise.DISABLED_ID: 2}
+
+
+def test_restore_rejects_inventory_that_omits_v2_publication_receipts(prepared, tmp_path):
+    _, _, backup, created = prepared
+    canonical = created["manifest"]["inventory"]["canonical_state"]
+    assert canonical["schema_version"] == 2
+    del canonical["publication_receipts"]
+    exercise.write_json(backup / "manifest.json", created["manifest"])
+    assert_rejected(backup, tmp_path / "restored", "logical_inventory_mismatch")
+
+
+def test_backup_rejects_receipt_whose_historical_package_is_missing(prepared, tmp_path):
+    registry, pins, _, _ = prepared
+    skill = registry.get(exercise.TENANT_ID)
+    registry.publish_reviewed_candidate(
+        Path(skill.path).parent, proposal_id="backup_publication", content_hash=skill.content_hash,
+        review_revision=1, reviewer_binding="a" * 64,
+        expected_token=registry.selection_token(skill.id),
+    )
+    registry.rollback(skill.id, version="1.0.0")
+    exercise.remove_temporary_tree(Path(skill.path).parent)
+    with pytest.raises(exercise.BackupError, match="publication_history_missing"):
+        exercise.create_backup(registry, tmp_path / "invalid-backup", {"empty": []})
+
+
 @pytest.mark.parametrize("fault", exercise.FAULTS)
 def test_fault_injection_reaches_the_expected_gate_without_publishing(prepared, tmp_path, fault):
     _, _, backup, _ = prepared

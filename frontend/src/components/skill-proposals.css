@@ -1,0 +1,73 @@
+.skill-proposals { margin-top: 38px; }
+.skill-proposals > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; margin-bottom: 24px; }
+.skill-proposals h2 { margin: 0; font: 400 28px var(--ophira-display); }
+.skill-proposals p { line-height: 1.65; }
+.skill-proposals > header p { max-width: 650px; margin: 10px 0 0; color: #646b66; }
+.skill-proposals-controls { display: flex; align-items: flex-end; gap: 12px; flex-shrink: 0; }
+.skill-proposals-controls label { display: grid; gap: 6px; font-size: 13px; color: #5e6861; }
+.skill-proposals button, .skill-proposals select { min-height: 44px; border: 1px solid #ccd5ce; border-radius: 9px; padding: 9px 14px; color: var(--ophira-ink); background: #fff; font: inherit; cursor: pointer; }
+.skill-proposals button:disabled { cursor: not-allowed; opacity: .48; }
+.skill-proposals :is(button, a, select, textarea, input, pre):focus-visible { outline: 2px solid var(--ophira-green); outline-offset: 3px; }
+.skill-proposals-layout { display: grid; grid-template-columns: minmax(210px, .75fr) minmax(0, 2fr); gap: 22px; align-items: start; }
+.skill-proposals-list { display: grid; gap: 10px; }
+.skill-proposals-list .skill-proposal-row { display: grid; gap: 7px; width: 100%; padding: 18px; text-align: left; overflow-wrap: anywhere; }
+.skill-proposal-row[aria-pressed='true'] { border-color: #698f77; background: #edf4ef; box-shadow: inset 3px 0 #477859; }
+.skill-proposal-row strong { font-size: 16px; }
+.skill-proposal-row strong span, .skill-proposal-row small, .skill-proposal-row code { font-size: 12px; color: #657368; font-weight: 400; }
+.skill-proposal-placeholder, .skill-proposal-detail { min-width: 0; border: 1px solid #dae0d9; border-radius: 16px; background: #fff; padding: 26px; }
+.skill-proposal-placeholder { min-height: 240px; display: grid; place-content: center; color: #657368; }
+.skill-proposal-detail-heading { display: flex; justify-content: space-between; align-items: flex-start; gap: 18px; }
+.skill-proposal-detail-heading span { color: #52715c; font-size: 13px; }
+.skill-proposal-detail-heading h3 { margin: 8px 0 0; font-size: 24px; overflow-wrap: anywhere; }
+.skill-proposal-detail h4 { margin: 0 0 12px; font-size: 16px; }
+.skill-proposal-detail > section { margin-top: 24px; border-top: 1px solid #e4e8e2; padding-top: 22px; }
+.skill-proposal-detail code { overflow-wrap: anywhere; word-break: break-all; font-size: 12px; }
+.skill-proposal-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; padding: 18px; background: #f6f7f3; border-radius: 12px; }
+.skill-proposal-facts > div { min-width: 0; }
+.skill-proposal-facts dt { color: #677269; font-size: 12px; }
+.skill-proposal-facts dd { display: grid; gap: 5px; margin: 5px 0 0; font-size: 14px; overflow-wrap: anywhere; }
+.skill-proposal-source > p, .skill-proposal-history article p { white-space: pre-wrap; overflow-wrap: anywhere; }
+.skill-proposal-source summary { cursor: pointer; padding: 10px 0; font-weight: 600; }
+.skill-proposal-source article, .skill-proposal-history article { display: grid; gap: 7px; padding: 14px 0; border-top: 1px solid #e4e8e2; }
+.skill-proposal-source article span, .skill-proposal-history article span { color: #657368; font-size: 12px; overflow-wrap: anywhere; }
+.skill-proposal-scan { color: #8e3e23; }
+.skill-proposal-scan[data-ok='true'] { color: #326343; }
+.skill-proposal-scan ul { margin: 12px 0 0; padding: 0; list-style: none; display: grid; gap: 9px; }
+.skill-proposal-scan li { display: grid; gap: 4px; font-size: 12px; color: #526258; overflow-wrap: anywhere; }
+.skill-proposal-scan li[data-status='failed'] { color: #a13527; }
+.skill-proposal-scan li[data-status='warning'] { color: #866026; }
+.skill-proposal-files { display: grid; grid-template-columns: minmax(135px, .65fr) minmax(0, 1.6fr); gap: 16px; }
+.skill-proposal-files nav { display: grid; align-content: start; gap: 6px; max-height: 420px; overflow: auto; }
+.skill-proposal-files nav button { display: grid; gap: 5px; text-align: left; min-width: 0; padding: 10px; }
+.skill-proposal-files nav button[aria-pressed='true'] { border-color: #678e75; background: #f0f5ed; }
+.skill-proposal-files nav span { overflow-wrap: anywhere; font-size: 12px; }
+.skill-proposal-files nav small { color: #727970; font-size: 11px; }
+.skill-proposal-preview { min-width: 0; border: 1px solid #dce2da; border-radius: 10px; overflow: hidden; }
+.skill-proposal-preview header { display: grid; gap: 5px; padding: 13px; background: #f2f5ef; overflow-wrap: anywhere; }
+.skill-proposal-preview header span { color: #657368; font-size: 12px; }
+.skill-proposal-preview .skill-proposal-hash { display: block; padding: 12px 13px 0; font-size: 10px; color: #657368; }
+.skill-proposal-preview pre { max-height: 460px; margin: 0; padding: 16px 13px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.7 var(--ophira-mono); tab-size: 2; }
+.skill-proposal-preview > p { margin: 13px; font-size: 13px; }
+.skill-proposal-preview > a { display: inline-block; min-height: 44px; padding: 13px; font-size: 13px; text-decoration: underline; color: #386747; }
+.skill-proposal-target > span { display: block; margin-top: 8px; color: #647266; }
+.skill-proposal-access, .skill-proposal-notice { padding: 14px; border-radius: 10px; background: #edf3e8; color: #435f42; }
+.skill-proposal-actions > label:first-child { display: grid; gap: 8px; font-size: 13px; }
+.skill-proposal-actions textarea { min-height: 95px; width: 100%; box-sizing: border-box; resize: vertical; border: 1px solid #ccd5ce; border-radius: 9px; padding: 12px; font: inherit; }
+.skill-proposal-confirm { display: flex; align-items: flex-start; gap: 9px; margin: 18px 0; font-size: 13px; line-height: 1.6; }
+.skill-proposal-confirm input { flex-shrink: 0; margin-top: 4px; }
+.skill-proposal-actions > div { display: flex; justify-content: flex-end; gap: 10px; flex-wrap: wrap; }
+.skill-proposal-actions > div button:last-child { color: #fff; background: #3c6848; border-color: #3c6848; }
+.skill-proposals [role='alert'] { color: #a13527; overflow-wrap: anywhere; }
+@media (max-width: 1100px) {
+  .skill-proposals > header { flex-direction: column; }
+  .skill-proposals-layout { grid-template-columns: minmax(190px, .6fr) minmax(0, 1.6fr); }
+  .skill-proposal-files { grid-template-columns: 1fr; }
+  .skill-proposal-files nav { max-height: 200px; }
+}
+@media (max-width: 720px) {
+  .skill-proposals-layout, .skill-proposal-facts { grid-template-columns: 1fr; }
+  .skill-proposals-controls { flex-wrap: wrap; }
+  .skill-proposal-detail { padding: 18px; }
+  .skill-proposal-detail-heading { flex-wrap: wrap; }
+  .skill-proposal-actions > div button { width: 100%; }
+}

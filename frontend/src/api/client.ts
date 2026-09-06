@@ -36,6 +36,7 @@ import type {
   TaskExperienceLedger,
 } from './types'
 import type { ProjectMetrics } from './projectMetrics'
+import type { SkillProposalDetail, SkillProposalPage, SkillProposalPreview, SkillProposalReviewRequest, SkillProposalState } from './skillProposals'
 
 const configuredBaseUrl = import.meta.env.VITE_OPHIRA_API_URL?.trim() ?? ''
 export const apiBaseUrl = configuredBaseUrl.replace(/\/$/, '')
@@ -285,6 +286,32 @@ export function patchSchedule(
 
 export function listSkills(): Promise<SkillVersion[]> {
   return request<SkillVersion[]>('/api/skills')
+}
+
+export function listSkillProposals(state: SkillProposalState, cursor?: string | null, signal?: AbortSignal): Promise<SkillProposalPage> {
+  const query = new URLSearchParams({ state, limit: '50' })
+  if (cursor) query.set('cursor', cursor)
+  return request<SkillProposalPage>(`/api/skill-proposals?${query}`, { signal, cache: 'no-store' })
+}
+
+export function getSkillProposal(id: string, signal?: AbortSignal): Promise<SkillProposalDetail> {
+  return request<SkillProposalDetail>(`/api/skill-proposals/${encodeURIComponent(id)}`, { signal, cache: 'no-store' })
+}
+
+export function getSkillProposalFile(id: string, path: string, contentHash: string, signal?: AbortSignal): Promise<SkillProposalPreview> {
+  const query = new URLSearchParams({ path, content_hash: contentHash })
+  return request<SkillProposalPreview>(`/api/skill-proposals/${encodeURIComponent(id)}/files?${query}`, { signal, cache: 'no-store' })
+}
+
+export function skillProposalDownloadUrl(id: string, path: string, contentHash: string): string {
+  const query = new URLSearchParams({ path, content_hash: contentHash })
+  return apiUrl(`/api/skill-proposals/${encodeURIComponent(id)}/download?${query}`)
+}
+
+export function reviewSkillProposal(id: string, review: SkillProposalReviewRequest): Promise<SkillProposalDetail> {
+  return request<SkillProposalDetail>(`/api/skill-proposals/${encodeURIComponent(id)}/review`, {
+    method: 'POST', body: JSON.stringify(review),
+  })
 }
 
 export function setSkillEnabled(skillId: string, enabled: boolean): Promise<SkillVersion> {
