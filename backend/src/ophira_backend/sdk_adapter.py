@@ -164,6 +164,8 @@ def _post_tool_untrusted_source(
     tool_name: str,
     tool_input: dict[str, Any],
     workspace: Path,
+    *,
+    skill_read_roots: tuple[Path, ...] = (),
 ) -> UntrustedSource | None:
     """Classify tool results at the last boundary before Claude consumes them."""
     if tool_name == "WebSearch":
@@ -183,12 +185,12 @@ def _post_tool_untrusted_source(
     if tool_name in {"Read", "Grep"}:
         candidate_key = "file_path" if tool_name == "Read" else "path"
         candidate = tool_input.get(candidate_key)
-        if isinstance(candidate, str) and _contained(
-            workspace,
-            (BACKEND_DIR / "src").resolve(),
-            candidate,
+        if isinstance(candidate, str) and any(
+            _contained(workspace, fence, candidate)
+            for fence in ((BACKEND_DIR / "src").resolve(), *skill_read_roots)
         ):
-            # Repository source is the intentionally trusted code-reading fence.
+            # Repository code and scanned, pinned Skill methods are intentional
+            # instructions. Project documents and other snapshots remain data.
             return None
         # PreToolUse already restricts an explicit path to this project (or the
         # source tree above). Missing Grep paths search cwd, which is the project
@@ -346,7 +348,12 @@ class ClaudeAgentRuntime:
         async with AsyncExitStack() as stack:
             if self.durable_resume_supported:
                 bridge = await stack.enter_async_context(NativeHookBridge(
-                    self._permission_hook(run, self.ledger.workspace_for_project(run.project_id)),
+                    self._permission_hook(
+                        run, self.ledger.workspace_for_project(run.project_id),
+                        skill_read_roots=tuple(
+                            Path(plugin["path"]) / "skills" for plugin in options.plugins or []
+                        ),
+                    ),
                 ))
                 # Register exactly one policy entry point. The documented
                 # --settings command hooks load before native deferred replay,
@@ -710,14 +717,6 @@ class ClaudeAgentRuntime:
                 message=resolution.reason or "The user denied this tool call.",
             )
 
-        hook = self._permission_hook(run, workspace)
-        hooks = {
-            "PreToolUse": [HookMatcher(hooks=[hook])],
-            "PostToolUse": [HookMatcher(hooks=[hook])],
-            "PostToolUseFailure": [HookMatcher(hooks=[hook])],
-            "SubagentStart": [HookMatcher(hooks=[hook])],
-            "SubagentStop": [HookMatcher(hooks=[hook])],
-        }
         model = self.settings.claude_model
         budget_scale = 1.0
         if run.provider_profile_id:
@@ -750,6 +749,18 @@ class ClaudeAgentRuntime:
             skill_view = self.skills.materialize_snapshot(
                 self._policy_skill_snapshot(run.skill_snapshot)
             )
+        hook = self._permission_hook(
+            run, workspace,
+            skill_read_roots=tuple(
+                Path(plugin["path"]) / "skills" for plugin in skill_view.plugin_paths
+            ),
+        )
+        hooks = {
+            event: [HookMatcher(hooks=[hook])]
+            for event in (
+                "PreToolUse", "PostToolUse", "PostToolUseFailure", "SubagentStart", "SubagentStop",
+            )
+        }
         mcp_servers = build_mcp_servers(
             self.ledger,
             run.project_id,
@@ -944,7 +955,9 @@ class ClaudeAgentRuntime:
         if self._policy_skill_snapshot(run.skill_snapshot) != run.skill_snapshot:
             raise DurablePermissionConflict("A suspended Run Skill is no longer allowed by policy.")
 
-    def _hook(self, run_id: str, workspace: Path):
+    def _hook(
+        self, run_id: str, workspace: Path, *, skill_read_roots: tuple[Path, ...] = (),
+    ):
         run = self.ledger.get_run(run_id)
 
         async def handle(input_data: dict[str, Any], callback_tool_use_id, _context):
@@ -1042,8 +1055,13 @@ class ClaudeAgentRuntime:
                         fences = [workspace]
                         fence_name = "project workspace"
                     else:
-                        fences = [workspace.parent, (BACKEND_DIR / "src").resolve()]
-                        fence_name = "read allowlist (project directory, backend/src)"
+                        # These are only the scanned, immutable packages loaded
+                        # for this SDK segment, protected by its runtime lease.
+                        # Registry history, disabled Skills and other snapshots
+                        # remain outside the read fence; writes stay workspace-only.
+                        fences = [workspace.parent, (BACKEND_DIR / "src").resolve(),
+                                  *skill_read_roots]
+                        fence_name = "read allowlist (project, backend/src, pinned Skills)"
                     if not isinstance(candidate, str) or not any(
                         _contained(workspace, fence, candidate) for fence in fences
                     ):
@@ -1168,6 +1186,7 @@ class ClaudeAgentRuntime:
                     tool_name,
                     tool_input,
                     workspace,
+                    skill_read_roots=skill_read_roots,
                 )
                 hook_specific_output: dict[str, Any] | None = None
                 if untrusted_source is not None:
@@ -1270,6 +1289,7 @@ class ClaudeAgentRuntime:
                     tool_name,
                     tool_input,
                     workspace,
+                    skill_read_roots=skill_read_roots,
                 )
                 if untrusted_source is not None:
                     # A failed downloader/read/command can still echo arbitrary
@@ -1341,13 +1361,19 @@ class ClaudeAgentRuntime:
 
         return handle
 
-    def _permission_hook(self, run: RunRecord, workspace: Path):
-        policy_hook = self._hook(run.id, workspace)
+    def _permission_hook(
+        self, run: RunRecord, workspace: Path, *, skill_read_roots: tuple[Path, ...] = (),
+    ):
+        policy_hook = self._hook(run.id, workspace, skill_read_roots=skill_read_roots)
         if not self.durable_resume_supported:
             return policy_hook
         approved = {
             *READ_ONLY_BUILTIN_TOOLS, *READ_ONLY_MCP_TOOL_NAMES,
             *ENVELOPE_APPROVED_MCP_TOOL_NAMES, DELEGATION_TOOL,
+            # Setting options.skills makes Skill native-auto-approved. Loading
+            # a scanned, pinned method must not add a new human approval step;
+            # tools invoked by that method still pass their own host policy.
+            "Skill",
         }
 
         async def handle(input_data: dict[str, Any], callback_tool_use_id, context):

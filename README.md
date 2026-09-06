@@ -52,6 +52,12 @@ version inspection, reviewed rollback, bounded storage, and active-session-safe 
 leases. Workspace results can also render typed evidence, decision, and artifact cards
 whose factual fields are joined from the server ledger rather than authored by the model.
 
+All 13 built-in Skills include evidence guides and editable artifact templates that
+travel with the immutable package snapshot; see [`docs/skill-resources.md`](docs/skill-resources.md).
+The commerce MCP also calculates cash balances and peak funding gaps from explicit
+settlement schedules, distinguishing daily closing balances from a conservative
+intraday bound; see [`docs/cashflow.md`](docs/cashflow.md).
+
 PDF/image uploads produce bounded Markdown companions with honest extraction
 diagnostics; optional local PaddleOCR-VL setup and remaining quality checks are in
 [`docs/ocr-ingestion.md`](docs/ocr-ingestion.md). Result/evidence feedback now has

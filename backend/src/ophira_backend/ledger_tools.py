@@ -6,8 +6,10 @@ from decimal import Decimal, InvalidOperation
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlsplit
 
-from claude_agent_sdk import create_sdk_mcp_server, tool
+from claude_agent_sdk import ToolAnnotations, create_sdk_mcp_server, tool
+from pydantic import ValidationError
 
+from .cashflow import CashflowInput, calculate_cashflow
 from .constants import (
     BROWSER_MCP_SERVER_NAME,
     COMMERCE_MATH_MCP_SERVER_NAME,
@@ -18,6 +20,7 @@ from .constants import (
     MEDIA_MCP_SERVER_NAME,
     PRESENTATION_MCP_SERVER_NAME,
     SUPPLIER_MCP_SERVER_NAME,
+    TOOL_CASHFLOW_PEAK,
     USER_SCOPE_ID,
     WEB_MCP_SERVER_NAME,
     DecisionStatus,
@@ -44,6 +47,7 @@ from .untrusted import (
     UNTRUSTED_DATA_NOTICE,
     UntrustedSource,
     sanitize_untrusted_payload,
+    sanitize_untrusted_text,
 )
 
 if TYPE_CHECKING:
@@ -1039,6 +1043,54 @@ def build_customer_mcp_server(ledger: FileLedger | None = None, project_id: str 
 
 def build_commerce_math_mcp_server():
     @tool(
+        TOOL_CASHFLOW_PEAK.rsplit("__", 1)[-1],
+        "Calculate deterministic cash balances and peak additional funding from explicit "
+        "dated cash movements in one currency. opening_cash is before all start-date movements; "
+        "minimum_reserve is a balance target, not an expense. Inputs are bounded to 500 movements "
+        "and 3660 inclusive days. Amounts use four decimal places; output amounts are exact "
+        "decimal strings. Reports both daily-closing gaps and an outflows-before-inflows "
+        "intraday bound. Source references are unverified caller labels. Does not forecast "
+        "sales, infer settlement terms, convert currencies, arrange funding or change the ledger.",
+        CashflowInput.model_json_schema(),
+        annotations=ToolAnnotations(
+            readOnlyHint=True, destructiveHint=False, openWorldHint=False,
+        ),
+    )
+    async def cashflow_peak(args: dict[str, Any]) -> dict[str, Any]:
+        try:
+            request = CashflowInput.model_validate(args)
+        except ValidationError as exc:
+            return _tool_result({"error": {
+                "code": "CASHFLOW_INVALID_INPUT",
+                "message": "Cash-flow inputs do not match the settlement-schedule contract.",
+                "issues": exc.errors(include_input=False, include_context=False, include_url=False),
+            }}, is_error=True)
+        # Clean only caller prose. Applying an aggregate text budget to the
+        # financial result could truncate money strings and destroy reconciliation.
+        cleaned_movements = []
+        for movement in request.movements:
+            description = sanitize_untrusted_text(
+                movement.description, UntrustedSource.BUSINESS_RECORD, max_chars=200,
+            ).text
+            reference = (
+                sanitize_untrusted_text(
+                    movement.source_ref, UntrustedSource.BUSINESS_RECORD, max_chars=300,
+                ).text if movement.source_ref is not None else None
+            )
+            cleaned_movements.append(movement.model_copy(update={
+                "description": description,
+                "source_ref": reference if reference and reference.strip() else None,
+            }))
+        normalized = CashflowInput.model_validate(
+            request.model_copy(update={"movements": cleaned_movements}).model_dump(mode="json")
+        )
+        result = calculate_cashflow(normalized)
+        return _tool_result({
+            **result, "note": UNTRUSTED_DATA_NOTICE,
+            "input_text_sanitized": normalized != request,
+        })
+
+    @tool(
         "calculate_landed_cost",
         "Calculate deterministic total and per-unit landed cost from explicit inputs.",
         {
@@ -1187,7 +1239,7 @@ def build_commerce_math_mcp_server():
     return create_sdk_mcp_server(
         name=COMMERCE_MATH_MCP_SERVER_NAME,
         version="1.0.0",
-        tools=[calculate_landed_cost, calculate_unit_economics, sensitivity_table],
+        tools=[calculate_landed_cost, calculate_unit_economics, sensitivity_table, cashflow_peak],
     )
 
 

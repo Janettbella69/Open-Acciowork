@@ -180,7 +180,7 @@ async def test_authority_is_rechecked_after_the_awaited_policy_callback(
             app.state.ledger.update_run(run.id, status=RunStatus.CANCELLING)
         return {}
 
-    monkeypatch.setattr(runtime, "_hook", lambda *_args: policy_callback)
+    monkeypatch.setattr(runtime, "_hook", lambda *_args, **_kwargs: policy_callback)
     hook = runtime._permission_hook(run, app.state.ledger.workspace_for_project(run.project_id))
     result = await hook({
         "hook_event_name": "PreToolUse", "session_id": SESSION,

@@ -327,6 +327,7 @@ TOOL_RANK_CUSTOMER_CANDIDATES = "mcp__ophira_customer__rank_customer_candidates"
 TOOL_RECORD_INTERACTION = "mcp__ophira_customer__record_interaction"
 TOOL_CALCULATE_LANDED_COST = "mcp__ophira_commerce_math__calculate_landed_cost"
 TOOL_CALCULATE_UNIT_ECONOMICS = "mcp__ophira_commerce_math__calculate_unit_economics"
+TOOL_CASHFLOW_PEAK = "mcp__ophira_commerce_math__cashflow_peak"
 TOOL_SENSITIVITY_TABLE = "mcp__ophira_commerce_math__sensitivity_table"
 TOOL_LOOKUP_REQUIREMENTS = "mcp__ophira_compliance__lookup_requirements"
 TOOL_SNAPSHOT_PAGE = "mcp__ophira_browser__snapshot_page"
@@ -378,6 +379,7 @@ DOMAIN_TOOL_NAMES = [
     TOOL_RECORD_INTERACTION,
     TOOL_CALCULATE_LANDED_COST,
     TOOL_CALCULATE_UNIT_ECONOMICS,
+    TOOL_CASHFLOW_PEAK,
     TOOL_SENSITIVITY_TABLE,
     TOOL_LOOKUP_REQUIREMENTS,
 ]
@@ -462,6 +464,7 @@ READ_ONLY_MCP_TOOL_NAMES = [
     TOOL_RANK_CUSTOMER_CANDIDATES,
     TOOL_CALCULATE_LANDED_COST,
     TOOL_CALCULATE_UNIT_ECONOMICS,
+    TOOL_CASHFLOW_PEAK,
     TOOL_SENSITIVITY_TABLE,
     TOOL_LOOKUP_REQUIREMENTS,
     TOOL_READ_COMMERCIAL_TARGET,

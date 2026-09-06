@@ -283,6 +283,19 @@ async def test_hook_defers_only_a_proven_complete_single_tool_batch(tmp_path, co
 
 
 @pytest.mark.asyncio
+async def test_pinned_skill_invocation_preserves_native_auto_approval(tmp_path):
+    ledger, run, runtime = build_runtime(tmp_path)
+    ledger.update_run(run.id, status=RunStatus.RUNNING)
+    hook = runtime._permission_hook(run, ledger.workspace_for_project(run.project_id))
+    result = await hook({"hook_event_name": "PreToolUse", "session_id": SESSION,
+                         "tool_use_id": "skill", "tool_name": "Skill",
+                         "tool_input": {"skill": "ophira-core:landed-cost-analysis"}}, "skill", {})
+    assert result["hookSpecificOutput"]["permissionDecision"] == "allow"
+    assert runtime.permissions.list_pending() == []
+    assert ledger.get_run(run.id).permission_waits == []
+
+
+@pytest.mark.asyncio
 async def test_delegated_stream_cannot_close_or_replace_main_tool_batch(tmp_path):
     _ledger, run, runtime = build_runtime(tmp_path)
     for parent, event in [

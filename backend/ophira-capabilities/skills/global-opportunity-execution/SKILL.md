@@ -1,7 +1,7 @@
 ---
 name: global-opportunity-execution
 description: 当用户希望发现、验证或推进跨境商业机会，或从需求、现有供给、目标客户、市场信号、模糊商业目标中的任意一点开始时使用。
-version: 1.0.0
+version: 1.1.0
 ---
 
 # Global Opportunity Execution
@@ -25,4 +25,8 @@ version: 1.0.0
 - 粗略经济性、主要风险和最小验证动作；
 - 用户需要时生成 Markdown、CSV、JSON 或脚本等可继续编辑的文件。
 
-证据分级和字段要求见 `references/evidence-rules.md`。
+## 按需资源
+
+- 判断证据性质时读 [证据规则](references/evidence-rules.md)；整理任务起点与未知项时读 [输入与判断依据](references/evidence-and-inputs.md)。
+- 需要可编辑交付时，将 [机会判断简报](templates/opportunity-brief.md) 作为项目工作区新文件的底稿，按目标保留、组合或删除段落。占位符必须替换或标为未知，不能把空表当作已完成研究。
+- 这些文件只描述方法与文稿结构，不是固定阶段，也不授予工具或外部动作权限。不要修改只读 Plugin 内的模板。
