@@ -24,7 +24,7 @@
 | FR-12 Skill 生命周期 | delivered：发现/启停/扫描/不可变版本/配额/租约/回滚；13个内置Skill的证据参考与输出模板、固定包原生只读访问 | deferred：真端点回滚重跑、备份恢复演练 |
 | FR-13 权限 | delivered：范围/有效期/审计、删除确认、沙箱拒绝逃逸；可信设备单次审批；原生SDK持久等待、原Run恢复、跨进程决议竞争、消费前撤销复验 | deferred：真实远程审批与生产故障矩阵；原生多工具批次须拆为单次审批 |
 | FR-14 记忆 | delivered：提案人审、TTL/过期/检索/导出/删除恢复 | deferred：真实蒸馏质量、生产备份删除边界与恢复演练 |
-| FR-15 自动化 | delivered：计划/心跳/收件箱本地链路；跨进程自动调度租约和崩溃幂等 | deferred：手动运行并发治理、真实长期运行与渠道投递 |
+| FR-15 自动化 | delivered：计划/心跳/收件箱本地链路；跨进程自动调度租约和崩溃幂等；手动/自动触发共用租约与持久Run重叠检查、页面并发操作治理 | deferred：真实长期运行与渠道投递 |
 | FR-16 产物 | delivered：版本化台账/下载、Office 文件结构 | deferred：真实编辑流程、Office 渲染目视 QA、布局回归 |
 | FR-17 可观测性 | delivered：trace、三层日志、脱敏、类型化卡片；项目范围Provider/模型/Skill/MCP/错误分组指标与工作区面板 | deferred：细分事件与生产指标/性能验收 |
 | FR-18 恢复 | delivered：保存产物、错误分类、重试与重启恢复 | deferred：Bash 文件修改快照恢复与真实进程崩溃演练 |
@@ -247,3 +247,22 @@ TypeScript、build、diff-check通过。主JS619.11kB，既有bundle体积警告
 含真实非空ASGI路由的项目费用/隐私隔离，以及日志预算、撤权、重复事件和未知数据回归。
 Browser验收尝试返回 `No browser is available`，列表为空；未声称目视通过。
 真实SDK现金流仍等待向DeepSeek发送具体载荷的批准，其余全量deferred保持开放。
+
+## 2026-09-05：手动与自动调度的重叠治理
+
+[调度合同](schedule-overlap.md)：两类入口共用非阻塞跨进程dispatch租约，创建Run期间
+持锁；释放后由全部绑定同一项目/计划的持久非终态Run继续排他。waiting_permission、
+paused、cancelling不会误判为已结束；成功与重叠409的手动请求保留计划时间和暂停状态。
+自动到期仍按既有规则跳过重叠，不重复已存在的occurrence；配置/权限失效仍暂停计划。
+
+页面按计划管理待处理操作，同计划Pause/Run互斥，不同计划独立解锁；迟到成功不会
+覆盖最新冲突。两种409都有中英文提示，旧成功提示会清除，不自动重试。
+
+本批冻结验证：后端 **1135 passed / 8 live-only skipped**；前端 **206 passed**；
+Ruff、ESLint、TypeScript、build、diff-check通过，主JS619.72kB既有体积警告保留。
+新增18项API/同进程边界与5项真实双spawn进程场景，覆盖持锁时、Run持久化后、
+dispatch返回后以及两种进程终止边界的恢复。模型为离线替身，无外部调用。
+
+本项不提供HTTP请求幂等键，终态后的新手动请求仍创建新Run；远程文件系统锁、磁盘
+损坏、外部副作用exactly-once、真实Provider长期任务及渠道验收继续开放。当前Browser
+不可用，没有新增目视验收声明。Skill备份恢复演练另行交付，不在本批验证范围。

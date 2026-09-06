@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import {
   createSchedule,
   errorMessage,
@@ -108,7 +108,9 @@ export default function ScheduledTasksPage() {
   const [backendState, setBackendState] = useState<'loading' | 'online' | 'offline'>('loading')
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
-  const [busy, setBusy] = useState('')
+  const [busy, setBusy] = useState<Set<string>>(() => new Set())
+  const busyRef = useRef(new Set<string>())
+  const feedbackRevision = useRef(0)
 
   const [creatorOpen, setCreatorOpen] = useState(false)
   const [prompt, setPrompt] = useState('')
@@ -116,6 +118,20 @@ export default function ScheduledTasksPage() {
   const [scheduleKind, setScheduleKind] = useState<ScheduleKind>('task')
   const [projectId, setProjectId] = useState('')
   const [permissionPreset, setPermissionPreset] = useState<SchedulePermissionPreset>('read_only')
+
+  const beginAction = (key: string): number | null => {
+    if (busyRef.current.has(key)) return null
+    busyRef.current.add(key)
+    setBusy(new Set(busyRef.current))
+    setError('')
+    setNotice('')
+    return ++feedbackRevision.current
+  }
+
+  const finishAction = (key: string) => {
+    busyRef.current.delete(key)
+    setBusy(new Set(busyRef.current))
+  }
 
   useEffect(() => {
     let active = true
@@ -167,8 +183,8 @@ export default function ScheduledTasksPage() {
   const submitSchedule = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     if (!prompt.trim() || !projectId) return
-    setBusy('create')
-    setError('')
+    const revision = beginAction('create')
+    if (revision === null) return
     try {
       const created = await createSchedule({
         project_id: projectId,
@@ -184,42 +200,46 @@ export default function ScheduledTasksPage() {
       setSchedules((current) => [created, ...current])
       setCreatorOpen(false)
       setView('tasks')
-      setNotice(t('Schedule created. It runs on the backend scheduler — this device can go offline.'))
+      if (revision === feedbackRevision.current) {
+        setNotice(t('Schedule created. It runs on the backend scheduler — this device can go offline.'))
+      }
     } catch (createError) {
-      setError(errorMessage(createError))
+      if (revision === feedbackRevision.current) setError(t(errorMessage(createError)))
     } finally {
-      setBusy('')
+      finishAction('create')
     }
   }
 
   const toggleEnabled = async (schedule: Schedule) => {
-    setBusy(schedule.id)
-    setError('')
+    const revision = beginAction(schedule.id)
+    if (revision === null) return
     try {
       const updated = schedule.enabled
         ? await pauseSchedule(schedule.id)
         : await resumeSchedule(schedule.id)
       setSchedules((current) => current.map((item) => (item.id === updated.id ? updated : item)))
     } catch (toggleError) {
-      setError(errorMessage(toggleError))
+      if (revision === feedbackRevision.current) setError(t(errorMessage(toggleError)))
     } finally {
-      setBusy('')
+      finishAction(schedule.id)
     }
   }
 
   const fireNow = async (schedule: Schedule) => {
-    setBusy(`run:${schedule.id}`)
-    setError('')
+    const revision = beginAction(schedule.id)
+    if (revision === null) return
     try {
       const run = await runSchedule(schedule.id)
-      setNotice(t('Manual run {id} started ({status}). Watch it in the workspace.', {
-        id: run.id,
-        status: t(run.status),
-      }))
+      if (revision === feedbackRevision.current) {
+        setNotice(t('Manual run {id} started ({status}). Watch it in the workspace.', {
+          id: run.id,
+          status: t(run.status),
+        }))
+      }
     } catch (runError) {
-      setError(errorMessage(runError))
+      if (revision === feedbackRevision.current) setError(t(errorMessage(runError)))
     } finally {
-      setBusy('')
+      finishAction(schedule.id)
     }
   }
 
@@ -332,10 +352,10 @@ export default function ScheduledTasksPage() {
                     <TaskExperiencePanel scheduleId={schedule.id} />
                   </div>
                   <div className="schedules-row-actions">
-                    <button type="button" disabled={busy === schedule.id} onClick={() => void toggleEnabled(schedule)}>
+                    <button type="button" disabled={busy.has(schedule.id)} onClick={() => void toggleEnabled(schedule)}>
                       {schedule.enabled ? t('Pause') : t('Resume')}
                     </button>
-                    <button type="button" disabled={busy === `run:${schedule.id}`} onClick={() => void fireNow(schedule)}>
+                    <button type="button" disabled={busy.has(schedule.id)} onClick={() => void fireNow(schedule)}>
                       {t('Run now')}
                     </button>
                   </div>
@@ -420,7 +440,7 @@ export default function ScheduledTasksPage() {
               </fieldset>
               <p>{t('Runs on the backend scheduler in timezone {tz} ({cron}). The Agent keeps the same ledger, permissions, and provider profile rules.', { tz: browserTimezone(), cron: cadenceCron[cadence] })}</p>
               {error && <p className="schedules-error" role="alert">{error}</p>}
-              <footer><button type="button" onClick={() => setCreatorOpen(false)}>{t('Cancel')}</button><button type="submit" disabled={busy === 'create' || !projects.length}>{busy === 'create' ? t('Creating…') : t('Create schedule')} <span aria-hidden="true">→</span></button></footer>
+              <footer><button type="button" onClick={() => setCreatorOpen(false)}>{t('Cancel')}</button><button type="submit" disabled={busy.has('create') || !projects.length}>{busy.has('create') ? t('Creating…') : t('Create schedule')} <span aria-hidden="true">→</span></button></footer>
             </form>
           </section>
         </div>

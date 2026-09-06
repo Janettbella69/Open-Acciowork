@@ -38,6 +38,10 @@ class ScheduleValidationError(ValueError):
     pass
 
 
+class ScheduleRunConflictError(RuntimeError):
+    """The schedule already owns a dispatch or a nonterminal run."""
+
+
 def compute_next_fire(
     cron: str | None,
     run_once_at: datetime | None,
@@ -198,9 +202,9 @@ class ScheduleService:
         # A crash between creation, audit and schedule advancement therefore
         # recovers the same run, even if it already finished or failed. It never
         # automatically repeats a possibly effectful Agent run.
-        existing = next((run for run in self.ledger.list_runs(schedule.project_id)
-                         if run.schedule_id == schedule.id
-                         and run.automation_claim_id == claim_id), None)
+        schedule_runs = self._schedule_runs(schedule)
+        existing = next((run for run in schedule_runs
+                         if run.automation_claim_id == claim_id), None)
         if existing is not None:
             await self._finish_fire(schedule, existing, now, missed=missed)
             return
@@ -209,14 +213,9 @@ class ScheduleService:
         if missed and schedule.missed_run_policy == MissedRunPolicy.SKIP:
             self._advance(schedule, now)
             return
-        if schedule.last_run_id:
-            try:
-                last_run = self.ledger.get_run(schedule.last_run_id)
-            except LedgerNotFoundError:
-                last_run = None
-            if last_run is not None and last_run.status not in TERMINAL_RUN_STATUSES:
-                self._advance(schedule, now)
-                return
+        if any(run.status not in TERMINAL_RUN_STATUSES for run in schedule_runs):
+            self._advance(schedule, now)
+            return
         run = await self._start_run(schedule, automation_claim_id=claim_id)
         await self._finish_fire(schedule, run, now, missed=missed)
 
@@ -321,5 +320,28 @@ class ScheduleService:
 
     async def run_now(self, schedule_id: str) -> RunRecord:
         """Manual test run; does not change the schedule's fire bookkeeping."""
-        schedule = self.ledger.get_schedule(schedule_id)
-        return await self._start_run(schedule)
+        self.ledger.get_schedule(schedule_id)
+        with self._dispatch_lease(schedule_id) as acquired:
+            if not acquired:
+                raise ScheduleRunConflictError(
+                    "This schedule is already being dispatched. Refresh before running again."
+                )
+            schedule = self.ledger.get_schedule(schedule_id)
+            if any(run.status not in TERMINAL_RUN_STATUSES
+                   for run in self._schedule_runs(schedule)):
+                raise ScheduleRunConflictError(
+                    "This schedule already has an active run. Wait for it to finish or cancel it "
+                    "in the workspace before running again."
+                )
+            # Keep the lease until create_and_start has persisted the queued Run.
+            # Peers then observe it even before the runtime executes or when this
+            # process dies before returning the HTTP response. Waiting approvals
+            # and cancellation in progress remain active until truly terminal.
+            return await self._start_run(schedule)
+
+    def _schedule_runs(self, schedule: Schedule) -> list[RunRecord]:
+        # last_run_id describes scheduled fire bookkeeping; manual runs deliberately
+        # leave it untouched. The durable Run bindings cover both entry points.
+        return [run for run in self.ledger.list_runs(
+            schedule.project_id, sort_by_created_at=False,
+        ) if run.schedule_id == schedule.id]

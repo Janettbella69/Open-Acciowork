@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { OpportunityProject, RunRecord, Schedule } from '../api/types'
 import { I18nContext } from '../i18n'
@@ -82,6 +82,9 @@ const failedRun = {
   started_at: '2026-08-20T00:00:00Z',
   finished_at: '2026-08-20T00:01:00Z',
 } as RunRecord
+
+const activeRunConflict = 'This schedule already has an active run. Wait for it to finish or cancel it in the workspace before running again.'
+const dispatchConflict = 'This schedule is already being dispatched. Refresh before running again.'
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -223,5 +226,59 @@ describe('ScheduledTasksPage', () => {
     expect(within(dialog).getByRole('textbox', { name: '周期性需求' })).toHaveValue(
       '准备一份晨间机会简报，包含新信号、证据缺口和三个最高优先级行动。',
     )
+  })
+
+  it.each([
+    ['en', activeRunConflict, activeRunConflict],
+    ['en', dispatchConflict, dispatchConflict],
+    ['zh-CN', activeRunConflict, '此任务已有运行正在进行。请等待其结束，或先在工作台取消后再运行。'],
+    ['zh-CN', dispatchConflict, '此任务正在派发。请刷新后再运行。'],
+  ] as const)('shows %s manual-run conflicts without stale success or cadence changes: %s', async (language, detail, expected) => {
+    vi.mocked(listSchedules).mockResolvedValue([{ ...schedule, enabled: false, last_run_id: null }])
+    render(<I18nContext.Provider value={language}><ScheduledTasksPage /></I18nContext.Provider>)
+    fireEvent.click(screen.getByRole('button', { name: language === 'en' ? /my tasks/i : /我的任务/ }))
+    const row = (await screen.findByText(schedule.prompt)).closest('article')!
+    const button = within(row).getByRole('button', { name: language === 'en' ? 'Run now' : '立即运行' })
+    fireEvent.click(button)
+    expect(await screen.findByRole('status')).toHaveTextContent('run_manual')
+
+    vi.mocked(runSchedule).mockRejectedValueOnce(new Error(detail))
+    fireEvent.click(button)
+    expect(await screen.findByRole('alert')).toHaveTextContent(expected)
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
+    expect(runSchedule).toHaveBeenCalledTimes(2)
+    expect(button).toBeEnabled()
+    expect(row).toHaveAttribute('data-enabled', 'false')
+    expect(within(row).getByText(/0 8 \* \* \*/)).toBeInTheDocument()
+    expect(within(row).getByText(/Asia\/Shanghai/)).toBeInTheDocument()
+    expect(pauseSchedule).not.toHaveBeenCalled()
+  })
+
+  it('keeps each pending schedule locked and ignores a late success after another task conflicts', async () => {
+    const second = { ...schedule, id: 'schedule_2', prompt: 'Second scheduled task', last_run_id: null }
+    vi.mocked(listSchedules).mockResolvedValue([{ ...schedule, last_run_id: null }, second])
+    let resolveFirst!: (run: RunRecord) => void
+    vi.mocked(runSchedule).mockImplementation((id) => id === schedule.id
+      ? new Promise((resolve) => { resolveFirst = resolve })
+      : Promise.reject(new Error(dispatchConflict)))
+    render(<ScheduledTasksPage />)
+    fireEvent.click(screen.getByRole('button', { name: /my tasks/i }))
+    const firstRow = (await screen.findByText(schedule.prompt)).closest('article')!
+    const secondRow = screen.getByText(second.prompt).closest('article')!
+    const firstButton = within(firstRow).getByRole('button', { name: 'Run now' })
+    fireEvent.click(firstButton)
+    expect(firstButton).toBeDisabled()
+    expect(within(firstRow).getByRole('button', { name: 'Pause' })).toBeDisabled()
+    fireEvent.click(within(secondRow).getByRole('button', { name: 'Run now' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent(dispatchConflict)
+    expect(firstButton).toBeDisabled()
+    fireEvent.click(firstButton)
+    expect(runSchedule).toHaveBeenCalledTimes(2)
+
+    await act(async () => { resolveFirst({ ...failedRun, id: 'late_run', status: 'queued' }) })
+    expect(firstButton).toBeEnabled()
+    expect(screen.getByRole('alert')).toHaveTextContent(dispatchConflict)
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
+    expect(runSchedule).toHaveBeenCalledTimes(2)
   })
 })

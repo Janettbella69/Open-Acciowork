@@ -644,6 +644,8 @@ export const zh: Record<string, string> = {
   'Pause': '暂停',
   'Resume': '恢复',
   'Run now': '立即运行',
+  'This schedule already has an active run. Wait for it to finish or cancel it in the workspace before running again.': '此任务已有运行正在进行。请等待其结束，或先在工作台取消后再运行。',
+  'This schedule is already being dispatched. Refresh before running again.': '此任务正在派发。请刷新后再运行。',
   'No scheduled tasks yet.': '还没有定时任务。',
   'Choose a template or create a task from your own recurring brief.': '选一个模板，或用你自己的周期性需求创建任务。',
   'Browse templates': '浏览模板',

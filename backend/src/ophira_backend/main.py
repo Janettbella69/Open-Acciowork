@@ -191,7 +191,13 @@ from .runs import (
     RunResumeConflictError,
     RunRetryConflictError,
 )
-from .scheduler import ScheduleService, ScheduleValidationError, compute_next_fire, new_schedule
+from .scheduler import (
+    ScheduleRunConflictError,
+    ScheduleService,
+    ScheduleValidationError,
+    compute_next_fire,
+    new_schedule,
+)
 from .sdk_adapter import ClaudeAgentRuntime
 from .skills import (
     MAX_SKILL_ARCHIVE_BYTES,
@@ -2016,6 +2022,8 @@ def create_app(
                 ProjectPermission.RUN_CREATE,
             )
             return await scheduler.run_now(schedule_id)
+        except ScheduleRunConflictError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
         except (AuthorizationError, PolicyDeniedError, ProviderNotFoundError) as exc:
             raise HTTPException(status_code=403, detail=str(exc)) from exc
         except (LedgerNotFoundError, ValueError) as exc:

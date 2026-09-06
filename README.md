@@ -46,6 +46,8 @@ Human approvals now persist through native SDK deferral and resume the original
 Run across control-plane workers; see [`docs/durable-approvals.md`](docs/durable-approvals.md).
 Scheduled runs can retain scoped, traceable task experience without changing user
 policy or global memory; see [`docs/task-experience.md`](docs/task-experience.md).
+Manual and automatic schedule triggers now share cross-process overlap checks;
+see [`docs/schedule-overlap.md`](docs/schedule-overlap.md).
 
 Tenant Skills keep immutable, content-addressed package history with per-run snapshots,
 version inspection, reviewed rollback, bounded storage, and active-session-safe runtime
