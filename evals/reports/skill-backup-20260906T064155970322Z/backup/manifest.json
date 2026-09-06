@@ -1,0 +1,1347 @@
+{
+  "files": [
+    {
+      "path": "application-plugin/.claude-plugin/plugin.json",
+      "sha256": "e76d773970b7b35228b9a8c808cc8c9bc1887500a4601a7a9fcba2bc3081a375",
+      "size": 115
+    },
+    {
+      "path": "application-plugin/skills/compliance-claims/SKILL.md",
+      "sha256": "dd1f528f8d491c4ad00bc2e3d184d31a1c73dfeb2b6d151aacf4a0dc49090912",
+      "size": 1451
+    },
+    {
+      "path": "application-plugin/skills/compliance-claims/references/evidence-and-inputs.md",
+      "sha256": "4cf4fae80db18742c3ab06d3780d1d743b735da8e36651b0e08e1738b4d365ef",
+      "size": 2820
+    },
+    {
+      "path": "application-plugin/skills/compliance-claims/templates/claim-review.md",
+      "sha256": "5e6764b04ed8da07afc25bc2c2ab20e3eb9d5d18fd9c961becd85169aae87a6f",
+      "size": 2082
+    },
+    {
+      "path": "application-plugin/skills/content-marketing/SKILL.md",
+      "sha256": "a162d131a28d932f29204d8cba05e8d4fd30e9367783a636988966059976a32b",
+      "size": 1252
+    },
+    {
+      "path": "application-plugin/skills/content-marketing/references/evidence-and-inputs.md",
+      "sha256": "8c2fb8a7f156ee22dffe128163cd26e3cfe2209c39695702bae037a20584d127",
+      "size": 2823
+    },
+    {
+      "path": "application-plugin/skills/content-marketing/templates/content-experiment-brief.md",
+      "sha256": "4f450cbeb64503101a1cd2feedd31abd9939aa52f173e6e5081243b3f775ab00",
+      "size": 2146
+    },
+    {
+      "path": "application-plugin/skills/customer-development/SKILL.md",
+      "sha256": "07abee0a8dcdba1873794d454f4981ec424240c3de82d02e6b104aefc2850c67",
+      "size": 920
+    },
+    {
+      "path": "application-plugin/skills/customer-development/references/evidence-and-inputs.md",
+      "sha256": "b6a7f9b23ed9d69a70c9eb20eff43066e049e90d397438c1f8c5a40f20d87474",
+      "size": 2702
+    },
+    {
+      "path": "application-plugin/skills/customer-development/templates/account-development.md",
+      "sha256": "451961e46fd2d1abaa5f46b1ff2c702da63e79ae008cae03a5cffcfd61d7c832",
+      "size": 1791
+    },
+    {
+      "path": "application-plugin/skills/customer-path/SKILL.md",
+      "sha256": "30f39e2123914d473792ed065eb1a24c2ded4fd6358ea8a236c28d605e201b5a",
+      "size": 993
+    },
+    {
+      "path": "application-plugin/skills/customer-path/references/evidence-and-inputs.md",
+      "sha256": "826852195e4b13a43b3300a9c1e1c788ece85dbd23a0d47d39d930bea049406f",
+      "size": 2197
+    },
+    {
+      "path": "application-plugin/skills/customer-path/templates/channel-path.md",
+      "sha256": "bd94a9cfdccc84a6c1fc83e4e360afd85c86f76cd63c7073250287687b216b79",
+      "size": 1819
+    },
+    {
+      "path": "application-plugin/skills/global-opportunity-execution/SKILL.md",
+      "sha256": "bf0549baafc038e6a410605bacf406d7fbb27a867296253e82aace5e18eda7b1",
+      "size": 2044
+    },
+    {
+      "path": "application-plugin/skills/global-opportunity-execution/references/evidence-and-inputs.md",
+      "sha256": "c4dfae7f5ae2cc3ee6b0b53819345c7dacae852e0473e9707d009d1f9b7ccb24",
+      "size": 2572
+    },
+    {
+      "path": "application-plugin/skills/global-opportunity-execution/references/evidence-rules.md",
+      "sha256": "8b0600dd2614a3b75f675146a219a3647dabd7e16fde25e38d251fc876dd5522",
+      "size": 589
+    },
+    {
+      "path": "application-plugin/skills/global-opportunity-execution/templates/opportunity-brief.md",
+      "sha256": "993b50ee8c7d16fcde349b65eba7305fda283e2806465b5b588b4ef8cad5ba6d",
+      "size": 1978
+    },
+    {
+      "path": "application-plugin/skills/inquiry-negotiation/SKILL.md",
+      "sha256": "86086f7edac977bfd4413746f2848cf99b0b15f84e34f0a4e2550ed2d8df3da6",
+      "size": 1425
+    },
+    {
+      "path": "application-plugin/skills/inquiry-negotiation/references/evidence-and-inputs.md",
+      "sha256": "468a9c9f2fd9482b371156e2673e27b7da51cd55610066a0e1a3def40e004bdf",
+      "size": 2691
+    },
+    {
+      "path": "application-plugin/skills/inquiry-negotiation/templates/rfq-negotiation.md",
+      "sha256": "80dcc40a95c0372f5ca64e58d92ae0b75c69f23aad857e4ff6f72b23bcb4105c",
+      "size": 2564
+    },
+    {
+      "path": "application-plugin/skills/landed-cost-analysis/SKILL.md",
+      "sha256": "908c4ee648ee843915a2346c44b0971927440f9eaf52aa5765d62f08ec89681a",
+      "size": 1958
+    },
+    {
+      "path": "application-plugin/skills/landed-cost-analysis/references/cashflow-inputs.md",
+      "sha256": "4e5f684d73d570be6a3463386d768de2861596efc0c6c33e384d52be60107df1",
+      "size": 2642
+    },
+    {
+      "path": "application-plugin/skills/landed-cost-analysis/templates/cashflow-report.md",
+      "sha256": "877adb0960ad4e7143548d45152800bcbea4abb36c32bc88d6c355391ca15d17",
+      "size": 1986
+    },
+    {
+      "path": "application-plugin/skills/landed-cost-analysis/templates/cost-analysis.md",
+      "sha256": "db4a1e26259033b749eed12ad2d07693cde89b5b61b77c3b72cf0cfcc9de4458",
+      "size": 938
+    },
+    {
+      "path": "application-plugin/skills/listing-experiment/SKILL.md",
+      "sha256": "409b8d4c8cc188c93417b36b058b09ea5dc020e7000f22ff2c1335a9a305a9f3",
+      "size": 1420
+    },
+    {
+      "path": "application-plugin/skills/listing-experiment/references/evidence-and-inputs.md",
+      "sha256": "ac7c8e212f343e5c3ee69f2b22e15da1ee8b74682813774d40e39bc40b8bf0d3",
+      "size": 2840
+    },
+    {
+      "path": "application-plugin/skills/listing-experiment/templates/listing-test-plan.md",
+      "sha256": "0f5b0f04d9cc22dcaebbc6bdca5c21be1696848fab54b1d7f6f0ba4e034cce39",
+      "size": 2190
+    },
+    {
+      "path": "application-plugin/skills/logistics-customs/SKILL.md",
+      "sha256": "9866ba59af00c295563c76a062675eed95f4683834c50defb45c33be98bf95ee",
+      "size": 1791
+    },
+    {
+      "path": "application-plugin/skills/logistics-customs/references/evidence-and-inputs.md",
+      "sha256": "1a756e36a14c812a9fd21d16284c36cc9f41309b93deb4aed37ad33e3d0e1056",
+      "size": 3031
+    },
+    {
+      "path": "application-plugin/skills/logistics-customs/templates/import-route-review.md",
+      "sha256": "8ee332246ffd11e81aa892a548be45b0713e5634569545cedacadfe15d939177",
+      "size": 2370
+    },
+    {
+      "path": "application-plugin/skills/market-research/SKILL.md",
+      "sha256": "60f9a972aa911f5ba2b44361ae6d9c88a27bedb622708930324a790ea61185f4",
+      "size": 1471
+    },
+    {
+      "path": "application-plugin/skills/market-research/references/evidence-and-inputs.md",
+      "sha256": "06c231ecb261a341763f7cdd8c45be4453b2e1f64ab910a977fc6763dbe9731f",
+      "size": 2360
+    },
+    {
+      "path": "application-plugin/skills/market-research/templates/market-evidence-brief.md",
+      "sha256": "93cfa6fb164badd4abc24ac9463134cd04be451584f7964926b6be96dc5874d6",
+      "size": 1728
+    },
+    {
+      "path": "application-plugin/skills/monitoring-patrol/SKILL.md",
+      "sha256": "5fa085780dc548618ccd86e4a67c842f306446782251e84679ace493c1019395",
+      "size": 985
+    },
+    {
+      "path": "application-plugin/skills/monitoring-patrol/references/evidence-and-inputs.md",
+      "sha256": "0db1c10fa6fe7512c2a4cf7aad37194c162cfa8fd6828f247deaff3025d68de8",
+      "size": 2499
+    },
+    {
+      "path": "application-plugin/skills/monitoring-patrol/templates/watch-plan.md",
+      "sha256": "e8fd2ff410a39510c22bf446a7caa1a54c8a4b4bfd3f512deba58db37330cf26",
+      "size": 1912
+    },
+    {
+      "path": "application-plugin/skills/office-documents/SKILL.md",
+      "sha256": "55ed893781d3b1cbf3d939b513675eaef2a64fd31e383f26ca6bede506a073e3",
+      "size": 2073
+    },
+    {
+      "path": "application-plugin/skills/office-documents/references/evidence-and-inputs.md",
+      "sha256": "ea8d4db53a413a7b5b42848cdd5c65f95a7eed3fe4e12286bf73975b27e2b52d",
+      "size": 2940
+    },
+    {
+      "path": "application-plugin/skills/office-documents/templates/quotation-workbook-brief.md",
+      "sha256": "cae6bf53ffe43a432c615584ceaab4a901b118ed541559875f1bcfca64f26cd0",
+      "size": 2579
+    },
+    {
+      "path": "application-plugin/skills/supplier-due-diligence/SKILL.md",
+      "sha256": "04036703386f4882faa1cbbe9266785a21228ebba17516cf233ff6434d9708b1",
+      "size": 1031
+    },
+    {
+      "path": "application-plugin/skills/supplier-due-diligence/references/evidence-and-inputs.md",
+      "sha256": "34c4522af50be10fabdf80494ee78804244befba96bc3c3db1e87ed9e2c45209",
+      "size": 2491
+    },
+    {
+      "path": "application-plugin/skills/supplier-due-diligence/templates/supplier-review.md",
+      "sha256": "a5d6e13e9396a8780a2a85e3d0a401414c3fefdf7d558da578e7bb9c61690924",
+      "size": 1987
+    },
+    {
+      "path": "pins/new/ophira-core/.claude-plugin/plugin.json",
+      "sha256": "2d0eeef7baba67c65cf825815b029381b27b0c2af8777a0aef812663955993ea",
+      "size": 106
+    },
+    {
+      "path": "pins/new/ophira-core/skills/compliance-claims/SKILL.md",
+      "sha256": "dd1f528f8d491c4ad00bc2e3d184d31a1c73dfeb2b6d151aacf4a0dc49090912",
+      "size": 1451
+    },
+    {
+      "path": "pins/new/ophira-core/skills/compliance-claims/references/evidence-and-inputs.md",
+      "sha256": "4cf4fae80db18742c3ab06d3780d1d743b735da8e36651b0e08e1738b4d365ef",
+      "size": 2820
+    },
+    {
+      "path": "pins/new/ophira-core/skills/compliance-claims/templates/claim-review.md",
+      "sha256": "5e6764b04ed8da07afc25bc2c2ab20e3eb9d5d18fd9c961becd85169aae87a6f",
+      "size": 2082
+    },
+    {
+      "path": "pins/new/ophira-core/skills/content-marketing/SKILL.md",
+      "sha256": "a162d131a28d932f29204d8cba05e8d4fd30e9367783a636988966059976a32b",
+      "size": 1252
+    },
+    {
+      "path": "pins/new/ophira-core/skills/content-marketing/references/evidence-and-inputs.md",
+      "sha256": "8c2fb8a7f156ee22dffe128163cd26e3cfe2209c39695702bae037a20584d127",
+      "size": 2823
+    },
+    {
+      "path": "pins/new/ophira-core/skills/content-marketing/templates/content-experiment-brief.md",
+      "sha256": "4f450cbeb64503101a1cd2feedd31abd9939aa52f173e6e5081243b3f775ab00",
+      "size": 2146
+    },
+    {
+      "path": "pins/new/ophira-core/skills/customer-development/SKILL.md",
+      "sha256": "07abee0a8dcdba1873794d454f4981ec424240c3de82d02e6b104aefc2850c67",
+      "size": 920
+    },
+    {
+      "path": "pins/new/ophira-core/skills/customer-development/references/evidence-and-inputs.md",
+      "sha256": "b6a7f9b23ed9d69a70c9eb20eff43066e049e90d397438c1f8c5a40f20d87474",
+      "size": 2702
+    },
+    {
+      "path": "pins/new/ophira-core/skills/customer-development/templates/account-development.md",
+      "sha256": "451961e46fd2d1abaa5f46b1ff2c702da63e79ae008cae03a5cffcfd61d7c832",
+      "size": 1791
+    },
+    {
+      "path": "pins/new/ophira-core/skills/global-opportunity-execution/SKILL.md",
+      "sha256": "bf0549baafc038e6a410605bacf406d7fbb27a867296253e82aace5e18eda7b1",
+      "size": 2044
+    },
+    {
+      "path": "pins/new/ophira-core/skills/global-opportunity-execution/references/evidence-and-inputs.md",
+      "sha256": "c4dfae7f5ae2cc3ee6b0b53819345c7dacae852e0473e9707d009d1f9b7ccb24",
+      "size": 2572
+    },
+    {
+      "path": "pins/new/ophira-core/skills/global-opportunity-execution/references/evidence-rules.md",
+      "sha256": "8b0600dd2614a3b75f675146a219a3647dabd7e16fde25e38d251fc876dd5522",
+      "size": 589
+    },
+    {
+      "path": "pins/new/ophira-core/skills/global-opportunity-execution/templates/opportunity-brief.md",
+      "sha256": "993b50ee8c7d16fcde349b65eba7305fda283e2806465b5b588b4ef8cad5ba6d",
+      "size": 1978
+    },
+    {
+      "path": "pins/new/ophira-core/skills/inquiry-negotiation/SKILL.md",
+      "sha256": "86086f7edac977bfd4413746f2848cf99b0b15f84e34f0a4e2550ed2d8df3da6",
+      "size": 1425
+    },
+    {
+      "path": "pins/new/ophira-core/skills/inquiry-negotiation/references/evidence-and-inputs.md",
+      "sha256": "468a9c9f2fd9482b371156e2673e27b7da51cd55610066a0e1a3def40e004bdf",
+      "size": 2691
+    },
+    {
+      "path": "pins/new/ophira-core/skills/inquiry-negotiation/templates/rfq-negotiation.md",
+      "sha256": "80dcc40a95c0372f5ca64e58d92ae0b75c69f23aad857e4ff6f72b23bcb4105c",
+      "size": 2564
+    },
+    {
+      "path": "pins/new/ophira-core/skills/landed-cost-analysis/SKILL.md",
+      "sha256": "908c4ee648ee843915a2346c44b0971927440f9eaf52aa5765d62f08ec89681a",
+      "size": 1958
+    },
+    {
+      "path": "pins/new/ophira-core/skills/landed-cost-analysis/references/cashflow-inputs.md",
+      "sha256": "4e5f684d73d570be6a3463386d768de2861596efc0c6c33e384d52be60107df1",
+      "size": 2642
+    },
+    {
+      "path": "pins/new/ophira-core/skills/landed-cost-analysis/templates/cashflow-report.md",
+      "sha256": "877adb0960ad4e7143548d45152800bcbea4abb36c32bc88d6c355391ca15d17",
+      "size": 1986
+    },
+    {
+      "path": "pins/new/ophira-core/skills/landed-cost-analysis/templates/cost-analysis.md",
+      "sha256": "db4a1e26259033b749eed12ad2d07693cde89b5b61b77c3b72cf0cfcc9de4458",
+      "size": 938
+    },
+    {
+      "path": "pins/new/ophira-core/skills/listing-experiment/SKILL.md",
+      "sha256": "409b8d4c8cc188c93417b36b058b09ea5dc020e7000f22ff2c1335a9a305a9f3",
+      "size": 1420
+    },
+    {
+      "path": "pins/new/ophira-core/skills/listing-experiment/references/evidence-and-inputs.md",
+      "sha256": "ac7c8e212f343e5c3ee69f2b22e15da1ee8b74682813774d40e39bc40b8bf0d3",
+      "size": 2840
+    },
+    {
+      "path": "pins/new/ophira-core/skills/listing-experiment/templates/listing-test-plan.md",
+      "sha256": "0f5b0f04d9cc22dcaebbc6bdca5c21be1696848fab54b1d7f6f0ba4e034cce39",
+      "size": 2190
+    },
+    {
+      "path": "pins/new/ophira-core/skills/logistics-customs/SKILL.md",
+      "sha256": "9866ba59af00c295563c76a062675eed95f4683834c50defb45c33be98bf95ee",
+      "size": 1791
+    },
+    {
+      "path": "pins/new/ophira-core/skills/logistics-customs/references/evidence-and-inputs.md",
+      "sha256": "1a756e36a14c812a9fd21d16284c36cc9f41309b93deb4aed37ad33e3d0e1056",
+      "size": 3031
+    },
+    {
+      "path": "pins/new/ophira-core/skills/logistics-customs/templates/import-route-review.md",
+      "sha256": "8ee332246ffd11e81aa892a548be45b0713e5634569545cedacadfe15d939177",
+      "size": 2370
+    },
+    {
+      "path": "pins/new/ophira-core/skills/market-research/SKILL.md",
+      "sha256": "60f9a972aa911f5ba2b44361ae6d9c88a27bedb622708930324a790ea61185f4",
+      "size": 1471
+    },
+    {
+      "path": "pins/new/ophira-core/skills/market-research/references/evidence-and-inputs.md",
+      "sha256": "06c231ecb261a341763f7cdd8c45be4453b2e1f64ab910a977fc6763dbe9731f",
+      "size": 2360
+    },
+    {
+      "path": "pins/new/ophira-core/skills/market-research/templates/market-evidence-brief.md",
+      "sha256": "93cfa6fb164badd4abc24ac9463134cd04be451584f7964926b6be96dc5874d6",
+      "size": 1728
+    },
+    {
+      "path": "pins/new/ophira-core/skills/monitoring-patrol/SKILL.md",
+      "sha256": "5fa085780dc548618ccd86e4a67c842f306446782251e84679ace493c1019395",
+      "size": 985
+    },
+    {
+      "path": "pins/new/ophira-core/skills/monitoring-patrol/references/evidence-and-inputs.md",
+      "sha256": "0db1c10fa6fe7512c2a4cf7aad37194c162cfa8fd6828f247deaff3025d68de8",
+      "size": 2499
+    },
+    {
+      "path": "pins/new/ophira-core/skills/monitoring-patrol/templates/watch-plan.md",
+      "sha256": "e8fd2ff410a39510c22bf446a7caa1a54c8a4b4bfd3f512deba58db37330cf26",
+      "size": 1912
+    },
+    {
+      "path": "pins/new/ophira-core/skills/supplier-due-diligence/SKILL.md",
+      "sha256": "04036703386f4882faa1cbbe9266785a21228ebba17516cf233ff6434d9708b1",
+      "size": 1031
+    },
+    {
+      "path": "pins/new/ophira-core/skills/supplier-due-diligence/references/evidence-and-inputs.md",
+      "sha256": "34c4522af50be10fabdf80494ee78804244befba96bc3c3db1e87ed9e2c45209",
+      "size": 2491
+    },
+    {
+      "path": "pins/new/ophira-core/skills/supplier-due-diligence/templates/supplier-review.md",
+      "sha256": "a5d6e13e9396a8780a2a85e3d0a401414c3fefdf7d558da578e7bb9c61690924",
+      "size": 1987
+    },
+    {
+      "path": "pins/new/ophira-tenant/.claude-plugin/plugin.json",
+      "sha256": "59513cddb1ad7f9762dc46920f9b2084d11e53a584966e0ed75732b8b32eb97b",
+      "size": 108
+    },
+    {
+      "path": "pins/new/ophira-tenant/skills/backup-exercise/SKILL.md",
+      "sha256": "bd33b5f3c1c5f6b131e68f3e0a6a1ea8d159fe8ac239eba9d1e3e628fb45f97b",
+      "size": 170
+    },
+    {
+      "path": "pins/new/ophira-tenant/skills/backup-exercise/references/evidence.md",
+      "sha256": "1b5a84fd56a2addda5ad70b7c44c799a99c431f1c3cb6a347d9ca093496926f4",
+      "size": 34
+    },
+    {
+      "path": "pins/new/ophira-tenant/skills/backup-exercise/templates/report.md",
+      "sha256": "9e2e6d51081d9fc06658ecf7ec567659b0ab04831b67bf681a5a7d835addf843",
+      "size": 34
+    },
+    {
+      "path": "pins/old/ophira-core/.claude-plugin/plugin.json",
+      "sha256": "2d0eeef7baba67c65cf825815b029381b27b0c2af8777a0aef812663955993ea",
+      "size": 106
+    },
+    {
+      "path": "pins/old/ophira-core/skills/compliance-claims/SKILL.md",
+      "sha256": "dd1f528f8d491c4ad00bc2e3d184d31a1c73dfeb2b6d151aacf4a0dc49090912",
+      "size": 1451
+    },
+    {
+      "path": "pins/old/ophira-core/skills/compliance-claims/references/evidence-and-inputs.md",
+      "sha256": "4cf4fae80db18742c3ab06d3780d1d743b735da8e36651b0e08e1738b4d365ef",
+      "size": 2820
+    },
+    {
+      "path": "pins/old/ophira-core/skills/compliance-claims/templates/claim-review.md",
+      "sha256": "5e6764b04ed8da07afc25bc2c2ab20e3eb9d5d18fd9c961becd85169aae87a6f",
+      "size": 2082
+    },
+    {
+      "path": "pins/old/ophira-core/skills/content-marketing/SKILL.md",
+      "sha256": "a162d131a28d932f29204d8cba05e8d4fd30e9367783a636988966059976a32b",
+      "size": 1252
+    },
+    {
+      "path": "pins/old/ophira-core/skills/content-marketing/references/evidence-and-inputs.md",
+      "sha256": "8c2fb8a7f156ee22dffe128163cd26e3cfe2209c39695702bae037a20584d127",
+      "size": 2823
+    },
+    {
+      "path": "pins/old/ophira-core/skills/content-marketing/templates/content-experiment-brief.md",
+      "sha256": "4f450cbeb64503101a1cd2feedd31abd9939aa52f173e6e5081243b3f775ab00",
+      "size": 2146
+    },
+    {
+      "path": "pins/old/ophira-core/skills/customer-development/SKILL.md",
+      "sha256": "07abee0a8dcdba1873794d454f4981ec424240c3de82d02e6b104aefc2850c67",
+      "size": 920
+    },
+    {
+      "path": "pins/old/ophira-core/skills/customer-development/references/evidence-and-inputs.md",
+      "sha256": "b6a7f9b23ed9d69a70c9eb20eff43066e049e90d397438c1f8c5a40f20d87474",
+      "size": 2702
+    },
+    {
+      "path": "pins/old/ophira-core/skills/customer-development/templates/account-development.md",
+      "sha256": "451961e46fd2d1abaa5f46b1ff2c702da63e79ae008cae03a5cffcfd61d7c832",
+      "size": 1791
+    },
+    {
+      "path": "pins/old/ophira-core/skills/customer-path/SKILL.md",
+      "sha256": "30f39e2123914d473792ed065eb1a24c2ded4fd6358ea8a236c28d605e201b5a",
+      "size": 993
+    },
+    {
+      "path": "pins/old/ophira-core/skills/customer-path/references/evidence-and-inputs.md",
+      "sha256": "826852195e4b13a43b3300a9c1e1c788ece85dbd23a0d47d39d930bea049406f",
+      "size": 2197
+    },
+    {
+      "path": "pins/old/ophira-core/skills/customer-path/templates/channel-path.md",
+      "sha256": "bd94a9cfdccc84a6c1fc83e4e360afd85c86f76cd63c7073250287687b216b79",
+      "size": 1819
+    },
+    {
+      "path": "pins/old/ophira-core/skills/global-opportunity-execution/SKILL.md",
+      "sha256": "bf0549baafc038e6a410605bacf406d7fbb27a867296253e82aace5e18eda7b1",
+      "size": 2044
+    },
+    {
+      "path": "pins/old/ophira-core/skills/global-opportunity-execution/references/evidence-and-inputs.md",
+      "sha256": "c4dfae7f5ae2cc3ee6b0b53819345c7dacae852e0473e9707d009d1f9b7ccb24",
+      "size": 2572
+    },
+    {
+      "path": "pins/old/ophira-core/skills/global-opportunity-execution/references/evidence-rules.md",
+      "sha256": "8b0600dd2614a3b75f675146a219a3647dabd7e16fde25e38d251fc876dd5522",
+      "size": 589
+    },
+    {
+      "path": "pins/old/ophira-core/skills/global-opportunity-execution/templates/opportunity-brief.md",
+      "sha256": "993b50ee8c7d16fcde349b65eba7305fda283e2806465b5b588b4ef8cad5ba6d",
+      "size": 1978
+    },
+    {
+      "path": "pins/old/ophira-core/skills/inquiry-negotiation/SKILL.md",
+      "sha256": "86086f7edac977bfd4413746f2848cf99b0b15f84e34f0a4e2550ed2d8df3da6",
+      "size": 1425
+    },
+    {
+      "path": "pins/old/ophira-core/skills/inquiry-negotiation/references/evidence-and-inputs.md",
+      "sha256": "468a9c9f2fd9482b371156e2673e27b7da51cd55610066a0e1a3def40e004bdf",
+      "size": 2691
+    },
+    {
+      "path": "pins/old/ophira-core/skills/inquiry-negotiation/templates/rfq-negotiation.md",
+      "sha256": "80dcc40a95c0372f5ca64e58d92ae0b75c69f23aad857e4ff6f72b23bcb4105c",
+      "size": 2564
+    },
+    {
+      "path": "pins/old/ophira-core/skills/landed-cost-analysis/SKILL.md",
+      "sha256": "908c4ee648ee843915a2346c44b0971927440f9eaf52aa5765d62f08ec89681a",
+      "size": 1958
+    },
+    {
+      "path": "pins/old/ophira-core/skills/landed-cost-analysis/references/cashflow-inputs.md",
+      "sha256": "4e5f684d73d570be6a3463386d768de2861596efc0c6c33e384d52be60107df1",
+      "size": 2642
+    },
+    {
+      "path": "pins/old/ophira-core/skills/landed-cost-analysis/templates/cashflow-report.md",
+      "sha256": "877adb0960ad4e7143548d45152800bcbea4abb36c32bc88d6c355391ca15d17",
+      "size": 1986
+    },
+    {
+      "path": "pins/old/ophira-core/skills/landed-cost-analysis/templates/cost-analysis.md",
+      "sha256": "db4a1e26259033b749eed12ad2d07693cde89b5b61b77c3b72cf0cfcc9de4458",
+      "size": 938
+    },
+    {
+      "path": "pins/old/ophira-core/skills/listing-experiment/SKILL.md",
+      "sha256": "409b8d4c8cc188c93417b36b058b09ea5dc020e7000f22ff2c1335a9a305a9f3",
+      "size": 1420
+    },
+    {
+      "path": "pins/old/ophira-core/skills/listing-experiment/references/evidence-and-inputs.md",
+      "sha256": "ac7c8e212f343e5c3ee69f2b22e15da1ee8b74682813774d40e39bc40b8bf0d3",
+      "size": 2840
+    },
+    {
+      "path": "pins/old/ophira-core/skills/listing-experiment/templates/listing-test-plan.md",
+      "sha256": "0f5b0f04d9cc22dcaebbc6bdca5c21be1696848fab54b1d7f6f0ba4e034cce39",
+      "size": 2190
+    },
+    {
+      "path": "pins/old/ophira-core/skills/logistics-customs/SKILL.md",
+      "sha256": "9866ba59af00c295563c76a062675eed95f4683834c50defb45c33be98bf95ee",
+      "size": 1791
+    },
+    {
+      "path": "pins/old/ophira-core/skills/logistics-customs/references/evidence-and-inputs.md",
+      "sha256": "1a756e36a14c812a9fd21d16284c36cc9f41309b93deb4aed37ad33e3d0e1056",
+      "size": 3031
+    },
+    {
+      "path": "pins/old/ophira-core/skills/logistics-customs/templates/import-route-review.md",
+      "sha256": "8ee332246ffd11e81aa892a548be45b0713e5634569545cedacadfe15d939177",
+      "size": 2370
+    },
+    {
+      "path": "pins/old/ophira-core/skills/market-research/SKILL.md",
+      "sha256": "60f9a972aa911f5ba2b44361ae6d9c88a27bedb622708930324a790ea61185f4",
+      "size": 1471
+    },
+    {
+      "path": "pins/old/ophira-core/skills/market-research/references/evidence-and-inputs.md",
+      "sha256": "06c231ecb261a341763f7cdd8c45be4453b2e1f64ab910a977fc6763dbe9731f",
+      "size": 2360
+    },
+    {
+      "path": "pins/old/ophira-core/skills/market-research/templates/market-evidence-brief.md",
+      "sha256": "93cfa6fb164badd4abc24ac9463134cd04be451584f7964926b6be96dc5874d6",
+      "size": 1728
+    },
+    {
+      "path": "pins/old/ophira-core/skills/monitoring-patrol/SKILL.md",
+      "sha256": "5fa085780dc548618ccd86e4a67c842f306446782251e84679ace493c1019395",
+      "size": 985
+    },
+    {
+      "path": "pins/old/ophira-core/skills/monitoring-patrol/references/evidence-and-inputs.md",
+      "sha256": "0db1c10fa6fe7512c2a4cf7aad37194c162cfa8fd6828f247deaff3025d68de8",
+      "size": 2499
+    },
+    {
+      "path": "pins/old/ophira-core/skills/monitoring-patrol/templates/watch-plan.md",
+      "sha256": "e8fd2ff410a39510c22bf446a7caa1a54c8a4b4bfd3f512deba58db37330cf26",
+      "size": 1912
+    },
+    {
+      "path": "pins/old/ophira-core/skills/supplier-due-diligence/SKILL.md",
+      "sha256": "04036703386f4882faa1cbbe9266785a21228ebba17516cf233ff6434d9708b1",
+      "size": 1031
+    },
+    {
+      "path": "pins/old/ophira-core/skills/supplier-due-diligence/references/evidence-and-inputs.md",
+      "sha256": "34c4522af50be10fabdf80494ee78804244befba96bc3c3db1e87ed9e2c45209",
+      "size": 2491
+    },
+    {
+      "path": "pins/old/ophira-core/skills/supplier-due-diligence/templates/supplier-review.md",
+      "sha256": "a5d6e13e9396a8780a2a85e3d0a401414c3fefdf7d558da578e7bb9c61690924",
+      "size": 1987
+    },
+    {
+      "path": "pins/old/ophira-tenant/.claude-plugin/plugin.json",
+      "sha256": "59513cddb1ad7f9762dc46920f9b2084d11e53a584966e0ed75732b8b32eb97b",
+      "size": 108
+    },
+    {
+      "path": "pins/old/ophira-tenant/skills/backup-exercise/SKILL.md",
+      "sha256": "20c2b12fe42112c0e6d7f6e90ecda9437a5a6798816554b48be9a8df862c96b5",
+      "size": 170
+    },
+    {
+      "path": "pins/old/ophira-tenant/skills/backup-exercise/references/evidence.md",
+      "sha256": "ad92ea9a5103c1cdaa90730a506daa4083197bdb55352cf9ca83c40c99cd24ff",
+      "size": 34
+    },
+    {
+      "path": "pins/old/ophira-tenant/skills/backup-exercise/templates/report.md",
+      "sha256": "597f6ab6e2804047f656537d582984ef97d31de5c8f2e1b706fe6a33ff31c531",
+      "size": 34
+    },
+    {
+      "path": "state/registry-state.json",
+      "sha256": "7a93aeda9e1c58209e14330f554dd062c53025ab2cf883d5e14778c6552fe78b",
+      "size": 487
+    },
+    {
+      "path": "state/versions/ophira-core/compliance-claims/26b766be66b108f0e41fa467dfefa4d783b5cf3301713d96cdca3a71d4691710/SKILL.md",
+      "sha256": "dd1f528f8d491c4ad00bc2e3d184d31a1c73dfeb2b6d151aacf4a0dc49090912",
+      "size": 1451
+    },
+    {
+      "path": "state/versions/ophira-core/compliance-claims/26b766be66b108f0e41fa467dfefa4d783b5cf3301713d96cdca3a71d4691710/references/evidence-and-inputs.md",
+      "sha256": "4cf4fae80db18742c3ab06d3780d1d743b735da8e36651b0e08e1738b4d365ef",
+      "size": 2820
+    },
+    {
+      "path": "state/versions/ophira-core/compliance-claims/26b766be66b108f0e41fa467dfefa4d783b5cf3301713d96cdca3a71d4691710/templates/claim-review.md",
+      "sha256": "5e6764b04ed8da07afc25bc2c2ab20e3eb9d5d18fd9c961becd85169aae87a6f",
+      "size": 2082
+    },
+    {
+      "path": "state/versions/ophira-core/content-marketing/146d0e07d2341d5399257430f0cdf60cb39801a2be05c52d724e99715d4f262a/SKILL.md",
+      "sha256": "a162d131a28d932f29204d8cba05e8d4fd30e9367783a636988966059976a32b",
+      "size": 1252
+    },
+    {
+      "path": "state/versions/ophira-core/content-marketing/146d0e07d2341d5399257430f0cdf60cb39801a2be05c52d724e99715d4f262a/references/evidence-and-inputs.md",
+      "sha256": "8c2fb8a7f156ee22dffe128163cd26e3cfe2209c39695702bae037a20584d127",
+      "size": 2823
+    },
+    {
+      "path": "state/versions/ophira-core/content-marketing/146d0e07d2341d5399257430f0cdf60cb39801a2be05c52d724e99715d4f262a/templates/content-experiment-brief.md",
+      "sha256": "4f450cbeb64503101a1cd2feedd31abd9939aa52f173e6e5081243b3f775ab00",
+      "size": 2146
+    },
+    {
+      "path": "state/versions/ophira-core/customer-development/c42eeab8a25a5552df7daa532d21754a952872913e4b031fb4fb209fa0fdc11d/SKILL.md",
+      "sha256": "07abee0a8dcdba1873794d454f4981ec424240c3de82d02e6b104aefc2850c67",
+      "size": 920
+    },
+    {
+      "path": "state/versions/ophira-core/customer-development/c42eeab8a25a5552df7daa532d21754a952872913e4b031fb4fb209fa0fdc11d/references/evidence-and-inputs.md",
+      "sha256": "b6a7f9b23ed9d69a70c9eb20eff43066e049e90d397438c1f8c5a40f20d87474",
+      "size": 2702
+    },
+    {
+      "path": "state/versions/ophira-core/customer-development/c42eeab8a25a5552df7daa532d21754a952872913e4b031fb4fb209fa0fdc11d/templates/account-development.md",
+      "sha256": "451961e46fd2d1abaa5f46b1ff2c702da63e79ae008cae03a5cffcfd61d7c832",
+      "size": 1791
+    },
+    {
+      "path": "state/versions/ophira-core/customer-path/aaab32727a92b4f94a47a403ec145c3463378cc386422f8bc02a5c94de9b529e/SKILL.md",
+      "sha256": "30f39e2123914d473792ed065eb1a24c2ded4fd6358ea8a236c28d605e201b5a",
+      "size": 993
+    },
+    {
+      "path": "state/versions/ophira-core/customer-path/aaab32727a92b4f94a47a403ec145c3463378cc386422f8bc02a5c94de9b529e/references/evidence-and-inputs.md",
+      "sha256": "826852195e4b13a43b3300a9c1e1c788ece85dbd23a0d47d39d930bea049406f",
+      "size": 2197
+    },
+    {
+      "path": "state/versions/ophira-core/customer-path/aaab32727a92b4f94a47a403ec145c3463378cc386422f8bc02a5c94de9b529e/templates/channel-path.md",
+      "sha256": "bd94a9cfdccc84a6c1fc83e4e360afd85c86f76cd63c7073250287687b216b79",
+      "size": 1819
+    },
+    {
+      "path": "state/versions/ophira-core/global-opportunity-execution/319c1a2b59f4eb1cc05531a6aad20ece74b8023e36329934f1f39fca4ed95718/SKILL.md",
+      "sha256": "bf0549baafc038e6a410605bacf406d7fbb27a867296253e82aace5e18eda7b1",
+      "size": 2044
+    },
+    {
+      "path": "state/versions/ophira-core/global-opportunity-execution/319c1a2b59f4eb1cc05531a6aad20ece74b8023e36329934f1f39fca4ed95718/references/evidence-and-inputs.md",
+      "sha256": "c4dfae7f5ae2cc3ee6b0b53819345c7dacae852e0473e9707d009d1f9b7ccb24",
+      "size": 2572
+    },
+    {
+      "path": "state/versions/ophira-core/global-opportunity-execution/319c1a2b59f4eb1cc05531a6aad20ece74b8023e36329934f1f39fca4ed95718/references/evidence-rules.md",
+      "sha256": "8b0600dd2614a3b75f675146a219a3647dabd7e16fde25e38d251fc876dd5522",
+      "size": 589
+    },
+    {
+      "path": "state/versions/ophira-core/global-opportunity-execution/319c1a2b59f4eb1cc05531a6aad20ece74b8023e36329934f1f39fca4ed95718/templates/opportunity-brief.md",
+      "sha256": "993b50ee8c7d16fcde349b65eba7305fda283e2806465b5b588b4ef8cad5ba6d",
+      "size": 1978
+    },
+    {
+      "path": "state/versions/ophira-core/inquiry-negotiation/2db992563e7e87c064e85488b3eb7fd0c1717e451473d0ba2b2dd5a7c8a97007/SKILL.md",
+      "sha256": "86086f7edac977bfd4413746f2848cf99b0b15f84e34f0a4e2550ed2d8df3da6",
+      "size": 1425
+    },
+    {
+      "path": "state/versions/ophira-core/inquiry-negotiation/2db992563e7e87c064e85488b3eb7fd0c1717e451473d0ba2b2dd5a7c8a97007/references/evidence-and-inputs.md",
+      "sha256": "468a9c9f2fd9482b371156e2673e27b7da51cd55610066a0e1a3def40e004bdf",
+      "size": 2691
+    },
+    {
+      "path": "state/versions/ophira-core/inquiry-negotiation/2db992563e7e87c064e85488b3eb7fd0c1717e451473d0ba2b2dd5a7c8a97007/templates/rfq-negotiation.md",
+      "sha256": "80dcc40a95c0372f5ca64e58d92ae0b75c69f23aad857e4ff6f72b23bcb4105c",
+      "size": 2564
+    },
+    {
+      "path": "state/versions/ophira-core/landed-cost-analysis/7149a7a3fd37ec5ec0a853fe5fef0870ae75a53ccc048854a033f4e25d411153/SKILL.md",
+      "sha256": "908c4ee648ee843915a2346c44b0971927440f9eaf52aa5765d62f08ec89681a",
+      "size": 1958
+    },
+    {
+      "path": "state/versions/ophira-core/landed-cost-analysis/7149a7a3fd37ec5ec0a853fe5fef0870ae75a53ccc048854a033f4e25d411153/references/cashflow-inputs.md",
+      "sha256": "4e5f684d73d570be6a3463386d768de2861596efc0c6c33e384d52be60107df1",
+      "size": 2642
+    },
+    {
+      "path": "state/versions/ophira-core/landed-cost-analysis/7149a7a3fd37ec5ec0a853fe5fef0870ae75a53ccc048854a033f4e25d411153/templates/cashflow-report.md",
+      "sha256": "877adb0960ad4e7143548d45152800bcbea4abb36c32bc88d6c355391ca15d17",
+      "size": 1986
+    },
+    {
+      "path": "state/versions/ophira-core/landed-cost-analysis/7149a7a3fd37ec5ec0a853fe5fef0870ae75a53ccc048854a033f4e25d411153/templates/cost-analysis.md",
+      "sha256": "db4a1e26259033b749eed12ad2d07693cde89b5b61b77c3b72cf0cfcc9de4458",
+      "size": 938
+    },
+    {
+      "path": "state/versions/ophira-core/listing-experiment/c413093fafbfed3c6835345bc4e1187db320105c2bd1138264110baea38c9d10/SKILL.md",
+      "sha256": "409b8d4c8cc188c93417b36b058b09ea5dc020e7000f22ff2c1335a9a305a9f3",
+      "size": 1420
+    },
+    {
+      "path": "state/versions/ophira-core/listing-experiment/c413093fafbfed3c6835345bc4e1187db320105c2bd1138264110baea38c9d10/references/evidence-and-inputs.md",
+      "sha256": "ac7c8e212f343e5c3ee69f2b22e15da1ee8b74682813774d40e39bc40b8bf0d3",
+      "size": 2840
+    },
+    {
+      "path": "state/versions/ophira-core/listing-experiment/c413093fafbfed3c6835345bc4e1187db320105c2bd1138264110baea38c9d10/templates/listing-test-plan.md",
+      "sha256": "0f5b0f04d9cc22dcaebbc6bdca5c21be1696848fab54b1d7f6f0ba4e034cce39",
+      "size": 2190
+    },
+    {
+      "path": "state/versions/ophira-core/logistics-customs/fd0327f0f79a1cedf3eca745e0cfeb8f97fec01b67e88fa8380524c747d28224/SKILL.md",
+      "sha256": "9866ba59af00c295563c76a062675eed95f4683834c50defb45c33be98bf95ee",
+      "size": 1791
+    },
+    {
+      "path": "state/versions/ophira-core/logistics-customs/fd0327f0f79a1cedf3eca745e0cfeb8f97fec01b67e88fa8380524c747d28224/references/evidence-and-inputs.md",
+      "sha256": "1a756e36a14c812a9fd21d16284c36cc9f41309b93deb4aed37ad33e3d0e1056",
+      "size": 3031
+    },
+    {
+      "path": "state/versions/ophira-core/logistics-customs/fd0327f0f79a1cedf3eca745e0cfeb8f97fec01b67e88fa8380524c747d28224/templates/import-route-review.md",
+      "sha256": "8ee332246ffd11e81aa892a548be45b0713e5634569545cedacadfe15d939177",
+      "size": 2370
+    },
+    {
+      "path": "state/versions/ophira-core/market-research/cbe52a46e99cf5c760c4707f0f84b25000de0ccb400f0a73e3a56487589c7061/SKILL.md",
+      "sha256": "60f9a972aa911f5ba2b44361ae6d9c88a27bedb622708930324a790ea61185f4",
+      "size": 1471
+    },
+    {
+      "path": "state/versions/ophira-core/market-research/cbe52a46e99cf5c760c4707f0f84b25000de0ccb400f0a73e3a56487589c7061/references/evidence-and-inputs.md",
+      "sha256": "06c231ecb261a341763f7cdd8c45be4453b2e1f64ab910a977fc6763dbe9731f",
+      "size": 2360
+    },
+    {
+      "path": "state/versions/ophira-core/market-research/cbe52a46e99cf5c760c4707f0f84b25000de0ccb400f0a73e3a56487589c7061/templates/market-evidence-brief.md",
+      "sha256": "93cfa6fb164badd4abc24ac9463134cd04be451584f7964926b6be96dc5874d6",
+      "size": 1728
+    },
+    {
+      "path": "state/versions/ophira-core/monitoring-patrol/c086b67e492cdc90a172f71a910c11c77bbedd9bacd4716e2eeb8398b566a455/SKILL.md",
+      "sha256": "5fa085780dc548618ccd86e4a67c842f306446782251e84679ace493c1019395",
+      "size": 985
+    },
+    {
+      "path": "state/versions/ophira-core/monitoring-patrol/c086b67e492cdc90a172f71a910c11c77bbedd9bacd4716e2eeb8398b566a455/references/evidence-and-inputs.md",
+      "sha256": "0db1c10fa6fe7512c2a4cf7aad37194c162cfa8fd6828f247deaff3025d68de8",
+      "size": 2499
+    },
+    {
+      "path": "state/versions/ophira-core/monitoring-patrol/c086b67e492cdc90a172f71a910c11c77bbedd9bacd4716e2eeb8398b566a455/templates/watch-plan.md",
+      "sha256": "e8fd2ff410a39510c22bf446a7caa1a54c8a4b4bfd3f512deba58db37330cf26",
+      "size": 1912
+    },
+    {
+      "path": "state/versions/ophira-core/supplier-due-diligence/a778a2364c1b2347afba14398add52e52ff3b25fe27c11bed58b840028d2e372/SKILL.md",
+      "sha256": "04036703386f4882faa1cbbe9266785a21228ebba17516cf233ff6434d9708b1",
+      "size": 1031
+    },
+    {
+      "path": "state/versions/ophira-core/supplier-due-diligence/a778a2364c1b2347afba14398add52e52ff3b25fe27c11bed58b840028d2e372/references/evidence-and-inputs.md",
+      "sha256": "34c4522af50be10fabdf80494ee78804244befba96bc3c3db1e87ed9e2c45209",
+      "size": 2491
+    },
+    {
+      "path": "state/versions/ophira-core/supplier-due-diligence/a778a2364c1b2347afba14398add52e52ff3b25fe27c11bed58b840028d2e372/templates/supplier-review.md",
+      "sha256": "a5d6e13e9396a8780a2a85e3d0a401414c3fefdf7d558da578e7bb9c61690924",
+      "size": 1987
+    },
+    {
+      "path": "state/versions/ophira-tenant/backup-disabled/c2018b19a0718bedea093539d7ac5604184bad7542d5e5e303d7192b890c15b9/SKILL.md",
+      "sha256": "c5d20f4a34c3d24eb7045b9a7946b0ed387f0655be4ae967ee850afe33e65a1d",
+      "size": 170
+    },
+    {
+      "path": "state/versions/ophira-tenant/backup-disabled/c2018b19a0718bedea093539d7ac5604184bad7542d5e5e303d7192b890c15b9/references/evidence.md",
+      "sha256": "ad92ea9a5103c1cdaa90730a506daa4083197bdb55352cf9ca83c40c99cd24ff",
+      "size": 34
+    },
+    {
+      "path": "state/versions/ophira-tenant/backup-disabled/c2018b19a0718bedea093539d7ac5604184bad7542d5e5e303d7192b890c15b9/templates/report.md",
+      "sha256": "597f6ab6e2804047f656537d582984ef97d31de5c8f2e1b706fe6a33ff31c531",
+      "size": 34
+    },
+    {
+      "path": "state/versions/ophira-tenant/backup-disabled/d690caf4f5f69255c213b9d80d42ff4f50a98ebc96341f65a2213ea9d77c4bcd/SKILL.md",
+      "sha256": "4c4f6fd976fa93c91abb9767f84c324f8d56b653ad78aba44afd0eafb81033e7",
+      "size": 170
+    },
+    {
+      "path": "state/versions/ophira-tenant/backup-disabled/d690caf4f5f69255c213b9d80d42ff4f50a98ebc96341f65a2213ea9d77c4bcd/references/evidence.md",
+      "sha256": "1b5a84fd56a2addda5ad70b7c44c799a99c431f1c3cb6a347d9ca093496926f4",
+      "size": 34
+    },
+    {
+      "path": "state/versions/ophira-tenant/backup-disabled/d690caf4f5f69255c213b9d80d42ff4f50a98ebc96341f65a2213ea9d77c4bcd/templates/report.md",
+      "sha256": "9e2e6d51081d9fc06658ecf7ec567659b0ab04831b67bf681a5a7d835addf843",
+      "size": 34
+    },
+    {
+      "path": "state/versions/ophira-tenant/backup-exercise/1c20e12960f1dfe92d9f14bf968d5568d902eb358a1623340dc1dc3d654fb93f/SKILL.md",
+      "sha256": "20c2b12fe42112c0e6d7f6e90ecda9437a5a6798816554b48be9a8df862c96b5",
+      "size": 170
+    },
+    {
+      "path": "state/versions/ophira-tenant/backup-exercise/1c20e12960f1dfe92d9f14bf968d5568d902eb358a1623340dc1dc3d654fb93f/references/evidence.md",
+      "sha256": "ad92ea9a5103c1cdaa90730a506daa4083197bdb55352cf9ca83c40c99cd24ff",
+      "size": 34
+    },
+    {
+      "path": "state/versions/ophira-tenant/backup-exercise/1c20e12960f1dfe92d9f14bf968d5568d902eb358a1623340dc1dc3d654fb93f/templates/report.md",
+      "sha256": "597f6ab6e2804047f656537d582984ef97d31de5c8f2e1b706fe6a33ff31c531",
+      "size": 34
+    },
+    {
+      "path": "state/versions/ophira-tenant/backup-exercise/7dae12f3d8aa9984fe8c8cddf49284298745b0cf7f6078ae037a6dd9fd902554/SKILL.md",
+      "sha256": "bd33b5f3c1c5f6b131e68f3e0a6a1ea8d159fe8ac239eba9d1e3e628fb45f97b",
+      "size": 170
+    },
+    {
+      "path": "state/versions/ophira-tenant/backup-exercise/7dae12f3d8aa9984fe8c8cddf49284298745b0cf7f6078ae037a6dd9fd902554/references/evidence.md",
+      "sha256": "1b5a84fd56a2addda5ad70b7c44c799a99c431f1c3cb6a347d9ca093496926f4",
+      "size": 34
+    },
+    {
+      "path": "state/versions/ophira-tenant/backup-exercise/7dae12f3d8aa9984fe8c8cddf49284298745b0cf7f6078ae037a6dd9fd902554/templates/report.md",
+      "sha256": "9e2e6d51081d9fc06658ecf7ec567659b0ab04831b67bf681a5a7d835addf843",
+      "size": 34
+    }
+  ],
+  "format": "ophira-local-skill-backup",
+  "implementation": {
+    "backend/scripts/exercise_skill_backup.py": "5a28db982b4fd44d74db4c713f418a37b68cb3f0d11a63db3e609f8a2f991ff2",
+    "backend/src/ophira_backend/constants.py": "260f73e399d403bdf543eb7d0edac24cfa7925dffa457893201ec1906e889be0",
+    "backend/src/ophira_backend/models.py": "a533fcdde9d9fbf11ee14d1d0d025c0926a2366cd33bffcf22e5cc4452d89958",
+    "backend/src/ophira_backend/skills.py": "097b5fda2caf7f782c7a2c9e868a9694504f45f0c906c7ae01d53f4316c0fa56"
+  },
+  "inventory": {
+    "canonical_state": {
+      "current": {
+        "ophira-tenant:backup-disabled": "d690caf4f5f69255c213b9d80d42ff4f50a98ebc96341f65a2213ea9d77c4bcd",
+        "ophira-tenant:backup-exercise": "7dae12f3d8aa9984fe8c8cddf49284298745b0cf7f6078ae037a6dd9fd902554"
+      },
+      "enabled": {
+        "ophira-core:customer-path": false,
+        "ophira-core:office-documents": false,
+        "ophira-core:retired-exercise": false,
+        "ophira-tenant:backup-disabled": false,
+        "ophira-tenant:backup-exercise": true
+      },
+      "schema_version": 1
+    },
+    "history": [
+      {
+        "content_hash": "26b766be66b108f0e41fa467dfefa4d783b5cf3301713d96cdca3a71d4691710",
+        "enabled": false,
+        "id": "ophira-core:compliance-claims",
+        "name": "compliance-claims",
+        "namespace": "ophira-core",
+        "source": "application",
+        "version": "1.2.0"
+      },
+      {
+        "content_hash": "146d0e07d2341d5399257430f0cdf60cb39801a2be05c52d724e99715d4f262a",
+        "enabled": false,
+        "id": "ophira-core:content-marketing",
+        "name": "content-marketing",
+        "namespace": "ophira-core",
+        "source": "application",
+        "version": "1.2.0"
+      },
+      {
+        "content_hash": "c42eeab8a25a5552df7daa532d21754a952872913e4b031fb4fb209fa0fdc11d",
+        "enabled": false,
+        "id": "ophira-core:customer-development",
+        "name": "customer-development",
+        "namespace": "ophira-core",
+        "source": "application",
+        "version": "1.1.0"
+      },
+      {
+        "content_hash": "aaab32727a92b4f94a47a403ec145c3463378cc386422f8bc02a5c94de9b529e",
+        "enabled": false,
+        "id": "ophira-core:customer-path",
+        "name": "customer-path",
+        "namespace": "ophira-core",
+        "source": "application",
+        "version": "1.1.0"
+      },
+      {
+        "content_hash": "319c1a2b59f4eb1cc05531a6aad20ece74b8023e36329934f1f39fca4ed95718",
+        "enabled": false,
+        "id": "ophira-core:global-opportunity-execution",
+        "name": "global-opportunity-execution",
+        "namespace": "ophira-core",
+        "source": "application",
+        "version": "1.1.0"
+      },
+      {
+        "content_hash": "2db992563e7e87c064e85488b3eb7fd0c1717e451473d0ba2b2dd5a7c8a97007",
+        "enabled": false,
+        "id": "ophira-core:inquiry-negotiation",
+        "name": "inquiry-negotiation",
+        "namespace": "ophira-core",
+        "source": "application",
+        "version": "1.2.0"
+      },
+      {
+        "content_hash": "7149a7a3fd37ec5ec0a853fe5fef0870ae75a53ccc048854a033f4e25d411153",
+        "enabled": false,
+        "id": "ophira-core:landed-cost-analysis",
+        "name": "landed-cost-analysis",
+        "namespace": "ophira-core",
+        "source": "application",
+        "version": "1.2.0"
+      },
+      {
+        "content_hash": "c413093fafbfed3c6835345bc4e1187db320105c2bd1138264110baea38c9d10",
+        "enabled": false,
+        "id": "ophira-core:listing-experiment",
+        "name": "listing-experiment",
+        "namespace": "ophira-core",
+        "source": "application",
+        "version": "1.2.0"
+      },
+      {
+        "content_hash": "fd0327f0f79a1cedf3eca745e0cfeb8f97fec01b67e88fa8380524c747d28224",
+        "enabled": false,
+        "id": "ophira-core:logistics-customs",
+        "name": "logistics-customs",
+        "namespace": "ophira-core",
+        "source": "application",
+        "version": "1.1.0"
+      },
+      {
+        "content_hash": "cbe52a46e99cf5c760c4707f0f84b25000de0ccb400f0a73e3a56487589c7061",
+        "enabled": false,
+        "id": "ophira-core:market-research",
+        "name": "market-research",
+        "namespace": "ophira-core",
+        "source": "application",
+        "version": "1.2.0"
+      },
+      {
+        "content_hash": "c086b67e492cdc90a172f71a910c11c77bbedd9bacd4716e2eeb8398b566a455",
+        "enabled": false,
+        "id": "ophira-core:monitoring-patrol",
+        "name": "monitoring-patrol",
+        "namespace": "ophira-core",
+        "source": "application",
+        "version": "1.1.0"
+      },
+      {
+        "content_hash": "a778a2364c1b2347afba14398add52e52ff3b25fe27c11bed58b840028d2e372",
+        "enabled": false,
+        "id": "ophira-core:supplier-due-diligence",
+        "name": "supplier-due-diligence",
+        "namespace": "ophira-core",
+        "source": "application",
+        "version": "1.1.0"
+      },
+      {
+        "content_hash": "c2018b19a0718bedea093539d7ac5604184bad7542d5e5e303d7192b890c15b9",
+        "enabled": false,
+        "id": "ophira-tenant:backup-disabled",
+        "name": "backup-disabled",
+        "namespace": "ophira-tenant",
+        "source": "tenant",
+        "version": "1.0.0"
+      },
+      {
+        "content_hash": "d690caf4f5f69255c213b9d80d42ff4f50a98ebc96341f65a2213ea9d77c4bcd",
+        "enabled": false,
+        "id": "ophira-tenant:backup-disabled",
+        "name": "backup-disabled",
+        "namespace": "ophira-tenant",
+        "source": "tenant",
+        "version": "2.0.0"
+      },
+      {
+        "content_hash": "1c20e12960f1dfe92d9f14bf968d5568d902eb358a1623340dc1dc3d654fb93f",
+        "enabled": false,
+        "id": "ophira-tenant:backup-exercise",
+        "name": "backup-exercise",
+        "namespace": "ophira-tenant",
+        "source": "tenant",
+        "version": "1.0.0"
+      },
+      {
+        "content_hash": "7dae12f3d8aa9984fe8c8cddf49284298745b0cf7f6078ae037a6dd9fd902554",
+        "enabled": false,
+        "id": "ophira-tenant:backup-exercise",
+        "name": "backup-exercise",
+        "namespace": "ophira-tenant",
+        "source": "tenant",
+        "version": "2.0.0"
+      }
+    ],
+    "skills": [
+      {
+        "content_hash": "26b766be66b108f0e41fa467dfefa4d783b5cf3301713d96cdca3a71d4691710",
+        "enabled": true,
+        "id": "ophira-core:compliance-claims",
+        "name": "compliance-claims",
+        "namespace": "ophira-core",
+        "source": "application",
+        "version": "1.2.0"
+      },
+      {
+        "content_hash": "146d0e07d2341d5399257430f0cdf60cb39801a2be05c52d724e99715d4f262a",
+        "enabled": true,
+        "id": "ophira-core:content-marketing",
+        "name": "content-marketing",
+        "namespace": "ophira-core",
+        "source": "application",
+        "version": "1.2.0"
+      },
+      {
+        "content_hash": "c42eeab8a25a5552df7daa532d21754a952872913e4b031fb4fb209fa0fdc11d",
+        "enabled": true,
+        "id": "ophira-core:customer-development",
+        "name": "customer-development",
+        "namespace": "ophira-core",
+        "source": "application",
+        "version": "1.1.0"
+      },
+      {
+        "content_hash": "aaab32727a92b4f94a47a403ec145c3463378cc386422f8bc02a5c94de9b529e",
+        "enabled": false,
+        "id": "ophira-core:customer-path",
+        "name": "customer-path",
+        "namespace": "ophira-core",
+        "source": "application",
+        "version": "1.1.0"
+      },
+      {
+        "content_hash": "319c1a2b59f4eb1cc05531a6aad20ece74b8023e36329934f1f39fca4ed95718",
+        "enabled": true,
+        "id": "ophira-core:global-opportunity-execution",
+        "name": "global-opportunity-execution",
+        "namespace": "ophira-core",
+        "source": "application",
+        "version": "1.1.0"
+      },
+      {
+        "content_hash": "2db992563e7e87c064e85488b3eb7fd0c1717e451473d0ba2b2dd5a7c8a97007",
+        "enabled": true,
+        "id": "ophira-core:inquiry-negotiation",
+        "name": "inquiry-negotiation",
+        "namespace": "ophira-core",
+        "source": "application",
+        "version": "1.2.0"
+      },
+      {
+        "content_hash": "7149a7a3fd37ec5ec0a853fe5fef0870ae75a53ccc048854a033f4e25d411153",
+        "enabled": true,
+        "id": "ophira-core:landed-cost-analysis",
+        "name": "landed-cost-analysis",
+        "namespace": "ophira-core",
+        "source": "application",
+        "version": "1.2.0"
+      },
+      {
+        "content_hash": "c413093fafbfed3c6835345bc4e1187db320105c2bd1138264110baea38c9d10",
+        "enabled": true,
+        "id": "ophira-core:listing-experiment",
+        "name": "listing-experiment",
+        "namespace": "ophira-core",
+        "source": "application",
+        "version": "1.2.0"
+      },
+      {
+        "content_hash": "fd0327f0f79a1cedf3eca745e0cfeb8f97fec01b67e88fa8380524c747d28224",
+        "enabled": true,
+        "id": "ophira-core:logistics-customs",
+        "name": "logistics-customs",
+        "namespace": "ophira-core",
+        "source": "application",
+        "version": "1.1.0"
+      },
+      {
+        "content_hash": "cbe52a46e99cf5c760c4707f0f84b25000de0ccb400f0a73e3a56487589c7061",
+        "enabled": true,
+        "id": "ophira-core:market-research",
+        "name": "market-research",
+        "namespace": "ophira-core",
+        "source": "application",
+        "version": "1.2.0"
+      },
+      {
+        "content_hash": "c086b67e492cdc90a172f71a910c11c77bbedd9bacd4716e2eeb8398b566a455",
+        "enabled": true,
+        "id": "ophira-core:monitoring-patrol",
+        "name": "monitoring-patrol",
+        "namespace": "ophira-core",
+        "source": "application",
+        "version": "1.1.0"
+      },
+      {
+        "content_hash": "66c45e24ee88be3b280b702bf3220be45aa3de5510467bc56b0374db5a900fbc",
+        "enabled": false,
+        "id": "ophira-core:office-documents",
+        "name": "office-documents",
+        "namespace": "ophira-core",
+        "source": "application",
+        "version": "1.2.0"
+      },
+      {
+        "content_hash": "a778a2364c1b2347afba14398add52e52ff3b25fe27c11bed58b840028d2e372",
+        "enabled": true,
+        "id": "ophira-core:supplier-due-diligence",
+        "name": "supplier-due-diligence",
+        "namespace": "ophira-core",
+        "source": "application",
+        "version": "1.1.0"
+      },
+      {
+        "content_hash": "d690caf4f5f69255c213b9d80d42ff4f50a98ebc96341f65a2213ea9d77c4bcd",
+        "enabled": false,
+        "id": "ophira-tenant:backup-disabled",
+        "name": "backup-disabled",
+        "namespace": "ophira-tenant",
+        "source": "tenant",
+        "version": "2.0.0"
+      },
+      {
+        "content_hash": "7dae12f3d8aa9984fe8c8cddf49284298745b0cf7f6078ae037a6dd9fd902554",
+        "enabled": true,
+        "id": "ophira-tenant:backup-exercise",
+        "name": "backup-exercise",
+        "namespace": "ophira-tenant",
+        "source": "tenant",
+        "version": "2.0.0"
+      }
+    ]
+  },
+  "pins": {
+    "new": [
+      {
+        "content_hash": "26b766be66b108f0e41fa467dfefa4d783b5cf3301713d96cdca3a71d4691710",
+        "enabled": true,
+        "id": "ophira-core:compliance-claims",
+        "version": "1.2.0"
+      },
+      {
+        "content_hash": "146d0e07d2341d5399257430f0cdf60cb39801a2be05c52d724e99715d4f262a",
+        "enabled": true,
+        "id": "ophira-core:content-marketing",
+        "version": "1.2.0"
+      },
+      {
+        "content_hash": "c42eeab8a25a5552df7daa532d21754a952872913e4b031fb4fb209fa0fdc11d",
+        "enabled": true,
+        "id": "ophira-core:customer-development",
+        "version": "1.1.0"
+      },
+      {
+        "content_hash": "319c1a2b59f4eb1cc05531a6aad20ece74b8023e36329934f1f39fca4ed95718",
+        "enabled": true,
+        "id": "ophira-core:global-opportunity-execution",
+        "version": "1.1.0"
+      },
+      {
+        "content_hash": "2db992563e7e87c064e85488b3eb7fd0c1717e451473d0ba2b2dd5a7c8a97007",
+        "enabled": true,
+        "id": "ophira-core:inquiry-negotiation",
+        "version": "1.2.0"
+      },
+      {
+        "content_hash": "7149a7a3fd37ec5ec0a853fe5fef0870ae75a53ccc048854a033f4e25d411153",
+        "enabled": true,
+        "id": "ophira-core:landed-cost-analysis",
+        "version": "1.2.0"
+      },
+      {
+        "content_hash": "c413093fafbfed3c6835345bc4e1187db320105c2bd1138264110baea38c9d10",
+        "enabled": true,
+        "id": "ophira-core:listing-experiment",
+        "version": "1.2.0"
+      },
+      {
+        "content_hash": "fd0327f0f79a1cedf3eca745e0cfeb8f97fec01b67e88fa8380524c747d28224",
+        "enabled": true,
+        "id": "ophira-core:logistics-customs",
+        "version": "1.1.0"
+      },
+      {
+        "content_hash": "cbe52a46e99cf5c760c4707f0f84b25000de0ccb400f0a73e3a56487589c7061",
+        "enabled": true,
+        "id": "ophira-core:market-research",
+        "version": "1.2.0"
+      },
+      {
+        "content_hash": "c086b67e492cdc90a172f71a910c11c77bbedd9bacd4716e2eeb8398b566a455",
+        "enabled": true,
+        "id": "ophira-core:monitoring-patrol",
+        "version": "1.1.0"
+      },
+      {
+        "content_hash": "a778a2364c1b2347afba14398add52e52ff3b25fe27c11bed58b840028d2e372",
+        "enabled": true,
+        "id": "ophira-core:supplier-due-diligence",
+        "version": "1.1.0"
+      },
+      {
+        "content_hash": "7dae12f3d8aa9984fe8c8cddf49284298745b0cf7f6078ae037a6dd9fd902554",
+        "enabled": true,
+        "id": "ophira-tenant:backup-exercise",
+        "version": "2.0.0"
+      }
+    ],
+    "old": [
+      {
+        "content_hash": "26b766be66b108f0e41fa467dfefa4d783b5cf3301713d96cdca3a71d4691710",
+        "enabled": true,
+        "id": "ophira-core:compliance-claims",
+        "version": "1.2.0"
+      },
+      {
+        "content_hash": "146d0e07d2341d5399257430f0cdf60cb39801a2be05c52d724e99715d4f262a",
+        "enabled": true,
+        "id": "ophira-core:content-marketing",
+        "version": "1.2.0"
+      },
+      {
+        "content_hash": "c42eeab8a25a5552df7daa532d21754a952872913e4b031fb4fb209fa0fdc11d",
+        "enabled": true,
+        "id": "ophira-core:customer-development",
+        "version": "1.1.0"
+      },
+      {
+        "content_hash": "aaab32727a92b4f94a47a403ec145c3463378cc386422f8bc02a5c94de9b529e",
+        "enabled": true,
+        "id": "ophira-core:customer-path",
+        "version": "1.1.0"
+      },
+      {
+        "content_hash": "319c1a2b59f4eb1cc05531a6aad20ece74b8023e36329934f1f39fca4ed95718",
+        "enabled": true,
+        "id": "ophira-core:global-opportunity-execution",
+        "version": "1.1.0"
+      },
+      {
+        "content_hash": "2db992563e7e87c064e85488b3eb7fd0c1717e451473d0ba2b2dd5a7c8a97007",
+        "enabled": true,
+        "id": "ophira-core:inquiry-negotiation",
+        "version": "1.2.0"
+      },
+      {
+        "content_hash": "7149a7a3fd37ec5ec0a853fe5fef0870ae75a53ccc048854a033f4e25d411153",
+        "enabled": true,
+        "id": "ophira-core:landed-cost-analysis",
+        "version": "1.2.0"
+      },
+      {
+        "content_hash": "c413093fafbfed3c6835345bc4e1187db320105c2bd1138264110baea38c9d10",
+        "enabled": true,
+        "id": "ophira-core:listing-experiment",
+        "version": "1.2.0"
+      },
+      {
+        "content_hash": "fd0327f0f79a1cedf3eca745e0cfeb8f97fec01b67e88fa8380524c747d28224",
+        "enabled": true,
+        "id": "ophira-core:logistics-customs",
+        "version": "1.1.0"
+      },
+      {
+        "content_hash": "cbe52a46e99cf5c760c4707f0f84b25000de0ccb400f0a73e3a56487589c7061",
+        "enabled": true,
+        "id": "ophira-core:market-research",
+        "version": "1.2.0"
+      },
+      {
+        "content_hash": "c086b67e492cdc90a172f71a910c11c77bbedd9bacd4716e2eeb8398b566a455",
+        "enabled": true,
+        "id": "ophira-core:monitoring-patrol",
+        "version": "1.1.0"
+      },
+      {
+        "content_hash": "a778a2364c1b2347afba14398add52e52ff3b25fe27c11bed58b840028d2e372",
+        "enabled": true,
+        "id": "ophira-core:supplier-due-diligence",
+        "version": "1.1.0"
+      },
+      {
+        "content_hash": "1c20e12960f1dfe92d9f14bf968d5568d902eb358a1623340dc1dc3d654fb93f",
+        "enabled": true,
+        "id": "ophira-tenant:backup-exercise",
+        "version": "1.0.0"
+      }
+    ]
+  },
+  "schema_version": 1
+}

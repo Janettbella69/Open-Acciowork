@@ -1,0 +1,14 @@
+{
+  "current": {
+    "ophira-tenant:backup-disabled": "d690caf4f5f69255c213b9d80d42ff4f50a98ebc96341f65a2213ea9d77c4bcd",
+    "ophira-tenant:backup-exercise": "7dae12f3d8aa9984fe8c8cddf49284298745b0cf7f6078ae037a6dd9fd902554"
+  },
+  "enabled": {
+    "ophira-core:customer-path": false,
+    "ophira-core:office-documents": false,
+    "ophira-core:retired-exercise": false,
+    "ophira-tenant:backup-disabled": false,
+    "ophira-tenant:backup-exercise": true
+  },
+  "schema_version": 1
+}

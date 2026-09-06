@@ -1,0 +1,26 @@
+{
+  "error_type": "BackupError",
+  "exit_code": 1,
+  "implementation": {
+    "backend/scripts/exercise_skill_backup.py": "5a28db982b4fd44d74db4c713f418a37b68cb3f0d11a63db3e609f8a2f991ff2",
+    "backend/src/ophira_backend/constants.py": "260f73e399d403bdf543eb7d0edac24cfa7925dffa457893201ec1906e889be0",
+    "backend/src/ophira_backend/models.py": "a533fcdde9d9fbf11ee14d1d0d025c0926a2366cd33bffcf22e5cc4452d89958",
+    "backend/src/ophira_backend/skills.py": "097b5fda2caf7f782c7a2c9e868a9694504f45f0c906c7ae01d53f4316c0fa56"
+  },
+  "new_process": true,
+  "passed": false,
+  "phases": {
+    "copy": "not_started",
+    "logical_inventory": "not_started",
+    "preflight": "failed",
+    "publish": "not_started",
+    "published_pins": "not_started",
+    "registry_review": "not_started",
+    "rollback": "not_started",
+    "staged_pins": "not_started"
+  },
+  "pid": 59699,
+  "reason": "file_inventory_mismatch",
+  "staging_clean": true,
+  "target_visible": false
+}

@@ -1,0 +1,15 @@
+{
+  "passed": true,
+  "checked_at": "2026-09-06T06:44:36.818363+00:00",
+  "method": "Independent Python stdlib recomputation without importing the exercise verifier",
+  "manifest_sha256": "eef22a6eee6bfc0e5481bb3a844d8ff5963acf32d41a065fa2704ad0b8503cb8",
+  "payload_files": 176,
+  "payload_bytes": 302997,
+  "history_hashes": 16,
+  "pinned_package_copies_compared": 25,
+  "distinct_worker_pids": 6,
+  "fault_reasons_types_and_phases_verified": 5,
+  "source_fingerprints_match": true,
+  "canonical_and_final_pin_reports_match": true,
+  "scope": "Archive integrity and reported lifecycle verification; not a new model or disaster-recovery run"
+}

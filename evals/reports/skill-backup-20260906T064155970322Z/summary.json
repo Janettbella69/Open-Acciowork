@@ -1,0 +1,49 @@
+{
+  "cases": {
+    "bad_pointer": {
+      "expected_result": true,
+      "reason": "registry_validation_failed",
+      "report": "bad_pointer.json"
+    },
+    "copy_interrupted": {
+      "expected_result": true,
+      "reason": "copy_interrupted",
+      "report": "copy_interrupted.json"
+    },
+    "hash_tamper": {
+      "expected_result": true,
+      "reason": "file_inventory_mismatch",
+      "report": "hash_tamper.json"
+    },
+    "missing_history": {
+      "expected_result": true,
+      "reason": "file_inventory_mismatch",
+      "report": "missing_history.json"
+    },
+    "scan_failure": {
+      "expected_result": true,
+      "reason": "history_scan_failed",
+      "report": "scan_failure.json"
+    },
+    "success": {
+      "expected_result": true,
+      "reason": null,
+      "report": "success.json"
+    }
+  },
+  "created_at": "2026-09-06T06:41:58.845627+00:00",
+  "implementation": {
+    "backend/scripts/exercise_skill_backup.py": "5a28db982b4fd44d74db4c713f418a37b68cb3f0d11a63db3e609f8a2f991ff2",
+    "backend/src/ophira_backend/constants.py": "260f73e399d403bdf543eb7d0edac24cfa7925dffa457893201ec1906e889be0",
+    "backend/src/ophira_backend/models.py": "a533fcdde9d9fbf11ee14d1d0d025c0926a2366cd33bffcf22e5cc4452d89958",
+    "backend/src/ophira_backend/skills.py": "097b5fda2caf7f782c7a2c9e868a9694504f45f0c906c7ae01d53f4316c0fa56"
+  },
+  "implementation_stable": true,
+  "live_data_read": false,
+  "network_used": false,
+  "parent_pid": 59676,
+  "passed": true,
+  "provider_invoked": false,
+  "scope": "local_synthetic_independent_process",
+  "source_removed_before_restore": true
+}
