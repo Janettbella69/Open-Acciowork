@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
-import { checkConnectorHealth, errorMessage, listConnectors, revokeConnector, upsertConnector } from '../api/client'
+import { checkConnectorHealth, errorMessage, listConnectors, listMarketplaceGuides, revokeConnector, upsertConnector } from '../api/client'
 import type { Connector } from '../api/types'
+import type { MarketplaceGuide } from '../api/marketplaces'
 import { useT } from '../i18n'
+import MarketplaceConnector from './MarketplaceConnector'
 import './connectors-page.css'
 
 function statusLabel(connector: Connector): string {
@@ -15,6 +17,7 @@ function statusLabel(connector: Connector): string {
 export default function ConnectorsPage() {
   const t = useT()
   const [connectors, setConnectors] = useState<Connector[]>([])
+  const [marketplaces, setMarketplaces] = useState<MarketplaceGuide[]>([])
   const [loading, setLoading] = useState(true)
   const [secretDraft, setSecretDraft] = useState<Record<string, string>>({})
   const [saving, setSaving] = useState('')
@@ -30,6 +33,9 @@ export default function ConnectorsPage() {
       .then((items) => { if (active) setConnectors(items) })
       .catch((loadError) => { if (active) setError(errorMessage(loadError)) })
       .finally(() => { if (active) setLoading(false) })
+    void listMarketplaceGuides()
+      .then((items) => { if (active) setMarketplaces(items) })
+      .catch((loadError) => { if (active) setError(errorMessage(loadError)) })
     return () => { active = false }
   }, [])
 
@@ -101,6 +107,15 @@ export default function ConnectorsPage() {
           </dl>
         </header>
 
+        {marketplaces.length > 0 && <section className="marketplace-guides" aria-label={t('Marketplace integrations')}>
+          <h2>{t('Marketplace integrations')}</h2>
+          <p>{t('TikTok Shop uses seller authorization separately from TikTok social access. The AliExpress guide covers AliExpress, separately from Alibaba.com.')}</p>
+          <ul>{marketplaces.map((item) => <li key={item.type}>
+            <strong>{item.name}</strong><span>{t(item.read_adapter ? 'Shop and product reader available' : 'Adapter pending')}</span>
+            <a href={item.documentation_url} target="_blank" rel="noreferrer">{t('Official developer guide')}</a>
+          </li>)}</ul>
+        </section>}
+
         <section className="connectors-registry" aria-labelledby="connectors-registry-title">
           <div><span>{t('Runtime integrations')}</span><h2 id="connectors-registry-title">{t('Connector registry')}</h2></div>
           {error && <p className="connectors-error" role="alert">{error}</p>}
@@ -108,7 +123,9 @@ export default function ConnectorsPage() {
             <div className="connectors-empty"><strong>{t('Loading connectors…')}</strong></div>
           ) : connectors.length ? (
             <div className="connectors-list">
-              {connectors.map((connector) => (
+              {connectors.map((connector) => connector.type === 'tiktok_shop' ? (
+                <MarketplaceConnector key={connector.id} connector={connector} onChange={(updated) => setConnectors((current) => current.map((item) => item.id === updated.id ? updated : item))} />
+              ) : (
                 <article key={connector.id} data-enabled={connector.enabled ? 'true' : 'false'}>
                   <div className="connector-mark" aria-hidden="true">{connector.type.slice(0, 2).toUpperCase()}</div>
                   <div className="connector-copy">

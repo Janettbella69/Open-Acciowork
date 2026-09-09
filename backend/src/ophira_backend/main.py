@@ -122,6 +122,7 @@ from .knowledge import (
     search_project_knowledge,
 )
 from .maintenance import data_directory_lease
+from .marketplace_api import register_marketplace_routes
 from .memory import FileMemoryProvider, MemoryNotFoundError, public_memory_item
 from .models import (
     AgentCreate,
@@ -1420,6 +1421,8 @@ def _create_app(
             ) from exc
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    register_marketplace_routes(application, connectors)
 
     @application.get("/api/connectors", response_model=list[Connector])
     async def list_connectors() -> list[Connector]:

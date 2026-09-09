@@ -69,6 +69,12 @@ The commerce MCP also calculates cash balances and peak funding gaps from explic
 settlement schedules, distinguishing daily closing balances from a conservative
 intraday bound; see [`docs/cashflow.md`](docs/cashflow.md).
 
+**Plugins → Connectors** now includes official onboarding links for SHEIN, Temu,
+TikTok Shop, AliExpress and Shopee. TikTok Shop has a seller-authorized shop and
+product reader with pagination, scoped credentials and revoke/reconnect controls.
+The other four adapters and live seller certification remain open; see
+[`docs/marketplace-connectors.md`](docs/marketplace-connectors.md).
+
 Open **Project run metrics** in a saved workspace to inspect recent execution,
 latency, observed cost estimates, and Provider/Skill/tool groups. Missing data stays
 explicit; see [`docs/project-metrics.md`](docs/project-metrics.md).

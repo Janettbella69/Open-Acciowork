@@ -8,6 +8,29 @@
 .connectors-header dt { color: #85898c; font-size: var(--ophira-type-small); }
 .connectors-header dd { margin: 6px 0 0; font-size: 24px; font-weight: 700; }
 .connectors-registry { margin-top: 64px; }
+.marketplace-guides { margin-top: 40px; }
+.marketplace-guides > p, .marketplace-connector p { color: #727679; line-height: 1.6; }
+.marketplace-guides ul { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; padding: 0; list-style: none; }
+.marketplace-guides li { display: grid; gap: 10px; border: 1px solid #e0e1e2; border-radius: 14px; padding: 18px; }
+.marketplace-guides li span, .marketplace-guides li a { font-size: var(--ophira-type-small); }
+.marketplace-guides a { color: #236348; text-decoration: underline; }
+.connectors-list > .marketplace-connector { grid-template-columns: minmax(0, 1fr); }
+.marketplace-connector summary { cursor: pointer; padding: 12px 0; font-weight: 650; }
+.marketplace-connector fieldset { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); border: 0; padding: 0; gap: 16px; }
+.marketplace-connector label { display: grid; gap: 8px; }
+.marketplace-connector input, .marketplace-connector select { width: 100%; min-width: 0; box-sizing: border-box; min-height: 44px; padding: 8px 12px; border: 1px solid #d9dbdc; border-radius: 10px; background: #fff; }
+.marketplace-connector button { min-height: 44px; border: 1px solid #d9dbdc; border-radius: 999px; padding: 0 16px; background: #fff; font-weight: 650; }
+.marketplace-connector button:disabled { opacity: .5; cursor: not-allowed; }
+.marketplace-connector .marketplace-checkbox { grid-column: 1 / -1; display: flex; align-items: center; }
+.marketplace-checkbox input { width: 20px; }
+.marketplace-toolbar, .marketplace-shop-picker { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; margin: 20px 0; }
+.marketplace-shop-picker label { flex: 1 1 260px; }
+.marketplace-table { max-width: 100%; overflow-x: auto; margin: 20px 0; }
+.marketplace-table table { width: 100%; border-collapse: collapse; text-align: left; }
+.marketplace-table th, .marketplace-table td { border-bottom: 1px solid #e0e1e2; padding: 12px 8px; overflow-wrap: anywhere; }
+.marketplace-table caption { padding: 8px; text-align: left; font-weight: 650; }
+.marketplace-provenance { overflow-wrap: anywhere; font-size: var(--ophira-type-small); }
+@media (max-width: 720px) { .marketplace-connector fieldset { grid-template-columns: 1fr; } }
 .connectors-registry > div:first-child > span { color: var(--ophira-green); font-size: var(--ophira-type-small); font-weight: 750; letter-spacing: 0.06em; text-transform: uppercase; }
 .connectors-registry h2 { margin: 7px 0 0; font-size: 26px; font-weight: 680; letter-spacing: -0.03em; }
 .connectors-error { margin: 20px 0 0; border: 1px solid #edd2cd; border-radius: 12px; padding: 14px 16px; color: #963a2e; background: #fff4f2; }

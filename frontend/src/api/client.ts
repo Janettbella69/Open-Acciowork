@@ -38,6 +38,7 @@ import type {
 import type { ProjectMetrics } from './projectMetrics'
 import type { SkillProposalDetail, SkillProposalPage, SkillProposalPreview, SkillProposalReviewRequest, SkillProposalState } from './skillProposals'
 import type { KnowledgeSearch } from './knowledge'
+import type { MarketplaceGuide, MarketplaceRead, MarketplaceReadInput } from './marketplaces'
 
 const configuredBaseUrl = import.meta.env.VITE_OPHIRA_API_URL?.trim() ?? ''
 export const apiBaseUrl = configuredBaseUrl.replace(/\/$/, '')
@@ -570,6 +571,16 @@ export function upsertConnector(id: string, input: {
 
 export function revokeConnector(id: string): Promise<Connector> {
   return request<Connector>(`/api/connectors/${encodeURIComponent(id)}/revoke`, { method: 'POST' })
+}
+
+export function listMarketplaceGuides(): Promise<MarketplaceGuide[]> {
+  return request<MarketplaceGuide[]>('/api/connectors/marketplaces')
+}
+
+export function readMarketplace(id: string, input: MarketplaceReadInput): Promise<MarketplaceRead> {
+  return request<MarketplaceRead>(`/api/connectors/${encodeURIComponent(id)}/marketplace-read`, {
+    method: 'POST', body: JSON.stringify(input),
+  })
 }
 
 export function installSkill(file: File): Promise<SkillVersion> {

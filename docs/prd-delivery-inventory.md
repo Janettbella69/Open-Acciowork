@@ -30,7 +30,7 @@
 | FR-18 恢复 | delivered：保存产物、错误分类、重试与重启恢复 | deferred：Bash 文件修改快照恢复与真实进程崩溃演练 |
 | FR-19 Deep Research | delivered：恰好三个只读研究子代理、预算/取消/墙钟限制；恢复沿用原起始时间、金额/turn预算及墙钟截止时间 | deferred：真实 SDK Deep Research 执行、完整资源 UI 与合并证据验收 |
 | FR-20 GUI | delivered：L1/L2 真实浏览器 smoke | deferred：真实攻击/恢复矩阵；L3 桌面桥与 OS 权限治理未实现 |
-| FR-21 Connector | delivered：Catalog/Vault/health/revoke、HTTPS JSON send_message | deferred：邮箱/店铺/CRM/社媒垂直 adapter，真实授权 test-account 外发全链 |
+| FR-21 Connector | delivered：Catalog/Vault/health/revoke、HTTPS JSON send_message；五平台官方文档入口，TikTok Shop授权店铺/商品分页只读adapter与管理员配置/撤销/重连UI | deferred：其余邮箱/店铺/CRM/社媒垂直adapter；TikTok Shop OAuth/refresh、Agent项目授权绑定与来源凭证接入、真实授权test-account验收/外发全链 |
 | FR-22 组织治理 | delivered：单部署租户 principal/membership/策略 | deferred：租户分区、隔离 runner、共享项目/评论/模板、组织私有 Skill 仓库 |
 | FR-23 Web 兜底 | delivered：Serper/Tavily 适配与 SSRF 防护 | deferred：真实配置搜索服务和 Provider 降级 E2E |
 | FR-24 IM | delivered：飞书签名入站/身份绑定/同 Agent/持久回复重试 | deferred：真实飞书/Lark 租户 E2E；微信适配未实现 |
@@ -447,3 +447,27 @@ id/版本/hash/时间/Run/来源关联。PDF/图片使用已有 Markdown 伴随�
 Browser运行时已成功加载，但选择浏览器返回`No browser is available`，按文档排查后
 列表为空，未声称页面目视验收通过。本批未调用真实Provider或外部数据服务。
 Office原件索引、真实检索质量/容量、页面目视验收和全PRD其余deferred继续开放。
+
+## 2026-09-09：五平台接入依据与 TikTok Shop 管理员只读流程
+
+[接入合同与边界](marketplace-connectors.md)记录用户提供的 SHEIN、Temu、TikTok Shop、
+AliExpress 和 Shopee 官方文档。Alibaba 托管的链接归属速卖通；既有 `alibaba` 与
+TikTok 社媒凭据不迁移、不混用。其余四个平台在页面明确显示“适配器待实现”。
+
+本批 delivered：TikTok Shop 独立 Catalog 记录、结构化 seller 凭据存储、到期时间
+校验、两项固定官方只读接口、每次商品查询重新核实 shop 授权并在服务端解析 cipher、
+分页游标、来源路径/读取时间/request ID、中英文配置与读取/撤销/重连页面。
+控制面只允许管理员手动读取，不自动创建证据或项目真值。传输使用固定官方主机、
+公网 DNS 固定地址、TLS/Host/SNI、30秒总期限及2MiB响应上限；撤权/轮换/过期复验，
+拒绝重定向，签名URL及上游错误正文不进入应用响应。
+
+新增53项后端测试与5项前端测试，覆盖签名向量、实际发送正文/头、游标、私网拒绝、
+店铺授权、读取中撤销/轮换/过期、限长与响应关闭、凭据反射、真实FastAPI管理员边界、
+凭据表单与分页交互。全量后端 **1592 passed / 8 live skipped（74.93秒）**，前端
+**274 passed**；Ruff、ESLint、生产构建通过。评测工具 **59 passed**，Snapshot
+**61/61**。构建仍提示主JS超过500kB（本批660.93kB）。
+
+本批没有使用真实商家凭据或发送真实平台API请求；官方文档核查不等于平台认证。
+Browser重新检查仍返回空可用列表，未声称视觉验收。TikTok Shop OAuth/refresh、
+Agent项目授权绑定、来源凭证入库、真实test-shop与商家授权联调、写操作，以及其余
+四个平台适配器继续 deferred；完整PRD目标保持开放。

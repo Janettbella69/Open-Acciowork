@@ -5,13 +5,14 @@ import ConnectorsPage from './ConnectorsPage'
 
 vi.mock('../api/client', () => ({
   listConnectors: vi.fn(),
+  listMarketplaceGuides: vi.fn(),
   checkConnectorHealth: vi.fn(),
   upsertConnector: vi.fn(),
   revokeConnector: vi.fn(),
   errorMessage: (error: unknown) => error instanceof Error ? error.message : 'unknown error',
 }))
 
-import { checkConnectorHealth, listConnectors, revokeConnector } from '../api/client'
+import { checkConnectorHealth, listConnectors, listMarketplaceGuides, revokeConnector } from '../api/client'
 
 const connector: Connector = {
   id: 'connector_shopify',
@@ -29,6 +30,7 @@ const connector: Connector = {
 beforeEach(() => {
   vi.clearAllMocks()
   vi.mocked(listConnectors).mockResolvedValue([connector])
+  vi.mocked(listMarketplaceGuides).mockResolvedValue([])
   vi.mocked(checkConnectorHealth).mockResolvedValue({
     ...connector,
     health: 'ok',
