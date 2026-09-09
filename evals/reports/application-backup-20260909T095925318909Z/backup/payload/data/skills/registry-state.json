@@ -1,0 +1,43 @@
+{
+  "current": {
+    "ophira-tenant:recovery-committed_intent": "53ae27c506c4740c7b90038a4dfdc5401f4ceb1fe88305c7980a1570629eaf69",
+    "ophira-tenant:recovery-published": "141d5fcae7a75bebc9757a7accf5e9318aaabc111dbc9ce742eaba864d69063c"
+  },
+  "enabled": {
+    "ophira-tenant:recovery-committed_intent": false,
+    "ophira-tenant:recovery-published": true
+  },
+  "generations": {
+    "ophira-tenant:recovery-committed_intent": 1,
+    "ophira-tenant:recovery-published": 2
+  },
+  "publication_receipts": {
+    "skill_proposal_67dd9051bf52d560a7129e257211231b8318ddb6a76d68d449314ff7d0038784": {
+      "content_hash": "53ae27c506c4740c7b90038a4dfdc5401f4ceb1fe88305c7980a1570629eaf69",
+      "previous_selection": {
+        "current_hash": null,
+        "enabled": null,
+        "generation": 0
+      },
+      "proposal_id": "skill_proposal_67dd9051bf52d560a7129e257211231b8318ddb6a76d68d449314ff7d0038784",
+      "published_at": "2026-09-09T09:59:25.443445Z",
+      "review_revision": 2,
+      "reviewer_binding": "b04cbade0142b13da8cfd191ac45b5e8f4b3ccd70543304d412e3e4c518813ae",
+      "skill_id": "ophira-tenant:recovery-committed_intent"
+    },
+    "skill_proposal_6fa521f939b6f5ff0202f631e5e70bf5488dcbc6c0d9f03df0690333e17f2e89": {
+      "content_hash": "141d5fcae7a75bebc9757a7accf5e9318aaabc111dbc9ce742eaba864d69063c",
+      "previous_selection": {
+        "current_hash": null,
+        "enabled": null,
+        "generation": 0
+      },
+      "proposal_id": "skill_proposal_6fa521f939b6f5ff0202f631e5e70bf5488dcbc6c0d9f03df0690333e17f2e89",
+      "published_at": "2026-09-09T09:59:25.386299Z",
+      "review_revision": 2,
+      "reviewer_binding": "e620298a73d646bf6a72550f6378b35adfb0c3d94288ddd9299323d1be77ae66",
+      "skill_id": "ophira-tenant:recovery-published"
+    }
+  },
+  "schema_version": 2
+}

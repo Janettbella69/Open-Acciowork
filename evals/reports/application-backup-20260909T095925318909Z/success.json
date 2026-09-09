@@ -1,0 +1,23 @@
+{
+  "canonical_preserved": true,
+  "exit_code": 0,
+  "files": 146,
+  "passed": true,
+  "projects": 1,
+  "proposal_recovery": {
+    "failed": 0,
+    "inspected": 5,
+    "published": 1,
+    "reset_pending": 1
+  },
+  "proposal_states": {
+    "pending": 2,
+    "published": 2,
+    "rejected": 1
+  },
+  "provider_invoked": false,
+  "published": true,
+  "retained_files_verified": 146,
+  "runs": 1,
+  "worker_pid": 61777
+}

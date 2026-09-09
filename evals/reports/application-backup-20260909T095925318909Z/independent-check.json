@@ -1,0 +1,11 @@
+{
+  "passed": true,
+  "method": "Independent stdlib hashlib/json/pathlib audit; no backup or Registry validation helpers imported",
+  "files_verified": 146,
+  "directories_verified": 165,
+  "frozen_proposals_and_provenance_verified": 5,
+  "publication_receipts": 2,
+  "distinct_worker_processes": 5,
+  "manifest_sha256": "67c665a60b4817b90a6feffee6fd10dd6a02a090264bdd9e1f95fd85403379df",
+  "limitations": "Audits retained snapshot bytes, provenance and worker reports; temporary restored targets were removed by the exercise."
+}

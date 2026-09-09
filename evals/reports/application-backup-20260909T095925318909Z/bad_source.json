@@ -1,0 +1,7 @@
+{
+  "exit_code": 1,
+  "passed": false,
+  "reason": "proposal_run_mismatch",
+  "target_visible": false,
+  "worker_pid": 61789
+}

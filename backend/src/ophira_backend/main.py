@@ -114,6 +114,7 @@ from .feedback_routes import register_feedback_routes
 from .grants import GrantNotFoundError, PermissionGrantStore
 from .ingest import IngestConfig
 from .intent_watcher import StandingIntentWatcher
+from .maintenance import data_directory_lease
 from .memory import FileMemoryProvider, MemoryNotFoundError, public_memory_item
 from .models import (
     AgentCreate,
@@ -285,7 +286,7 @@ async def _read_bounded_body(
     return bytes(body)
 
 
-def create_app(
+def _create_app(
     settings: Settings | None = None,
     runtime: AgentRuntime | None = None,
     channel_reply_adapter: ChannelReplyAdapter | None = None,
@@ -405,7 +406,7 @@ def create_app(
     )
 
     @asynccontextmanager
-    async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    async def running_lifespan(_app: FastAPI) -> AsyncIterator[None]:
         await runs.recover_interrupted()
         skill_proposals.recover()
         feedback.reconcile_terminal(ledger)
@@ -429,6 +430,12 @@ def create_app(
                 await runs.stop()
             finally:
                 await channel_delivery.stop()
+
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+        with data_directory_lease(ledger.root):
+            async with running_lifespan(_app):
+                yield
 
     application = FastAPI(title="OPHIRA API", version="0.1.0", lifespan=lifespan)
     application.state.ledger = ledger
@@ -2405,6 +2412,23 @@ def create_app(
         }
 
     return application
+
+
+def create_app(
+    settings: Settings | None = None,
+    runtime: AgentRuntime | None = None,
+    channel_reply_adapter: ChannelReplyAdapter | None = None,
+    push_adapter: WebPushAdapter | None = None,
+) -> FastAPI:
+    settings = settings or get_settings()
+    # Match FileLedger's established canonical root, including macOS /var
+    # aliases, so every alias of an application takes the same maintenance lock.
+    root = settings.data_dir.resolve()
+    root.mkdir(mode=0o700, parents=True, exist_ok=True)
+    # Construction also creates/migrates stores and therefore participates in
+    # the same lease as the entire serving/startup/shutdown lifespan.
+    with data_directory_lease(root):
+        return _create_app(settings, runtime, channel_reply_adapter, push_adapter)
 
 
 def _parse_last_event_id(value: str | None, run_id: str) -> int:

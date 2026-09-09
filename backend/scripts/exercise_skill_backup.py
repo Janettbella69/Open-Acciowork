@@ -7,8 +7,6 @@ No Settings, live ledger, Agent runtime, or Provider client is constructed here.
 from __future__ import annotations
 
 import argparse
-import ctypes
-import errno
 import hashlib
 import io
 import json
@@ -26,6 +24,7 @@ from typing import Any
 REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT / "backend" / "src"))
 
+from ophira_backend.backup_files import BackupError, publish_exclusive  # noqa: E402
 from ophira_backend.skills import (  # noqa: E402
     CONTENT_HASH_PATTERN,
     TENANT_PLUGIN_NAMESPACE,
@@ -63,10 +62,6 @@ FAULT_PHASES = {
 }
 
 
-class BackupError(ValueError):
-    """Stable failure reasons avoid reflecting arbitrary package text into reports."""
-
-
 def digest(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
@@ -74,6 +69,7 @@ def digest(data: bytes) -> str:
 def source_fingerprints() -> dict[str, str]:
     names = [
         "backend/scripts/exercise_skill_backup.py",
+        "backend/src/ophira_backend/backup_files.py",
         "backend/src/ophira_backend/skills.py",
         "backend/src/ophira_backend/models.py",
         "backend/src/ophira_backend/constants.py",
@@ -374,28 +370,6 @@ def validate_backup(backup: Path) -> dict:
         raise BackupError("directory_inventory_mismatch")
     validate_pins(manifest["pins"])
     return manifest
-
-
-def publish_exclusive(source: Path, target: Path) -> None:
-    """Use native atomic no-replace rename; never replace a concurrent target."""
-    library = ctypes.CDLL(None, use_errno=True)
-    if sys.platform == "darwin":
-        rename = library.renamex_np
-        rename.argtypes = [ctypes.c_char_p, ctypes.c_char_p, ctypes.c_uint]
-        arguments = (os.fsencode(source), os.fsencode(target), 4)  # RENAME_EXCL
-    elif sys.platform.startswith("linux") and hasattr(library, "renameat2"):
-        rename = library.renameat2
-        rename.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.c_int,
-                           ctypes.c_char_p, ctypes.c_uint]
-        arguments = (-100, os.fsencode(source), -100, os.fsencode(target), 1)  # NOREPLACE
-    else:
-        raise BackupError("atomic_publish_unsupported")
-    rename.restype = ctypes.c_int
-    if rename(*arguments) != 0:
-        error = ctypes.get_errno()
-        if error in {errno.EEXIST, errno.ENOTEMPTY}:
-            raise BackupError("target_exists")
-        raise OSError(error, os.strerror(error))
 
 
 def verify_pins(registry: SkillRegistry, pins: dict, pin_directory: Path) -> dict:

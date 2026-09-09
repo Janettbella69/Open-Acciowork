@@ -1,0 +1,8 @@
+{
+  "kind": "ophira.skill-proposal",
+  "name": "recovery-rejected",
+  "package_dir": "package",
+  "reason": "Offline acceptance fixture",
+  "schema_version": 1,
+  "version": "1.0.0"
+}

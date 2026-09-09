@@ -1,0 +1,7 @@
+{
+  "exit_code": 1,
+  "passed": false,
+  "reason": "file_inventory_mismatch",
+  "target_visible": false,
+  "worker_pid": 61790
+}

@@ -1,0 +1,23 @@
+{
+  "passed": true,
+  "published": true,
+  "files": 146,
+  "projects": 1,
+  "runs": 1,
+  "proposal_states": {
+    "pending": 2,
+    "published": 2,
+    "rejected": 1
+  },
+  "proposal_recovery": {
+    "inspected": 5,
+    "published": 1,
+    "reset_pending": 1,
+    "failed": 0
+  },
+  "canonical_preserved": true,
+  "provider_invoked": false,
+  "archive_sha256": "b2fc2070a0dd5a4523c781de56ca0c10f4fc6c686f7e96d36fcaa689064210af",
+  "archive_bytes": 102222,
+  "scope": "Fresh CLI restore from tar-preserved owner file modes"
+}
