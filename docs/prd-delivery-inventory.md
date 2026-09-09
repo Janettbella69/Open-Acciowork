@@ -356,3 +356,35 @@ HTTP 先只读确认项目权限再进行恢复；隐藏候选不会因无权请
 当时 schema 1；本次 schema 2/receipt 备份兼容仅经 pytest 验证，候选库与项目账本的
 一致备份、真实模型提案质量、生产控制面/worker/租户隔离仍 deferred。
 没有新增 MCP 工具，也未绕过待批的 DeepSeek 外发验收。
+
+## 2026-09-09：含发布凭证的 Skill 独立恢复验收
+
+代码与正式归档提交：`73d307d`；基线：`b34fbd7`。
+本批延续 FR-12，补齐上批仅经 pytest 覆盖的 schema 2/receipt 正式恢复演练。
+实现与证明范围见 [备份恢复合同](skill-backup-exercise.md)。
+
+| 本批要求 | 状态与证据 |
+| --- | --- |
+| 在正式备份中保留 schema 2、四份发布凭证、generation 和启停选择 | delivered：Registry 实际发布方法产生合成凭证；源目录删除后从独立副本恢复，canonical 字节一致 |
+| 恢复后旧、新运行快照和已发布历史可用 | delivered：16 个历史包、13 个当前应用包扫描；旧/新 43/40 个文件在 staging 和最终目标均逐字节一致 |
+| 旧凭证重试不覆盖后来的发布、回滚与启停 | delivered：四次匹配重试不读取不存在的候选、不产生新提交且状态字节不变；16 次单字段绑定变化被拒绝 |
+| 凭证缺失、绑定变化和无对应历史包不能被默默接受 | delivered：重新计算运输清单的三项故障命中逻辑 inventory 或凭证历史关联检查；连同原五项故障均无目标发布、staging 清理完成 |
+| 真实浏览器提案审阅验收 | deferred：按 Browser 技能连接及故障发现流程检查，返回 `No browser is available`，可用列表为空 |
+| 提案候选库、项目账本与 Registry 的一致应用备份 | deferred：本批限定 Registry/历史/pins，尚未建立完整应用快照与恢复协议 |
+| 生产/跨宿主恢复及真实模型提案质量 | deferred：需要独立部署、授权配置和相应验收；本地合成演练不替代 |
+
+归档：`evals/reports/skill-backup-20260909T091922465490Z/`。独立备份 176 个文件、
+305,589 字节；九个不同新进程完成一个成功场景与八项指定故障，全部达到预期。
+另用标准库独立复算 176 份文件哈希、16 个包地址、25 份 pin 包副本，核对四份凭证
+与九份报告，未调用被验收脚本或 Registry 验证函数。复核仅针对保留的归档，临时
+恢复目标已被演练清理。清单不提供签名、真实审阅人认证或对恶意同时改写清单的防护。
+
+验证命令与结果：
+
+- `PYTHONPATH=backend/src .venv/bin/python -m pytest -q backend/tests/test_skill_backup_exercise.py`：**59 passed**；包括验收器拒绝状态被改变、错误绑定被接受、凭证读取丢失与空凭证 fixture。
+- `OPHIRA_CONTRACT_PROVIDER= PYTHONPATH=backend/src .venv/bin/python -m pytest backend/tests -q`：**1478 passed / 8 live-only skipped**（68.99s）。
+- `PYTHONPATH=backend/src .venv/bin/python backend/scripts/exercise_skill_backup.py`：**passed**。
+- `.venv/bin/ruff check backend/src backend/tests backend/scripts/exercise_skill_backup.py`、`git diff --check`：通过。
+
+本批未改产品前后端行为，未调用真实 Provider、读取正式数据、发送外部消息或下载模型；
+前端未改且未重跑其自动化检查。其余全量 PRD deferred 保持开放。
