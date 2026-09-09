@@ -14,7 +14,7 @@ its JavaScript shell. These are documentation checks, not authenticated API test
 | --- | --- | --- | --- |
 | SHEIN | [Developer guide](https://open.sheincorp.com/documents/system/dad0d1c7-be76-4b03-a735-4e23f012bdd9) | Documentation entry and contract investigation | Runtime adapter: full signature rules and applicable seller program still need verification; no authorized account supplied |
 | Temu | [Developer guide](https://partner.temu.com/documentation?menu_code=52ef88bdef1d4527b15f6d303b173e48) | Documentation entry and authorization/signature references | Runtime adapter: region-specific gateway and specific read API contracts remain to be verified; no authorized account supplied |
-| TikTok Shop | [Developer onboarding](https://partner.tiktokshop.com/docv2/page/developer-onboarding) | Seller credential configuration, authorized-shop reads, selected-shop product pagination, provenance and revoke/reconnect UI; offline adapter/API/UI verification | Live developer/test-shop certification, OAuth callback/token exchange and refresh, Agent/project access binding, receipt-backed evidence import and commercial writes |
+| TikTok Shop | [Developer onboarding](https://partner.tiktokshop.com/docv2/page/developer-onboarding) | Seller credential configuration, authorized-shop reads, product pagination, project-specific expiring shop grants, main-Agent read tool and source receipts, administrator grant/revoke UI; offline adapter/API/SDK/UI verification | Live developer/test-shop and model certification, OAuth callback/token exchange and refresh, commercial writes |
 | AliExpress | [Register an application](https://developer.alibaba.com/docs/doc.htm?articleId=120674&docType=1&treeId=727) | Correct platform identification and documentation entry | Runtime adapter: verify current app category, read endpoints, permissions and seller authorization; supplied registration page is dated 2022 |
 | Shopee | [Developer guide](https://open.shopee.cn/developer-guide/12) | Documentation entry | Runtime adapter: supplied guide was inaccessible in this environment; equivalent global guide returned HTTP 403, so no signature or API contract is assumed |
 
@@ -100,7 +100,7 @@ when supplied, and `data_scope: authorized_seller_data`.
 - `POST /api/connectors/{id}/marketplace-read` accepts only the two typed read
   operations. In trusted-gateway mode it requires an owner/admin, independently
   of the shared connector mutation guard. Local-only mode retains the existing
-  loopback/source checks. It is not exposed as an Agent tool.
+  loopback/source checks. The Agent uses the separately scoped tool below.
 - Credentials stay in the existing server vault or connector-only environment
   namespace. Invalid credential input is not echoed in validation responses.
   Shop ciphers, access tokens, app secrets and signed URLs are not returned or
@@ -116,13 +116,89 @@ when supplied, and `data_scope: authorized_seller_data`.
   instruction boundaries are sanitized, and reflected private values are removed
   or rejected. Error bodies and transport exception text are withheld.
 - These are private seller/shop observations, not platform-wide demand,
-  competitor sales or supplier-market coverage. Reads do not create evidence,
-  project truth, scheduled commitments, or modify marketplace products.
+  competitor sales or supplier-market coverage. Reads do not automatically create
+  Evidence, decisions or scheduled commitments, or modify marketplace products.
+
+## Grant a shop to a project
+
+After reading authorized shops and selecting one, open **Project access for Agents**
+in the TikTok Shop card. Choose a saved project and a duration of 1, 7 or 30 days,
+then select **Allow Agent reads for selected shop**. This permits the project's
+main Agent, including its scheduled runs, to read that shop until expiry. It does
+not expose all shops authorized by the seller token. Existing grants can be
+inspected and revoked even when the connector is disabled or no shop list has
+been loaded. Refresh the grants after a revision conflict.
+
+Only a project owner/admin can grant, renew or revoke access in trusted-gateway
+mode; project members can inspect grants. Local-only mode uses the existing local
+owner boundary. Creating a grant verifies the shop again with the official shop
+endpoint, checks configured product permission and rechecks administrator access
+before committing. Changing project membership during the request prevents the
+grant from being saved.
+
+| Route | Operation |
+| --- | --- |
+| `GET /api/projects/{project_id}/marketplace-access` | Inspect this project's grant history and revision |
+| `POST /api/projects/{project_id}/marketplace-access` | Grant one verified shop with `expected_revision`, `connector_id`, `shop_id` and optional `expires_in_seconds` (60 seconds–30 days; default 7 days) |
+| `POST /api/projects/{project_id}/marketplace-access/{binding_id}/revoke` | Revoke with the current `expected_revision` |
+
+The server stores grants under `auth/marketplaces/`, outside project workspaces.
+Each record binds the project identity and tenant; each grant retains its creator,
+creation/expiry times and revocation actor/time. Compare-and-swap revisions and
+cross-process locks protect updates. Renewal retires the old grant and issues a
+new immutable binding ID. History is retained, with a limit of 1,000 entries per
+project. The private connector identity includes the platform, fixed endpoint and
+app key; refreshing a token for the same app preserves a live grant, while changing
+apps requires a new grant. Local connector revoke blocks reads; explicit reconnect
+to the same app can reuse an unexpired project grant.
+
+## Main-Agent reads and evidence
+
+`mcp__ophira_ledger__read_marketplace` is part of the existing SDK-native ledger MCP
+server. `operation=connections` returns only this project's unexpired, unrevoked
+shop bindings, with `offset` pagination. `operation=products` accepts one of those
+binding IDs, `page_size` 1–10, an optional upstream `page_token` and product-status
+filter. Project, Run and SDK session are bound by the host; callers cannot supply
+credentials, connector URLs, arbitrary shop IDs or grant changes.
+
+The host verifies current project membership, running status, SDK session, shop
+grant, app identity and connector state at the read boundaries. Expiry, revoke,
+Run cancellation, session replacement or app changes withhold the result. Native
+read-only research branches cannot call this receipt-producing tool; the main Agent
+can supply their research context with observations it has read.
+
+Product reads return a server-issued `source_receipt` containing an ID, content
+hash and retrieval/expiry times. The receipt binds the project, Run, SDK session,
+principal when authenticated, source path and the normalized product page. Its
+lifetime is at most 15 minutes and no longer than the shop grant's remaining life.
+The main Agent may pass the receipt ID to the existing `record_evidence` tool;
+receipt issuance alone does not assert a business conclusion. Existing evidence
+freshness, integrity and replay rules apply. Revoking future shop access retains
+earlier source history and does not retroactively delete evidence.
+
+Model-visible pages use the same bounded, sanitized fields as their source receipts.
+The marketplace profile preserves complete fields up to 4,000 characters each and
+32,000 characters in aggregate, reserving space for the MCP notice and receipt.
+Oversized pages are rejected with a request to read fewer products. The SDK hook
+decodes the outer JSON envelope while preserving literal JSON-looking titles;
+forged instruction boundaries remain sanitized. This keeps the content hash tied
+to what the Agent actually received.
+
+## Verification coverage
 
 Offline tests exercise deterministic signature vectors, exact transmitted bytes,
 header-only tokens, DNS pinning, cursor round trips, private-address rejection,
 scope/expiry checks, mid-request rotation/revoke/expiry, response bounds and closure,
 safe errors, production FastAPI role checks and frontend configuration/pagination.
+Project access tests also cover cross-project rejection, administrator membership
+revocation during grants, read-time revoke/expiry/cancellation/session/app changes,
+token refresh, concurrent grants and two real OS processes competing to revoke the
+same revision. Native SDK MCP dispatch and PostToolUse tests compare the exact
+model-visible page with its receipt, including empty pages, long titles and literal
+JSON text; the existing Evidence API consumes and replays those receipts. Frontend
+tests cover explicit project selection, durations, revision refresh, shared busy
+controls and revocation without a fresh seller read.
 They do **not** certify a real TikTok app, test shop, live grant, region, rate limit
-or OAuth flow. Browser visual QA remains deferred because the in-app Browser is
-unavailable in this session. No real credentials or marketplace requests were used.
+or OAuth flow, or a real model's use of the new tool. Browser visual QA remains
+deferred because the in-app Browser is unavailable in this session. No real
+credentials or marketplace API requests were used.

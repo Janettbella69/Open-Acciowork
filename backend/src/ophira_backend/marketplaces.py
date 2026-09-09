@@ -174,7 +174,12 @@ class TikTokShopReader:
         )
         self.clock = clock
 
-    async def read(self, connector_id: str, request: MarketplaceReadRequest) -> dict[str, Any]:
+    async def read(
+        self, connector_id: str, request: MarketplaceReadRequest, *,
+        authorize: Callable[[], None] | None = None,
+    ) -> dict[str, Any]:
+        if authorize is not None:
+            authorize()
         runtime = self.connectors.require_tiktok_shop_runtime(connector_id)
         credentials = parse_tiktok_shop_credentials(runtime.credential.get_secret_value())
         private_values = {
@@ -191,6 +196,8 @@ class TikTokShopReader:
             )
 
         def check_current() -> None:
+            if authorize is not None:
+                authorize()
             current = self.connectors.require_tiktok_shop_runtime(connector_id)
             if current != runtime:
                 raise MarketplaceError(

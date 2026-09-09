@@ -3,6 +3,7 @@ import { errorMessage, readMarketplace, revokeConnector, upsertConnector } from 
 import type { Connector } from '../api/types'
 import type { MarketplaceRead } from '../api/marketplaces'
 import { useT } from '../i18n'
+import MarketplaceProjectAccess from './MarketplaceProjectAccess'
 
 type Props = { connector: Connector; onChange: (connector: Connector) => void }
 
@@ -143,6 +144,10 @@ export default function MarketplaceConnector({ connector, onChange }: Props) {
           {t('Retrieved at {time}', { time: new Date(observation.retrieved_at).toLocaleString() })} · {t('Request ID')}: {observation.request_id || t('Not supplied')}<br />
           {observation.source_url}
         </p>}
+        <MarketplaceProjectAccess connector={connector} selectedShop={shops?.shops.find((shop) => shop.id === shopId) ?? null} busy={busy} onBusyChange={(value) => {
+          pending.current = value
+          if (mounted.current) setBusy(value)
+        }} />
       </div>
     </article>
   )

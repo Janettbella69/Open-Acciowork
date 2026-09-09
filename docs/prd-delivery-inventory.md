@@ -20,7 +20,7 @@
 | FR-08 隔离 | delivered：项目路径、符号链接、独立 worker 配置 | deferred：生产 worker 资源包络与租户物理隔离演练 |
 | FR-09 来源账本 | delivered：同 Run/session 的服务器 source receipt | 保持来源、失效、回放和内容完整性回归 |
 | FR-10 决策 | delivered：证据关联与失效联动 | 开放任务质量另行验收 |
-| FR-11 领域 MCP | delivered：确定性商业计算、用户记录加工、显式结算计划的现金流/日末与保守日内资金缺口 | deferred：真实供应商/客户/市场/法规/物流/汇率授权数据适配 |
+| FR-11 领域 MCP | delivered：确定性商业计算、用户记录加工、显式结算计划的现金流/日末与保守日内资金缺口；TikTok Shop项目指定店铺的主Agent只读MCP与来源凭证 | deferred：真实供应商/客户/市场/法规/物流/汇率授权数据适配及已实现商家接口的真实验收 |
 | FR-12 Skill 生命周期 | delivered：发现/启停/扫描/不可变版本/配额/租约/回滚；13个内置Skill的证据参考与输出模板、固定包原生只读访问；Agent候选冻结、人审发布默认关闭、凭证恢复与独立审阅UI；独立Skill备份及含项目账本/候选库的应用冷备份、新进程恢复 | deferred：真实模型提案质量、真端点回滚重跑、跨宿主/生产恢复及其余子系统的恢复认证 |
 | FR-13 权限 | delivered：范围/有效期/审计、删除确认、沙箱拒绝逃逸；可信设备单次审批；原生SDK持久等待、原Run恢复、跨进程决议竞争、消费前撤销复验 | deferred：真实远程审批与生产故障矩阵；原生多工具批次须拆为单次审批 |
 | FR-14 记忆 | delivered：提案人审、TTL/过期/检索/导出/删除恢复 | deferred：真实蒸馏质量、生产备份删除边界与恢复演练 |
@@ -30,7 +30,7 @@
 | FR-18 恢复 | delivered：保存产物、错误分类、重试与重启恢复 | deferred：Bash 文件修改快照恢复与真实进程崩溃演练 |
 | FR-19 Deep Research | delivered：恰好三个只读研究子代理、预算/取消/墙钟限制；恢复沿用原起始时间、金额/turn预算及墙钟截止时间 | deferred：真实 SDK Deep Research 执行、完整资源 UI 与合并证据验收 |
 | FR-20 GUI | delivered：L1/L2 真实浏览器 smoke | deferred：真实攻击/恢复矩阵；L3 桌面桥与 OS 权限治理未实现 |
-| FR-21 Connector | delivered：Catalog/Vault/health/revoke、HTTPS JSON send_message；五平台官方文档入口，TikTok Shop授权店铺/商品分页只读adapter与管理员配置/撤销/重连UI | deferred：其余邮箱/店铺/CRM/社媒垂直adapter；TikTok Shop OAuth/refresh、Agent项目授权绑定与来源凭证接入、真实授权test-account验收/外发全链 |
+| FR-21 Connector | delivered：Catalog/Vault/health/revoke、HTTPS JSON send_message；五平台官方文档入口，TikTok Shop授权店铺/商品分页只读adapter、项目店铺授权/到期/撤销、主Agent来源凭证接入与中英文管理员UI | deferred：其余邮箱/店铺/CRM/社媒垂直adapter；TikTok Shop OAuth/refresh、真实授权test-account及模型调用验收/外发全链 |
 | FR-22 组织治理 | delivered：单部署租户 principal/membership/策略 | deferred：租户分区、隔离 runner、共享项目/评论/模板、组织私有 Skill 仓库 |
 | FR-23 Web 兜底 | delivered：Serper/Tavily 适配与 SSRF 防护 | deferred：真实配置搜索服务和 Provider 降级 E2E |
 | FR-24 IM | delivered：飞书签名入站/身份绑定/同 Agent/持久回复重试 | deferred：真实飞书/Lark 租户 E2E；微信适配未实现 |
@@ -471,3 +471,38 @@ TikTok 社媒凭据不迁移、不混用。其余四个平台在页面明确显�
 Browser重新检查仍返回空可用列表，未声称视觉验收。TikTok Shop OAuth/refresh、
 Agent项目授权绑定、来源凭证入库、真实test-shop与商家授权联调、写操作，以及其余
 四个平台适配器继续 deferred；完整PRD目标保持开放。
+
+## 2026-09-09：项目指定店铺授权、主 Agent 读取与来源凭证
+
+交付前基线：`383ceb2`。本批补齐上节的 Agent 项目授权绑定和来源凭证接入；
+使用方式、API 和边界见 [电商平台接入合同](marketplace-connectors.md)。
+
+管理员在连接器页面选择项目、已核验店铺和 1/7/30 天有效期，创建或续期只读授权。
+授权存于项目工作区之外，保留创建/撤销人和时间；revision CAS 与跨进程锁保护更新，
+续期生成新绑定并停用旧绑定。创建前重新核实 seller token 的店铺列表和配置的商品
+权限，网络返回后再次核验管理员资格。同 app 更新 token 可沿用有效授权，换 app
+须重新授权；连接器停用时仍可撤销项目授权。历史最多保留 1,000 条，撤销不删除来源。
+
+既有 ledger MCP 增加主 Agent 的 `read_marketplace`：只列本项目已授权店铺，按绑定
+读取每页最多10个商品。项目/Run/session/principal由宿主绑定；每次读取复验当前身份、
+Run状态、SDK session、店铺授权及连接器状态。原生SDK权限与PreToolUse均拒绝研究支线
+自行调用；主Agent可向支线提供已读取的观察。SDK preset、严格MCP配置和单主Agent架构保留。
+
+来源凭证由服务端签发，绑定同项目/Run/session/principal及清洗后的实际商品页，
+有效期不超过15分钟且不超出店铺授权剩余时间；既有 `record_evidence` 可引用、核验
+和回放。固定结构数据保留每字段4,000字与总计32,000字上限，超量整页拒绝；保留
+JSON形式的字面商品标题，移除伪造指令边界。原生MCP分发与PostToolUse替换后的内容
+逐项匹配凭证，覆盖空页、10条长标题和JSON文本，避免先签发再改变Agent所见内容。
+
+验证命令与结果：
+
+- `OPHIRA_CONTRACT_PROVIDER= PYTHONPATH=backend/src .venv/bin/python -m pytest backend/tests -q`：**1620 passed / 8 live-only skipped**（73.68秒）。新增28项后端测试，含生产FastAPI权限、读取中撤销/过期/取消/session及app变化、跨项目拒绝、同app令牌更新、并发授权、真实双进程撤销CAS与来源入证据链路。
+- 前端 `npm run test:run`：**278 passed / 28 files**，新增4项项目授权交互测试；全量字典覆盖检查发现并补齐“操作”表头。
+- Ruff、ESLint、TypeScript、Vite生产构建及diff-check通过；主JS包666.76kB，既有大于500kB提示保留。
+- `.venv/bin/python -m pytest evals/tools/tests -q`：**59 passed**；Snapshot **61/61**，既有验收门槛未改变。
+
+本批未使用真实商家凭据，未调用真实平台API或Provider。Browser可用列表仍为空，
+未声称界面目视验收。真实模型使用此工具、真实test-shop/商家权限与区域/限流验收、
+OAuth交换和自动refresh、商业写操作以及其余四个平台adapter仍deferred。
+商品列表仅代表授权商家的自有数据，不支持全市场需求或竞争对手销量结论；
+全量PRD目标保持开放。

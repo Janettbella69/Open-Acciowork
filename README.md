@@ -72,6 +72,8 @@ intraday bound; see [`docs/cashflow.md`](docs/cashflow.md).
 **Plugins → Connectors** now includes official onboarding links for SHEIN, Temu,
 TikTok Shop, AliExpress and Shopee. TikTok Shop has a seller-authorized shop and
 product reader with pagination, scoped credentials and revoke/reconnect controls.
+Project administrators can grant one shop for a fixed duration; the main Agent
+can then read that shop and cite server-issued source receipts when recording evidence.
 The other four adapters and live seller certification remain open; see
 [`docs/marketplace-connectors.md`](docs/marketplace-connectors.md).
 

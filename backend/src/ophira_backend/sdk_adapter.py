@@ -53,6 +53,7 @@ from .constants import (
     TOOL_FETCH_PAGE_SNAPSHOT,
     TOOL_GET_PROJECT_CONTEXT,
     TOOL_LIST_STANDING_INTENTS,
+    TOOL_READ_MARKETPLACE,
     TOOL_READ_SOURCE_RECEIPT,
     TOOL_SEARCH_EVIDENCE,
     TOOL_SEARCH_PROJECT_KNOWLEDGE,
@@ -77,6 +78,7 @@ from .durable_permissions import DurablePermissionConflict
 from .events import EventPublisher, redact
 from .ingest import file_needs_markdown_companion
 from .ledger_tools import build_mcp_servers
+from .marketplace_access import MarketplaceAccessService
 from .memory import MemoryProvider
 from .models import EventActor, ProviderPreflightResult, RunRecord, utc_now
 from .native_hooks import NativeHookBridge
@@ -160,7 +162,8 @@ _UNTRUSTED_LEDGER_TOOL_NAMES = frozenset(
      TOOL_SEARCH_PROJECT_KNOWLEDGE}
 )
 _UNTRUSTED_JSON_TOOL_NAMES = frozenset(
-    {*_UNTRUSTED_LEDGER_TOOL_NAMES, TOOL_SEARCH_PUBLIC_WEB, TOOL_FETCH_PAGE_SNAPSHOT}
+    {*_UNTRUSTED_LEDGER_TOOL_NAMES, TOOL_SEARCH_PUBLIC_WEB, TOOL_FETCH_PAGE_SNAPSHOT,
+     TOOL_READ_MARKETPLACE}
 )
 
 
@@ -180,6 +183,8 @@ def _post_tool_untrusted_source(
         return UntrustedSource.WEB_SEARCH
     if tool_name == TOOL_FETCH_PAGE_SNAPSHOT:
         return UntrustedSource.WEB_PAGE
+    if tool_name == TOOL_READ_MARKETPLACE:
+        return UntrustedSource.MARKETPLACE_PAGE
     if tool_name in _UNTRUSTED_LEDGER_TOOL_NAMES:
         return UntrustedSource.PROJECT_LEDGER
     if tool_name == "Bash":
@@ -208,7 +213,12 @@ def _is_subagent_restricted_tool(tool_name: str) -> bool:
     # main-Agent write even though normal L1 reads are auto-approved for users.
     # Presentation tools are read-only, but final UI composition is likewise
     # owned by the accountable main Agent rather than a research branch.
-    if tool_name == TOOL_SNAPSHOT_PAGE or tool_name in PRESENTATION_TOOL_NAMES:
+    # Private shop reads mint receipts for the main SDK session. Research branches
+    # work from the main Agent's returned observations, not their own shop reads.
+    if (
+        tool_name in {TOOL_SNAPSHOT_PAGE, TOOL_READ_MARKETPLACE}
+        or tool_name in PRESENTATION_TOOL_NAMES
+    ):
         return True
     if tool_name in {
         *WRITE_BUILTIN_TOOLS,
@@ -253,6 +263,7 @@ class ClaudeAgentRuntime:
         access=None,
         project_events: ProjectEventProjector | None = None,
         skill_proposals: SkillProposalService | None = None,
+        marketplace_access: MarketplaceAccessService | None = None,
     ) -> None:
         from .auth import ProjectAccessStore
 
@@ -275,6 +286,11 @@ class ClaudeAgentRuntime:
             ledger, self.skills, access=self.access, auth_mode=settings.auth_mode,
         )
         self.connectors = connectors
+        self.marketplace_access = marketplace_access or (
+            MarketplaceAccessService(
+                ledger, connectors, settings=settings, access=self.access,
+            ) if connectors is not None else None
+        )
         self.policy = policy or OrgPolicyStore(settings.data_dir / "org" / "policy.json")
         self.commercial_actions = commercial_actions or CommercialActionService(
             settings.data_dir / "commercial-actions",
@@ -783,6 +799,7 @@ class ClaudeAgentRuntime:
             commercial_actions=self.commercial_actions,
             project_events=self.project_events,
             skill_proposals=self.skill_proposals,
+            marketplace_access=self.marketplace_access,
         )
         if self.intents is not None and self.notifications is not None:
             from .automation_tools import build_automation_mcp_server

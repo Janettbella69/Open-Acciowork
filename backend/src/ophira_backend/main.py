@@ -122,6 +122,7 @@ from .knowledge import (
     search_project_knowledge,
 )
 from .maintenance import data_directory_lease
+from .marketplace_access import MarketplaceAccessService
 from .marketplace_api import register_marketplace_routes
 from .memory import FileMemoryProvider, MemoryNotFoundError, public_memory_item
 from .models import (
@@ -356,6 +357,9 @@ def _create_app(
         vault=FileSecretVault(settings.data_dir / "secrets", filename="connector-secrets.json"),
     )
     connectors.ensure_catalog()
+    marketplace_access = MarketplaceAccessService(
+        ledger, connectors, settings=settings, access=project_access,
+    )
     commercial_action_adapter = HttpsJsonMessageAdapter(connectors)
     commercial_actions = CommercialActionService(
         settings.data_dir / "commercial-actions",
@@ -376,6 +380,7 @@ def _create_app(
         intents=intents,
         notifications=notifications,
         connectors=connectors,
+        marketplace_access=marketplace_access,
         policy=policy,
         commercial_actions=commercial_actions,
         task_experiences=task_experiences,
@@ -1422,7 +1427,10 @@ def _create_app(
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    register_marketplace_routes(application, connectors)
+    register_marketplace_routes(
+        application, marketplace_access=marketplace_access,
+        require_project_authorization=require_project_authorization,
+    )
 
     @application.get("/api/connectors", response_model=list[Connector])
     async def list_connectors() -> list[Connector]:

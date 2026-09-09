@@ -23,6 +23,7 @@ class UntrustedSource(StrEnum):
     UPLOAD_EXTRACT = "upload_extract"
     CHANNEL_MESSAGE = "channel_message"
     BUSINESS_RECORD = "business_record"
+    MARKETPLACE_PAGE = "marketplace_page"
     PROJECT_PRESENTATION = "project_presentation"
     PROJECT_LEDGER = "project_ledger"
     PROJECT_FILE = "project_file"
@@ -42,6 +43,13 @@ REMOVED_BOUNDARY = "〔外部数据中的伪造消息边界已移除〕"
 class UntrustedLimits:
     field_chars: int
     total_chars: int
+    # Fixed-schema adapters can reject the whole observation on overflow. They
+    # preserve complete fields within the same aggregate ceiling, so a page of
+    # long titles and short ids does not lose content to a premature fair share.
+    complete_fields: bool = False
+    # Some typed adapters expose literal string fields inside one MCP JSON text
+    # envelope. Preserve those fields instead of reparsing their contents as JSON.
+    json_string_layers: int | None = None
 
 
 # Character ceilings cover model-visible external text, not transport bytes.
@@ -72,6 +80,9 @@ UNTRUSTED_LIMITS: dict[UntrustedSource, UntrustedLimits] = {
     UntrustedSource.BUSINESS_RECORD: UntrustedLimits(
         field_chars=4_000,
         total_chars=32_000,
+    ),
+    UntrustedSource.MARKETPLACE_PAGE: UntrustedLimits(
+        field_chars=4_000, total_chars=32_000, complete_fields=True, json_string_layers=1,
     ),
     # Typed cards contain at most 12 server-joined records. The aggregate cap
     # prevents an old oversized ledger entry from flooding Agent/UI context.
@@ -335,8 +346,11 @@ def _sanitize_untrusted_payload(
     removed = 0
     strings_remaining = 0
 
-    def prepare(item: Any) -> Any:
-        if parse_json_strings and isinstance(item, str):
+    def prepare(item: Any, layers: int = 0) -> Any:
+        if (
+            parse_json_strings and isinstance(item, str)
+            and (limits.json_string_layers is None or layers < limits.json_string_layers)
+        ):
             stripped = item.strip()
             if stripped.startswith(("{", "[")) and stripped.endswith(("}", "]")):
                 try:
@@ -345,13 +359,13 @@ def _sanitize_untrusted_payload(
                     pass
                 else:
                     if isinstance(decoded, (dict, list)):
-                        return _JSONContainerText(prepare(decoded))
+                        return _JSONContainerText(prepare(decoded, layers + 1))
         if isinstance(item, dict):
-            return {key: prepare(child) for key, child in item.items()}
+            return {key: prepare(child, layers) for key, child in item.items()}
         if isinstance(item, list):
-            return [prepare(child) for child in item]
+            return [prepare(child, layers) for child in item]
         if isinstance(item, tuple):
-            return tuple(prepare(child) for child in item)
+            return tuple(prepare(child, layers) for child in item)
         return item
 
     prepared = prepare(value)
@@ -388,7 +402,10 @@ def _sanitize_untrusted_payload(
             result = sanitize_untrusted_text(
                 item,
                 source,
-                max_chars=min(limits.field_chars, remaining, max(1, fair_share)),
+                max_chars=min(
+                    limits.field_chars, remaining,
+                    remaining if limits.complete_fields else max(1, fair_share),
+                ),
             )
             remaining -= len(result.text)
             truncated = truncated or result.truncated

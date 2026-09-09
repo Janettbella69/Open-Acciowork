@@ -25,3 +25,23 @@ export type MarketplaceReadInput = {
   page_token?: string
   product_status?: string
 }
+
+export type MarketplaceBinding = {
+  id: string
+  connector_id: string
+  shop_id: string
+  shop_name: string
+  region: string
+  created_by: string
+  created_at: string
+  expires_at: string
+  revoked_at: string | null
+  revoked_by: string | null
+  active: boolean
+}
+
+export type MarketplaceAccess = {
+  project_id: string
+  revision: number
+  bindings: MarketplaceBinding[]
+}
