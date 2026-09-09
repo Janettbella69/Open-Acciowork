@@ -3,6 +3,7 @@ import { mobileZh } from './mobile-zh'
 import { pushZh } from './push-zh'
 import { approvalZh } from './approval-zh'
 import { metricsZh } from './metrics-zh'
+import { knowledgeZh } from './knowledge-zh'
 
 /** 中文字典：key = 英文原文。缺条目时界面回落英文（可见即可补）。 */
 export const zh: Record<string, string> = {
@@ -11,6 +12,7 @@ export const zh: Record<string, string> = {
   ...pushZh,
   ...approvalZh,
   ...metricsZh,
+  ...knowledgeZh,
   // ---- 营销页：导航与页脚 ----
   'Product': '产品',
   'How it works': '工作方式',

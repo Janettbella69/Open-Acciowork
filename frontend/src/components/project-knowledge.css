@@ -1,0 +1,21 @@
+.project-knowledge { margin: 16px 0; border: 1px solid #deded9; border-radius: 12px; background: #fcfcfa; font-size: 13px; }
+.project-knowledge-toggle { display: flex; justify-content: space-between; width: 100%; padding: 15px 18px; border: 0; border-radius: 12px; background: transparent; text-align: left; font: inherit; font-weight: 600; cursor: pointer; }
+.project-knowledge-body { padding: 0 18px 18px; }
+.project-knowledge-body p { color: #666760; line-height: 1.6; }
+.project-knowledge-search { display: flex; align-items: flex-end; gap: 8px; flex-wrap: wrap; margin: 16px 0; }
+.project-knowledge-search label { display: grid; gap: 6px; flex: 1 1 220px; }
+.project-knowledge-search input { width: 100%; box-sizing: border-box; padding: 9px; border: 1px solid #d3d4cc; border-radius: 6px; background: white; font: inherit; }
+.project-knowledge-search button { padding: 9px 12px; border: 1px solid #d3d4cc; border-radius: 6px; background: white; font: inherit; cursor: pointer; }
+.project-knowledge-source { display: flex; gap: 8px; flex-wrap: wrap; align-items: baseline; overflow-wrap: anywhere; }
+.project-knowledge-source code { flex-basis: 100%; color: #6a6b64; font-size: 11px; }
+.project-knowledge-source a { color: #4f6243; }
+.project-knowledge-match { margin: 12px 0; padding: 14px; background: white; border: 1px solid #deded9; border-radius: 8px; }
+.project-knowledge-notice { margin: 10px 0; padding: 10px; background: #f7f2df; border-radius: 6px; }
+.project-knowledge-match pre { white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.6 ui-monospace, monospace; max-height: 340px; overflow-y: auto; }
+.project-knowledge-match small, .project-knowledge-files small { display: block; color: #686a62; margin: 8px 0; }
+.project-knowledge summary { cursor: pointer; margin: 12px 0; }
+.project-knowledge dl { font-size: 11px; overflow-wrap: anywhere; }
+.project-knowledge dd { margin: 2px 0 8px; color: #686a62; }
+.project-knowledge-files { list-style: none; padding: 0; max-height: 400px; overflow-y: auto; }
+.project-knowledge-files li { padding: 10px 0; border-top: 1px solid #e5e5de; }
+@media (max-width: 600px) { .project-knowledge-body { padding: 0 12px 12px; } .project-knowledge-search label { flex-basis: 100%; } }

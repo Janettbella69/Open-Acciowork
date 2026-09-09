@@ -37,6 +37,7 @@ import type {
 } from './types'
 import type { ProjectMetrics } from './projectMetrics'
 import type { SkillProposalDetail, SkillProposalPage, SkillProposalPreview, SkillProposalReviewRequest, SkillProposalState } from './skillProposals'
+import type { KnowledgeSearch } from './knowledge'
 
 const configuredBaseUrl = import.meta.env.VITE_OPHIRA_API_URL?.trim() ?? ''
 export const apiBaseUrl = configuredBaseUrl.replace(/\/$/, '')
@@ -145,6 +146,13 @@ export function getProject(projectId: string, signal?: AbortSignal): Promise<Opp
 
 export function listProjectRuns(projectId: string): Promise<RunRecord[]> {
   return request<RunRecord[]>(`/api/projects/${projectId}/runs`)
+}
+
+export function getProjectKnowledge(projectId: string, query = '', signal?: AbortSignal): Promise<KnowledgeSearch> {
+  const params = new URLSearchParams({ q: query, limit: '30' })
+  return request<KnowledgeSearch>(`/api/projects/${encodeURIComponent(projectId)}/knowledge?${params}`, {
+    signal, cache: 'no-store',
+  })
 }
 
 export function startRun(

@@ -114,6 +114,13 @@ from .feedback_routes import register_feedback_routes
 from .grants import GrantNotFoundError, PermissionGrantStore
 from .ingest import IngestConfig
 from .intent_watcher import StandingIntentWatcher
+from .knowledge import (
+    MAX_KNOWLEDGE_QUERY_CHARS,
+    MAX_KNOWLEDGE_RESULTS,
+    KnowledgeSearch,
+    capture_reference,
+    search_project_knowledge,
+)
 from .maintenance import data_directory_lease
 from .memory import FileMemoryProvider, MemoryNotFoundError, public_memory_item
 from .models import (
@@ -1076,6 +1083,55 @@ def _create_app(
             raise HTTPException(
                 status_code=500, detail="Project metrics source is inconsistent",
             ) from exc
+
+    @application.get("/api/projects/{project_id}/knowledge", response_model=KnowledgeSearch)
+    def get_project_knowledge(
+        request: Request,
+        response: Response,
+        project_id: str,
+        q: Annotated[str, Query(max_length=MAX_KNOWLEDGE_QUERY_CHARS)] = "",
+        limit: Annotated[int, Query(ge=1, le=MAX_KNOWLEDGE_RESULTS)] = 10,
+    ) -> KnowledgeSearch:
+        require_project_authorization(
+            project_id, _request_principal(request), ProjectPermission.PROJECT_READ,
+        )
+        response.headers["Cache-Control"] = "no-store"
+        try:
+            result = search_project_knowledge(ledger, project_id, query=q, limit=limit)
+        except LedgerNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="Project not found") from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail="Invalid reference search query") from exc
+        require_project_authorization(
+            project_id, _request_principal(request), ProjectPermission.PROJECT_READ,
+        )
+        return result
+
+    @application.get("/api/projects/{project_id}/knowledge/{artifact_id}/download")
+    def download_project_reference(
+        request: Request, project_id: str, artifact_id: str,
+    ) -> Response:
+        from urllib.parse import quote
+
+        require_project_authorization(
+            project_id, _request_principal(request), ProjectPermission.PROJECT_READ,
+        )
+        try:
+            artifact, content = capture_reference(ledger, project_id, artifact_id)
+        except LedgerNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="Reference not found") from exc
+        except (OSError, ValueError) as exc:
+            raise HTTPException(
+                status_code=409, detail="Reference changed or is unavailable. Refresh references.",
+            ) from exc
+        require_project_authorization(
+            project_id, _request_principal(request), ProjectPermission.PROJECT_READ,
+        )
+        return Response(content, media_type="application/octet-stream", headers={
+            "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff",
+            "ETag": f'"{artifact.checksum}"',
+            "Content-Disposition": "attachment; filename*=UTF-8''" + quote(artifact.name, safe=""),
+        })
 
     @application.post(
         "/api/projects/{project_id}/files",

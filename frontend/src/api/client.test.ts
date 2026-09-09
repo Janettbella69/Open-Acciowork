@@ -5,6 +5,7 @@ import {
   createSchedule,
   getCommercialAction,
   getProjectMetrics,
+  getProjectKnowledge,
   getProject,
   getRunTelemetry,
   retryRun,
@@ -18,6 +19,15 @@ afterEach(() => {
 })
 
 describe('API client', () => {
+  it('encodes reference search input and disables cached project results', async () => {
+    const payload = { project_id: 'project/one', matches: [] }
+    const controller = new AbortController()
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify(payload), { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+    await expect(getProjectKnowledge('project/one', '报价 & MOQ', controller.signal)).resolves.toEqual(payload)
+    expect(fetchMock).toHaveBeenCalledWith('/api/projects/project%2Fone/knowledge?q=%E6%8A%A5%E4%BB%B7+%26+MOQ&limit=30',
+      expect.objectContaining({ signal: controller.signal, cache: 'no-store' }))
+  })
   it('re-reads the encoded project ledger without a cached response and forwards cancellation', async () => {
     const payload = { id: 'project/one ?#' }
     const controller = new AbortController()

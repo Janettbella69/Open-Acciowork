@@ -45,7 +45,8 @@
 |---|---|
 | §3.5 A–G / §6.5 | deferred：需求/供给/客户多起点真实基准、可编辑产物和连续对话验收 |
 | §3.7 / §4.7 | delivered：原生文件工具 + 显式Artifact提交候选，独立pending冻结包、人审revision/hash/当前目标CAS、静态扫描强制检查、不可变发布默认关闭和独立审阅UI；deferred：真实Provider自主提案质量、人工使用效果与生产隔离验收 |
-| §3.7 P2 | deferred：项目知识库索引；团队评论、模板和私有 Skill 管理 |
+| §3.7 P2 知识库 | delivered：项目登记文本/OCR伴随文件索引、来源行列/版本、权限复验API、只读MCP与中英文工作区检索、校验和一致的下载；deferred：Office原件索引、真实检索质量/容量与浏览器目视验收 |
+| §3.7 P2 团队 | deferred：团队评论、模板和私有 Skill 管理 |
 | §4.16 任务经验 | delivered：专属工具与版本/来源账本、创建时配置指纹、低信任检索注入、容量/事务恢复与人工停用UI；deferred：真实Provider自主调用及长期判断质量 |
 | §4.12 事件 | delivered：有真实Run归属的evidence.added/decision.recorded、持久幂等补发与完整SSE尾部消费；deferred：产物更新、记忆、无Run项目变更和 schedule/preflight 细分事件 |
 | §3.9 / §4.10 | delivered：自动调度跨进程抢占与事件汇总恢复；deferred：其余事件故障矩阵、Bash 修改恢复、CPU/内存/进程/输出限制 |
@@ -422,3 +423,27 @@ Run/session 来源错误与文件篡改。成功结果为两个 pending、两个
 被正确拒绝，未对正式业务目录执行备份。未改前端，也未新增备份 UI 或真实 Provider 验收。
 全量 PRD 其余 deferred 保持开放；之前各节的 deferred 表示对应交付时点，以上两张总表
 和本节反映本次应用冷备份的新增范围。
+
+## 2026-09-09：项目参考资料知识库
+
+交付合同：[项目知识库](project-knowledge.md)。项目文件与产物账本按当前登记版本
+生成只读检索视图，中英文关键词、文件名和正文联合检索，返回原文行列、Artifact
+id/版本/hash/时间/Run/来源关联。PDF/图片使用已有 Markdown 伴随文件，命中处同时
+保留摄取头部，提醒缺页、降级及原件核对要求。检索不会创建证据、记忆或自动化承诺。
+
+工作区增加中英文检索、文件覆盖情况、来源详情、刷新和下载。API/MCP共用有界读取，
+拒绝隐藏路径、符号链接、硬链接、特殊文件、读取中变更与登记校验和不符的内容。
+专用下载发送再次校验后的字节副本；读取及下载前后均复验项目权限。文件变化、格式
+不支持、读取总量/数量限制均可见；迟到响应或项目切换不会复用旧项目的结果。
+
+最终代码冻结后的验证：
+
+- 后端 `OPHIRA_CONTRACT_PROVIDER= PYTHONPATH=backend/src .venv/bin/python -m pytest backend/tests -q`：**1539 passed / 8 live-only skipped**（77.98s），包含新增26项知识库/授权/下载测试。
+- 前端 `npm run test:run`：**269 passed**；`npm run lint`、`npm run build`通过。
+- `.venv/bin/ruff check backend/src backend/tests`、`git diff --check`通过。
+- eval tools **59 passed**；Snapshot **61/61**，既有验收器未降级。
+- 主JS包652.15kB，既有大于500kB构建提示保留。
+
+Browser运行时已成功加载，但选择浏览器返回`No browser is available`，按文档排查后
+列表为空，未声称页面目视验收通过。本批未调用真实Provider或外部数据服务。
+Office原件索引、真实检索质量/容量、页面目视验收和全PRD其余deferred继续开放。

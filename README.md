@@ -73,6 +73,12 @@ Open **Project run metrics** in a saved workspace to inspect recent execution,
 latency, observed cost estimates, and Provider/Skill/tool groups. Missing data stays
 explicit; see [`docs/project-metrics.md`](docs/project-metrics.md).
 
+Open **Project knowledge** in a saved workspace to search registered text files and
+OCR Markdown, inspect source lines and version provenance, and download a freshly
+hash-checked source. Coverage gaps stay visible; matches are reference material and
+do not automatically become verified evidence. See
+[`docs/project-knowledge.md`](docs/project-knowledge.md).
+
 PDF/image uploads produce bounded Markdown companions with honest extraction
 diagnostics; optional local PaddleOCR-VL setup and remaining quality checks are in
 [`docs/ocr-ingestion.md`](docs/ocr-ingestion.md). Result/evidence feedback now has
