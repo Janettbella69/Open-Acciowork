@@ -1,0 +1,75 @@
+{
+  "current": {
+    "ophira-tenant:backup-disabled": "d690caf4f5f69255c213b9d80d42ff4f50a98ebc96341f65a2213ea9d77c4bcd",
+    "ophira-tenant:backup-exercise": "7dae12f3d8aa9984fe8c8cddf49284298745b0cf7f6078ae037a6dd9fd902554"
+  },
+  "enabled": {
+    "ophira-core:customer-path": false,
+    "ophira-core:office-documents": false,
+    "ophira-core:retired-exercise": false,
+    "ophira-tenant:backup-disabled": false,
+    "ophira-tenant:backup-exercise": true
+  },
+  "generations": {
+    "ophira-core:customer-path": 1,
+    "ophira-core:office-documents": 1,
+    "ophira-core:retired-exercise": 1,
+    "ophira-tenant:backup-disabled": 4,
+    "ophira-tenant:backup-exercise": 7
+  },
+  "publication_receipts": {
+    "backup-disabled-review-1": {
+      "content_hash": "c2018b19a0718bedea093539d7ac5604184bad7542d5e5e303d7192b890c15b9",
+      "previous_selection": {
+        "current_hash": "d690caf4f5f69255c213b9d80d42ff4f50a98ebc96341f65a2213ea9d77c4bcd",
+        "enabled": false,
+        "generation": 2
+      },
+      "proposal_id": "backup-disabled-review-1",
+      "published_at": "2026-09-09T09:19:22.642601Z",
+      "review_revision": 1,
+      "reviewer_binding": "853e8cf8993a82fb30d5cd3a1de7188ea799327948d6a69c07a3b56998993ea7",
+      "skill_id": "ophira-tenant:backup-disabled"
+    },
+    "backup-disabled-review-2": {
+      "content_hash": "d690caf4f5f69255c213b9d80d42ff4f50a98ebc96341f65a2213ea9d77c4bcd",
+      "previous_selection": {
+        "current_hash": "c2018b19a0718bedea093539d7ac5604184bad7542d5e5e303d7192b890c15b9",
+        "enabled": false,
+        "generation": 3
+      },
+      "proposal_id": "backup-disabled-review-2",
+      "published_at": "2026-09-09T09:19:22.649828Z",
+      "review_revision": 2,
+      "reviewer_binding": "d4e0c854870f30b47a125ab64f70fc96e58fa3dfb76e82401024c55600a9cce8",
+      "skill_id": "ophira-tenant:backup-disabled"
+    },
+    "backup-exercise-review-1": {
+      "content_hash": "1c20e12960f1dfe92d9f14bf968d5568d902eb358a1623340dc1dc3d654fb93f",
+      "previous_selection": {
+        "current_hash": "7dae12f3d8aa9984fe8c8cddf49284298745b0cf7f6078ae037a6dd9fd902554",
+        "enabled": true,
+        "generation": 4
+      },
+      "proposal_id": "backup-exercise-review-1",
+      "published_at": "2026-09-09T09:19:22.615105Z",
+      "review_revision": 1,
+      "reviewer_binding": "435e1188fc3ce262716d7106c52563c27b0b47bd62894b848419c02216f05a6a",
+      "skill_id": "ophira-tenant:backup-exercise"
+    },
+    "backup-exercise-review-2": {
+      "content_hash": "7dae12f3d8aa9984fe8c8cddf49284298745b0cf7f6078ae037a6dd9fd902554",
+      "previous_selection": {
+        "current_hash": "1c20e12960f1dfe92d9f14bf968d5568d902eb358a1623340dc1dc3d654fb93f",
+        "enabled": false,
+        "generation": 5
+      },
+      "proposal_id": "backup-exercise-review-2",
+      "published_at": "2026-09-09T09:19:22.622380Z",
+      "review_revision": 2,
+      "reviewer_binding": "2ded50c849bc45e173b93e399bad64a8ba3ba68225de72fcc29c9d438db39fe6",
+      "skill_id": "ophira-tenant:backup-exercise"
+    }
+  },
+  "schema_version": 2
+}

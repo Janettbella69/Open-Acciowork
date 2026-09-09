@@ -29,6 +29,7 @@ sys.path.insert(0, str(REPO_ROOT / "backend" / "src"))
 from ophira_backend.skills import (  # noqa: E402
     CONTENT_HASH_PATTERN,
     TENANT_PLUGIN_NAMESPACE,
+    SkillConflictError,
     SkillRegistry,
 )
 
@@ -41,16 +42,24 @@ MAX_PINS = 32
 MAX_PIN_ENTRIES = 128
 TENANT_ID = f"{TENANT_PLUGIN_NAMESPACE}:backup-exercise"
 DISABLED_ID = f"{TENANT_PLUGIN_NAMESPACE}:backup-disabled"
-FAULTS = ("missing_history", "hash_tamper", "bad_pointer", "scan_failure", "copy_interrupted")
+FAULTS = (
+    "missing_history", "hash_tamper", "bad_pointer", "scan_failure", "copy_interrupted",
+    "receipt_removed", "receipt_rebound", "receipt_history_missing",
+)
 FAULT_REASONS = {
     "missing_history": "file_inventory_mismatch", "hash_tamper": "file_inventory_mismatch",
     "bad_pointer": "registry_validation_failed", "scan_failure": "history_scan_failed",
     "copy_interrupted": "copy_interrupted",
+    "receipt_removed": "logical_inventory_mismatch",
+    "receipt_rebound": "logical_inventory_mismatch",
+    "receipt_history_missing": "publication_history_missing",
 }
 FAULT_PHASES = {
     "missing_history": "preflight", "hash_tamper": "preflight",
     "bad_pointer": "registry_review", "scan_failure": "registry_review",
     "copy_interrupted": "copy",
+    "receipt_removed": "logical_inventory", "receipt_rebound": "logical_inventory",
+    "receipt_history_missing": "registry_review",
 }
 
 
@@ -492,6 +501,21 @@ def prepare_source(source: Path) -> tuple[SkillRegistry, dict[str, list[dict]]]:
         enabled, current = registry._registry_state_unlocked()
         enabled["ophira-core:retired-exercise"] = False
         registry._write_registry_state_unlocked(enabled, current)
+    # Exercise real schema-2 commits using synthetic review bindings, not a
+    # hand-written receipt. Old receipts must survive later publication/enablement.
+    for identifier, enabled in [(TENANT_ID, True), (DISABLED_ID, False)]:
+        versions = {item.version: item for item in registry.versions(identifier)}
+        for revision, version in enumerate(("1.0.0", "2.0.0"), start=1):
+            item = versions[version]
+            registry.publish_reviewed_candidate(
+                Path(item.path).parent, proposal_id=f"{item.name}-review-{revision}",
+                content_hash=item.content_hash, review_revision=revision,
+                reviewer_binding=digest(f"synthetic-local-review:{item.name}:{revision}".encode()),
+                expected_token=registry.selection_token(identifier),
+            )
+            if registry.get(identifier).enabled is not False:
+                raise BackupError("publication_fixture_enabled")
+        registry.set_enabled(identifier, enabled)
     new = registry.snapshot()
     return registry, {"old": old, "new": new}
 
@@ -530,6 +554,63 @@ def check_rollback(target: Path) -> list[dict]:
     return results
 
 
+def check_publication_replay(registry: SkillRegistry, expected: dict) -> list[dict]:
+    """Prove receipt retries preserve later selections without candidate files."""
+    before = registry.registry_state_path.read_bytes()
+    if parse_json(before).get("publication_receipts", {}) != expected:
+        raise BackupError("publication_receipts_mismatch")
+    absent = registry.state_dir.parent / "absent-review-candidate"
+    if absent.exists() or absent.is_symlink():
+        raise BackupError("publication_replay_candidate_present")
+
+    def forbid_commit():
+        raise BackupError("publication_replay_attempted_commit")
+
+    results = []
+    for proposal_id, stored in sorted(expected.items()):
+        receipt = registry.publication_receipt(proposal_id)
+        if receipt is None or receipt.model_dump(mode="json") != stored:
+            raise BackupError("publication_receipts_mismatch")
+        arguments = {
+            "proposal_id": proposal_id, "content_hash": receipt.content_hash,
+            "review_revision": receipt.review_revision,
+            "reviewer_binding": receipt.reviewer_binding,
+            "expected_token": receipt.previous_selection, "before_commit": forbid_commit,
+        }
+        replayed = registry.publish_reviewed_candidate(absent, **arguments)
+        if replayed != receipt:
+            raise BackupError("publication_replay_receipt_mismatch")
+        if registry.registry_state_path.read_bytes() != before:
+            raise BackupError("publication_replay_state_changed")
+        changes = {
+            "content_hash": ("1" if receipt.content_hash[0] == "0" else "0") * 64,
+            "review_revision": receipt.review_revision + 1,
+            "reviewer_binding": ("1" if receipt.reviewer_binding[0] == "0" else "0") * 64,
+            "expected_token": receipt.previous_selection.model_copy(update={
+                "generation": receipt.previous_selection.generation + 1,
+            }),
+        }
+        for field, value in changes.items():
+            try:
+                registry.publish_reviewed_candidate(absent, **{**arguments, field: value})
+            except SkillConflictError:
+                pass
+            else:
+                raise BackupError("publication_replay_mismatch_accepted")
+            if registry.registry_state_path.read_bytes() != before:
+                raise BackupError("publication_replay_state_changed")
+        current = registry.get(receipt.skill_id)
+        results.append({
+            "proposal_id": proposal_id, "skill_id": receipt.skill_id,
+            "content_hash": receipt.content_hash, "receipt_equal": True,
+            "candidate_absent": True, "canonical_byte_equal": True,
+            "current_content_hash": current.content_hash, "enabled_preserved": current.enabled,
+            "historical_receipt": current.content_hash != receipt.content_hash,
+            "mismatched_fields_rejected": list(changes),
+        })
+    return results
+
+
 def mutate_fault(backup: Path, fault: str) -> None:
     manifest_path = backup / "manifest.json"
     manifest = parse_json(manifest_path.read_bytes())
@@ -545,6 +626,24 @@ def mutate_fault(backup: Path, fault: str) -> None:
         state = parse_json(state_path.read_bytes())
         state["current"][DISABLED_ID] = "0" * 64
         write_json(state_path, state)
+        manifest["files"], _ = tree_inventory(backup / "payload")
+        write_json(manifest_path, manifest)
+    elif fault in {"receipt_removed", "receipt_rebound", "receipt_history_missing"}:
+        state_path = backup / "payload" / "state" / "registry-state.json"
+        state = parse_json(state_path.read_bytes())
+        if fault == "receipt_history_missing":
+            # The old disabled package is neither current nor pinned. Its
+            # publication receipt must independently require that history.
+            shutil.rmtree(oldest)
+        else:
+            receipts = state["publication_receipts"]
+            proposal_id = sorted(receipts)[0]
+            if fault == "receipt_removed":
+                del receipts[proposal_id]
+            else:
+                receipts[proposal_id]["reviewer_binding"] = "0" * 64
+            write_json(state_path, state)
+        # Rehash the transport inventory so the semantic gate must reject it.
         manifest["files"], _ = tree_inventory(backup / "payload")
         write_json(manifest_path, manifest)
     elif fault == "scan_failure":
@@ -577,7 +676,7 @@ def install_offline_guard() -> None:
 def worker(backup: Path, target: Path, report: Path, interrupt_after=None) -> int:
     phases = dict.fromkeys([
         "preflight", "copy", "registry_review", "logical_inventory", "staged_pins", "publish",
-        "published_pins", "rollback",
+        "published_state", "published_pins", "rollback", "publication_replay",
     ], "not_started")
     result: dict[str, Any] = {
         "passed": False, "pid": os.getpid(), "implementation": source_fingerprints(),
@@ -587,14 +686,26 @@ def worker(backup: Path, target: Path, report: Path, interrupt_after=None) -> in
         result.update(restore_backup(
             backup, target, interrupt_after=interrupt_after, phases=phases,
         ))
-        phases["published_pins"] = "running"
+        phases["published_state"] = "running"
         registry = SkillRegistry(target / "application-plugin", target / "state")
         manifest = parse_json((backup / "manifest.json").read_bytes())
+        if registry.registry_state_path.read_bytes() != read_regular(
+            backup / "payload", "state/registry-state.json",
+        ):
+            raise BackupError("published_canonical_bytes_mismatch")
+        result["canonical_byte_equal"] = True
+        phases["published_state"] = "passed"
+        phases["published_pins"] = "running"
         result["published_pins"] = verify_pins(registry, manifest["pins"], target / "pins")
         phases["published_pins"] = "passed"
         phases["rollback"] = "running"
         result["rollback"] = check_rollback(target)
         phases["rollback"] = "passed"
+        phases["publication_replay"] = "running"
+        result["publication_replay"] = check_publication_replay(
+            registry, manifest["inventory"]["canonical_state"].get("publication_receipts", {}),
+        )
+        phases["publication_replay"] = "passed"
         result["passed"] = True
     except Exception as error:
         result["error_type"] = type(error).__name__
@@ -626,6 +737,12 @@ def run_exercise(report_dir: Path) -> dict:
             registry, pins = prepare_source(source)
             backup = report_dir / "backup"
             created = create_backup(registry, backup, pins)
+            canonical = created["manifest"]["inventory"]["canonical_state"]
+            summary["registry_schema_version"] = canonical["schema_version"]
+            summary["publication_receipt_count"] = len(canonical.get("publication_receipts", {}))
+            if (summary["registry_schema_version"] != 2
+                    or summary["publication_receipt_count"] != 4):
+                raise BackupError("publication_fixture_incomplete")
             write_json(report_dir / "source-inventory.json", created)
             moved = temporary_root / "retired-source"
             source.rename(moved)

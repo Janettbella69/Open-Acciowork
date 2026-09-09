@@ -171,11 +171,7 @@ def test_fault_injection_reaches_the_expected_gate_without_publishing(prepared, 
     )
     assert result["target_visible"] is False
     assert result["staging_clean"] is True
-    failed_phase = {
-        "missing_history": "preflight", "hash_tamper": "preflight",
-        "bad_pointer": "registry_review", "scan_failure": "registry_review",
-        "copy_interrupted": "copy",
-    }[fault]
+    failed_phase = exercise.FAULT_PHASES[fault]
     assert result["phases"][failed_phase] == "failed"
 
 
@@ -379,6 +375,8 @@ def test_complete_exercise_uses_fresh_processes_and_preserves_all_case_reports(t
     assert result["passed"], result
     assert result["source_removed_before_restore"]
     assert result["implementation_stable"]
+    assert result["registry_schema_version"] == 2
+    assert result["publication_receipt_count"] == 4
     assert set(result["cases"]) == {"success", *exercise.FAULTS}
     for name, case in result["cases"].items():
         report = json.loads((report_dir / case["report"]).read_text())
@@ -387,12 +385,88 @@ def test_complete_exercise_uses_fresh_processes_and_preserves_all_case_reports(t
         assert report["pid"] != os.getpid()
         if name == "success":
             assert set(report["phases"].values()) == {"passed"}
+            assert report["canonical_byte_equal"] is True
+            replay = report["publication_replay"]
+            assert len(replay) == 4
+            assert sum(item["historical_receipt"] for item in replay) == 2
+            assert {item["enabled_preserved"] for item in replay} == {True, False}
+            assert all(item["receipt_equal"] and item["candidate_absent"]
+                       and item["canonical_byte_equal"] for item in replay)
+            assert all(set(item["mismatched_fields_rejected"]) == {
+                "content_hash", "review_revision", "reviewer_binding", "expected_token",
+            } for item in replay)
         else:
             assert report["reason"] == exercise.FAULT_REASONS[name]
             assert report["target_visible"] is False
     assert (report_dir / "backup" / "manifest.json").is_file()
     assert (report_dir / "source-inventory.json").is_file()
     shutil.rmtree(report_dir)
+
+
+@pytest.mark.parametrize("failure", ["changed_state", "accepted_mismatch", "lost_receipt"])
+def test_publication_replay_cannot_report_success_for_broken_recovery(
+    prepared, tmp_path, monkeypatch, failure,
+):
+    _, _, backup, created = prepared
+    target, report = tmp_path / "restored", tmp_path / "report.json"
+    originals = created["manifest"]["inventory"]["canonical_state"]["publication_receipts"]
+    publish = exercise.SkillRegistry.publish_reviewed_candidate
+    get_receipt = exercise.SkillRegistry.publication_receipt
+
+    def broken_replay(registry, directory, **arguments):
+        if failure == "changed_state":
+            receipt = publish(registry, directory, **arguments)
+            registry.set_enabled(receipt.skill_id, not registry.get(receipt.skill_id).enabled)
+            return receipt
+        return get_receipt(registry, arguments["proposal_id"])
+
+    if failure == "lost_receipt":
+        monkeypatch.setattr(exercise.SkillRegistry, "publication_receipt", lambda *_: None)
+    else:
+        monkeypatch.setattr(exercise.SkillRegistry, "publish_reviewed_candidate", broken_replay)
+    assert exercise.worker(backup, target, report) == 1
+    result = json.loads(report.read_text())
+    assert result["passed"] is False
+    assert result["target_visible"] is True
+    assert result["phases"]["publication_replay"] == "failed"
+    assert result["reason"] == {
+        "changed_state": "publication_replay_state_changed",
+        "accepted_mismatch": "publication_replay_mismatch_accepted",
+        "lost_receipt": "publication_receipts_mismatch",
+    }[failure]
+    assert originals == json.loads(
+        (target / "state" / "registry-state.json").read_bytes(),
+    )["publication_receipts"]
+
+
+def test_receipt_faults_reach_semantic_checks_with_valid_transport_hashes(prepared, tmp_path):
+    _, _, backup, created = prepared
+    for fault in ("receipt_removed", "receipt_rebound", "receipt_history_missing"):
+        copy = tmp_path / fault
+        shutil.copytree(backup, copy)
+        exercise.mutate_fault(copy, fault)
+        manifest = exercise.validate_backup(copy)
+        assert manifest["inventory"] == created["manifest"]["inventory"]
+        assert_rejected(copy, tmp_path / f"restored-{fault}", exercise.FAULT_REASONS[fault])
+
+
+def test_formal_exercise_refuses_a_fixture_without_publication_receipts(tmp_path, monkeypatch):
+    prepare = exercise.prepare_source
+
+    def no_receipts(source):
+        registry, pins = prepare(source)
+        state = json.loads(registry.registry_state_path.read_bytes())
+        state["publication_receipts"] = {}
+        exercise.write_json(registry.registry_state_path, state)
+        return registry, pins
+
+    monkeypatch.setattr(exercise, "prepare_source", no_receipts)
+    report_dir = tmp_path / "reports"
+    result = exercise.run_exercise(report_dir)
+    assert result["passed"] is False
+    assert result["reason"] == "publication_fixture_incomplete"
+    assert result["cases"] == {}
+    assert result["publication_receipt_count"] == 0
 
 
 @pytest.mark.parametrize("label", ["old", "new"])

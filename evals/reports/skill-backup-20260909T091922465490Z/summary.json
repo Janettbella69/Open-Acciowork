@@ -1,0 +1,66 @@
+{
+  "cases": {
+    "bad_pointer": {
+      "expected_result": true,
+      "reason": "registry_validation_failed",
+      "report": "bad_pointer.json"
+    },
+    "copy_interrupted": {
+      "expected_result": true,
+      "reason": "copy_interrupted",
+      "report": "copy_interrupted.json"
+    },
+    "hash_tamper": {
+      "expected_result": true,
+      "reason": "file_inventory_mismatch",
+      "report": "hash_tamper.json"
+    },
+    "missing_history": {
+      "expected_result": true,
+      "reason": "file_inventory_mismatch",
+      "report": "missing_history.json"
+    },
+    "receipt_history_missing": {
+      "expected_result": true,
+      "reason": "publication_history_missing",
+      "report": "receipt_history_missing.json"
+    },
+    "receipt_rebound": {
+      "expected_result": true,
+      "reason": "logical_inventory_mismatch",
+      "report": "receipt_rebound.json"
+    },
+    "receipt_removed": {
+      "expected_result": true,
+      "reason": "logical_inventory_mismatch",
+      "report": "receipt_removed.json"
+    },
+    "scan_failure": {
+      "expected_result": true,
+      "reason": "history_scan_failed",
+      "report": "scan_failure.json"
+    },
+    "success": {
+      "expected_result": true,
+      "reason": null,
+      "report": "success.json"
+    }
+  },
+  "created_at": "2026-09-09T09:19:27.623513+00:00",
+  "implementation": {
+    "backend/scripts/exercise_skill_backup.py": "1a6237e0c45b9d29519fda937578cb0ed915b16f2a0084fbe22fa77a6f6c4114",
+    "backend/src/ophira_backend/constants.py": "095012e97f2e8ebb7336ff0e8a3837419d4572b6e9f50e0f4ad4d3a176423597",
+    "backend/src/ophira_backend/models.py": "281704c64dfe45048d8db61372dd78ec632219e23ac7247f88f938460d45195f",
+    "backend/src/ophira_backend/skills.py": "76e24710c34b8b3b8a0d28a28ded25632a873d73aecef7aeed3f3c128ae36e7d"
+  },
+  "implementation_stable": true,
+  "live_data_read": false,
+  "network_used": false,
+  "parent_pid": 59755,
+  "passed": true,
+  "provider_invoked": false,
+  "publication_receipt_count": 4,
+  "registry_schema_version": 2,
+  "scope": "local_synthetic_independent_process",
+  "source_removed_before_restore": true
+}
