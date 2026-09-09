@@ -49,6 +49,7 @@ def register_marketplace_routes(
         if (
             request.url.path.startswith("/api/connectors/")
             or "/marketplace-access" in request.url.path
+            or "/shops" in request.url.path
         ):
             return JSONResponse(
                 status_code=422,

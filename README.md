@@ -145,6 +145,11 @@ npm run build
 The full PRD delivery inventory, including unimplemented and externally unverified
 requirements, is tracked in [`docs/prd-delivery-inventory.md`](docs/prd-delivery-inventory.md).
 
+Saved projects also provide **Project shops**: configure a shop identity and optional
+platform Connector, open its independent login browser, confirm the signed-in shop,
+then let the main Agent collect source-linked page captures and reports. The window
+runs on the backend computer. See [setup, grants and verification](docs/shop-browsers.md).
+
 - The native durable-approval path passed three consecutive real DeepSeek Green Path
   rounds on 2026-09-05 (local time), archived at
   `evals/reports/greenpath-20260906T044246Z/`. This includes same-Run deferred tools,

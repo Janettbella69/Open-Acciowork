@@ -5,6 +5,7 @@ import { approvalZh } from './approval-zh'
 import { metricsZh } from './metrics-zh'
 import { knowledgeZh } from './knowledge-zh'
 import { marketplacesZh } from './marketplaces-zh'
+import { shopsZh } from './shops-zh'
 
 /** 中文字典：key = 英文原文。缺条目时界面回落英文（可见即可补）。 */
 export const zh: Record<string, string> = {
@@ -15,6 +16,7 @@ export const zh: Record<string, string> = {
   ...metricsZh,
   ...knowledgeZh,
   ...marketplacesZh,
+  ...shopsZh,
   // ---- 营销页：导航与页脚 ----
   'Product': '产品',
   'How it works': '工作方式',

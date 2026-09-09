@@ -36,6 +36,26 @@ BINDING_PATTERN = r"^marketplace_binding_[a-f0-9]{32}$"
 MAX_BINDINGS = 1000
 
 
+def authorize_marketplace_run(ledger: FileLedger, access: ProjectAccessStore, project, run_id: str):
+    """Shared API/browser check for a durable SDK Run and its current membership."""
+    run = ledger.get_run(run_id)
+    if (
+        run.project_id != project.id or not run.sdk_session_id
+        or run.status != RunStatus.RUNNING
+        or run.identity_binding != project.identity_binding
+        or run.tenant_id != project.tenant_id
+    ):
+        raise AuthorizationError("Marketplace read requires this project's running SDK session")
+    if run.identity_binding == "authenticated_principal":
+        if not run.principal_id or run.principal_role is None or not run.tenant_id:
+            raise AuthorizationError("Run has no bound principal")
+        access.authorize_bound(
+            project.id, tenant_id=run.tenant_id, principal_id=run.principal_id,
+            role=run.principal_role, permission=ProjectPermission.TOOL_USE,
+        )
+    return run
+
+
 class MarketplaceGrantRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 
@@ -294,23 +314,9 @@ class MarketplaceAccessService:
             return self.view(project_id)
 
     def _run(self, project_id: str, run_id: str):
-        project = self._project(project_id)
-        run = self.ledger.get_run(run_id)
-        if (
-            run.project_id != project_id or not run.sdk_session_id
-            or run.status != RunStatus.RUNNING
-            or run.identity_binding != project.identity_binding
-            or run.tenant_id != project.tenant_id
-        ):
-            raise AuthorizationError("Marketplace read requires this project's running SDK session")
-        if run.identity_binding == "authenticated_principal":
-            if not run.principal_id or run.principal_role is None or not run.tenant_id:
-                raise AuthorizationError("Run has no bound principal")
-            self.access.authorize_bound(
-                project_id, tenant_id=run.tenant_id, principal_id=run.principal_id,
-                role=run.principal_role, permission=ProjectPermission.TOOL_USE,
-            )
-        return run
+        return authorize_marketplace_run(
+            self.ledger, self.access, self._project(project_id), run_id,
+        )
 
     async def read_for_run(
         self, project_id: str, run_id: str, request: MarketplaceAgentRequest,

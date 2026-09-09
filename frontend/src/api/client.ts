@@ -39,6 +39,7 @@ import type { ProjectMetrics } from './projectMetrics'
 import type { SkillProposalDetail, SkillProposalPage, SkillProposalPreview, SkillProposalReviewRequest, SkillProposalState } from './skillProposals'
 import type { KnowledgeSearch } from './knowledge'
 import type { MarketplaceAccess, MarketplaceGuide, MarketplaceRead, MarketplaceReadInput } from './marketplaces'
+import type { ProjectShop, ShopData, ShopIdentityInput } from './shops'
 
 const configuredBaseUrl = import.meta.env.VITE_OPHIRA_API_URL?.trim() ?? ''
 export const apiBaseUrl = configuredBaseUrl.replace(/\/$/, '')
@@ -585,6 +586,36 @@ export function readMarketplace(id: string, input: MarketplaceReadInput): Promis
 
 export function getMarketplaceAccess(projectId: string): Promise<MarketplaceAccess> {
   return request<MarketplaceAccess>(`/api/projects/${encodeURIComponent(projectId)}/marketplace-access`)
+}
+
+const shopPath = (projectId: string, shopId?: string) => `/api/projects/${encodeURIComponent(projectId)}/shops${shopId ? `/${encodeURIComponent(shopId)}` : ''}`
+
+export function listProjectShops(projectId: string): Promise<ProjectShop[]> {
+  return request(shopPath(projectId))
+}
+
+export function saveProjectShop(projectId: string, input: ShopIdentityInput, previous?: ProjectShop): Promise<ProjectShop> {
+  return request(shopPath(projectId, previous?.id), {
+    method: previous ? 'PUT' : 'POST',
+    body: JSON.stringify({ ...input, ...(previous ? { expected_revision: previous.revision } : {}) }),
+  })
+}
+
+export function controlProjectShop(projectId: string, shop: ProjectShop, operation: 'open' | 'close' | 'revoke'): Promise<ProjectShop> {
+  return request(`${shopPath(projectId, shop.id)}/${operation}`, {
+    method: 'POST', body: JSON.stringify({ expected_revision: shop.revision }),
+  })
+}
+
+export function grantProjectShop(projectId: string, shop: ProjectShop, days: number): Promise<ProjectShop> {
+  return request(`${shopPath(projectId, shop.id)}/grant`, { method: 'POST', body: JSON.stringify({
+    expected_revision: shop.revision, session_id: shop.session_id, confirmed_identity: true,
+    expires_in_seconds: days * 86400,
+  }) })
+}
+
+export function getProjectShopData(projectId: string, shopId: string): Promise<ShopData[]> {
+  return request(`${shopPath(projectId, shopId)}/data`)
 }
 
 export function grantMarketplaceAccess(projectId: string, input: {

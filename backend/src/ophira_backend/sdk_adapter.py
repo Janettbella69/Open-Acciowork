@@ -95,6 +95,7 @@ from .providers import (
     successful_preflight,
 )
 from .run_accounting import cumulative_result, latest_result
+from .shop_browser import ShopBrowserService
 from .skill_proposals import SkillProposalService
 from .skills import SkillRegistry, SkillRuntimeView
 from .source_receipts import (
@@ -185,6 +186,10 @@ def _post_tool_untrusted_source(
         return UntrustedSource.WEB_PAGE
     if tool_name == TOOL_READ_MARKETPLACE:
         return UntrustedSource.MARKETPLACE_PAGE
+    if tool_name in {TOOL_SNAPSHOT_PAGE, TOOL_ACT_ON_PAGE} and (
+        tool_input.get("shop_id") or tool_input.get("list_shops")
+    ):
+        return UntrustedSource.MARKETPLACE_PAGE
     if tool_name in _UNTRUSTED_LEDGER_TOOL_NAMES:
         return UntrustedSource.PROJECT_LEDGER
     if tool_name == "Bash":
@@ -264,6 +269,7 @@ class ClaudeAgentRuntime:
         project_events: ProjectEventProjector | None = None,
         skill_proposals: SkillProposalService | None = None,
         marketplace_access: MarketplaceAccessService | None = None,
+        shop_browsers: ShopBrowserService | None = None,
     ) -> None:
         from .auth import ProjectAccessStore
 
@@ -288,10 +294,20 @@ class ClaudeAgentRuntime:
         self.connectors = connectors
         self.marketplace_access = marketplace_access or (
             MarketplaceAccessService(
-                ledger, connectors, settings=settings, access=self.access,
-            ) if connectors is not None else None
+                ledger,
+                connectors,
+                settings=settings,
+                access=self.access,
+            )
+            if connectors is not None
+            else None
         )
         self.policy = policy or OrgPolicyStore(settings.data_dir / "org" / "policy.json")
+        self.shop_browsers = shop_browsers or (
+            ShopBrowserService(self.marketplace_access, self.policy)
+            if self.marketplace_access
+            else None
+        )
         self.commercial_actions = commercial_actions or CommercialActionService(
             settings.data_dir / "commercial-actions",
             ledger=ledger,
@@ -514,6 +530,12 @@ class ClaudeAgentRuntime:
                 "autoAllowBashIfSandboxed": True,
                 "failIfUnavailable": True,
                 "allowUnsandboxedCommands": False,
+                # Chromium cookies and private RPC credentials are host state.
+                # The SDK forwards documented Claude Code filesystem settings.
+                "filesystem": {
+                    "denyRead": [str((self.ledger.root / "shop-browsers").resolve())],
+                    "denyWrite": [str((self.ledger.root / "shop-browsers").resolve())],
+                },
             },
         )
         discovered_skills: list[str] = []
@@ -800,6 +822,7 @@ class ClaudeAgentRuntime:
             project_events=self.project_events,
             skill_proposals=self.skill_proposals,
             marketplace_access=self.marketplace_access,
+            shop_browsers=self.shop_browsers,
         )
         if self.intents is not None and self.notifications is not None:
             from .automation_tools import build_automation_mcp_server
@@ -866,6 +889,10 @@ class ClaudeAgentRuntime:
                 "allowUnsandboxedCommands": False,
                 # Python SDK 默认在沙箱起不来时静默裸跑（docs python.md）；这里必须失败。
                 "failIfUnavailable": True,
+                "filesystem": {
+                    "denyRead": [str((self.ledger.root / "shop-browsers").resolve())],
+                    "denyWrite": [str((self.ledger.root / "shop-browsers").resolve())],
+                },
             },
             enable_file_checkpointing=True,
             thinking={"type": "adaptive", "display": "summarized"},
@@ -1224,6 +1251,8 @@ class ClaudeAgentRuntime:
                         untrusted_source,
                         parse_json_strings=(
                             tool_name in _UNTRUSTED_JSON_TOOL_NAMES
+                            or (tool_name in {TOOL_SNAPSHOT_PAGE, TOOL_ACT_ON_PAGE}
+                                and bool(tool_input.get("shop_id") or tool_input.get("list_shops")))
                         ),
                     )
                     tool_response = sanitized.value

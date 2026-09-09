@@ -33,6 +33,7 @@ from .web_tools import check_public_http_url, send_pinned_public_request
 
 if TYPE_CHECKING:
     from .project_events import ProjectEventProjector
+    from .shop_browser import ShopBrowserService
 
 _BROWSER_RESPONSE_MAX_BYTES = 20_000_000
 _HOP_BY_HOP_HEADERS = {
@@ -893,6 +894,7 @@ def build_browser_tools(
     policy: OrgPolicy | None = None,
     run_id: str | None = None,
     project_events: ProjectEventProjector | None = None,
+    shop_browsers: ShopBrowserService | None = None,
 ):
     workspace = ledger.workspace_for_project(project_id)
     profile_dir = ledger.root / "browser-profiles" / project_id / "l1"
@@ -902,6 +904,66 @@ def build_browser_tools(
         if not org_policy.browser_enabled:
             return _result(
                 _error("BROWSER_DISABLED_BY_POLICY", "组织策略已禁用浏览器能力。"),
+                is_error=True,
+            )
+        if args.get("shop_id") or args.get("list_shops") is True:
+            from .auth import AuthorizationError
+            from .shop_browser_store import ShopBrowserError, ShopBrowserOperation
+
+            try:
+                if shop_browsers is None or run_id is None or args.get("use_connected_browser"):
+                    raise ValueError("shop browser unavailable")
+                shop_browsers.authority._run(project_id, run_id)
+                if args.get("list_shops") is True:
+                    if args.get("shop_id") or args.get("url") or action:
+                        raise ValueError("incompatible shop listing arguments")
+                    offset = args.get("shop_offset", 0)
+                    if type(offset) is not int or not 0 <= offset <= 100:
+                        raise ValueError("invalid shop offset")
+                    shops = shop_browsers.list(project_id)
+                    fields = {
+                        "id",
+                        "name",
+                        "platform",
+                        "seller_shop_id",
+                        "connector_id",
+                        "entry_url",
+                        "browser_state",
+                        "agent_access",
+                        "grant_expires_at",
+                    }
+                    return _result(
+                        {
+                            "shops": [
+                                {key: value for key, value in shop.items() if key in fields}
+                                for shop in shops[offset : offset + 10]
+                            ],
+                            "next_offset": offset + 10 if offset + 10 < len(shops) else None,
+                        }
+                    )
+                operation = ShopBrowserOperation(
+                    operation=action or ("navigate" if args.get("url") else "snapshot"),
+                    url=args.get("url") if not action else None,
+                    observation_id=args.get("observation_id"),
+                    target=args.get("selector"),
+                    value=args.get("value"),
+                )
+                capture = await shop_browsers.capture(
+                    project_id, run_id, args["shop_id"], operation
+                )
+                if project_events is not None:
+                    await project_events.reconcile_run(run_id)
+                return _result(capture)
+            except ShopBrowserError as exc:
+                return _result(_error(exc.code, str(exc)), is_error=True)
+            except (AuthorizationError, ValueError, OSError):
+                return _result(
+                    _error("SHOP_ACCESS_UNAVAILABLE", "Project shop access is unavailable."),
+                    is_error=True,
+                )
+        if action == "download" or not args.get("url"):
+            return _result(
+                _error("BROWSER_INPUT_INVALID", "Downloads require a configured shop session."),
                 is_error=True,
             )
         cdp_endpoint = None
@@ -958,14 +1020,22 @@ def build_browser_tools(
         "snapshot_page",
         "Read a public page in OPHIRA's isolated browser (L1), or set "
         "use_connected_browser=true to use the approved Chrome connector (L2). "
-        "The model cannot provide a CDP endpoint. Saves and registers screenshot evidence.",
+        "The model cannot provide a CDP endpoint. Set list_shops=true (shop_offset pagination) "
+        "to discover this project's configured shops. Use shop_id to read its authorized, "
+        "independent login session; optional url navigates within its permitted domains. "
+        "Shop snapshots return observation_id and element_N references for act_on_page. "
+        "Save screenshots, text and reports as source-linked project data. Stop at sign-in walls.",
         {
             "type": "object",
             "properties": {
                 "url": {"type": "string", "minLength": 8, "maxLength": 2000},
                 "use_connected_browser": {"type": "boolean", "default": False},
+                "shop_id": {"type": "string", "pattern": "^shop_[a-f0-9]{32}$"},
+                "list_shops": {"type": "boolean", "default": False},
+                "shop_offset": {"type": "integer", "minimum": 0, "maximum": 100},
             },
-            "required": ["url"],
+            "anyOf": [{"required": ["url"]}, {"required": ["shop_id"]},
+                      {"required": ["list_shops"], "properties": {"list_shops": {"const": True}}}],
             "additionalProperties": False,
         },
     )
@@ -974,19 +1044,24 @@ def build_browser_tools(
 
     @tool(
         "act_on_page",
-        "Click, type, or submit in the policy-controlled browser. Always requires user "
+        "Click, type, submit, or download a report in the policy-controlled browser. "
+        "For a project shop use shop_id, observation_id from snapshot_page, and its observed "
+        "element_N as selector; do not invent selectors or automate sign-in. Always requires user "
         "approval. The model cannot provide a CDP endpoint. Every attempt stores a "
         "screenshot when safe and registers it as Artifact/Evidence.",
         {
             "type": "object",
             "properties": {
                 "url": {"type": "string", "minLength": 8, "maxLength": 2000},
-                "action": {"type": "string", "enum": ["click", "type", "submit"]},
+                "action": {"type": "string", "enum": ["click", "type", "submit", "download"]},
                 "selector": {"type": "string", "minLength": 1, "maxLength": 300},
                 "value": {"type": ["string", "null"], "maxLength": 2000},
                 "use_connected_browser": {"type": "boolean", "default": False},
+                "shop_id": {"type": "string", "pattern": "^shop_[a-f0-9]{32}$"},
+                "observation_id": {"type": "string", "pattern": "^page_[a-f0-9]{32}$"},
             },
-            "required": ["url", "action", "selector"],
+            "required": ["action", "selector"],
+            "anyOf": [{"required": ["url"]}, {"required": ["shop_id", "observation_id"]}],
             "additionalProperties": False,
         },
     )
@@ -1005,6 +1080,7 @@ def build_browser_mcp_server(
     policy: OrgPolicy | None = None,
     run_id: str | None = None,
     project_events: ProjectEventProjector | None = None,
+    shop_browsers: ShopBrowserService | None = None,
 ):
     return create_sdk_mcp_server(
         name=BROWSER_MCP_SERVER_NAME,
@@ -1017,5 +1093,6 @@ def build_browser_mcp_server(
             policy=policy,
             run_id=run_id,
             project_events=project_events,
+            shop_browsers=shop_browsers,
         ),
     )

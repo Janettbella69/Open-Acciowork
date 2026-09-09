@@ -4,6 +4,11 @@ The five developer guides supplied for FR-11/FR-21 are tracked separately. A
 developer account, approved app and seller authorization are prerequisites for
 private shop data; a documentation link alone does not grant access.
 
+Project shop identities and independent login windows are documented in
+[Shop browsers](shop-browsers.md). A shop can link this platform Connector while
+retaining a separately confirmed browser grant. Linking alone does not grant API
+access or implement OAuth; current API and browser grants remain independent.
+
 ## Platform inventory
 
 Reviewed against official documentation on 2026-09-09. Dynamic documentation

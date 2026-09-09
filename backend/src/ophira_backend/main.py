@@ -211,6 +211,8 @@ from .scheduler import (
     new_schedule,
 )
 from .sdk_adapter import ClaudeAgentRuntime
+from .shop_browser import ShopBrowserService
+from .shop_browser_api import register_shop_browser_routes
 from .skill_proposal_routes import register_skill_proposal_routes
 from .skill_proposals import SkillProposalService
 from .skills import (
@@ -360,6 +362,7 @@ def _create_app(
     marketplace_access = MarketplaceAccessService(
         ledger, connectors, settings=settings, access=project_access,
     )
+    shop_browsers = ShopBrowserService(marketplace_access, policy)
     commercial_action_adapter = HttpsJsonMessageAdapter(connectors)
     commercial_actions = CommercialActionService(
         settings.data_dir / "commercial-actions",
@@ -381,6 +384,7 @@ def _create_app(
         notifications=notifications,
         connectors=connectors,
         marketplace_access=marketplace_access,
+        shop_browsers=shop_browsers,
         policy=policy,
         commercial_actions=commercial_actions,
         task_experiences=task_experiences,
@@ -1431,6 +1435,7 @@ def _create_app(
         application, marketplace_access=marketplace_access,
         require_project_authorization=require_project_authorization,
     )
+    register_shop_browser_routes(application, shop_browsers, require_project_authorization)
 
     @application.get("/api/connectors", response_model=list[Connector])
     async def list_connectors() -> list[Connector]:

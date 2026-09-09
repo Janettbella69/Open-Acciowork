@@ -28,6 +28,7 @@ import { permissionLifecycleState } from '../permissionLifecycle'
 import PresentationCards, { extractPresentationFrames } from './PresentationCards'
 import ProjectMetricsPanel from './ProjectMetricsPanel'
 import ProjectKnowledgePanel from './ProjectKnowledgePanel'
+import ProjectShopsPanel from './ProjectShopsPanel'
 import WorkspaceNav from './WorkspaceNav'
 import './workspace-composer.css'
 
@@ -866,6 +867,7 @@ export default function WorkspaceComposer({
                   <FeedbackForm key={run.id} target={{ project_id: run.project_id, run_id: run.id, kind: 'run_failure' }} label="Flag run failure" />
                 )}
                 {project && <ProjectKnowledgePanel projectId={project.id} revision={project.artifacts.map((item) => item.id).join(':')} />}
+                {project && <ProjectShopsPanel key={`shops:${project.id}`} projectId={project.id} onTask={onChange} />}
                 {project && <ProjectMetricsPanel key={`metrics:${project.id}`} projectId={project.id} />}
                 {project && <FeedbackReviewPanel key={project.id} projectId={project.id} />}
 

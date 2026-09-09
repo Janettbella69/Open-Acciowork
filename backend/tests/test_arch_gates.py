@@ -64,6 +64,10 @@ def test_runtime_options_keep_the_governance_envelope(tmp_path: Path) -> None:
         "autoAllowBashIfSandboxed": True,
         "allowUnsandboxedCommands": False,
         "failIfUnavailable": True,
+        "filesystem": {
+            "denyRead": [str((ledger.root / "shop-browsers").resolve())],
+            "denyWrite": [str((ledger.root / "shop-browsers").resolve())],
+        },
     }
     assert options.setting_sources == []
     assert options.strict_mcp_config is True

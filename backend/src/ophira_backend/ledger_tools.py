@@ -60,6 +60,7 @@ if TYPE_CHECKING:
     from .connectors import ConnectorRegistry
     from .marketplace_access import MarketplaceAccessService
     from .project_events import ProjectEventProjector
+    from .shop_browser import ShopBrowserService
     from .skill_proposals import SkillProposalService
 
 
@@ -1358,6 +1359,7 @@ def build_mcp_servers(
     project_events: ProjectEventProjector | None = None,
     skill_proposals: SkillProposalService | None = None,
     marketplace_access: MarketplaceAccessService | None = None,
+    shop_browsers: ShopBrowserService | None = None,
 ) -> dict[str, Any]:
     from .presentation_tools import build_presentation_mcp_server
 
@@ -1408,6 +1410,7 @@ def build_mcp_servers(
                 policy=org_policy,
                 run_id=run_id,
                 project_events=project_events,
+                shop_browsers=shop_browsers,
             )
         servers[MEDIA_MCP_SERVER_NAME] = build_media_mcp_server(
             ledger,
