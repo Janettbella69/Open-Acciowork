@@ -28,7 +28,7 @@ from ophira_backend.constants import (
     RunMode,
 )
 from ophira_backend.events import EventPublisher
-from ophira_backend.models import Evidence, ProjectCreate, ProviderProfileUpsert
+from ophira_backend.models import Evidence, ProjectCreate, ProviderProfileUpsert, utc_now
 from ophira_backend.permissions import PermissionBroker
 from ophira_backend.providers import ProviderRegistry
 from ophira_backend.sdk_adapter import AgentRunError, ClaudeAgentRuntime
@@ -563,8 +563,13 @@ def test_sdk_options_materialize_the_run_snapshot_not_current_skill(
 @pytest.mark.asyncio
 async def test_deep_research_wall_clock_timeout_cancels_session(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _ledger, run, runtime = build_runtime(tmp_path)
+    # Keep setup and ledger writes from consuming this test's tiny budget.
+    # asyncio.wait still uses its real event-loop clock to cancel the session.
+    now = utc_now()
+    monkeypatch.setattr("ophira_backend.sdk_adapter.utc_now", lambda: now)
     runtime.settings.deep_research_timeout_seconds = 0.01  # type: ignore[assignment]
     runtime._require_provider = lambda _run: None  # type: ignore[method-assign]
     runtime._build_options = lambda _run, **_kwargs: object()  # type: ignore[method-assign,return-value]

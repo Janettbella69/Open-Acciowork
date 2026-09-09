@@ -3,12 +3,14 @@ from __future__ import annotations
 
 import asyncio
 import importlib.util
+import itertools
 import json
 import socket
 import subprocess
 import sys
 import time
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from httpx import AsyncClient
@@ -32,6 +34,17 @@ def valid_row(duration=1.0):
         "errors": [],
         "metrics": {name: {"duration_ms": duration, "complete": True} for name in BENCH.LIMITS_MS},
     }
+
+
+def assert_complete_summary(summary):
+    # Lifecycle correctness must not depend on a shared runner meeting the PRD
+    # latency target. Strict performance acceptance is tested separately below.
+    assert summary["failed_sample_count"] == 0
+    for metric in summary["metrics"].values():
+        assert metric["sample_count"] == summary["sample_count"]
+        assert metric["incomplete_count"] == 0
+        assert not metric["p95_unbounded"]
+        assert metric["p95_ms"] is not None and metric["p95_ms"] >= 0
 
 
 def test_nearest_rank_and_strict_prd_thresholds():
@@ -108,7 +121,8 @@ async def test_real_asgi_lifecycle_with_bundled_skills_and_isolated_settings(tmp
     for case in report["cases"]:
         assert case["measured"]["sample_count"] == 8
         assert case["warmup"]["sample_count"] == 4
-        assert case["measured"]["passed"] and case["warmup"]["passed"]
+        assert_complete_summary(case["measured"])
+        assert_complete_summary(case["warmup"])
         assert len(case["skill_snapshot"]) >= 10
     for row in rows:
         assert row["errors"] == []
@@ -130,6 +144,21 @@ async def test_real_asgi_lifecycle_with_bundled_skills_and_isolated_settings(tmp
     encoded = json.dumps({"report": report, "rows": rows}, allow_nan=False)
     assert "benchmark-secret-sentinel" not in encoded
     assert str(forbidden) not in encoded and "/Users/" not in encoded
+
+
+async def test_complete_lifecycle_can_fail_latency_acceptance(monkeypatch):
+    ticks = itertools.count(step=3_000_000_000)
+    monkeypatch.setattr(BENCH, "time", SimpleNamespace(
+        perf_counter_ns=lambda: next(ticks),
+        get_clock_info=time.get_clock_info,
+    ))
+    report, rows = await BENCH.benchmark(samples=1, warmup=1)
+    assert all(not row["errors"] for row in rows)
+    for case in report["cases"]:
+        for phase in ("warmup", "measured"):
+            assert_complete_summary(case[phase])
+            assert not case[phase]["passed"]
+    assert not report["passed"]
 
 
 async def test_response_delay_does_not_shift_persisted_event_measurement(monkeypatch):
@@ -200,7 +229,7 @@ async def test_second_case_exception_retains_first_case_and_records_unattempted_
     monkeypatch.setattr(BENCH, "run_case", fail_second)
     report, rows = await BENCH.benchmark(samples=2, warmup=1)
     assert len(rows) == 6
-    assert report["cases"][0]["measured"]["passed"]
+    assert_complete_summary(report["cases"][0]["measured"])
     assert all(not row["errors"] for row in rows if row["concurrency"] == 1)
     assert report["cases"][1]["fatal_error"] == "OSError"
     assert all(row["errors"] == ["case_exception:OSError"]
@@ -222,7 +251,8 @@ async def test_temporary_directory_cleanup_failure_retains_all_completed_rows(mo
     assert len(rows) == 6 and all(not row["errors"] for row in rows)
     assert report["fatal_error"] == "OSError"
     assert not report["passed"]
-    assert all(case["measured"]["passed"] for case in report["cases"])
+    for case in report["cases"]:
+        assert_complete_summary(case["measured"])
 
 
 def test_offline_guard_blocks_network_process_and_vault_access(tmp_path):
