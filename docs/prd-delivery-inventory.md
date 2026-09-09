@@ -21,7 +21,7 @@
 | FR-09 来源账本 | delivered：同 Run/session 的服务器 source receipt | 保持来源、失效、回放和内容完整性回归 |
 | FR-10 决策 | delivered：证据关联与失效联动 | 开放任务质量另行验收 |
 | FR-11 领域 MCP | delivered：确定性商业计算、用户记录加工、显式结算计划的现金流/日末与保守日内资金缺口 | deferred：真实供应商/客户/市场/法规/物流/汇率授权数据适配 |
-| FR-12 Skill 生命周期 | delivered：发现/启停/扫描/不可变版本/配额/租约/回滚；13个内置Skill的证据参考与输出模板、固定包原生只读访问；Agent候选冻结、人审发布默认关闭、凭证恢复与独立审阅UI；本地独立备份与新进程恢复演练 | deferred：真实模型提案质量、真端点回滚重跑、含候选库的完整应用备份及跨宿主/生产恢复 |
+| FR-12 Skill 生命周期 | delivered：发现/启停/扫描/不可变版本/配额/租约/回滚；13个内置Skill的证据参考与输出模板、固定包原生只读访问；Agent候选冻结、人审发布默认关闭、凭证恢复与独立审阅UI；独立Skill备份及含项目账本/候选库的应用冷备份、新进程恢复 | deferred：真实模型提案质量、真端点回滚重跑、跨宿主/生产恢复及其余子系统的恢复认证 |
 | FR-13 权限 | delivered：范围/有效期/审计、删除确认、沙箱拒绝逃逸；可信设备单次审批；原生SDK持久等待、原Run恢复、跨进程决议竞争、消费前撤销复验 | deferred：真实远程审批与生产故障矩阵；原生多工具批次须拆为单次审批 |
 | FR-14 记忆 | delivered：提案人审、TTL/过期/检索/导出/删除恢复 | deferred：真实蒸馏质量、生产备份删除边界与恢复演练 |
 | FR-15 自动化 | delivered：计划/心跳/收件箱本地链路；跨进程自动调度租约和崩溃幂等；手动/自动触发共用租约与持久Run重叠检查、页面并发操作治理 | deferred：真实长期运行与渠道投递 |
@@ -49,7 +49,7 @@
 | §4.16 任务经验 | delivered：专属工具与版本/来源账本、创建时配置指纹、低信任检索注入、容量/事务恢复与人工停用UI；deferred：真实Provider自主调用及长期判断质量 |
 | §4.12 事件 | delivered：有真实Run归属的evidence.added/decision.recorded、持久幂等补发与完整SSE尾部消费；deferred：产物更新、记忆、无Run项目变更和 schedule/preflight 细分事件 |
 | §3.9 / §4.10 | delivered：自动调度跨进程抢占与事件汇总恢复；deferred：其余事件故障矩阵、Bash 修改恢复、CPU/内存/进程/输出限制 |
-| §3.9 数据主权 | deferred：项目/会话/凭据的完整授权导出与删除（记忆已交付）；恢复策略及 UI |
+| §3.9 数据主权 | delivered：操作者CLI完整数据目录冷备份与新目录恢复，覆盖项目账本/提案/Registry一致性；deferred：项目/会话/凭据的完整授权导出与删除（记忆已交付）、恢复UI及生产灾备 |
 | §3.9 性能 | delivered：本地ASGI单/4并发各100样本，创建/首事件持久化/离线task取消P95基线；deferred：真实SDK进程、网络/SSE运输、多worker与生产负载验收 |
 | §3.9 / §3.10 | delivered：项目范围按Provider/model/Skill/tool/错误的有界指标汇总；deferred：业务成功指标、区域与数据流披露 |
 | §3.11 / §6.6 | deferred：当前 L2 基线、人亲自标注的 gold、judge 校准与 TPR/TNR 门槛；不能由 AI 伪造标注 |
@@ -388,3 +388,37 @@ HTTP 先只读确认项目权限再进行恢复；隐藏候选不会因无权请
 
 本批未改产品前后端行为，未调用真实 Provider、读取正式数据、发送外部消息或下载模型；
 前端未改且未重跑其自动化检查。其余全量 PRD deferred 保持开放。
+
+## 2026-09-09：项目账本、提案与 Registry 的一致应用冷备份
+
+代码与正式归档提交：`aeba9fc`；基线：`bf161e8`。本批完成上节尚未交付的本地应用快照与恢复协议，
+操作与限制见 [应用冷备份合同](application-backup.md)。
+
+| 本批要求 | 状态与证据 |
+| --- | --- |
+| 同一快照保留项目账本、提案冻结包/审阅和 Registry/凭证 | delivered：完整数据目录与应用 Plugin 同批复制，源目录删除后的独立进程恢复；其他存储保留原始字节 |
+| 冷备份不与应用初始化、运行或关闭恢复竞争 | delivered：应用共享/备份独占进程租约；真实 spawn、构造与 lifespan 检查；非终态 Run 拒绝备份 |
+| 恢复关联完整且不重新发布 Skill | delivered：逐项验证项目/Run/session/Artifact、冻结包、固定版本及凭证；两个 publishing 中断窗口只按凭证修复记录，canonical 字节不变 |
+| 错误快照与并发目标不产生部分覆盖 | delivered：重新计算清单后的语义错误、源变化、额外恢复写入、路径/软硬链接/FIFO/合计配额均拒绝；新目录独占原子发布 |
+| 归档可保留权限并独立复现 | delivered：标准库独立复核；压缩归档保留只读位和空目录，解包后另一个全新 CLI 进程恢复成功 |
+| 项目级授权导出/删除与恢复 UI | deferred：本批入口是本机操作者 CLI，尚未提供 HTTP 授权与页面操作流程 |
+| 在线/跨版本/跨宿主/生产灾备与所有子系统语义认证 | deferred：本批为同代码版本、停机、本机私有目录恢复；外部密钥/服务、SDK 跨路径续接、加密异地保留及灾备指标需另行实现和验收 |
+
+正式合成归档：
+[application-backup-20260909T095925318909Z](../evals/reports/application-backup-20260909T095925318909Z/summary.json)。
+快照含 146 个文件、165 个目录、192,446 字节、一个项目/Run、五份提案、两份发布凭证
+和 13 个内置 Skill。源目录删除后，五个不同新进程覆盖成功恢复、缺候选、缺凭证、
+Run/session 来源错误与文件篡改。成功结果为两个 pending、两个 published、一个 rejected；
+两类 publishing 分别按已有凭证补记和无凭证退回待审，既有 canonical 与备份均未改写。
+
+验证命令与结果：
+
+- `OPHIRA_CONTRACT_PROVIDER= PYTHONPATH=backend/src .venv/bin/python -m pytest -q backend/tests`：**1513 passed / 8 live-only skipped**（70.89s），包含新增 **35** 项应用备份测试与既有动态权限/调度/SDK 回归。
+- `PYTHONPATH=backend/src .venv/bin/python backend/scripts/exercise_application_backup.py`：**passed**，父/子进程均阻断网络与正式数据访问。
+- 标准库独立复核：[independent-check.json](../evals/reports/application-backup-20260909T095925318909Z/independent-check.json)；保留权限的压缩包解包后新进程恢复：[archive-roundtrip.json](../evals/reports/application-backup-20260909T095925318909Z/archive-roundtrip.json)，均通过。
+- `.venv/bin/ruff check backend/src backend/tests backend/scripts/exercise_skill_backup.py backend/scripts/exercise_application_backup.py`、`git diff --check`：通过。
+
+本地预览后端已加载新版本，健康检查正常；运行中的实际应用持有共享租约，独占备份锁
+被正确拒绝，未对正式业务目录执行备份。未改前端，也未新增备份 UI 或真实 Provider 验收。
+全量 PRD 其余 deferred 保持开放；之前各节的 deferred 表示对应交付时点，以上两张总表
+和本节反映本次应用冷备份的新增范围。

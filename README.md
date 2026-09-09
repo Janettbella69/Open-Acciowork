@@ -61,6 +61,10 @@ All 13 built-in Skills include evidence guides and editable artifact templates t
 travel with the immutable package snapshot; see [`docs/skill-resources.md`](docs/skill-resources.md).
 The local [Skill backup and restore exercise](docs/skill-backup-exercise.md) verifies
 independent copies, historical pins, disabled versions, and rejected corrupt restores.
+The operator [application cold backup](docs/application-backup.md) captures the complete
+data directory with its Plugin, verifies project/Run/proposal/receipt links, and restores
+into a new directory with reviewed publication recovery. Stop the application before
+backup; restoration does not start jobs or model sessions.
 The commerce MCP also calculates cash balances and peak funding gaps from explicit
 settlement schedules, distinguishing daily closing balances from a conservative
 intraday bound; see [`docs/cashflow.md`](docs/cashflow.md).

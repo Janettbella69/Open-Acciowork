@@ -1,0 +1,125 @@
+# 应用数据冷备份与恢复
+
+该入口把整个应用 `data_dir` 和配套应用 Plugin 放入同一个本地快照，包含项目工作区、
+Run/事件、提案冻结包和审阅记录、Skill 历史/发布凭证，以及该目录中的授权、记忆、
+配置、凭据和会话文件。恢复仅发布到不存在的新目录，不启动 FastAPI、SDK、计划、
+通知或商业动作。它不读取 `backend/.env`，不调用外部服务。
+
+## 本批要求清单
+
+| 要求 | 状态 |
+| --- | --- |
+| 整体捕获项目账本、提案候选库和 Skill Registry | delivered：完整目录快照；源目录删除后的独立进程恢复已归档 |
+| 应用构造和整个运行生命周期与冷备份互斥 | delivered：共享/独占进程租约，真实 spawn 与应用生命周期测试，保留路径别名兼容和动态权限配置 |
+| 恢复前检查来源、固定包、扫描和发布凭证关联 | delivered：逐项校验；运输清单重新计算的语义篡改也会拒绝 |
+| 中断提案按已有凭证恢复，不重新执行发布 | delivered：两个中断窗口恢复；Registry 字节不变；异常恢复写入拒绝 |
+| 备份/恢复不覆盖已有目录，私有权限、容量与路径限制 | delivered：独占原子发布、并发目标保护、私有权限与合计配额；路径/软硬链接/FIFO 测试通过 |
+| 在线热备份、分布式租约、跨版本迁移、加密异地灾备 | deferred：不属于本次停机本地快照的实现范围，需要独立协议和验收 |
+| SDK 跨路径/跨宿主会话续接 | deferred：SDK 会话依赖原工作目录，不能仅靠文件复制证明可续接 |
+
+## 操作
+
+停止所有使用源数据目录的 API、worker、浏览器及独立维护程序，并确认 Run 均已终态。
+等待审批、排队、执行或暂停的 Run 会使备份失败；须在应用内完成或取消，并完成正常关闭。
+新 API 从构造开始以及整个 ASGI lifespan（含启动恢复与关闭等待）持有共享租约；
+备份使用非阻塞独占租约，忙时立即失败。首次升级时必须先停止旧版本进程，旧代码不认识
+新锁；自行绕开应用入口或关闭 lifespan 的服务不在该租约协议保证范围内。
+Plugin 也须在备份期间保持静止，不同时部署/编辑。
+
+从仓库根目录执行，替换示例路径；输出目录必须不存在，父目录必须已经存在且由操作者控制：
+
+```bash
+PYTHONPATH=backend/src .venv/bin/python -m ophira_backend.application_backup create \
+  --data-dir /absolute/app-data \
+  --plugin-dir /absolute/ophira-capabilities \
+  --output /absolute/private-backups/snapshot-001
+
+PYTHONPATH=backend/src .venv/bin/python -m ophira_backend.application_backup restore \
+  --backup /absolute/private-backups/snapshot-001 \
+  --output /absolute/private-restores/recovered-001
+```
+
+备份输出：`manifest.json` 和 `payload/{data,application-plugin}/`。
+恢复输出：`{data,application-plugin}/`，可在停机检查后分别配置为 `OPHIRA_DATA_DIR`
+和 `OPHIRA_CAPABILITY_PLUGIN_DIR`。CLI 只输出成功/失败、稳定原因、数量和恢复状态，
+不输出项目正文、提案内容、凭据或任意异常文本。`target_visible=true` 时目标已存在，
+不能因为命令失败就自行删除它。
+
+首次恢复检查应在隔离环境进行。目录包含原有计划、通知和外部服务配置；启动真实应用会
+重新加载这些配置，需要操作者决定何时恢复服务。环境变量、`.env`、操作系统钥匙串、
+外部服务状态和数据目录之外的 SDK/浏览器文件不在快照里，须由部署方单独保存与配置。
+
+## 一致性与恢复顺序
+
+1. 拿到源数据目录独占租约，清点全量文件和空目录，记录相对路径、owner 模式、大小和
+   SHA-256；只排除本次使用的 `.application-maintenance.lock` 文件，锁本身不属于业务数据。
+2. 在目标父目录的私有 staging 中复制数据与 Plugin；在副本上检查语义，原数据不做
+   提案恢复或 Registry 迁移。复制后再次对比源清单，数据变化则丢弃未发布备份。
+3. 深度校验覆盖所有项目/Run 记录（不使用会跳过坏记录的 UI 列表）、Run 项目与身份范围、
+   Run 终态、固定 Skill 快照、所有历史/当前包扫描，以及提案的冻结字节、来源 Run/session、
+   Artifact checksum、历史 Run 引用和人审/发布凭证关联。危险但尚待审的候选保留待审，
+   不被扫描通过要求错误地当作已安装包，也不会因恢复而启用。
+4. manifest 记录完整运输清单、逻辑 inventory 和当前后端全部 Python 模块指纹。恢复要求
+   相同指纹，先对比实际文件再复制到新的 staging，禁止清单指向任意外部路径。
+5. 恢复副本按现有 `SkillProposalService.recover()` 处理 publishing：有匹配凭证则补记
+   published；无凭证则增加 revision、记为 interrupted 并回到 pending，要求重新人审。
+   Registry canonical 字节必须不变；原 pending/rejected/published 不重写。除 publishing
+   的 record、首次生成的空提案锁、被清理的未提交 staging 外，额外数据变更会使恢复失败。
+6. 校验通过后 fsync 文件与目录，并用系统的独占 rename 发布整个根目录；目标即使在
+   检查后由另一进程创建也不会覆盖。只清理当前调用持有的 staging，不删除已有部署。
+
+其他存储的原始字节也完整保留，但本批未为每个渠道、自动化、记忆或外部副作用记录实现
+专门的跨对象业务校验；不得把全量文件快照描述为所有子系统的生产恢复认证。
+
+## 限制与权限
+
+- 默认最多 50,000 个文件、100,000 个条目、单文件 64 MiB、文件内容总计 2 GiB、
+  manifest 32 MiB、32 层目录。校验会多次读取，限制不是累计 I/O 预算。
+- 所有路径组件用目录描述符解析，拒绝软/硬链接、FIFO、设备等特殊文件；备份无法包含
+  含这些条目的源目录。支持空目录与 owner 可执行位，清除 group/other 权限，最终根目录 0700。
+- 快照包含凭据文件，采用本地私有权限保存，**没有新增备份加密或签名**。能同时改写文件
+  和 manifest 的操作者可制作新的自洽快照；哈希不是身份认证，也不能替代可信存储。
+- 锁和原子目录发布限本机支持的文件系统；macOS/Linux 分支沿用独立 Skill 备份的
+  no-replace 实现。断电、磁盘损坏、远程文件系统、攻击者拥有相同 OS 权限等未由本批认证。
+- 本地 SDK [会话存储说明](claude-agent-sdk/session-storage.md) 明确 session key 与
+  工作目录关联。恢复到新路径保留文件，不改写 SDK 内部路径或自动续跑；要恢复原会话，
+  还需部署方恢复匹配目录和配置并独立验收。
+
+## 验证命令
+
+```bash
+PYTHONPATH=backend/src .venv/bin/python -m pytest -q backend/tests/test_application_backup.py
+OPHIRA_CONTRACT_PROVIDER= PYTHONPATH=backend/src .venv/bin/python -m pytest -q backend/tests
+.venv/bin/ruff check backend/src backend/tests backend/scripts/exercise_skill_backup.py backend/scripts/exercise_application_backup.py
+```
+
+## 2026-09-09 验收记录
+
+正式合成演练：
+
+```bash
+PYTHONPATH=backend/src .venv/bin/python backend/scripts/exercise_application_backup.py
+```
+
+归档：[application-backup-20260909T095925318909Z](../evals/reports/application-backup-20260909T095925318909Z/summary.json)。
+一份独立快照包含 146 个文件、165 个目录、192,446 字节、一个项目/Run、五份提案和两份
+发布凭证，包含仓库的 13 个内置 Skill。源目录删除后，五个不同进程分别执行成功恢复、
+提案缺失、凭证缺失、Run/session 来源错误与文件篡改，均命中预期结果。恢复结果为
+两个 pending、两个 published、一个 rejected，canonical 字节保持不变，备份本身未改动。
+演练在父/子进程安装网络和正式数据访问守卫；没有启动真实模型或商业动作。
+
+独立标准库复核重新计算全部文件哈希和权限，核对冻结包、项目/Run/Artifact 来源、凭证
+和五份进程报告，结果见 [independent-check.json](../evals/reports/application-backup-20260909T095925318909Z/independent-check.json)。
+它核对保留的快照与报告，不将已清理的临时恢复目标描述为再次恢复。
+
+归档同时保留 [backup.tar.gz](../evals/reports/application-backup-20260909T095925318909Z/backup.tar.gz)，
+以保存 Git checkout 不保留的只读文件位和空目录。复现恢复时，将这个可信合成归档解包到
+新的私有目录并保留 owner 权限，再将解包后的 `backup/` 传给 CLI；不要直接使用 checkout
+产生的展开副本。另一个全新 CLI 进程已经从解包副本完成恢复，结果见
+[archive-roundtrip.json](../evals/reports/application-backup-20260909T095925318909Z/archive-roundtrip.json)，
+其中记录压缩包 SHA-256、102,222 字节大小及相同的提案恢复结果。
+
+35 项本批专项测试纳入后端全量：**1513 passed / 8 live-only skipped**（70.89s）；
+Ruff 和 `git diff --check` 通过。测试包含真实进程抢锁、应用构造/启动/关闭租约、路径别名、
+权限动态撤销、两个提案中断窗口、额外恢复写入、源变化、合计容量、特殊文件和失败输出脱敏。
+未改前端，未重跑其测试或宣称 UI 备份交付。

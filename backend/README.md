@@ -120,6 +120,18 @@ Existing Run snapshots retain their pinned Skills, and enablement remains separa
 This feature is verified with offline native MCP/HTTP, UI and process tests; it does
 not establish live model proposal quality or production isolation.
 
+The [application cold backup CLI](../docs/application-backup.md),
+`python -m ophira_backend.application_backup create|restore`, copies the complete
+data directory and application Plugin together. Application construction and the
+entire ASGI lifespan hold a shared process lease; backup requires an exclusive lease
+and terminal Runs. Stop all old workers before upgrading to this protocol and keep
+ASGI lifespan enabled. Restoration validates frozen proposals against their project,
+Run, Artifact and publication receipts, then reconciles only interrupted proposal
+records on a private copy before publishing to a new directory. It never starts SDK
+sessions, schedules, notifications or commercial writes. Data-directory credentials
+are included under private local permissions; `.env`/external keys, backup encryption,
+cross-host session resume and production disaster recovery remain separate concerns.
+
 Project/action reads and human review/apply/cancel are available through HTTP. In
 `trusted_gateway` mode, every normal control-plane API request requires a short-lived,
 request-bound HMAC
