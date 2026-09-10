@@ -139,6 +139,85 @@ def test_cold_backup_rejects_corrupt_artifact_history(source, tmp_path):
     assert not (tmp_path / "backup").exists()
 
 
+def checkpoint(source):
+    from ophira_backend.workspace_checkpoints import WorkspaceCheckpoints
+
+    _, _, ledger, _, _, project, *_ = source
+    service = WorkspaceCheckpoints(ledger)
+    run = ledger.create_run(project.id, "A checkpoint before this run")
+    service.prepare_run(run.id)
+    ledger.update_run(run.id, status=RunStatus.COMPLETED, finished_at=utc_now())
+    return service, service.load(project.id, f"before-{run.id}")
+
+
+def test_cold_backup_preserves_recoverable_workspaces_and_applied_history(source, tmp_path):
+    from test_workspace_checkpoints import options
+
+    from ophira_backend.workspace_checkpoints import LIMITS, WorkspaceCheckpoints
+
+    _, _, ledger, _, _, project, *_ = source
+    service, point = checkpoint(source)
+    workspace = ledger.workspace_for_project(project.id)
+    (workspace / "later.txt").write_bytes(b"Keep after cold restore")
+    preview = service.preview(project.id, point.id, **options())
+    applied = service.apply(project.id, preview.id, **options())
+    archive = make_backup(source, tmp_path)
+    destination = tmp_path / "restored"
+    backup.restore_backup(archive, destination)
+    restored = FileLedger(destination / "data")
+    recovery = WorkspaceCheckpoints(restored)
+    assert recovery.get_restore(project.id, applied.id) == applied
+    assert recovery.load(project.id, point.id) == point
+    assert tree_inventory(restored.workspace_for_project(project.id), LIMITS) == point.inventory()
+    undo = recovery.preview(project.id, applied.safety_checkpoint_id, **options())
+    recovery.apply(project.id, undo.id, **options())
+    assert (restored.workspace_for_project(project.id) / "later.txt").read_bytes() == (
+        b"Keep after cold restore"
+    )
+
+
+def test_cold_backup_rejects_damaged_checkpoint_only_blob(source, tmp_path):
+    from ophira_backend.artifact_files import snapshot_relative
+
+    _, _, ledger, _, _, project, *_ = source
+    _, point = checkpoint(source)
+    row = next(item for item in point.files if item.path == "tool.sh")
+    blob = ledger._project_path(project.id).parent / snapshot_relative(row.sha256)
+    blob.chmod(0o600)
+    blob.write_bytes(b"damaged snapshot")
+    with pytest.raises(BackupError, match="workspace_checkpoint_invalid"):
+        make_backup(source, tmp_path)
+    assert not (tmp_path / "backup").exists()
+
+
+def test_cold_backup_rejects_pending_directory_swap_until_original_host_recovers(
+    source, tmp_path, monkeypatch,
+):
+    from test_workspace_checkpoints import options
+
+    from ophira_backend import workspace_checkpoints
+
+    _, _, ledger, _, _, project, *_ = source
+    service, point = checkpoint(source)
+    (ledger.workspace_for_project(project.id) / "later.txt").write_bytes(b"Keep")
+    preview = service.preview(project.id, point.id, **options())
+    original = workspace_checkpoints.publish_exclusive
+
+    def stop(src, dst):
+        original(src, dst)
+        raise OSError("interrupted directory swap")
+
+    monkeypatch.setattr(workspace_checkpoints, "publish_exclusive", stop)
+    with pytest.raises(OSError):
+        service.apply(project.id, preview.id, **options())
+    monkeypatch.undo()
+    with pytest.raises(BackupError, match="pending_workspace_restore"):
+        make_backup(source, tmp_path)
+    assert not (tmp_path / "backup").exists()
+    ledger.workspace_for_project(project.id)
+    make_backup(source, tmp_path)
+
+
 def test_complete_snapshot_preserves_source_and_recovers_only_proposal_intents(source, tmp_path):
     data, plugin, ledger, registry, service, project, run, items = source
     before = tree_inventory(data, backup.DEFAULT_LIMITS)

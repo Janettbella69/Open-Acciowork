@@ -10,6 +10,7 @@ import os
 import shutil
 import stat
 import sys
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -55,6 +56,7 @@ def tree_inventory(
     limits: BackupLimits,
     *,
     omit_root: frozenset[str] = frozenset(),
+    check: Callable[[], None] | None = None,
 ) -> dict:
     files, directories, seen = [], [], set()
     total = 0
@@ -72,6 +74,8 @@ def tree_inventory(
                     raise BackupError("entry_count_limit")
                 names.append(entry.name)
         for name in sorted(names):
+            if check is not None:
+                check()
             relative = prefix + name
             relative_parts(relative)
             if relative.casefold() in seen:
@@ -89,6 +93,8 @@ def tree_inventory(
                 if len(files) >= limits.files:
                     raise BackupError("file_count_limit")
                 data = read_at(fd, name, min(limits.file_bytes, limits.total_bytes - total))
+                if check is not None:
+                    check()
                 total += len(data)
                 files.append(
                     {

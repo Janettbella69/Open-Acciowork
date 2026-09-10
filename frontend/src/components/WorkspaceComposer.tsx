@@ -29,6 +29,7 @@ import PresentationCards, { extractPresentationFrames } from './PresentationCard
 import ProjectMetricsPanel from './ProjectMetricsPanel'
 import ProjectKnowledgePanel from './ProjectKnowledgePanel'
 import ProjectArtifactsPanel from './ProjectArtifactsPanel'
+import WorkspaceRecoveryPanel from './WorkspaceRecoveryPanel'
 import ProjectShopsPanel from './ProjectShopsPanel'
 import WorkspaceNav from './WorkspaceNav'
 import './workspace-composer.css'
@@ -869,6 +870,7 @@ export default function WorkspaceComposer({
                 )}
                 {project && <ProjectKnowledgePanel projectId={project.id} revision={project.artifacts.map((item) => item.id).join(':')} />}
                 {project && <ProjectArtifactsPanel projectId={project.id} artifacts={project.artifacts} onChanged={onProjectRefresh} />}
+                {project && <WorkspaceRecoveryPanel projectId={project.id} onChanged={onProjectRefresh} />}
                 {project && <ProjectShopsPanel key={`shops:${project.id}`} projectId={project.id} onTask={onChange} />}
                 {project && <ProjectMetricsPanel key={`metrics:${project.id}`} projectId={project.id} />}
                 {project && <FeedbackReviewPanel key={project.id} projectId={project.id} />}

@@ -1,0 +1,19 @@
+.workspace-recovery { margin: 12px 0; border: 1px solid #e1e5e0; border-radius: 12px; background: #fff; color: #273b34; }
+.workspace-recovery-toggle { display: flex; justify-content: space-between; width: 100%; padding: 14px 16px; border: 0; background: transparent; color: inherit; text-align: left; font-weight: 600; cursor: pointer; }
+.workspace-recovery-body { padding: 0 16px 16px; }
+.workspace-recovery-body p { line-height: 1.5; }
+.workspace-recovery-body button { padding: 7px 10px; border: 1px solid #d4ddd7; border-radius: 6px; background: #f5f8f4; color: #254a39; cursor: pointer; }
+.workspace-recovery button:disabled { opacity: .55; cursor: default; }
+.workspace-recovery ul { padding: 0; list-style: none; }
+.workspace-recovery code { overflow-wrap: anywhere; white-space: pre-wrap; font-size: 12px; }
+.workspace-recovery small, .workspace-recovery time { display: block; color: #56635a; font-size: 12px; margin-top: 4px; }
+.workspace-recovery [role=alert] { color: #8b3427; overflow-wrap: anywhere; }
+.recovery-points { max-height: 420px; overflow: auto; }
+.recovery-points li { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 0; border-bottom: 1px solid #e1e5e0; }
+.recovery-points li > div { flex: 1; min-width: 160px; }
+.recovery-changes { max-height: 360px; overflow: auto; background: #f6f8f5; }
+.recovery-changes li { padding: 10px; border-bottom: 1px solid #e1e5e0; }
+.recovery-changes span { display: inline-block; margin-right: 12px; font-size: 12px; font-weight: 600; }
+.recovery-confirm { display: flex; align-items: flex-start; gap: 8px; margin: 16px 0; padding: 12px; background: #fffaf0; border-left: 3px solid #b39248; }
+.recovery-confirm input { margin: 3px 0 0; flex-shrink: 0; }
+.recovery-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 12px 0; }

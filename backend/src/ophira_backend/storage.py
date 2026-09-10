@@ -685,7 +685,9 @@ class FileLedger:
         )
         with self._lock_for(project_id), self._lock_for(run.id):
             from .artifact_edits import recover_pending_edit
+            from .workspace_checkpoints import WorkspaceCheckpoints
 
+            WorkspaceCheckpoints(self).recover(project_id)
             recover_pending_edit(self, project_id)
             if self._run_path(run.id).exists():
                 raise ValueError("run already exists")
@@ -1021,10 +1023,14 @@ class FileLedger:
         return updated, affected
 
     def workspace_for_project(self, project_id: str) -> Path:
-        self.get_project(project_id)
-        workspace = self.projects_dir / self._safe_id(project_id) / "workspace"
-        workspace.mkdir(parents=True, exist_ok=True)
-        return workspace
+        from .workspace_checkpoints import WorkspaceCheckpoints
+
+        with self._lock_for(project_id):
+            self.get_project(project_id)
+            WorkspaceCheckpoints(self).recover(project_id)
+            workspace = self.projects_dir / self._safe_id(project_id) / "workspace"
+            workspace.mkdir(parents=True, exist_ok=True)
+            return workspace
 
     @staticmethod
     def _safe_filename(filename: str) -> str:

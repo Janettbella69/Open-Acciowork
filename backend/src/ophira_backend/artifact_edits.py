@@ -94,7 +94,7 @@ uncommitted intent. Its frozen bytes remain harmless unreferenced history.
     parts = relative_parts(pending.path)
     try:
         with (
-            directory_fd(ledger.workspace_for_project(project_id)) as fd,
+            directory_fd(root / "workspace") as fd,
             child_directory(fd, parts[:-1]) as parent,
         ):
             current = read_at(parent, parts[-1], MAX_EDIT_BYTES)
@@ -120,6 +120,7 @@ def read_artifact_text(
 ) -> ArtifactTextView:
     with ledger._lock_for(project_id):
         authorize()
+        ledger.workspace_for_project(project_id)
         recover_pending_edit(ledger, project_id)
         artifact, raw = ledger.capture_artifact(project_id, artifact_id, limit=MAX_EDIT_BYTES)
         _validate_text_path(artifact.path)
@@ -164,6 +165,7 @@ def save_artifact_text(
         raise ValueError("Edits must be UTF-8 text of at most 512 KiB without NUL bytes.")
     with ledger._lock_for(project_id):
         authorize()
+        ledger.workspace_for_project(project_id)
         recover_pending_edit(ledger, project_id)
         original, before = ledger.capture_artifact(project_id, artifact_id, limit=MAX_EDIT_BYTES)
         _validate_text_path(original.path)

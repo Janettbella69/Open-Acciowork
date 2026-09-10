@@ -41,6 +41,7 @@ import type { KnowledgeSearch } from './knowledge'
 import type { MarketplaceAccess, MarketplaceGuide, MarketplaceRead, MarketplaceReadInput } from './marketplaces'
 import type { ProjectShop, ShopData, ShopIdentityInput } from './shops'
 import type { ArtifactTextUpdate, ArtifactTextView } from './artifacts'
+import type { WorkspaceCheckpoint, WorkspaceRestore } from './workspaceRecovery'
 
 const configuredBaseUrl = import.meta.env.VITE_OPHIRA_API_URL?.trim() ?? ''
 export const apiBaseUrl = configuredBaseUrl.replace(/\/$/, '')
@@ -57,6 +58,26 @@ export function saveArtifactText(projectId: string, artifactId: string, payload:
   return request(`/api/projects/${encodeURIComponent(projectId)}/artifacts/${encodeURIComponent(artifactId)}/text`, {
     method: 'PUT', body: JSON.stringify(payload), signal,
   })
+}
+
+export function listWorkspaceCheckpoints(projectId: string, signal?: AbortSignal): Promise<WorkspaceCheckpoint[]> {
+  return request(`/api/projects/${encodeURIComponent(projectId)}/workspace/checkpoints`, { signal })
+}
+
+export function previewWorkspaceRestore(projectId: string, checkpointId: string, signal?: AbortSignal): Promise<WorkspaceRestore> {
+  return request(`/api/projects/${encodeURIComponent(projectId)}/workspace/restores`, {
+    method: 'POST', body: JSON.stringify({ checkpoint_id: checkpointId }), signal,
+  })
+}
+
+export function applyWorkspaceRestore(projectId: string, restoreId: string, signal?: AbortSignal): Promise<WorkspaceRestore> {
+  return request(`/api/projects/${encodeURIComponent(projectId)}/workspace/restores/${encodeURIComponent(restoreId)}/apply`, {
+    method: 'POST', body: JSON.stringify({ confirm_file_changes: true }), signal,
+  })
+}
+
+export function getWorkspaceRestore(projectId: string, restoreId: string, signal?: AbortSignal): Promise<WorkspaceRestore> {
+  return request(`/api/projects/${encodeURIComponent(projectId)}/workspace/restores/${encodeURIComponent(restoreId)}`, { signal })
 }
 
 class ApiError extends Error {

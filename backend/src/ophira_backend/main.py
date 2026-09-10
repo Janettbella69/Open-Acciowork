@@ -243,6 +243,7 @@ from .task_experience import TaskExperienceStore
 from .task_experience_routes import register_task_experience_routes
 from .telemetry import RunTelemetry, build_run_telemetry
 from .templates import TEMPLATE_SPECS
+from .workspace_recovery_api import register_workspace_recovery_routes
 
 MAX_PROJECT_UPLOAD_BYTES = 50 * 1024 * 1024
 LOCAL_OPERATOR_ID = "local-operator"
@@ -1532,6 +1533,10 @@ def _create_app(
         require_project_authorization=require_project_authorization,
     )
     register_shop_browser_routes(application, shop_browsers, require_project_authorization)
+    register_workspace_recovery_routes(
+        application, ledger, runs, require_project_authorization,
+        _read_bounded_body, LOCAL_OPERATOR_ID,
+    )
 
     @application.get("/api/connectors", response_model=list[Connector])
     async def list_connectors() -> list[Connector]:

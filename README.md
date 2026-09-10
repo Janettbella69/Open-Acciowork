@@ -93,6 +93,12 @@ bytes; user edits retain the prior version and become searchable project files.
 See [`docs/artifact-versions.md`](docs/artifact-versions.md) for supported formats,
 interrupted-edit recovery and the availability boundary for legacy versions.
 
+Open **Workspace recovery** to review and restore a complete supported file tree
+saved before a Run, including files changed by Bash. Recovery preserves the current
+workspace as another recovery point and retains project truth and version history.
+See [`docs/workspace-recovery.md`](docs/workspace-recovery.md) for the review flow,
+interrupted directory swaps, concurrent-run protection and capacity limits.
+
 PDF/image uploads produce bounded Markdown companions with honest extraction
 diagnostics; optional local PaddleOCR-VL setup and remaining quality checks are in
 [`docs/ocr-ingestion.md`](docs/ocr-ingestion.md). Result/evidence feedback now has

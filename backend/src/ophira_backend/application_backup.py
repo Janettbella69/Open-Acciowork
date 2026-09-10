@@ -26,7 +26,13 @@ from .maintenance import MAINTENANCE_LOCK, DataDirectoryBusyError, data_director
 from .skill_proposal_files import directory_fd, read_relative
 from .skill_proposals import SkillProposalService
 from .skills import CONTENT_HASH_PATTERN, TENANT_PLUGIN_NAMESPACE, SkillRegistry
-from .storage import FileLedger
+from .storage import FileLedger, LedgerNotFoundError
+from .workspace_checkpoints import (
+    MAX_CHECKPOINTS,
+    MAX_RESTORES,
+    PENDING_RESTORE,
+    WorkspaceCheckpoints,
+)
 
 FORMAT = "ophira-application-cold-backup"
 DEFAULT_LIMITS = BackupLimits()
@@ -66,12 +72,38 @@ def inspect_application(data: Path, plugin: Path) -> dict:
     # list_projects/list_runs deliberately hide malformed UI records. A backup
     # must instead read every directory strictly so missing truth cannot vanish.
     projects, runs = {}, {}
+    checkpoints = WorkspaceCheckpoints(ledger)
     for directory in sorted(ledger.projects_dir.iterdir()):
         if not directory.is_dir():
             raise BackupError("invalid_project_store")
         project = ledger.get_project(directory.name)
         if project.id != directory.name:
             raise BackupError("project_identity_mismatch")
+        if (directory / PENDING_RESTORE).exists() or list(directory.glob("workspace-stage-*")):
+            # Pending swaps bind actual directory inodes. Finish them on the
+            # original host before copying; never replay them in a cold restore.
+            raise BackupError("pending_workspace_restore")
+        try:
+            from .artifact_files import read_snapshot
+
+            for identifier in checkpoints._ids(
+                project.id, "workspace-checkpoints", MAX_CHECKPOINTS,
+            ):
+                item = checkpoints.load(project.id, identifier)
+                for row in item.files:
+                    if len(read_snapshot(directory, row.sha256)) != row.size:
+                        raise ValueError("snapshot size mismatch")
+            for identifier in checkpoints._ids(project.id, "workspace-restores", MAX_RESTORES):
+                item = checkpoints.get_restore(project.id, identifier)
+                target = checkpoints.load(project.id, item.checkpoint_id)
+                if target.fingerprint != item.target_fingerprint or item.state == "applying":
+                    raise ValueError("invalid recovery target")
+                if item.state == "applied":
+                    safety = checkpoints.load(project.id, item.safety_checkpoint_id or "")
+                    if safety.fingerprint != item.current_fingerprint:
+                        raise ValueError("invalid recovery safety copy")
+        except (LedgerNotFoundError, OSError, ValueError) as exc:
+            raise BackupError("workspace_checkpoint_invalid") from exc
         for artifact in project.artifacts:
             if artifact.content_storage == "snapshot":
                 try:
