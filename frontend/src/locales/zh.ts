@@ -11,9 +11,11 @@ import { recoveryZh } from './recovery-zh'
 import { resourcesZh } from './resources-zh'
 import { collaborationZh } from './collaboration-zh'
 import { templatesZh } from './templates-zh'
+import { repositoryZh } from './repository-zh'
 
 /** 中文字典：key = 英文原文。缺条目时界面回落英文（可见即可补）。 */
 export const zh: Record<string, string> = {
+  ...repositoryZh,
   ...templatesZh,
   ...feedbackZh,
   ...mobileZh,

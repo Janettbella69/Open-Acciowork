@@ -827,9 +827,23 @@ class SkillRegistry:
         if enabled_changed or current_changed:
             self._write_registry_state_unlocked(overrides, current)
 
-    def set_enabled(self, skill_id: str, enabled: bool) -> SkillVersion:
+    def set_enabled(
+        self, skill_id: str, enabled: bool, *,
+        expected_token: SkillSelectionToken | None = None,
+        before_commit: Callable[[], None] | None = None,
+    ) -> SkillVersion:
         self._parse_skill_id(skill_id)
         with self._exclusive():
+            if expected_token is not None:
+                token = self._selection_token_unlocked(skill_id, self._canonical_state_unlocked())
+                if token != expected_token:
+                    if (token.generation == expected_token.generation + 1
+                            and token.current_hash == expected_token.current_hash
+                            and token.enabled == enabled):
+                        if before_commit:
+                            before_commit()
+                        return self._get_unlocked(skill_id)
+                    raise SkillConflictError("Skill selection changed since review")
             skill = self._get_unlocked(skill_id)
             if enabled:
                 result = self._test_skill(skill)
@@ -841,6 +855,8 @@ class SkillRegistry:
                 self._publish_version_unlocked(skill)
             values, current = self._registry_state_unlocked()
             values[skill_id] = enabled
+            if before_commit:
+                before_commit()
             self._write_registry_state_unlocked(values, current)
             return self._get_unlocked(skill_id)
 
@@ -1513,6 +1529,8 @@ class SkillRegistry:
         *,
         version: str | None = None,
         content_hash: str | None = None,
+        expected_token: SkillSelectionToken | None = None,
+        before_commit: Callable[[], None] | None = None,
     ) -> SkillVersion:
         """Atomically select a reviewed immutable tenant version as current."""
         if (version is None) == (content_hash is None):
@@ -1567,6 +1585,16 @@ class SkillRegistry:
                         "select content_hash"
                     )
             selected = candidates[0]
+            if expected_token is not None:
+                token = self._selection_token_unlocked(skill_id, self._canonical_state_unlocked())
+                if token != expected_token:
+                    if (token.generation == expected_token.generation + 1
+                            and token.current_hash == selected.content_hash
+                            and token.enabled == expected_token.enabled):
+                        if before_commit:
+                            before_commit()
+                        return self._get_unlocked(skill_id)
+                    raise SkillConflictError("Skill selection changed since review")
             review = self._test_skill(selected)
             if not review.ok:
                 failures = "; ".join(
@@ -1575,10 +1603,14 @@ class SkillRegistry:
                 raise SkillConflictError(f"skill review failed: {failures}")
             enabled, current = self._registry_state_unlocked()
             current[skill_id] = selected.content_hash
+            if before_commit:
+                before_commit()
             self._write_registry_state_unlocked(enabled, current)
             return self._get_unlocked(skill_id)
 
-    def install_zip(self, payload: bytes) -> SkillVersion:
+    @staticmethod
+    def unpack_zip(payload: bytes) -> dict[str, bytes]:
+        """Validate a single Skill archive and return bounded relative package bytes."""
         if not payload:
             raise ValueError("skill archive is empty")
         if len(payload) > MAX_SKILL_ARCHIVE_BYTES:
@@ -1646,65 +1678,50 @@ class SkillRegistry:
                 raise ValueError("skill archive must contain exactly one SKILL.md")
             archive_root = paths[skill_entries[0].filename].parent
 
-            with self._exclusive(), tempfile.TemporaryDirectory(
-                prefix=".install-", dir=self.staging_dir
-            ) as temporary_dir:
-                candidate = Path(temporary_dir) / "candidate"
-                candidate.mkdir()
-                unpacked_bytes = 0
-                for info in entries:
-                    if info.is_dir():
-                        continue
-                    path = paths[info.filename]
-                    try:
-                        relative = path.relative_to(archive_root)
-                    except ValueError as exc:
-                        raise ValueError(
-                            "all skill files must share the SKILL.md package root"
-                        ) from exc
-                    destination = candidate / relative
-                    destination.parent.mkdir(parents=True, exist_ok=True)
-                    with archive.open(info) as source, destination.open("xb") as output:
-                        while chunk := source.read(64 * 1024):
-                            unpacked_bytes += len(chunk)
-                            if unpacked_bytes > MAX_SKILL_UNPACKED_BYTES:
-                                raise ValueError(
-                                    "skill archive exceeded its declared unpacked size"
-                                )
-                            output.write(chunk)
-
-                skill_path = candidate / "SKILL.md"
-                if not skill_path.exists():
-                    raise ValueError("extracted archive is missing SKILL.md")
-                metadata = self._frontmatter(skill_path)
-                name = metadata["name"]
-                if not SKILL_NAME_PATTERN.fullmatch(name):
+            files, unpacked_bytes = {}, 0
+            for info in entries:
+                if info.is_dir():
+                    continue
+                try:
+                    relative = paths[info.filename].relative_to(archive_root)
+                except ValueError as exc:
                     raise ValueError(
-                        "skill name must contain only lowercase letters, digits, '-' or '_'"
-                    )
-                identifier = f"{TENANT_PLUGIN_NAMESPACE}:{name}"
-                staged = SkillVersion(
-                    id=identifier,
-                    namespace=TENANT_PLUGIN_NAMESPACE,
-                    name=name,
-                    description=metadata["description"],
-                    version=metadata.get("version", "0.0.0"),
-                    content_hash=self._hash_directory(candidate),
-                    source="tenant",
-                    enabled=False,
-                    path=str(skill_path),
-                )
-                review = self._test_skill(staged)
-                if not review.ok:
-                    failures = "; ".join(
-                        check.detail for check in review.checks if check.status == "failed"
-                    )
-                    raise ValueError(f"skill review failed: {failures}")
+                        "all skill files must share the SKILL.md package root"
+                    ) from exc
+                try:
+                    with archive.open(info) as source:
+                        content = source.read(MAX_SKILL_UNPACKED_BYTES - unpacked_bytes + 1)
+                except NotImplementedError as exc:
+                    raise ValueError("skill archive uses unsupported ZIP features") from exc
+                unpacked_bytes += len(content)
+                if unpacked_bytes > MAX_SKILL_UNPACKED_BYTES:
+                    raise ValueError("skill archive exceeded its declared unpacked size")
+                files[relative.as_posix()] = content
+            if "SKILL.md" not in files:
+                raise ValueError("extracted archive is missing SKILL.md")
+            return files
 
-                archived = self._publish_version_unlocked(staged)
-                # Every new supply-chain revision requires an explicit enable action.
-                enabled, current = self._registry_state_unlocked()
-                enabled[identifier] = False
-                current[identifier] = archived.content_hash
-                self._write_registry_state_unlocked(enabled, current)
-                return self._get_unlocked(identifier)
+    def install_zip(self, payload: bytes) -> SkillVersion:
+        """Operator-side installation; HTTP imports use explicit frozen review."""
+        files = self.unpack_zip(payload)
+        with self._exclusive(), tempfile.TemporaryDirectory(
+            prefix=".install-", dir=self.staging_dir
+        ) as temporary_dir:
+            candidate = Path(temporary_dir) / "candidate"
+            candidate.mkdir()
+            for relative, content in files.items():
+                destination = candidate / relative
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                destination.write_bytes(content)
+            staged, review = self.inspect_candidate(candidate)
+            if not review.ok:
+                failures = "; ".join(
+                    check.detail for check in review.checks if check.status == "failed"
+                )
+                raise ValueError(f"skill review failed: {failures}")
+            archived = self._publish_version_unlocked(staged)
+            enabled, current = self._registry_state_unlocked()
+            enabled[staged.id] = False
+            current[staged.id] = archived.content_hash
+            self._write_registry_state_unlocked(enabled, current)
+            return self._get_unlocked(staged.id)

@@ -21,6 +21,8 @@ import {
   createProjectComment,
   changeProjectComment,
   getCommentHistory,
+  setSkillEnabled,
+  rollbackSkill,
 } from './client'
 
 afterEach(() => {
@@ -28,6 +30,32 @@ afterEach(() => {
 })
 
 describe('API client', () => {
+  it.each(['version', 'enablement'])('rejects stale Installed Skill %s before making a selection write', async (change) => {
+    const hash = 'a'.repeat(64)
+    const skill = { id: 'ophira-tenant:private-research', name: 'private-research', content_hash: hash }
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      skill, current_target: { current_hash: change === 'version' ? 'b'.repeat(64) : hash, enabled: change === 'enablement', generation: 5 },
+    }), { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+    await expect(setSkillEnabled(skill.id, true, { content_hash: hash, enabled: false })).rejects.toThrow('Skill selection changed since review')
+    await expect(rollbackSkill(skill.id, { content_hash: 'c'.repeat(64) }, { content_hash: hash, enabled: false })).rejects.toThrow('Skill selection changed since review')
+    for (const call of fetchMock.mock.calls) expect((call as unknown as [string, RequestInit])[1].method).not.toBe('POST')
+  })
+
+  it('binds Installed tenant enablement to the displayed package and current generation', async () => {
+    const hash = 'a'.repeat(64)
+    const skill = { id: 'ophira-tenant:private-research', name: 'private-research', content_hash: hash, enabled: false }
+    const target = { current_hash: hash, enabled: false, generation: 5 }
+    const fetchMock = vi.fn(async (_input, init?: RequestInit) => new Response(JSON.stringify(init?.method === 'POST'
+      ? { skill: { ...skill, enabled: true }, current_target: { ...target, enabled: true, generation: 6 } }
+      : { skill, current_target: target }), { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+    expect(await setSkillEnabled(skill.id, true, skill)).toEqual({ ...skill, enabled: true })
+    expect(fetchMock).toHaveBeenLastCalledWith('/api/skills/repository/private-research/selection', expect.objectContaining({
+      method: 'POST', body: JSON.stringify({ operation: 'enable', content_hash: hash, expected_target: target }),
+    }))
+  })
+
   it('scopes collaboration reads and forwards cursors, cancellation, and no-store caching', async () => {
     const fetchMock = vi.fn(async () => new Response('{}', { status: 200 }))
     vi.stubGlobal('fetch', fetchMock)

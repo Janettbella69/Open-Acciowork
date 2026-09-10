@@ -27,6 +27,7 @@ from .project_comments import MAX_COMMENT_BYTES, CommentLedger
 from .project_template_backup import inspect_project_templates
 from .skill_proposal_files import directory_fd, read_relative
 from .skill_proposals import SkillProposalService
+from .skill_repository_backup import inspect_skill_imports
 from .skills import CONTENT_HASH_PATTERN, TENANT_PLUGIN_NAMESPACE, SkillRegistry
 from .storage import FileLedger, LedgerNotFoundError
 from .workspace_checkpoints import (
@@ -210,8 +211,9 @@ def inspect_application(data: Path, plugin: Path) -> dict:
             or not proposals._receipt_matches(item, receipt)
         ):
             raise BackupError("proposal_publication_receipt_mismatch")
+    imports = inspect_skill_imports(ledger, registry)
     for proposal_id, receipt in canonical.get("publication_receipts", {}).items():
-        if proposal_id not in by_id:
+        if proposal_id not in by_id and proposal_id not in imports:
             raise BackupError("publication_proposal_missing")
         namespace, name = receipt["skill_id"].split(":", 1)
         registry._skill_from_history_unlocked(
@@ -230,6 +232,14 @@ def inspect_application(data: Path, plugin: Path) -> dict:
             for item in items
         },
         "canonical_state": canonical,
+        "skill_imports": {
+            item.id: {
+                "state": item.state,
+                "revision": item.revision,
+                "content_hash": item.skill.content_hash,
+            }
+            for item in imports.values()
+        },
     }
 
 

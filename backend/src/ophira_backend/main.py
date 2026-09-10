@@ -229,8 +229,8 @@ from .shop_browser import ShopBrowserService
 from .shop_browser_api import register_shop_browser_routes
 from .skill_proposal_routes import register_skill_proposal_routes
 from .skill_proposals import SkillProposalService
+from .skill_repository_routes import register_skill_repository_routes
 from .skills import (
-    MAX_SKILL_ARCHIVE_BYTES,
     SkillConflictError,
     SkillIdentifierError,
     SkillIntegrityError,
@@ -601,6 +601,9 @@ def _create_app(
     register_project_template_routes(
         application, ledger, project_access, settings, _read_bounded_body,
     )
+    register_skill_repository_routes(
+        application, ledger, skills, settings, _read_bounded_body,
+    )
     register_skill_proposal_routes(
         application, proposals=skill_proposals, ledger=ledger, skills=skills,
         require_project_authorization=require_project_authorization,
@@ -713,6 +716,20 @@ def _create_app(
             )
         request.state.principal = principal
 
+        if path == "/api/skills" or path.startswith("/api/skills/"):
+            try:
+                application.state.skill_repository.authorize(principal)
+            except (AuthenticationError, AuthorizationError):
+                return JSONResponse(
+                    status_code=403,
+                    content={"detail": "Private Skill repository access is unavailable"},
+                )
+            except (ValueError, OSError):
+                return JSONResponse(
+                    status_code=409,
+                    content={"detail": "Private Skill storage could not be verified"},
+                )
+
         admin_prefixes = (
             "/api/agents",
             "/api/channels/feishu/bindings",
@@ -769,8 +786,10 @@ def _create_app(
     async def private_collaboration_responses(request: Request, call_next):
         response = await call_next(request)
         parts = request.url.path.split("/")
-        if parts[1:3] == ["api", "projects"] and parts[4:5] in (
-            ["comments"], ["collaboration"], ["access"], ["templates"],
+        if parts[1:3] == ["api", "skills"] or (
+            parts[1:3] == ["api", "projects"] and parts[4:5] in (
+                ["comments"], ["collaboration"], ["access"], ["templates"],
+            )
         ):
             response.headers["Cache-Control"] = "no-store"
             response.headers["X-Content-Type-Options"] = "nosniff"
@@ -1471,9 +1490,16 @@ def _create_app(
     @application.post(
         "/api/skills/{skill_id:path}/enable", response_model=SkillVersionResponse
     )
-    async def enable_skill(skill_id: str, enabled: bool = True) -> SkillVersion:
+    async def enable_skill(skill_id: str, request: Request, enabled: bool = True) -> SkillVersion:
         try:
-            return skills.set_enabled(skill_id, enabled)
+            return skills.set_enabled(
+                skill_id, enabled,
+                before_commit=lambda: application.state.skill_repository.authorize(
+                    _request_principal(request), manage=True,
+                ),
+            )
+        except (AuthenticationError, AuthorizationError) as exc:
+            raise HTTPException(403, "Private Skill repository access is unavailable") from exc
         except SkillIdentifierError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except SkillNotFoundError as exc:
@@ -1504,9 +1530,13 @@ def _create_app(
         "/api/skills/{skill_id:path}/versions",
         response_model=list[SkillVersionResponse],
     )
-    async def list_skill_versions(skill_id: str) -> list[SkillVersion]:
+    async def list_skill_versions(skill_id: str, request: Request) -> list[SkillVersion]:
         try:
-            return skills.versions(skill_id)
+            return application.state.skill_repository.versions(
+                skill_id, _request_principal(request),
+            )
+        except (AuthenticationError, AuthorizationError) as exc:
+            raise HTTPException(403, "Private Skill repository access is unavailable") from exc
         except SkillIdentifierError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except SkillNotFoundError as exc:
@@ -1524,13 +1554,17 @@ def _create_app(
     async def rollback_skill(
         skill_id: str,
         payload: SkillRollbackRequest,
+        request: Request,
     ) -> SkillVersion:
         try:
-            return skills.rollback(
+            return application.state.skill_repository.rollback(
                 skill_id,
                 version=payload.version,
                 content_hash=payload.content_hash,
+                principal=_request_principal(request),
             )
+        except (AuthenticationError, AuthorizationError) as exc:
+            raise HTTPException(403, "Private Skill repository access is unavailable") from exc
         except SkillIdentifierError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except SkillNotFoundError as exc:
@@ -1542,29 +1576,6 @@ def _create_app(
                 status_code=500,
                 detail="Skill registry integrity validation failed",
             ) from exc
-
-    @application.post(
-        "/api/skills/install",
-        response_model=SkillVersionResponse,
-        status_code=status.HTTP_201_CREATED,
-    )
-    async def install_skill(request: Request) -> SkillVersion:
-        content = await _read_bounded_body(
-            request,
-            max_bytes=MAX_SKILL_ARCHIVE_BYTES,
-            too_large_detail="Skill archive exceeds the upload limit",
-        )
-        try:
-            return skills.install_zip(content)
-        except SkillConflictError as exc:
-            raise HTTPException(status_code=409, detail=str(exc)) from exc
-        except SkillIntegrityError as exc:
-            raise HTTPException(
-                status_code=500,
-                detail="Skill registry integrity validation failed",
-            ) from exc
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     register_marketplace_routes(
         application, marketplace_access=marketplace_access,

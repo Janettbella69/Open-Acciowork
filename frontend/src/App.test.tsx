@@ -161,6 +161,7 @@ describe('TradeMind frontend', () => {
       if (url.endsWith('/api/permissions/pending') && !init?.method) return jsonResponse([])
       if (url.endsWith('/api/connectors') && !init?.method) return jsonResponse([])
       if (url.endsWith('/api/skills') && !init?.method) return jsonResponse([])
+      if (url.endsWith('/api/skills/repository')) return jsonResponse({ identity_mode: 'local_only', tenant_id: null, actor_id: 'local-operator', can_manage: true })
       if (url.endsWith('/api/projects') && !init?.method) return jsonResponse(storedProjects)
       if (url.endsWith('/api/projects') && init?.method === 'POST') return jsonResponse(project, 201)
       if (url.endsWith(`/api/projects/${project.id}/runs`) && init?.method === 'POST') return jsonResponse(run, 202)

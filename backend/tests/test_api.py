@@ -3,6 +3,7 @@ import io
 import json
 import zipfile
 from pathlib import Path
+from uuid import uuid4
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -49,6 +50,30 @@ def _skill_archive(version: str, body: str) -> bytes:
             f"{body}\n",
         )
     return payload.getvalue()
+
+
+async def _publish_private_skill(client, version, body):
+    staged = await client.post(
+        f"/api/skills/install?request_id={uuid4().hex}",
+        content=_skill_archive(version, body),
+        headers={"content-type": "application/zip"},
+    )
+    assert staged.status_code == 201, staged.text
+    detail = staged.json()
+    assert detail["import"]["state"] == "pending"
+    published = await client.post(
+        f"/api/skills/imports/{detail['import']['id']}/review",
+        json={
+            "request_id": uuid4().hex,
+            "decision": "approve",
+            "revision": detail["import"]["revision"],
+            "content_hash": detail["import"]["skill"]["content_hash"],
+            "expected_target": detail["current_target"],
+            "note": "Test human reviewed the frozen package",
+        },
+    )
+    assert published.status_code == 200, published.text
+    return published.json()["import"]["skill"]
 
 
 @pytest.mark.asyncio
@@ -176,7 +201,7 @@ async def test_cancel_interrupts_runtime_and_reaches_terminal_state(tmp_path: Pa
     "path",
     [
         "/api/projects/project_any/files?filename=large.bin",
-        "/api/skills/install",
+        "/api/skills/install?request_id=oversize_upload_request_0001",
     ],
 )
 async def test_binary_uploads_reject_declared_oversize_before_buffering(
@@ -200,42 +225,33 @@ async def test_skill_history_and_rollback_are_available_through_the_api(
 ) -> None:
     app = create_app(Settings(data_dir=tmp_path), runtime=FakeRuntime())
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://localhost") as client:
-        first = await client.post(
-            "/api/skills/install",
-            content=_skill_archive("1.0.0", "Use the first reviewed method."),
-            headers={"content-type": "application/zip"},
-        )
-        second = await client.post(
-            "/api/skills/install",
-            content=_skill_archive("2.0.0", "Use the second reviewed method."),
-            headers={"content-type": "application/zip"},
-        )
-        assert first.status_code == second.status_code == 201
-        assert "path" not in first.json()
-        assert "path" not in second.json()
-        skill_id = second.json()["id"]
+        first = await _publish_private_skill(client, "1.0.0", "Use the first reviewed method.")
+        second = await _publish_private_skill(client, "2.0.0", "Use the second reviewed method.")
+        assert "path" not in first
+        assert "path" not in second
+        skill_id = second["id"]
 
         history = await client.get(f"/api/skills/{skill_id}/versions")
         assert history.status_code == 200
         assert {(item["version"], item["content_hash"]) for item in history.json()} == {
-            ("1.0.0", first.json()["content_hash"]),
-            ("2.0.0", second.json()["content_hash"]),
+            ("1.0.0", first["content_hash"]),
+            ("2.0.0", second["content_hash"]),
         }
 
         restored = await client.post(
             f"/api/skills/{skill_id}/rollback",
-            json={"content_hash": first.json()["content_hash"]},
+            json={"content_hash": first["content_hash"]},
         )
         assert restored.status_code == 200
         assert restored.json()["version"] == "1.0.0"
-        assert restored.json()["content_hash"] == first.json()["content_hash"]
+        assert restored.json()["content_hash"] == first["content_hash"]
         assert restored.json()["enabled"] is False
 
         invalid = await client.post(
             f"/api/skills/{skill_id}/rollback",
             json={
                 "version": "1.0.0",
-                "content_hash": first.json()["content_hash"],
+                "content_hash": first["content_hash"],
             },
         )
         assert invalid.status_code == 422
@@ -258,13 +274,8 @@ async def test_skill_history_api_distinguishes_input_conflict_and_integrity_erro
         assert missing.status_code == 404
         assert application_conflict.status_code == 409
 
-        installed = await client.post(
-            "/api/skills/install",
-            content=_skill_archive("1.0.0", "Reviewed package."),
-            headers={"content-type": "application/zip"},
-        )
-        assert installed.status_code == 201
-        internal = app.state.skills.get(installed.json()["id"])
+        installed = await _publish_private_skill(client, "1.0.0", "Reviewed package.")
+        internal = app.state.skills.get(installed["id"])
         skill_path = Path(internal.path)
 
         def tamper_history() -> None:
@@ -276,7 +287,7 @@ async def test_skill_history_api_distinguishes_input_conflict_and_integrity_erro
 
         await asyncio.to_thread(tamper_history)
         corrupted = await client.get(
-            f"/api/skills/{installed.json()['id']}/versions"
+            f"/api/skills/{installed['id']}/versions"
         )
 
     assert corrupted.status_code == 500
@@ -291,7 +302,7 @@ async def test_skill_install_hides_corrupted_registry_state_details(tmp_path: Pa
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://localhost") as client:
         response = await client.post(
-            "/api/skills/install",
+            "/api/skills/install?request_id=corrupt_state_request_0001",
             content=_skill_archive("1.0.0", "Reviewed package."),
             headers={"content-type": "application/zip"},
         )
@@ -310,8 +321,8 @@ async def test_skill_install_hides_corrupted_registry_state_details(tmp_path: Pa
         )
         invalid_test = await client.post("/api/skills/not-an-id/test")
 
-    assert response.status_code == 500
-    assert response.json()["detail"] == "Skill registry integrity validation failed"
+    assert response.status_code == 409
+    assert response.json()["detail"] == "Private Skill storage could not be verified"
     assert str(tmp_path) not in response.text
     assert missing_history.status_code == 500
     assert missing_history.json()["detail"] == "Skill registry integrity validation failed"

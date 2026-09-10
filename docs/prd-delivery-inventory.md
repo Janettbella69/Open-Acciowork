@@ -31,7 +31,7 @@
 | FR-19 Deep Research | delivered：三种原生只读研究单元的一次新建/同 Run 续接约束；共享预算/取消/原始截止时间；运行中资源 UI、来源包与主 Agent 去重落账；真实 DeepSeek 合成来源上的三单元并行/来源复核/证据合并与报告验收 | deferred：开放互联网研究质量、真实取消/耗尽/长时墙钟故障矩阵、其他 Provider 与浏览器目视验收 |
 | FR-20 GUI | delivered：L1/L2 真实浏览器 smoke；项目独立店铺 profile、用户登录确认、当前页观察引用、主Agent页面动作/报表下载与来源/产物落账、真实Chromium离线链路 | deferred：真实卖家后台/验证码/风控兼容性和模型联调；真实攻击/恢复矩阵；L3 桌面桥与 OS 权限治理未实现 |
 | FR-21 Connector | delivered：Catalog/Vault/health/revoke、HTTPS JSON send_message；五平台官方文档入口，TikTok Shop授权店铺/商品分页只读adapter、项目店铺授权/到期/撤销、主Agent来源凭证接入与中英文管理员UI；项目店铺身份可关联平台Connector、独立浏览器授权及数据展示 | deferred：其余邮箱/店铺/CRM/社媒垂直adapter；TikTok Shop OAuth/refresh、真实授权test-account及模型调用验收/外发全链；API与浏览器数据自动合并 |
-| FR-22 组织治理 | delivered：单部署租户 principal/membership/策略；共享项目成员管理UI与版本冲突保护；持久团队讨论/回复/对象关联/编辑历史/解决状态；可复用项目模板、固定参考版本与来源、核对后创建和中断恢复；跨进程权限租约与冷备恢复 | deferred：组织私有 Skill 仓库、真实身份网关联调、租户分区与隔离 runner |
+| FR-22 组织治理 | delivered：单部署租户 principal/membership/策略；共享项目成员管理UI与版本冲突保护；持久团队讨论/回复/对象关联/编辑历史/解决状态；可复用项目模板、固定参考版本与来源、核对后创建和中断恢复；组织私有Skill导入人审、固定版本查看/导出、独立启停/恢复、跨进程凭证与冷备恢复 | deferred：真实身份网关联调、租户分区与隔离 runner、长期容量与浏览器目视验收 |
 | FR-23 Web 兜底 | delivered：Serper/Tavily 适配与 SSRF 防护 | deferred：真实配置搜索服务和 Provider 降级 E2E |
 | FR-24 IM | delivered：飞书签名入站/身份绑定/同 Agent/持久回复重试 | deferred：真实飞书/Lark 租户 E2E；微信适配未实现 |
 | FR-25 移动 | delivered：项目范围配对、双端验证码批准、私有 cookie 与设备撤销/过期；单次持久审批、可选任务发起；Web Push订阅/加密VAPID/授权复验/持久重试与状态UI | deferred：native push、真实手机 HTTPS/外部Push/长期运行验收；OS 防休眠未实现 |
@@ -46,7 +46,7 @@
 | §3.5 A–G / §6.5 | delivered：文本产物原位编辑、不可变历史、修改后知识库检索的本地闭环；deferred：需求/供给/客户多起点真实基准、真实模型连续编辑/对话与产物质量验收 |
 | §3.7 / §4.7 | delivered：原生文件工具 + 显式Artifact提交候选，独立pending冻结包、人审revision/hash/当前目标CAS、静态扫描强制检查、不可变发布默认关闭和独立审阅UI；deferred：真实Provider自主提案质量、人工使用效果与生产隔离验收 |
 | §3.7 P2 知识库 | delivered：项目登记文本/OCR伴随文件索引、来源行列/版本、权限复验API、只读MCP与中英文工作区检索、校验和一致的下载；deferred：Office原件索引、真实检索质量/容量与浏览器目视验收 |
-| §3.7 P2 团队 | delivered：共享项目成员角色管理、关联项目/Run/消息/证据/决策/文件版本的团队讨论、项目模板保存/版本/参考文件下载/新建/归档/中断恢复及中英文UI；deferred：组织私有 Skill 管理、真实组织与浏览器目视验收 |
+| §3.7 P2 团队 | delivered：共享项目成员角色管理、关联项目/Run/消息/证据/决策/文件版本的团队讨论、项目模板保存/版本/参考文件下载/新建/归档/中断恢复、组织私有Skill审核发布与成员只读版本库及中英文UI；deferred：真实组织与浏览器目视验收、长期容量及生产隔离 |
 | §4.16 任务经验 | delivered：专属工具与版本/来源账本、创建时配置指纹、低信任检索注入、容量/事务恢复与人工停用UI；deferred：真实Provider自主调用及长期判断质量 |
 | §4.12 事件 | delivered：有真实Run归属的evidence.added/decision.recorded、持久幂等补发与完整SSE尾部消费；deferred：产物更新、记忆、无Run项目变更和 schedule/preflight 细分事件 |
 | §3.9 / §4.10 | delivered：自动调度跨进程抢占与事件汇总恢复；Bash 工作区快照与人审恢复、跨进程目录切换修复；deferred：其余事件故障矩阵、生产恢复/容量与性能、CPU/内存/进程/输出限制 |
@@ -712,4 +712,35 @@ Browser 发现列表仍为空，未声称真实浏览器目视通过。项目模
 
 Browser 发现列表仍为空，浏览器目视验收保持开放。组织私有 Skill 仓库、真实组织
 身份联调、大容量/长期运行、生产隔离以及其余 FR/章节 deferred 尚未完成；完整 PRD
+目标继续开放。
+
+## 2026-09-09：组织私有 Skill 仓库
+
+交付前基线：`f4e5102`。合同见 [私有 Skill 仓库](private-skill-repository.md)。
+
+- 中英文 Skills 页面提供组织私有包检索、固定版本文件预览、原始 ZIP 导出和管理员
+  导入审核。ZIP 上传只形成待审副本；审核确认后发布并保持禁用，启用及恢复独立操作。
+  人类上传不创建 Run，也不伪造 Agent 提案的项目/运行来源。
+- 扫描失败不能强制发布。审核绑定原始包哈希、导入修订、操作者和当前版本选择代数；
+  相同请求幂等重试，并发修改要求重新核对。Installed 页也校验显示的私有包状态后
+  提交版本比较请求，避免旧卡片修改新版本。
+- 使用现有 Registry 不可变历史与原子发布凭证。真实双进程重复审核仅留一个决议；
+  发布前、保存历史包后、提交凭证后的中断均保持可核对结果。新导入尚无提交凭证的
+  历史包不向成员展示/下载，不能经旧 rollback 接口选中。原有已发布历史继续可读。
+- 单部署组织范围持久绑定；管理员写入、成员只读已发布包，提交前再次检查断言有效期。
+  私有管理草稿在身份或角色变化后卸载，迟到响应不恢复旧状态。保留原始下载字节，
+  文本预览脱敏且有长度限制；包、导入记录与审核历史均有上限。
+- 冷备份验证导入身份、冻结文件、元数据、审核连续性及共享发布凭证，并能恢复
+  pending/rejected/published。未核对的 publishing 和上传暂存先阻止备份，须在
+  原安装由管理员刷新审核记录完成核对，再停机制作快照。
+- 独立服务进程的 [本地 HTTP 演练](../backend/scripts/check_skill_repository.py) 通过：
+  两个审核导入、两个固定版本、上传/发布重复请求、独立启用、历史恢复、过期选择拒绝
+  和准确原包下载；临时数据退出后删除，零模型 Run。
+
+完整回归：后端 **1835 passed / 13 skipped**（104.19秒）；前端 **345 passed / 35 files**；
+评测工具 **59 passed**、离线 Snapshot **61/61**。Ruff、ESLint、TypeScript、Vite build、
+diff-check 通过。主 JS 775.32 kB，既有大于 500 kB 的体积提示保留。
+
+Browser 发现列表仍为空，浏览器目视验收保持开放。真实组织身份联调、跨组织物理隔离、
+长期容量/生产恢复、真实模型使用质量及其余 FR/章节 deferred 尚未完成；完整 PRD
 目标继续开放。

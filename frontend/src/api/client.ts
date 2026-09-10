@@ -45,6 +45,7 @@ import type { WorkspaceCheckpoint, WorkspaceRestore } from './workspaceRecovery'
 import type { RunResources } from './runResources'
 import type { CollaborationCapabilities, CommentChange, CommentCreate, CommentHistory, CommentPage, CommentThread, ProjectAccess, ProjectComment, ProjectRole } from './collaboration'
 import type { ProjectTemplate, TemplateApplied, TemplateApplications, TemplateApply, TemplateDetail, TemplateLibrary, TemplateSave } from './projectTemplates'
+import type { SkillFilePreview, SkillImportReviewRequest, SkillImportView, SkillPackageView, SkillRepositoryCapabilities, SkillRepositorySelection } from './skillRepository'
 
 const configuredBaseUrl = import.meta.env.VITE_OPHIRA_API_URL?.trim() ?? ''
 export const apiBaseUrl = configuredBaseUrl.replace(/\/$/, '')
@@ -356,8 +357,14 @@ export function setEvidenceStatus(
   )
 }
 
+function skillPathId(skillId: string): string {
+  // A colon is canonical inside the namespaced Skill ID; the signed gateway
+  // rejects percent-escaped route identities rather than accepting aliases.
+  return encodeURIComponent(skillId).replace(/%3A/g, ':')
+}
+
 export function testSkill(skillId: string): Promise<SkillTestResult> {
-  return request<SkillTestResult>(`/api/skills/${encodeURIComponent(skillId)}/test`, {
+  return request<SkillTestResult>(`/api/skills/${skillPathId(skillId)}/test`, {
     method: 'POST',
   })
 }
@@ -422,22 +429,45 @@ export function reviewSkillProposal(id: string, review: SkillProposalReviewReque
   })
 }
 
-export function setSkillEnabled(skillId: string, enabled: boolean): Promise<SkillVersion> {
+async function reviewedPrivatePackage(skillId: string, expected: Pick<SkillVersion, 'content_hash' | 'enabled'>): Promise<SkillPackageView> {
+  const value = await getSkillPackage(skillId.slice('ophira-tenant:'.length), expected.content_hash)
+  if (value.skill.id !== skillId || value.skill.content_hash !== expected.content_hash
+    || value.current_target.current_hash !== expected.content_hash || value.current_target.enabled !== expected.enabled) {
+    throw new Error('Skill selection changed since review')
+  }
+  return value
+}
+
+export async function setSkillEnabled(skillId: string, enabled: boolean, expected?: Pick<SkillVersion, 'content_hash' | 'enabled'>): Promise<SkillVersion> {
+  if (expected && skillId.startsWith('ophira-tenant:')) {
+    const view = await reviewedPrivatePackage(skillId, expected)
+    return (await selectPrivateSkill(view.skill.name, {
+      operation: enabled ? 'enable' : 'disable', content_hash: expected.content_hash,
+      expected_target: view.current_target,
+    })).skill
+  }
   return request<SkillVersion>(
-    `/api/skills/${encodeURIComponent(skillId)}/enable?enabled=${enabled}`,
+    `/api/skills/${skillPathId(skillId)}/enable?enabled=${enabled}`,
     { method: 'POST' },
   )
 }
 
-export function listSkillVersions(skillId: string): Promise<SkillVersion[]> {
-  return request<SkillVersion[]>(`/api/skills/${encodeURIComponent(skillId)}/versions`)
+export function listSkillVersions(skillId: string, signal?: AbortSignal): Promise<SkillVersion[]> {
+  return request<SkillVersion[]>(`/api/skills/${skillPathId(skillId)}/versions`, { signal, cache: 'no-store' })
 }
 
-export function rollbackSkill(
+export async function rollbackSkill(
   skillId: string,
   selection: { version?: string; content_hash?: string },
+  expected?: Pick<SkillVersion, 'content_hash' | 'enabled'>,
 ): Promise<SkillVersion> {
-  return request<SkillVersion>(`/api/skills/${encodeURIComponent(skillId)}/rollback`, {
+  if (expected && selection.content_hash && skillId.startsWith('ophira-tenant:')) {
+    const view = await reviewedPrivatePackage(skillId, expected)
+    return (await selectPrivateSkill(view.skill.name, {
+      operation: 'rollback', content_hash: selection.content_hash, expected_target: view.current_target,
+    })).skill
+  }
+  return request<SkillVersion>(`/api/skills/${skillPathId(skillId)}/rollback`, {
     method: 'POST',
     body: JSON.stringify(selection),
   })
@@ -734,10 +764,45 @@ export function revokeMarketplaceAccess(projectId: string, bindingId: string, re
   })
 }
 
-export function installSkill(file: File): Promise<SkillVersion> {
-  return request<SkillVersion>('/api/skills/install', {
+export function getSkillRepositoryCapabilities(signal?: AbortSignal): Promise<SkillRepositoryCapabilities> {
+  return request('/api/skills/repository', { signal, cache: 'no-store' })
+}
+export function listSkillImports(signal?: AbortSignal): Promise<SkillImportView[]> {
+  return request('/api/skills/imports', { signal, cache: 'no-store' })
+}
+export function getSkillImport(identifier: string, signal?: AbortSignal): Promise<SkillImportView> {
+  return request(`/api/skills/imports/${encodeURIComponent(identifier)}`, { signal, cache: 'no-store' })
+}
+export function reviewSkillImport(identifier: string, payload: SkillImportReviewRequest, signal?: AbortSignal): Promise<SkillImportView> {
+  return request(`/api/skills/imports/${encodeURIComponent(identifier)}/review`, { method: 'POST', body: JSON.stringify(payload), signal, cache: 'no-store' })
+}
+export function getSkillImportFile(identifier: string, path: string, signal?: AbortSignal): Promise<SkillFilePreview> {
+  return request(`/api/skills/imports/${encodeURIComponent(identifier)}/files?${new URLSearchParams({ path })}`, { signal, cache: 'no-store' })
+}
+export function skillImportDownloadUrl(identifier: string, path: string): string {
+  return `${apiBaseUrl}/api/skills/imports/${encodeURIComponent(identifier)}/download?${new URLSearchParams({ path })}`
+}
+function skillPackagePath(name: string, hash: string): string {
+  return `/api/skills/repository/${encodeURIComponent(name)}/versions/${encodeURIComponent(hash)}`
+}
+export function getSkillPackage(name: string, hash: string, signal?: AbortSignal): Promise<SkillPackageView> {
+  return request(skillPackagePath(name, hash), { signal, cache: 'no-store' })
+}
+export function getSkillPackageFile(name: string, hash: string, path: string, signal?: AbortSignal): Promise<SkillFilePreview> {
+  return request(`${skillPackagePath(name, hash)}/files?${new URLSearchParams({ path })}`, { signal, cache: 'no-store' })
+}
+export function skillPackageDownloadUrl(name: string, hash: string): string {
+  return `${apiBaseUrl}${skillPackagePath(name, hash)}/download`
+}
+export function selectPrivateSkill(name: string, payload: SkillRepositorySelection, signal?: AbortSignal): Promise<Pick<SkillPackageView, 'skill' | 'current_target'>> {
+  return request(`/api/skills/repository/${encodeURIComponent(name)}/selection`, { method: 'POST', body: JSON.stringify(payload), signal, cache: 'no-store' })
+}
+export function submitSkillImport(file: File, requestId: string, signal?: AbortSignal): Promise<SkillImportView> {
+  return request(`/api/skills/install?${new URLSearchParams({ request_id: requestId, filename: file.name })}`, {
     method: 'POST',
     body: file,
+    signal,
+    cache: 'no-store',
     headers: { 'Content-Type': file.type || 'application/zip' },
   })
 }

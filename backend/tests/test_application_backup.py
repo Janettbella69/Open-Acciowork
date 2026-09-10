@@ -103,6 +103,77 @@ def make_backup(source, tmp_path):
     return target
 
 
+def test_cold_restore_preserves_private_imports_and_publication_receipts(source, tmp_path):
+    from test_skill_repository import review_request, upload
+
+    from ophira_backend.config import Settings
+    from ophira_backend.skill_repository import SkillRepository
+
+    data, plugin, ledger, registry, *_ = source
+    store = SkillRepository(ledger, registry, Settings(_env_file=None, data_dir=data))
+    items = []
+    for state in ("pending", "published", "rejected"):
+        item = upload(store, name=f"private-{state}")
+        if state != "pending":
+            request = review_request(item)
+            if state == "rejected":
+                request = request.model_copy(update={
+                    "decision": "reject", "expected_target": None, "note": "Needs more evidence",
+                })
+            item = store.review(item["import"]["id"], request, None)
+        items.append(item)
+    archive = make_backup(source, tmp_path)
+    target = tmp_path / "restored"
+    backup.restore_backup(archive, target)
+    restored_ledger = FileLedger(target / "data")
+    restored_registry = SkillRegistry(target / "application-plugin", target / "data/skills")
+    restored = SkillRepository(restored_ledger, restored_registry, scope=store.scope)
+    for item in items:
+        identifier = item["import"]["id"]
+        assert restored.detail(identifier, None) == item
+        assert restored.read_file(identifier, "SKILL.md", None) == store.read_file(
+            identifier, "SKILL.md", None,
+        )
+    published = items[1]["import"]["skill"]
+    assert restored.export(published["name"], published["content_hash"], None)[1]
+    corrupted = store.path(items[0]["import"]["id"]) / "import.json"
+    damaged = json.loads(corrupted.read_text())
+    damaged["skill"]["description"] = "Metadata tampered after upload"
+    corrupted.write_text(json.dumps(damaged))
+    with pytest.raises(BackupError, match="private_skill_import_invalid"):
+        backup.inspect_application(data, plugin)
+
+
+@pytest.mark.parametrize("committed", [False, True])
+def test_private_publication_requires_receipt_reconciliation_before_cold_backup(
+    source, tmp_path, monkeypatch, committed,
+):
+    from test_skill_repository import review_request, upload
+
+    from ophira_backend.config import Settings
+    from ophira_backend.skill_repository import SkillRepository
+
+    data, plugin, ledger, registry, *_ = source
+    store = SkillRepository(ledger, registry, Settings(_env_file=None, data_dir=data))
+    detail = upload(store)
+    identifier = detail["import"]["id"]
+
+    def crash(*args, **kwargs):
+        raise SimulatedCrash()
+
+    with monkeypatch.context() as patch:
+        patch.setattr(store if committed else registry,
+                      "finish" if committed else "publish_reviewed_candidate", crash)
+        with pytest.raises(SimulatedCrash):
+            store.review(identifier, review_request(detail), None)
+    with pytest.raises(BackupError, match="pending_skill_import_publication"):
+        backup.create_backup(data, plugin, tmp_path / "incomplete-copy")
+    assert not (tmp_path / "incomplete-copy").exists()
+    restored = store.detail(identifier, None)
+    assert restored["import"]["state"] == ("published" if committed else "pending")
+    make_backup(source, tmp_path)
+
+
 def rehash(archive):
     manifest_path = archive / "manifest.json"
     manifest = json.loads(manifest_path.read_text())

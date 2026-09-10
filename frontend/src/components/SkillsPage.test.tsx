@@ -31,6 +31,7 @@ describe('SkillsPage', () => {
   beforeEach(() => {
     vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
       const url = String(input)
+      if (url.endsWith('/api/skills/repository')) return jsonResponse({ identity_mode: 'local_only', tenant_id: null, actor_id: 'local-operator', can_manage: true })
       if (url.endsWith('/api/skills') && !init?.method) return jsonResponse(skills)
       if (url.includes('/enable?enabled=false') && init?.method === 'POST') {
         return jsonResponse({ ...skills[1], enabled: false })
@@ -89,7 +90,7 @@ describe('SkillsPage', () => {
     expect(within(card).getByText(/不强制执行/)).toBeInTheDocument()
     const calls = vi.mocked(fetch).mock.calls.map(([request]) => String(request))
     expect(calls.some((url) => url.endsWith(
-      `/api/skills/${encodeURIComponent('ophira-core:supplier-due-diligence')}/test`,
+      '/api/skills/ophira-core:supplier-due-diligence/test',
     ))).toBe(true)
   })
 
@@ -105,7 +106,7 @@ describe('SkillsPage', () => {
     })
     const calls = vi.mocked(fetch).mock.calls.map(([request]) => String(request))
     expect(calls.some((url) => url.includes(
-      `/api/skills/${encodeURIComponent('ophira-core:supplier-due-diligence')}/enable?enabled=false`,
+      '/api/skills/ophira-core:supplier-due-diligence/enable?enabled=false',
     ))).toBe(true)
   })
 
@@ -122,13 +123,15 @@ describe('SkillsPage', () => {
     const second = { ...tenant }
     vi.mocked(fetch).mockImplementation(async (input, init) => {
       const url = String(input)
+      if (url.endsWith('/api/skills/repository')) return jsonResponse({ identity_mode: 'local_only', tenant_id: null, actor_id: 'local-operator', can_manage: true })
       if (url.endsWith('/api/skills') && !init?.method) return jsonResponse([tenant])
       if (url.endsWith(
-        `/api/skills/${encodeURIComponent(tenant.id)}/versions`,
+        `/api/skills/${tenant.id}/versions`,
       ) && !init?.method) return jsonResponse([first, second])
       if (url.endsWith(
-        `/api/skills/${encodeURIComponent(tenant.id)}/rollback`,
-      ) && init?.method === 'POST') return jsonResponse({ ...first, enabled: false })
+        `/api/skills/repository/${tenant.name}/versions/${tenant.content_hash}`,
+      )) return jsonResponse({ skill: tenant, files: [], current_target: { current_hash: tenant.content_hash, enabled: false, generation: 2 } })
+      if (url.endsWith(`/api/skills/repository/${tenant.name}/selection`) && init?.method === 'POST') return jsonResponse({ skill: { ...first, enabled: false }, current_target: { current_hash: first.content_hash, enabled: false, generation: 3 } })
       throw new Error(`Unexpected request: ${init?.method ?? 'GET'} ${url}`)
     })
 
@@ -145,9 +148,9 @@ describe('SkillsPage', () => {
       expect(within(restored).getByText(/current version/i)).toBeInTheDocument()
     })
     const rollbackCall = vi.mocked(fetch).mock.calls.find(([request]) => (
-      String(request).endsWith(`/api/skills/${encodeURIComponent(tenant.id)}/rollback`)
+      String(request).endsWith(`/api/skills/repository/${tenant.name}/selection`)
     ))
     expect(rollbackCall?.[1]?.method).toBe('POST')
-    expect(JSON.parse(String(rollbackCall?.[1]?.body))).toEqual({ content_hash: 'a'.repeat(64) })
+    expect(JSON.parse(String(rollbackCall?.[1]?.body))).toEqual({ operation: 'rollback', content_hash: 'a'.repeat(64), expected_target: { current_hash: tenant.content_hash, enabled: false, generation: 2 } })
   })
 })

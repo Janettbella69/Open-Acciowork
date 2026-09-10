@@ -120,6 +120,16 @@ Existing Run snapshots retain their pinned Skills, and enablement remains separa
 This feature is verified with offline native MCP/HTTP, UI and process tests; it does
 not establish live model proposal quality or production isolation.
 
+The [private Skill repository](../docs/private-skill-repository.md) also accepts human
+ZIP imports without inventing Agent provenance. `POST /api/skills/install` now requires
+a `request_id` query parameter and returns a frozen pending import; administrators
+publish through `/api/skills/imports/{id}/review` after inspecting files and scans.
+Publication remains disabled. The repository UI supports separately reviewed selection
+changes, exact historical ZIP export, member read-only access and durable import/review
+retries. Deployment scope and short-lived signed identity are rechecked before writes.
+Cold backup validates import history and shared Registry publication receipts; reconcile
+unfinished human reviews in the original application before taking a snapshot.
+
 The [application cold backup CLI](../docs/application-backup.md),
 `python -m ophira_backend.application_backup create|restore`, copies the complete
 data directory and application Plugin together. Application construction and the
