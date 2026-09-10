@@ -33,6 +33,7 @@ from .auth import (
     AuthorizationError,
     InvalidAuthAssertionError,
     PrincipalAuthenticator,
+    ProjectAccessConflictError,
     ProjectAccessGrantRequest,
     ProjectAccessNotFoundError,
     ProjectAccessRecord,
@@ -76,6 +77,7 @@ from .channels import (
     to_inbound,
     verify_feishu_signature,
 )
+from .collaboration_api import register_collaboration_routes
 from .commercial_actions import (
     CommercialActionConflictError,
     CommercialActionIntegrityError,
@@ -259,6 +261,8 @@ def _request_principal(request: Request) -> PrincipalContext | None:
 def _project_route_permission(method: str, path: str) -> ProjectPermission:
     if "/access" in path:
         return ProjectPermission.PROJECT_ACCESS_MANAGE
+    if path.split("/")[4:5] == ["comments"] and method not in {"GET", "HEAD"}:
+        return ProjectPermission.COMMENT_WRITE
     if "/commercial-actions" in path:
         if path.endswith("/review"):
             return ProjectPermission.COMMERCIAL_REVIEW
@@ -590,6 +594,9 @@ def _create_app(
             PrincipalRole.ADMIN,
         }
 
+    register_collaboration_routes(
+        application, ledger, project_access, settings, _read_bounded_body,
+    )
     register_skill_proposal_routes(
         application, proposals=skill_proposals, ledger=ledger, skills=skills,
         require_project_authorization=require_project_authorization,
@@ -747,12 +754,23 @@ def _create_app(
         except (LedgerNotFoundError, ValueError):
             # Preserve each route's existing not-found contract.
             pass
-        except AuthorizationError:
+        except (AuthenticationError, AuthorizationError):
             return JSONResponse(
                 status_code=status.HTTP_403_FORBIDDEN,
                 content={"detail": "principal is not authorized for this resource"},
             )
         return await call_next(request)
+
+    @application.middleware("http")
+    async def private_collaboration_responses(request: Request, call_next):
+        response = await call_next(request)
+        parts = request.url.path.split("/")
+        if parts[1:3] == ["api", "projects"] and parts[4:5] in (
+            ["comments"], ["collaboration"], ["access"],
+        ):
+            response.headers["Cache-Control"] = "no-store"
+            response.headers["X-Content-Type-Options"] = "nosniff"
+        return response
 
     @application.get("/health")
     async def health() -> dict[str, str]:
@@ -861,6 +879,7 @@ def _create_app(
     async def get_project_access(
         request: Request,
         project_id: str,
+        response: Response,
     ) -> ProjectAccessRecord:
         if _request_principal(request) is None:
             raise HTTPException(
@@ -868,13 +887,20 @@ def _create_app(
                 detail="Project membership is unavailable in local-only mode",
             )
         try:
-            return project_access.get(project_id)
+            with project_access._transaction(project_id):
+                project_access.authorize(
+                    project_id, _request_principal(request),
+                    ProjectPermission.PROJECT_ACCESS_MANAGE,
+                )
+                result = project_access.get(project_id)
+                response.headers["Cache-Control"] = "no-store"
+                return result
         except ProjectAccessNotFoundError as exc:
             raise HTTPException(status_code=404, detail="Project access not found") from exc
-        except AuthorizationError as exc:
+        except (AuthenticationError, AuthorizationError) as exc:
             raise HTTPException(
-                status_code=500,
-                detail="Project access integrity validation failed",
+                status_code=403,
+                detail="Project membership access is unavailable",
             ) from exc
 
     @application.post(
@@ -898,10 +924,13 @@ def _create_app(
                 principal,
                 principal_id=payload.principal_id,
                 role=payload.role,
+                expected_revision=payload.expected_revision,
             )
+        except ProjectAccessConflictError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
         except ProjectAccessNotFoundError as exc:
             raise HTTPException(status_code=404, detail="Project access not found") from exc
-        except AuthorizationError as exc:
+        except (AuthenticationError, AuthorizationError) as exc:
             raise HTTPException(
                 status_code=403,
                 detail="principal is not authorized to grant project access",
@@ -915,6 +944,7 @@ def _create_app(
         request: Request,
         project_id: str,
         principal_id: str,
+        expected_revision: Annotated[int | None, Query(ge=1)] = None,
     ) -> ProjectAccessRecord:
         principal = _request_principal(request)
         if principal is None:
@@ -927,10 +957,13 @@ def _create_app(
                 project_id,
                 principal,
                 principal_id=principal_id,
+                expected_revision=expected_revision,
             )
+        except ProjectAccessConflictError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
         except ProjectAccessNotFoundError as exc:
             raise HTTPException(status_code=404, detail="Project access not found") from exc
-        except AuthorizationError as exc:
+        except (AuthenticationError, AuthorizationError) as exc:
             raise HTTPException(
                 status_code=403,
                 detail="principal is not authorized to revoke project access",

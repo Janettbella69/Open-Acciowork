@@ -43,9 +43,41 @@ import type { ProjectShop, ShopData, ShopIdentityInput } from './shops'
 import type { ArtifactTextUpdate, ArtifactTextView } from './artifacts'
 import type { WorkspaceCheckpoint, WorkspaceRestore } from './workspaceRecovery'
 import type { RunResources } from './runResources'
+import type { CollaborationCapabilities, CommentChange, CommentCreate, CommentHistory, CommentPage, CommentThread, ProjectAccess, ProjectComment, ProjectRole } from './collaboration'
 
 const configuredBaseUrl = import.meta.env.VITE_OPHIRA_API_URL?.trim() ?? ''
 export const apiBaseUrl = configuredBaseUrl.replace(/\/$/, '')
+
+export function getCollaborationCapabilities(projectId: string, signal?: AbortSignal): Promise<CollaborationCapabilities> {
+  return request(`/api/projects/${encodeURIComponent(projectId)}/collaboration`, { signal, cache: 'no-store' })
+}
+export function getProjectAccess(projectId: string, signal?: AbortSignal): Promise<ProjectAccess> {
+  return request(`/api/projects/${encodeURIComponent(projectId)}/access`, { signal, cache: 'no-store' })
+}
+export function grantProjectAccess(projectId: string, payload: { principal_id: string; role: Exclude<ProjectRole, 'owner'>; expected_revision: number }, signal?: AbortSignal): Promise<ProjectAccess> {
+  return request(`/api/projects/${encodeURIComponent(projectId)}/access`, { method: 'POST', body: JSON.stringify(payload), signal })
+}
+export function revokeProjectAccess(projectId: string, principalId: string, revision: number, signal?: AbortSignal): Promise<ProjectAccess> {
+  // The signed gateway accepts canonical ASCII paths, without percent escapes.
+  // These three identity characters are safe verbatim within this path segment.
+  const account = encodeURIComponent(principalId).replace(/%40/g, '@').replace(/%3A/g, ':').replace(/%2B/g, '+')
+  return request(`/api/projects/${encodeURIComponent(projectId)}/access/${account}?expected_revision=${revision}`, { method: 'DELETE', signal })
+}
+export function listProjectComments(projectId: string, before?: number, signal?: AbortSignal): Promise<CommentPage> {
+  return request(`/api/projects/${encodeURIComponent(projectId)}/comments${before === undefined ? '' : `?before=${before}`}`, { signal, cache: 'no-store' })
+}
+export function getCommentThread(projectId: string, commentId: string, after?: number, signal?: AbortSignal): Promise<CommentThread> {
+  return request(`/api/projects/${encodeURIComponent(projectId)}/comments/${encodeURIComponent(commentId)}/thread${after === undefined ? '' : `?after=${after}`}`, { signal, cache: 'no-store' })
+}
+export function createProjectComment(projectId: string, payload: CommentCreate, signal?: AbortSignal): Promise<ProjectComment> {
+  return request(`/api/projects/${encodeURIComponent(projectId)}/comments`, { method: 'POST', body: JSON.stringify(payload), signal })
+}
+export function changeProjectComment(projectId: string, commentId: string, payload: CommentChange, signal?: AbortSignal): Promise<ProjectComment> {
+  return request(`/api/projects/${encodeURIComponent(projectId)}/comments/${encodeURIComponent(commentId)}`, { method: 'PATCH', body: JSON.stringify(payload), signal })
+}
+export function getCommentHistory(projectId: string, commentId: string, signal?: AbortSignal): Promise<CommentHistory> {
+  return request(`/api/projects/${encodeURIComponent(projectId)}/comments/${encodeURIComponent(commentId)}/history`, { signal, cache: 'no-store' })
+}
 
 export function artifactDownloadUrl(projectId: string, artifactId: string): string {
   return `${apiBaseUrl}/api/projects/${encodeURIComponent(projectId)}/artifacts/${encodeURIComponent(artifactId)}/download`

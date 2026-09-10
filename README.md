@@ -52,6 +52,11 @@ Run-bound evidence and decisions now emit recoverable ledger observations; the
 workspace drains the complete Run event tail before closing its stream.
 See [`docs/project-events.md`](docs/project-events.md).
 
+Shared projects now include member management and durable discussions with replies,
+source/version anchors, edit history, and conflict checks. See
+[`docs/project-collaboration.md`](docs/project-collaboration.md) for role boundaries
+and local versus organization sign-in behavior.
+
 Tenant Skills keep immutable, content-addressed package history with per-run snapshots,
 version inspection, reviewed rollback, bounded storage, and active-session-safe runtime
 leases. Workspace results can also render typed evidence, decision, and artifact cards

@@ -23,6 +23,7 @@ from .backup_files import (
 )
 from .constants import TERMINAL_RUN_STATUSES
 from .maintenance import MAINTENANCE_LOCK, DataDirectoryBusyError, data_directory_lease
+from .project_comments import MAX_COMMENT_BYTES, CommentLedger
 from .skill_proposal_files import directory_fd, read_relative
 from .skill_proposals import SkillProposalService
 from .skills import CONTENT_HASH_PATTERN, TENANT_PLUGIN_NAMESPACE, SkillRegistry
@@ -111,6 +112,22 @@ def inspect_application(data: Path, plugin: Path) -> dict:
                 except (OSError, ValueError) as exc:
                     raise BackupError("artifact_snapshot_invalid") from exc
         projects[project.id] = project
+    comment_store = data / "collaboration" / "comments"
+    if comment_store.exists():
+        for path in sorted(comment_store.iterdir()):
+            if path.name.startswith(".") and path.name.endswith(".tmp"):
+                continue  # Uncommitted atomic-write staging is not discussion history.
+            try:
+                record = CommentLedger.model_validate_json(read_relative(
+                    data, f"collaboration/comments/{path.name}", MAX_COMMENT_BYTES,
+                ))
+                project = projects[record.project_id]
+                if (path.name != f"{project.id}.json"
+                        or record.tenant_id != project.tenant_id
+                        or record.identity_binding != project.identity_binding):
+                    raise ValueError("comment scope mismatch")
+            except (OSError, ValueError, KeyError) as exc:
+                raise BackupError("project_comments_invalid") from exc
     for directory in sorted(ledger.runs_dir.iterdir()):
         if not directory.is_dir():
             raise BackupError("invalid_run_store")

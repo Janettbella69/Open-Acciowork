@@ -139,6 +139,31 @@ def test_cold_backup_rejects_corrupt_artifact_history(source, tmp_path):
     assert not (tmp_path / "backup").exists()
 
 
+def test_cold_restore_preserves_discussions_and_rejects_corrupt_history(source, tmp_path):
+    from test_project_comments import add, change, make_store
+
+    data, plugin, _, _, _, project, *_ = source
+    comments = make_store(data)
+    root = add(comments, project.id, "Original team comment")
+    reply = add(comments, project.id, "Reply", parent_id=root["id"])
+    change(comments, project.id, root, "edit", text="Updated team comment")
+    change(comments, project.id, reply, "remove")
+    archive = make_backup(source, tmp_path)
+    target = tmp_path / "restored"
+    backup.restore_backup(archive, target)
+    restored = make_store(target / "data")
+    assert restored.thread(project.id, root["id"], None)["root"]["text"] == "Updated team comment"
+    assert restored.thread(project.id, root["id"], None)["replies"][0]["text"] is None
+    assert restored.history(project.id, root["id"], None) == comments.history(
+        project.id, root["id"], None
+    )
+    damaged = json.loads(comments._path(project.id).read_text())
+    damaged["comments"][0]["history"][1]["action"] = "create"
+    comments._path(project.id).write_text(json.dumps(damaged))
+    with pytest.raises(BackupError, match="project_comments_invalid"):
+        backup.inspect_application(data, plugin)
+
+
 def checkpoint(source):
     from ophira_backend.workspace_checkpoints import WorkspaceCheckpoints
 
