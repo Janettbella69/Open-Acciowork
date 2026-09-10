@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { errorMessage, listProviders } from '../api/client'
-import type { ProviderProfile, RunMode, RunRetryStrategy } from '../api/types'
+import type { OpportunityProject, ProviderProfile, RunMode, RunRetryStrategy } from '../api/types'
 import { useOpportunityRuntime } from '../api/useOpportunityRuntime'
 import { providerIsRunnable } from '../providerEligibility'
 import WorkspaceComposer from './WorkspaceComposer'
@@ -106,11 +106,10 @@ export default function Workspace() {
     setNotice('Start with whatever you want to accomplish.')
   }
 
-  const selectSavedProject = async (projectId: string) => {
-    const project = runtime.projects.find((item) => item.id === projectId)
-    if (!project) return
+  const selectProjectRecord = async (project: OpportunityProject) => {
     const navigation = ++navigationRef.current
     setBriefInput('')
+    setAttachedFiles([])
     setRetryFailure(null)
     normalizeWorkspaceUrl()
     setNotice('Loading the saved project truth and run history…')
@@ -126,6 +125,11 @@ export default function Workspace() {
         setNotice('The recorded run history could not be loaded. The project truth below is still current.')
       }
     }
+  }
+
+  const selectSavedProject = (projectId: string) => {
+    const project = runtime.projects.find((item) => item.id === projectId)
+    if (project) void selectProjectRecord(project)
   }
 
   return (
@@ -155,6 +159,7 @@ export default function Workspace() {
       onRunModeChange={setRunMode}
       onSubmit={runAnalysis}
       onProjectRefresh={() => void runtime.refreshActiveProject()}
+      onProjectCreated={(project) => void selectProjectRecord(project)}
       onNewResearch={() => void startNewResearch()}
       onSelectProject={(projectId) => void selectSavedProject(projectId)}
       onCancel={() => void runtime.cancel()}

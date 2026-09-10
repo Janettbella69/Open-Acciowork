@@ -30,6 +30,7 @@ import ProjectMetricsPanel from './ProjectMetricsPanel'
 import ProjectKnowledgePanel from './ProjectKnowledgePanel'
 import ProjectArtifactsPanel from './ProjectArtifactsPanel'
 import ProjectCollaborationPanel from './ProjectCollaborationPanel'
+import ProjectTemplatesPanel from './ProjectTemplatesPanel'
 import WorkspaceRecoveryPanel from './WorkspaceRecoveryPanel'
 import RunResourcesPanel from './RunResourcesPanel'
 import ProjectShopsPanel from './ProjectShopsPanel'
@@ -62,6 +63,7 @@ type WorkspaceComposerProps = {
   onRunModeChange: (mode: RunMode) => void
   onSubmit: (event: FormEvent<HTMLFormElement>) => void
   onProjectRefresh: () => void
+  onProjectCreated?: (project: OpportunityProject) => void
   onNewResearch: () => void
   onSelectProject: (projectId: string) => void
   onCancel: () => void
@@ -326,6 +328,7 @@ export default function WorkspaceComposer({
   onRunModeChange,
   onSubmit,
   onProjectRefresh,
+  onProjectCreated,
   onNewResearch,
   onSelectProject,
   onCancel,
@@ -874,6 +877,7 @@ export default function WorkspaceComposer({
                 {project && <ProjectKnowledgePanel projectId={project.id} revision={project.artifacts.map((item) => item.id).join(':')} />}
                 {project && <ProjectArtifactsPanel projectId={project.id} artifacts={project.artifacts} onChanged={onProjectRefresh} />}
                 {project && <ProjectCollaborationPanel project={project} currentRun={run} events={events} />}
+                {project && onProjectCreated && <ProjectTemplatesPanel project={project} onCreated={onProjectCreated} />}
                 {project && <WorkspaceRecoveryPanel projectId={project.id} onChanged={onProjectRefresh} />}
                 {project && <ProjectShopsPanel key={`shops:${project.id}`} projectId={project.id} onTask={onChange} />}
                 {project && <ProjectMetricsPanel key={`metrics:${project.id}`} projectId={project.id} />}

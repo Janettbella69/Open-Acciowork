@@ -46,6 +46,7 @@ from .constants import (
     StandingIntentWatcherStatus,
     ValidationStatus,
 )
+from .project_template_models import ProjectTemplateOrigin
 
 
 def utc_now() -> datetime:
@@ -365,6 +366,7 @@ class OpportunityProject(APIModel):
     name: str
     objective: str
     product_brief: str = ""
+    template_origin: ProjectTemplateOrigin | None = None
     target_markets: list[str] = Field(default_factory=list)
     constraints: list[str] = Field(default_factory=list)
     tenant_id: str | None = Field(default=None, min_length=1, max_length=160)

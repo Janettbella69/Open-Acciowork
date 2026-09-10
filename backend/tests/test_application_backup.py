@@ -164,6 +164,57 @@ def test_cold_restore_preserves_discussions_and_rejects_corrupt_history(source, 
         backup.inspect_application(data, plugin)
 
 
+def test_cold_restore_preserves_project_templates_and_created_project_lineage(source, tmp_path):
+    from test_project_templates import saved, services, use_request
+
+    data, plugin, ledger, _, _, project, *_ = source
+    store, applications = services(data)
+    artifact = ledger.save_upload(project.id, "template.txt", b"Frozen template file")
+    template, _ = saved(store, project, artifact_ids=[artifact.id])
+    (ledger.workspace_for_project(project.id) / artifact.path).unlink()
+    request = use_request(template).model_copy(update={"artifact_ids": [artifact.id]})
+    created = applications.apply(project.id, template["id"], request, None)["project"]
+    archive = make_backup(source, tmp_path)
+    target = tmp_path / "restored"
+    backup.restore_backup(archive, target)
+    restored, restored_applications = services(target / "data")
+    assert (
+        restored.reference(project.id, template["id"], 1, artifact.id, None)[1]
+        == b"Frozen template file"
+    )
+    assert restored.ledger.get_project(created.id).template_origin == created.template_origin
+    assert (
+        restored_applications.apply(project.id, template["id"], request, None)["project"].id
+        == created.id
+    )
+    reference = store.folder(project.id, template["id"]) / "artifact-versions" / artifact.checksum
+    reference.chmod(0o600)
+    reference.write_bytes(b"Corrupt template file")
+    with pytest.raises(BackupError, match="project_templates_invalid"):
+        backup.inspect_application(data, plugin)
+
+
+def test_cold_backup_requires_pending_template_creation_to_finish(source, monkeypatch):
+    from test_project_templates import saved, services, use_request
+
+    data, plugin, _, _, _, project, *_ = source
+    store, applications = services(data)
+    template, _ = saved(store, project)
+
+    def interrupted(*_args):
+        raise OSError("Synthetic interrupted creation")
+
+    with monkeypatch.context() as patch:
+        patch.setattr("ophira_backend.project_template_apply.publish_exclusive", interrupted)
+        with pytest.raises(OSError):
+            applications.apply(project.id, template["id"], use_request(template), None)
+    with pytest.raises(BackupError, match="pending_template_creation"):
+        backup.inspect_application(data, plugin)
+    pending = applications.list(project.id, template["id"], None)["items"][0]
+    applications.resume(project.id, template["id"], pending["id"], None)
+    backup.inspect_application(data, plugin)
+
+
 def checkpoint(source):
     from ophira_backend.workspace_checkpoints import WorkspaceCheckpoints
 
@@ -216,7 +267,9 @@ def test_cold_backup_rejects_damaged_checkpoint_only_blob(source, tmp_path):
 
 
 def test_cold_backup_rejects_pending_directory_swap_until_original_host_recovers(
-    source, tmp_path, monkeypatch,
+    source,
+    tmp_path,
+    monkeypatch,
 ):
     from test_workspace_checkpoints import options
 

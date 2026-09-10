@@ -203,6 +203,8 @@ from .project_metrics import (
     ProjectMetrics,
     read_project_metrics,
 )
+from .project_scope import LOCAL_OPERATOR_ID
+from .project_template_api import register_project_template_routes
 from .providers import FileSecretVault, ProviderNotFoundError, ProviderRegistry
 from .push_service import PushDeliveryService
 from .push_store import PushStore
@@ -249,7 +251,6 @@ from .templates import TEMPLATE_SPECS
 from .workspace_recovery_api import register_workspace_recovery_routes
 
 MAX_PROJECT_UPLOAD_BYTES = 50 * 1024 * 1024
-LOCAL_OPERATOR_ID = "local-operator"
 
 
 def _request_principal(request: Request) -> PrincipalContext | None:
@@ -597,6 +598,9 @@ def _create_app(
     register_collaboration_routes(
         application, ledger, project_access, settings, _read_bounded_body,
     )
+    register_project_template_routes(
+        application, ledger, project_access, settings, _read_bounded_body,
+    )
     register_skill_proposal_routes(
         application, proposals=skill_proposals, ledger=ledger, skills=skills,
         require_project_authorization=require_project_authorization,
@@ -766,7 +770,7 @@ def _create_app(
         response = await call_next(request)
         parts = request.url.path.split("/")
         if parts[1:3] == ["api", "projects"] and parts[4:5] in (
-            ["comments"], ["collaboration"], ["access"],
+            ["comments"], ["collaboration"], ["access"], ["templates"],
         ):
             response.headers["Cache-Control"] = "no-store"
             response.headers["X-Content-Type-Options"] = "nosniff"

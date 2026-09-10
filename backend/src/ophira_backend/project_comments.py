@@ -20,6 +20,7 @@ from .config import Settings
 from .constants import EventType, PrincipalRole
 from .events import redact
 from .models import PrincipalContext, utc_now
+from .project_scope import authorize_project_scope, project_actor, project_moderator
 from .storage import FileLedger, LedgerNotFoundError
 
 MAX_COMMENT_BYTES = 16 * 1024 * 1024
@@ -204,27 +205,17 @@ class ProjectComments:
         self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
 
     def authorize(self, project_id, principal, permission=ProjectPermission.PROJECT_READ):
-        project = self.ledger.get_project(project_id)
-        if self.settings.auth_mode == "local_only":
-            if principal is not None or project.identity_binding != "local_only":
-                raise AuthorizationError("Project is outside local deployment scope")
-        else:
-            if (
-                principal is None
-                or project.identity_binding != "authenticated_principal"
-                or project.tenant_id != self.settings.trusted_gateway_tenant_id
-            ):
-                raise AuthorizationError("Project is outside authenticated deployment scope")
-            self.access.authorize(project_id, principal, permission)
-        return project
+        return authorize_project_scope(
+            self.ledger, self.access, self.settings, project_id, principal, permission,
+        )
 
     @staticmethod
     def actor_id(principal):
-        return principal.principal_id if principal else "local-operator"
+        return project_actor(principal)
 
     @staticmethod
     def moderator(principal):
-        return principal is None or principal.role in {PrincipalRole.OWNER, PrincipalRole.ADMIN}
+        return project_moderator(principal)
 
     def _path(self, project_id):
         if self.root.is_symlink() or self.root.parent.is_symlink():

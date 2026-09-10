@@ -44,9 +44,38 @@ import type { ArtifactTextUpdate, ArtifactTextView } from './artifacts'
 import type { WorkspaceCheckpoint, WorkspaceRestore } from './workspaceRecovery'
 import type { RunResources } from './runResources'
 import type { CollaborationCapabilities, CommentChange, CommentCreate, CommentHistory, CommentPage, CommentThread, ProjectAccess, ProjectComment, ProjectRole } from './collaboration'
+import type { ProjectTemplate, TemplateApplied, TemplateApplications, TemplateApply, TemplateDetail, TemplateLibrary, TemplateSave } from './projectTemplates'
 
 const configuredBaseUrl = import.meta.env.VITE_OPHIRA_API_URL?.trim() ?? ''
 export const apiBaseUrl = configuredBaseUrl.replace(/\/$/, '')
+
+function templatePath(projectId: string, templateId?: string): string {
+  return `/api/projects/${encodeURIComponent(projectId)}/templates${templateId ? `/${encodeURIComponent(templateId)}` : ''}`
+}
+export function listProjectTemplates(projectId: string, signal?: AbortSignal): Promise<TemplateLibrary> {
+  return request(templatePath(projectId), { signal, cache: 'no-store' })
+}
+export function getTemplateVersion(projectId: string, templateId: string, version: number, signal?: AbortSignal): Promise<TemplateDetail> {
+  return request(`${templatePath(projectId, templateId)}/versions/${version}`, { signal, cache: 'no-store' })
+}
+export function saveProjectTemplate(projectId: string, payload: TemplateSave, templateId?: string, signal?: AbortSignal): Promise<ProjectTemplate> {
+  return request(`${templatePath(projectId, templateId)}${templateId ? '/versions' : ''}`, { method: 'POST', body: JSON.stringify(payload), signal, cache: 'no-store' })
+}
+export function archiveProjectTemplate(projectId: string, templateId: string, payload: { request_id: string; expected_revision: number; archived: boolean }, signal?: AbortSignal): Promise<ProjectTemplate> {
+  return request(`${templatePath(projectId, templateId)}/archive`, { method: 'POST', body: JSON.stringify(payload), signal, cache: 'no-store' })
+}
+export function templateReferenceUrl(projectId: string, templateId: string, version: number, artifactId: string): string {
+  return `${apiBaseUrl}${templatePath(projectId, templateId)}/versions/${version}/references/${encodeURIComponent(artifactId)}/download`
+}
+export function applyProjectTemplate(projectId: string, templateId: string, payload: TemplateApply, signal?: AbortSignal): Promise<TemplateApplied> {
+  return request(`${templatePath(projectId, templateId)}/applications`, { method: 'POST', body: JSON.stringify(payload), signal, cache: 'no-store' })
+}
+export function listTemplateApplications(projectId: string, templateId: string, before?: string, signal?: AbortSignal): Promise<TemplateApplications> {
+  return request(`${templatePath(projectId, templateId)}/applications${before ? `?before=${encodeURIComponent(before)}` : ''}`, { signal, cache: 'no-store' })
+}
+export function resumeTemplateApplication(projectId: string, templateId: string, applicationId: string, signal?: AbortSignal): Promise<TemplateApplied> {
+  return request(`${templatePath(projectId, templateId)}/applications/${encodeURIComponent(applicationId)}/resume`, { method: 'POST', body: JSON.stringify({ confirm_creation: true }), signal, cache: 'no-store' })
+}
 
 export function getCollaborationCapabilities(projectId: string, signal?: AbortSignal): Promise<CollaborationCapabilities> {
   return request(`/api/projects/${encodeURIComponent(projectId)}/collaboration`, { signal, cache: 'no-store' })

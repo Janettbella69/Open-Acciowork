@@ -24,6 +24,7 @@ from .backup_files import (
 from .constants import TERMINAL_RUN_STATUSES
 from .maintenance import MAINTENANCE_LOCK, DataDirectoryBusyError, data_directory_lease
 from .project_comments import MAX_COMMENT_BYTES, CommentLedger
+from .project_template_backup import inspect_project_templates
 from .skill_proposal_files import directory_fd, read_relative
 from .skill_proposals import SkillProposalService
 from .skills import CONTENT_HASH_PATTERN, TENANT_PLUGIN_NAMESPACE, SkillRegistry
@@ -112,6 +113,7 @@ def inspect_application(data: Path, plugin: Path) -> dict:
                 except (OSError, ValueError) as exc:
                     raise BackupError("artifact_snapshot_invalid") from exc
         projects[project.id] = project
+    inspect_project_templates(data, projects)
     comment_store = data / "collaboration" / "comments"
     if comment_store.exists():
         for path in sorted(comment_store.iterdir()):

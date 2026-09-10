@@ -119,6 +119,7 @@ export type StageDecision = {
 }
 
 export type OpportunityProject = {
+  template_origin?: import('./projectTemplates').ProjectTemplateOrigin | null
   id: string
   name: string
   objective: string

@@ -57,6 +57,12 @@ source/version anchors, edit history, and conflict checks. See
 [`docs/project-collaboration.md`](docs/project-collaboration.md) for role boundaries
 and local versus organization sign-in behavior.
 
+Open **Project templates** to save a reviewed project brief and fixed reference-file
+versions, inspect history, and create a separate project with customized settings.
+Interrupted creations retain reviewable recovery records. See
+[`docs/project-templates.md`](docs/project-templates.md) for ownership, copied material
+and cold-backup boundaries.
+
 Tenant Skills keep immutable, content-addressed package history with per-run snapshots,
 version inspection, reviewed rollback, bounded storage, and active-session-safe runtime
 leases. Workspace results can also render typed evidence, decision, and artifact cards
