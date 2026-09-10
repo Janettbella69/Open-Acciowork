@@ -42,6 +42,7 @@ import type { MarketplaceAccess, MarketplaceGuide, MarketplaceRead, MarketplaceR
 import type { ProjectShop, ShopData, ShopIdentityInput } from './shops'
 import type { ArtifactTextUpdate, ArtifactTextView } from './artifacts'
 import type { WorkspaceCheckpoint, WorkspaceRestore } from './workspaceRecovery'
+import type { RunResources } from './runResources'
 
 const configuredBaseUrl = import.meta.env.VITE_OPHIRA_API_URL?.trim() ?? ''
 export const apiBaseUrl = configuredBaseUrl.replace(/\/$/, '')
@@ -441,6 +442,10 @@ export function getRun(runId: string): Promise<RunRecord> {
 
 export function getRunTelemetry(runId: string): Promise<RunTelemetry> {
   return request<RunTelemetry>(`/api/runs/${encodeURIComponent(runId)}/telemetry`)
+}
+
+export function getRunResources(runId: string, signal?: AbortSignal): Promise<RunResources> {
+  return request(`/api/runs/${encodeURIComponent(runId)}/resources`, { signal })
 }
 
 export function getProjectMetrics(projectId: string, days: number, signal?: AbortSignal): Promise<ProjectMetrics> {

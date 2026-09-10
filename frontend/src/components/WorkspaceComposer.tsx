@@ -30,6 +30,7 @@ import ProjectMetricsPanel from './ProjectMetricsPanel'
 import ProjectKnowledgePanel from './ProjectKnowledgePanel'
 import ProjectArtifactsPanel from './ProjectArtifactsPanel'
 import WorkspaceRecoveryPanel from './WorkspaceRecoveryPanel'
+import RunResourcesPanel from './RunResourcesPanel'
 import ProjectShopsPanel from './ProjectShopsPanel'
 import WorkspaceNav from './WorkspaceNav'
 import './workspace-composer.css'
@@ -791,11 +792,12 @@ export default function WorkspaceComposer({
                         )}
                       </div>
                     </details>
-                    {isActive && <button type="button" onClick={onCancel}>{t('Cancel')}</button>}
+                    {isActive && run?.mode !== 'deep_research' && <button type="button" onClick={onCancel}>{t('Cancel')}</button>}
                   </div>
                 )}
 
                 {!historyLoading && <PresentationCards presentations={presentations} />}
+                {!historyLoading && run?.mode === 'deep_research' && <RunResourcesPanel run={run} onCancel={onCancel} />}
 
                 {historyLoading ? (
                   <div className="conversation-agent-waiting" role="status">

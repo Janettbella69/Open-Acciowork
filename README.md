@@ -81,6 +81,10 @@ Open **Project run metrics** in a saved workspace to inspect recent execution,
 latency, observed cost estimates, and Provider/Skill/tool groups. Missing data stays
 explicit; see [`docs/project-metrics.md`](docs/project-metrics.md).
 
+Deep Research runs also show frozen budget/deadline limits, native research-unit
+activity and reported task usage. See [`docs/deep-research-resources.md`](docs/deep-research-resources.md)
+for the source-merge contract and the distinction between SDK estimates and billing.
+
 Open **Project knowledge** in a saved workspace to search registered text files and
 OCR Markdown, inspect source lines and version provenance, and download a freshly
 hash-checked source. Coverage gaps stay visible; matches are reference material and

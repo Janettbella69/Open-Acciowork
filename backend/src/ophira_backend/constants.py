@@ -73,6 +73,13 @@ class RunMode(StrEnum):
     DEEP_RESEARCH = "deep_research"
 
 
+RESEARCH_UNITS = {
+    "source-mapper": "覆盖独立原始来源，建立带日期和定位信息的来源地图。",
+    "multilingual-researcher": "在任务指定的语言与地区中研究，并保留原文术语与译意。",
+    "conflict-verifier": "独立核验相互冲突的说法，说明各来源口径、时效与局限。",
+}
+
+
 class RunRetryStrategy(StrEnum):
     RESUME = "resume"
     NEW_BRANCH = "new_branch"
@@ -486,6 +493,9 @@ READ_ONLY_MCP_TOOL_NAMES = [
 ]
 
 READ_ONLY_BUILTIN_TOOLS = ["Read", "Glob", "Grep", "WebSearch", "WebFetch"]
+RESEARCH_READ_TOOL_NAMES = [
+    *READ_ONLY_BUILTIN_TOOLS, TOOL_GET_PROJECT_CONTEXT, TOOL_SEARCH_EVIDENCE,
+]
 # 结构化追问（CLI 内置工具，经 can_use_tool 到达；答案经 updated_input 回传）。
 CLARIFYING_TOOL = "AskUserQuestion"
 WRITE_BUILTIN_TOOLS = ["Write", "Edit"]

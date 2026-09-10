@@ -28,7 +28,7 @@
 | FR-16 产物 | delivered：不可变文件版本/准确历史下载、同内容回退的新版本、并发登记去重；文本预览/修改对比/冲突保护/幂等保存/人类编辑溯源、编辑中断恢复与冷备恢复；Office 文件结构 | deferred：真实模型连续编辑与浏览器目视、Office 渲染 QA、布局回归；旧记录已丢失的原始字节无法补造 |
 | FR-17 可观测性 | delivered：trace、三层日志、脱敏、类型化卡片；项目范围Provider/模型/Skill/MCP/错误分组指标与工作区面板 | deferred：细分事件与生产指标/性能验收 |
 | FR-18 恢复 | delivered：保存产物、错误分类、重试与重启恢复；Run 起点的完整可支持工作区快照、Bash 修改恢复、人工变更预览/确认/结果重试、中断目录切换修复、真实进程退出与冷备往返；同项目执行与产物收尾租约 | deferred：真实 SDK 故障注入、生产/跨宿主恢复、容量保留管理、性能与浏览器目视验收 |
-| FR-19 Deep Research | delivered：恰好三个只读研究子代理、预算/取消/墙钟限制；恢复沿用原起始时间、金额/turn预算及墙钟截止时间 | deferred：真实 SDK Deep Research 执行、完整资源 UI 与合并证据验收 |
+| FR-19 Deep Research | delivered：三种原生只读研究单元的一次新建/同 Run 续接约束；共享预算/取消/原始截止时间；运行中资源 UI、来源包与主 Agent 去重落账；真实 DeepSeek 合成来源上的三单元并行/来源复核/证据合并与报告验收 | deferred：开放互联网研究质量、真实取消/耗尽/长时墙钟故障矩阵、其他 Provider 与浏览器目视验收 |
 | FR-20 GUI | delivered：L1/L2 真实浏览器 smoke；项目独立店铺 profile、用户登录确认、当前页观察引用、主Agent页面动作/报表下载与来源/产物落账、真实Chromium离线链路 | deferred：真实卖家后台/验证码/风控兼容性和模型联调；真实攻击/恢复矩阵；L3 桌面桥与 OS 权限治理未实现 |
 | FR-21 Connector | delivered：Catalog/Vault/health/revoke、HTTPS JSON send_message；五平台官方文档入口，TikTok Shop授权店铺/商品分页只读adapter、项目店铺授权/到期/撤销、主Agent来源凭证接入与中英文管理员UI；项目店铺身份可关联平台Connector、独立浏览器授权及数据展示 | deferred：其余邮箱/店铺/CRM/社媒垂直adapter；TikTok Shop OAuth/refresh、真实授权test-account及模型调用验收/外发全链；API与浏览器数据自动合并 |
 | FR-22 组织治理 | delivered：单部署租户 principal/membership/策略 | deferred：租户分区、隔离 runner、共享项目/评论/模板、组织私有 Skill 仓库 |
@@ -606,3 +606,52 @@ Browser工具重新选择和发现均无可用浏览器，未宣称前端目视�
 - 评测工具 **59 passed**；离线 Snapshot 门禁 **61/61**。
 - Ruff、ESLint、TypeScript、Vite build 与 diff-check 通过。
   主 JS 697.32 kB，既有大于500 kB提示继续保留。
+
+## 2026-09-09：Deep Research 资源面板与真实原生研究验收
+
+交付前基线：`ce91687`。合同见 [Deep Research 运行资源](deep-research-resources.md)。
+本批代码、测试、真实验收归档与本节同步交付。
+
+中英文工作区展示已固定的共享 SDK 额度、已报告费用、剩余时间、原始截止时间、
+轮数政策、实际原生研究单元与任务累计快照。没有报告的用量为空，进度快照不重复
+相加；Run 结束不补造任务成功。API 有界回放、身份/序号检查、读前后权限复验、
+no-store；前端串行刷新、单调时钟倒计时、取消整次研究、旧请求作废与失败清空。
+
+研究单元只允许三种已配置类型，每种每个逻辑 Run 新建一次；续接必须是本 Run 已
+观测到的原生 agent_id。三份来源包由主 Agent 按原始来源去重、保留冲突、复核原件，
+经既有 receipt/文件验证与 record_evidence_batch 落账。来源包是输出约定，不能
+自行升级为可信凭证。任何模式下子代理再派生也在钩子和回调中明确拒绝。
+
+真实 SDK 首次执行发现 `dontAsk` 与启动配置给只读工具添加的 ask 规则冲突，导致
+三个单元均启动却无法读取来源。失败归档保留在
+[`research-e2e-20260910T022515988906Z`](../evals/reports/research-e2e-20260910T022515988906Z/report.md)，
+未将主 Agent 独自完成报告当成研究验收通过。修复仅移除 Deep Research 明确只读
+工具的重复 ask，保持统一启动钩子、身份/路径验证和主 Agent 写入权限。
+
+修复后的真实运行见
+[`research-e2e-20260910T023412298562Z`](../evals/reports/research-e2e-20260910T023412298562Z/report.md)：
+
+- 固定 SDK 0.2.143，主消息服务模型 `deepseek-v4-pro`；原生子任务返回的 resolvedModel
+  为 `deepseek-v4-flash`，不将该配置/解析字段冒充独立计费认证。
+- 三种研究单元全部实际启动、执行时间重叠、分别完成三次原件 Read，返回非空
+  来源包；无子代理写入、Bash、外部搜索或业务外发。
+- 主 Agent 再次读取三份原件，两份报价日期/价格/MOQ差异保留；法语转载不另建
+  证据。批量提交的重复项返回同一 ID；决策/不可变报告关联真实证据与决策 ID。
+- 16,520 条实际事件完整回放；运行中资源采样和最终三个任务快照与原生最终通知
+  的 token/工具数/时长逐项相符；报告字节校验和与不可变产物一致。
+- Run 正常完成，SDK 累计估算 **1.920009 USD**，固定上限2 USD，约180秒内结束，
+  原始墙钟600秒、轮数不限。首次失败运行估算1.849989 USD；均不是厂商实际账单。
+
+复验原始 `summary.json` 唯一误报来自验收器漏列原生只读 Glob 文件定位，原判定
+保持不变。补齐 Glob/Grep 并保留外部工具拒绝的回归后，对同一份不可变归档重算，
+[`reverification.json`](../evals/reports/research-e2e-20260910T023412298562Z/reverification.json)
+全部通过，没有第三次模型调用。旧失败归档在同样规则下仍失败。事件以无损 gzip
+保存，压缩前后字节数及 SHA-256 均可复核。
+
+冻结代码后的验证：后端 **1771 passed / 13 skipped**（77.08秒），前端
+**308 passed / 32 files**；Ruff、ESLint、TypeScript、Vite build、diff-check通过；
+评估工具 **59 passed**、Snapshot **61/61**。主 JS 706.99 kB，既有体积警告保留。
+Browser 连接仍返回无可用浏览器，发现列表为空，未声称目视验收通过。
+
+本批证据只覆盖合成上传材料上的真实原生执行与来源合并；开放互联网研究质量、
+生产资源/故障矩阵、组织治理、其余 FR/章节 deferred 均保留，完整 PRD 目标继续开放。

@@ -205,6 +205,7 @@ from .providers import FileSecretVault, ProviderNotFoundError, ProviderRegistry
 from .push_service import PushDeliveryService
 from .push_store import PushStore
 from .push_transport import WebPushAdapter
+from .run_resources import RunResources, read_run_resources
 from .runs import (
     AgentRuntime,
     RunCancelConflictError,
@@ -1590,6 +1591,21 @@ def _create_app(
                 status_code=500,
                 detail="Run telemetry source is inconsistent",
             ) from exc
+
+    @application.get("/api/runs/{run_id}/resources", response_model=RunResources)
+    def get_run_resources(request: Request, response: Response, run_id: str) -> RunResources:
+        principal = _request_principal(request)
+        response.headers["Cache-Control"] = "no-store"
+        try:
+            return read_run_resources(
+                ledger, run_id, authorize=lambda project_id: require_project_authorization(
+                    project_id, principal, ProjectPermission.RUN_READ,
+                ),
+            )
+        except LedgerNotFoundError as exc:
+            raise HTTPException(404, "Run not found") from exc
+        except (OSError, ValueError) as exc:
+            raise HTTPException(409, "Run resource observations are unavailable") from exc
 
     @application.post(
         "/api/runs/{run_id}/retry",

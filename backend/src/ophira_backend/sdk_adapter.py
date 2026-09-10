@@ -48,6 +48,8 @@ from .constants import (
     PRESENTATION_TOOL_NAMES,
     READ_ONLY_BUILTIN_TOOLS,
     READ_ONLY_MCP_TOOL_NAMES,
+    RESEARCH_READ_TOOL_NAMES,
+    RESEARCH_UNITS,
     SHELL_BUILTIN_TOOLS,
     TOOL_ACT_ON_PAGE,
     TOOL_FETCH_PAGE_SNAPSHOT,
@@ -229,6 +231,8 @@ def _is_subagent_restricted_tool(tool_name: str) -> bool:
         *WRITE_BUILTIN_TOOLS,
         *DELETE_BUILTIN_TOOLS,
         *SHELL_BUILTIN_TOOLS,
+        DELEGATION_TOOL,
+        "Task",
     }:
         return True
     return tool_name.startswith("mcp__") and tool_name not in READ_ONLY_MCP_TOOL_NAMES
@@ -409,6 +413,12 @@ class ClaudeAgentRuntime:
                     "EnterWorktree", "ExitWorktree", "ListMcpResourcesTool", "ReadMcpResourceTool",
                     "Monitor", *([pending.tool_name] if pending is not None else []),
                 })
+                if run.mode == RunMode.DEEP_RESEARCH:
+                    # Native ask rules override a PreToolUse allow and become
+                    # hard denies in a research unit's dontAsk mode. Keep its
+                    # explicitly read-only surface auto-approved; the same
+                    # startup hook still checks paths, identity and child scope.
+                    ask_tools = [name for name in ask_tools if name not in RESEARCH_READ_TOOL_NAMES]
                 options = dataclasses.replace(
                     options, hooks={}, settings=bridge.settings(ask_tools=ask_tools),
                 )
@@ -697,6 +707,11 @@ class ClaudeAgentRuntime:
                         "记录或呈现。"
                     )
                 )
+            denial = self._research_dispatch_denial(
+                run, tool_name, tool_input, getattr(context, "tool_use_id", None),
+            )
+            if denial:
+                return PermissionResultDeny(message=denial)
             if tool_name in WRITE_BUILTIN_TOOLS:
                 candidate = tool_input.get("file_path")
                 if not _path_within(workspace, candidate if isinstance(candidate, str) else None):
@@ -948,6 +963,40 @@ class ClaudeAgentRuntime:
             )
         return budget, remaining_turns
 
+    def _research_dispatch_denial(
+        self, run: RunRecord, tool_name: str, tool_input: dict, tool_use_id: str | None,
+    ) -> str | None:
+        if run.mode != RunMode.DEEP_RESEARCH or tool_name not in {DELEGATION_TOOL, "Task"}:
+            return None
+        unit = tool_input.get("subagent_type")
+        if unit is not None and (not isinstance(unit, str) or unit not in RESEARCH_UNITS):
+            return "Deep Research permits only its three configured read-only research units."
+        try:
+            events = self.ledger.list_events(run.id, max_bytes=32 * 1024 * 1024, max_events=50_000)
+        except (OSError, ValueError):
+            return "Research dispatch history is unavailable; no additional agent was started."
+        if "resume" in tool_input:
+            identifier = tool_input["resume"]
+            previous = next((event for event in events
+                             if event.type == EventType.SUBAGENT_STARTED
+                             and event.data.get("agent_id") == identifier), None)
+            if (not isinstance(identifier, str) or not identifier or previous is None
+                    or previous.data.get("agent_type") not in RESEARCH_UNITS
+                    or (unit is not None and unit != previous.data.get("agent_type"))):
+                return "Resume only a research unit observed in this same Run."
+            return None
+        if unit is None:
+            return "Choose one of this Deep Research Run's configured research units."
+        claims = [event for event in events
+                  if event.type == EventType.TOOL_STARTED and not event.actor.agent_id
+                  and event.data.get("tool_name") in {DELEGATION_TOOL, "Task"}
+                  and isinstance(event.data.get("tool_input"), dict)
+                  and event.data["tool_input"].get("subagent_type") == unit
+                  and "resume" not in event.data["tool_input"]]
+        if claims and (tool_use_id is None or claims[0].tool_use_id != tool_use_id):
+            return "This research unit was already dispatched. Resume its existing instance."
+        return None
+
     def _validate_run_principal(self, run: RunRecord) -> None:
         """A frozen identity is an anchor, not a perpetual membership grant."""
         try:
@@ -1036,6 +1085,14 @@ class ClaudeAgentRuntime:
                     actor=actor,
                     tool_use_id=tool_use_id,
                 )
+                denial = self._research_dispatch_denial(
+                    run, str(tool_name), tool_input, tool_use_id,
+                )
+                if denial:
+                    return {"hookSpecificOutput": {
+                        "hookEventName": "PreToolUse", "permissionDecision": "deny",
+                        "permissionDecisionReason": denial,
+                    }}
                 if run.standing_intent_id is not None:
                     if str(tool_name) not in _STANDING_INTENT_ALLOWED_TOOLS:
                         return {

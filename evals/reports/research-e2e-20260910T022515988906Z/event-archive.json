@@ -1,0 +1,9 @@
+{
+  "file": "events.jsonl.gz",
+  "encoding": "utf-8",
+  "compression": "gzip",
+  "uncompressed_bytes": 12617745,
+  "compressed_bytes": 564184,
+  "uncompressed_sha256": "c0e9dbdb1640626db11b46d4244e9595cc6af551c07dce7503e1cfda8bc5c467",
+  "compressed_sha256": "d1c7b4c1db84bb1f8ce842651385935d05b7921e8e011bb3cd9d8d9f215fba4f"
+}
