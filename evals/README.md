@@ -3,6 +3,29 @@
 OPHIRA 的差异化承诺是"可审计"；这套评测把承诺变成可度量、可回归、可对外出示的工程事实。
 评测产物（基准任务集、失败模式分类法、judge 校准报告、每版本评测报告）随版本发布。
 
+## 独立评测工作台
+
+本项目的实验归档、Trace、人工复核和对比入口位于 **[`workbench/`](workbench/README.md)**，
+由 Open-Acciowork 自己维护前后端、依赖和数据库。Agent-eval-kit 仅作为历史工作流参考，
+两个项目各自运行评测系统。
+
+完成工作台 README 中的独立依赖安装后，从仓库根目录分别在两个终端启动：
+
+```bash
+cd evals/workbench
+PYTHONPATH=backend .venv/bin/python -m acciowork_eval serve
+```
+
+```bash
+cd evals/workbench/frontend
+npm run dev
+```
+
+入口为 **http://127.0.0.1:5201/experiments**，API 使用 `127.0.0.1:8101`。
+归档和新保存的人工复核位于工作台自己的 `data/archive.sqlite3`；既有报告、候选和 Gold
+文件按显式命令导入或导出。产品运行时不导入工作台，浏览归档不会调用模型。
+新实验执行与 Judge 校准尚未接入工作台；下述原有评测工具与门槛口径继续适用。
+
 ## 三层金字塔在本仓的落点
 
 | 层 | 对象 | 本仓落点 | 触发 |
@@ -73,6 +96,7 @@ Snapshot schema、case 范围和“离线不等于真实 E2E”的边界见
 |---|---|---|
 | gold 抽样/标注工具链 | `evals/tools/` | 纯评测资产，`gold_sampling.py`/`gold_annotator.py` 只用 stdlib |
 | 基准任务/judge/口径/报告 | `evals/` | 纯评测资产 |
+| 独立评测工作台前后端、测试与运行数据 | `evals/workbench/` | 本项目自有工程和数据库；仅导入显式选择的档案副本，运行数据不提交 Git |
 | L2 runner（`run_l2.py`）与 trace 摘要（`digest_run.py`） | `backend/scripts/` | 是**驱动主系统跑起来**的脚本（重度 import ophira_backend，与 `run_green_path.py` 同类），不是评测判定逻辑；判定口径全部住 `evals/`。不随产品打包，不进 `ophira_backend` 包 |
 
 判据：**判定"好坏"的逻辑只能住 `evals/`；驱动"跑起来"的脚本住 `backend/scripts/`。**
