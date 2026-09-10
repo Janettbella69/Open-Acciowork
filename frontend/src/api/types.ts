@@ -86,6 +86,10 @@ export type Artifact = {
   checksum: string
   size_bytes: number
   download_url: string
+  content_storage?: 'workspace' | 'snapshot'
+  parent_artifact_id?: string | null
+  created_by?: string | null
+  edit_request_id?: string | null
   created_at: string
   updated_at: string
 }

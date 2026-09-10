@@ -111,6 +111,34 @@ def rehash(archive):
     return manifest
 
 
+def test_cold_restore_retains_history_without_workspace_file(source, tmp_path):
+    _, _, ledger, _, _, project, *_ = source
+    first = ledger.save_upload(project.id, "report.txt", b"Original version")
+    path = ledger.workspace_for_project(project.id) / first.path
+    path.write_bytes(b"Revised version")
+    second = ledger.register_artifact(project.id, first.path)
+    path.unlink()
+    archive = make_backup(source, tmp_path)
+    target = tmp_path / "restored"
+    backup.restore_backup(archive, target)
+    restored = FileLedger(target / "data")
+    assert restored.capture_artifact(project.id, first.id)[1] == b"Original version"
+    assert restored.capture_artifact(project.id, second.id)[1] == b"Revised version"
+
+
+def test_cold_backup_rejects_corrupt_artifact_history(source, tmp_path):
+    from ophira_backend.artifact_files import snapshot_relative
+
+    _, _, ledger, _, _, project, *_ = source
+    artifact = ledger.save_upload(project.id, "report.txt", b"Original version")
+    snapshot = ledger._project_path(project.id).parent / snapshot_relative(artifact.checksum)
+    snapshot.chmod(0o600)
+    snapshot.write_bytes(b"Corrupt version")
+    with pytest.raises(BackupError, match="artifact_snapshot_invalid"):
+        make_backup(source, tmp_path)
+    assert not (tmp_path / "backup").exists()
+
+
 def test_complete_snapshot_preserves_source_and_recovers_only_proposal_intents(source, tmp_path):
     data, plugin, ledger, registry, service, project, run, items = source
     before = tree_inventory(data, backup.DEFAULT_LIMITS)

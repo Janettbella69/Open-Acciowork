@@ -72,6 +72,12 @@ def inspect_application(data: Path, plugin: Path) -> dict:
         project = ledger.get_project(directory.name)
         if project.id != directory.name:
             raise BackupError("project_identity_mismatch")
+        for artifact in project.artifacts:
+            if artifact.content_storage == "snapshot":
+                try:
+                    ledger.capture_artifact(project.id, artifact.id)
+                except (OSError, ValueError) as exc:
+                    raise BackupError("artifact_snapshot_invalid") from exc
         projects[project.id] = project
     for directory in sorted(ledger.runs_dir.iterdir()):
         if not directory.is_dir():

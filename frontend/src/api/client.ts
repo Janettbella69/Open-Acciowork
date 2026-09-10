@@ -40,9 +40,24 @@ import type { SkillProposalDetail, SkillProposalPage, SkillProposalPreview, Skil
 import type { KnowledgeSearch } from './knowledge'
 import type { MarketplaceAccess, MarketplaceGuide, MarketplaceRead, MarketplaceReadInput } from './marketplaces'
 import type { ProjectShop, ShopData, ShopIdentityInput } from './shops'
+import type { ArtifactTextUpdate, ArtifactTextView } from './artifacts'
 
 const configuredBaseUrl = import.meta.env.VITE_OPHIRA_API_URL?.trim() ?? ''
 export const apiBaseUrl = configuredBaseUrl.replace(/\/$/, '')
+
+export function artifactDownloadUrl(projectId: string, artifactId: string): string {
+  return `${apiBaseUrl}/api/projects/${encodeURIComponent(projectId)}/artifacts/${encodeURIComponent(artifactId)}/download`
+}
+
+export function getArtifactText(projectId: string, artifactId: string, signal?: AbortSignal): Promise<ArtifactTextView> {
+  return request(`/api/projects/${encodeURIComponent(projectId)}/artifacts/${encodeURIComponent(artifactId)}/text`, { signal })
+}
+
+export function saveArtifactText(projectId: string, artifactId: string, payload: ArtifactTextUpdate, signal?: AbortSignal): Promise<Artifact> {
+  return request(`/api/projects/${encodeURIComponent(projectId)}/artifacts/${encodeURIComponent(artifactId)}/text`, {
+    method: 'PUT', body: JSON.stringify(payload), signal,
+  })
+}
 
 class ApiError extends Error {
   status: number

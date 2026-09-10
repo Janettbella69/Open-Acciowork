@@ -11,10 +11,19 @@ from typing import Annotated
 import uvicorn
 from fastapi import FastAPI, Header, HTTPException, Query, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import JSONResponse
 from sse_starlette.sse import EventSourceResponse
+from starlette.concurrency import run_in_threadpool
 
 from .agent_core import create_agent_core
+from .artifact_edits import (
+    MAX_EDIT_BYTES,
+    ArtifactEditConflict,
+    ArtifactTextUpdate,
+    ArtifactTextView,
+    read_artifact_text,
+    save_artifact_text,
+)
 from .auth import (
     ROLE_PERMISSIONS,
     AuthAssertionExpiredError,
@@ -1248,12 +1257,99 @@ def _create_app(
             raise HTTPException(status_code=404, detail="Project not found") from exc
 
     @application.get("/api/projects/{project_id}/artifacts/{artifact_id}/download")
-    async def download_project_artifact(project_id: str, artifact_id: str) -> FileResponse:
+    def download_project_artifact(
+        request: Request, project_id: str, artifact_id: str,
+    ) -> Response:
+        from urllib.parse import quote
+
+        require_project_authorization(
+            project_id, _request_principal(request), ProjectPermission.PROJECT_READ,
+        )
         try:
-            artifact, path = ledger.get_artifact(project_id, artifact_id)
-        except (LedgerNotFoundError, ValueError) as exc:
+            artifact, content = ledger.capture_artifact(project_id, artifact_id)
+        except LedgerNotFoundError as exc:
             raise HTTPException(status_code=404, detail="Artifact not found") from exc
-        return FileResponse(path, media_type=artifact.mime, filename=artifact.name)
+        except (OSError, ValueError) as exc:
+            raise HTTPException(
+                status_code=409,
+                detail="This artifact version is unavailable or failed verification.",
+            ) from exc
+        require_project_authorization(
+            project_id, _request_principal(request), ProjectPermission.PROJECT_READ,
+        )
+        return Response(content, media_type="application/octet-stream", headers={
+            "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff",
+            "ETag": f'"{artifact.checksum}"',
+            "Content-Disposition": "attachment; filename*=UTF-8''" + quote(artifact.name, safe=""),
+        })
+
+    @application.get(
+        "/api/projects/{project_id}/artifacts/{artifact_id}/text", response_model=ArtifactTextView,
+    )
+    def get_artifact_text(
+        request: Request, response: Response, project_id: str, artifact_id: str,
+    ) -> ArtifactTextView:
+        principal = _request_principal(request)
+        response.headers["Cache-Control"] = "no-store"
+        try:
+            result = read_artifact_text(
+                ledger, project_id, artifact_id,
+                authorize=lambda: require_project_authorization(
+                    project_id, principal, ProjectPermission.PROJECT_READ,
+                ), is_executing=runs.is_executing,
+            )
+        except LedgerNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="Artifact not found") from exc
+        except (OSError, ValueError) as exc:
+            raise HTTPException(
+                status_code=409,
+                detail="Text preview is unavailable. Download the saved file for external editing.",
+            ) from exc
+        if not project_is_visible(project_id, principal, ProjectPermission.PROJECT_WRITE):
+            result.editable = False
+            result.edit_notice = "You have read-only access to this project."
+        return result
+
+    @application.put(
+        "/api/projects/{project_id}/artifacts/{artifact_id}/text", response_model=Artifact,
+    )
+    async def update_artifact_text(
+        request: Request, response: Response, project_id: str, artifact_id: str,
+    ) -> Artifact:
+        principal = _request_principal(request)
+
+        def authorize():
+            require_project_authorization(project_id, principal, ProjectPermission.PROJECT_WRITE)
+
+        authorize()
+        raw = await _read_bounded_body(
+            request, max_bytes=MAX_EDIT_BYTES * 6 + 1024,
+            too_large_detail="Artifact edit request is too large.",
+        )
+        try:
+            payload = ArtifactTextUpdate.model_validate_json(raw)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail="Invalid artifact edit request.") from exc
+        response.headers["Cache-Control"] = "no-store"
+        try:
+            return await run_in_threadpool(
+                save_artifact_text, ledger, project_id, artifact_id, payload,
+                created_by=principal.principal_id if principal else LOCAL_OPERATOR_ID,
+                authorize=authorize, is_executing=runs.is_executing,
+            )
+        except LedgerNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="Artifact not found") from exc
+        except ArtifactEditConflict as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=422, detail="This file cannot be edited as UTF-8 text within 512 KiB.",
+            ) from exc
+        except OSError as exc:
+            raise HTTPException(
+                status_code=409,
+                detail="The edit could not be confirmed. Retry the same draft to check its result.",
+            ) from exc
 
     @application.post(
         "/api/projects/{project_id}/runs",

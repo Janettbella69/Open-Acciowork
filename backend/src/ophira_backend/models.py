@@ -352,6 +352,10 @@ class Artifact(APIModel):
     checksum: str
     size_bytes: int = Field(ge=0)
     download_url: str
+    content_storage: Literal["workspace", "snapshot"] = "workspace"
+    parent_artifact_id: str | None = None
+    created_by: str | None = None
+    edit_request_id: str | None = None
     created_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=utc_now)
 

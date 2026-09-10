@@ -87,6 +87,12 @@ hash-checked source. Coverage gaps stay visible; matches are reference material 
 do not automatically become verified evidence. See
 [`docs/project-knowledge.md`](docs/project-knowledge.md).
 
+Open **Project files** to download exact saved versions, inspect their history,
+and preview/edit text with conflict checks. New registrations preserve immutable
+bytes; user edits retain the prior version and become searchable project files.
+See [`docs/artifact-versions.md`](docs/artifact-versions.md) for supported formats,
+interrupted-edit recovery and the availability boundary for legacy versions.
+
 PDF/image uploads produce bounded Markdown companions with honest extraction
 diagnostics; optional local PaddleOCR-VL setup and remaining quality checks are in
 [`docs/ocr-ingestion.md`](docs/ocr-ingestion.md). Result/evidence feedback now has

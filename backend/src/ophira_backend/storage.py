@@ -16,6 +16,12 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
+from .artifact_files import (
+    MAX_ARTIFACT_BYTES,
+    freeze_artifact,
+    read_snapshot,
+    snapshot_relative,
+)
 from .constants import (
     DecisionStatus,
     EventType,
@@ -43,6 +49,7 @@ from .models import (
     new_id,
     utc_now,
 )
+from .skill_proposal_files import read_relative, relative_parts
 
 
 class LedgerNotFoundError(KeyError):
@@ -676,7 +683,10 @@ class FileLedger:
             trace_id=run.trace_id,
             status=run.status,
         )
-        with self._lock_for(run.id):
+        with self._lock_for(project_id), self._lock_for(run.id):
+            from .artifact_edits import recover_pending_edit
+
+            recover_pending_edit(self, project_id)
             if self._run_path(run.id).exists():
                 raise ValueError("run already exists")
             self._atomic_write(self._run_path(run.id), run)
@@ -1057,15 +1067,16 @@ class FileLedger:
         run_id: str | None = None,
         source_ids: list[str] | None = None,
     ) -> Artifact:
-        relative, path = self._next_upload_path(project_id, filename)
-        path.write_bytes(content)
-        artifact = self.register_artifact(
-            project_id,
-            relative,
-            run_id=run_id,
-            source_ids=source_ids,
-            mime=mime,
-        )
+        with self._lock_for(project_id):
+            relative, path = self._next_upload_path(project_id, filename)
+            path.write_bytes(content)
+            artifact = self.register_artifact(
+                project_id,
+                relative,
+                run_id=run_id,
+                source_ids=source_ids,
+                mime=mime,
+            )
         if needs_markdown_companion(filename, mime=mime, header=content[:16]):
             markdown, _backend = ingest_to_markdown(
                 path, original_name=filename, config=self.ingest_config, mime=mime,
@@ -1092,39 +1103,46 @@ class FileLedger:
         source_ids: list[str] | None = None,
         mime: str | None = None,
     ) -> Artifact:
-        path = self._artifact_path(project_id, relative_path)
-        if path.is_symlink() or not path.is_file():
-            raise ValueError("artifact must be a regular file inside the project workspace")
-        workspace = self.workspace_for_project(project_id).resolve()
-        relative = path.relative_to(workspace).as_posix()
-        checksum = hashlib.sha256(path.read_bytes()).hexdigest()
+        relative_parts(relative_path)
+        with self._lock_for(project_id):
+            workspace = self.workspace_for_project(project_id)
+            raw = read_relative(workspace, relative_path, MAX_ARTIFACT_BYTES)
+            return self._register_artifact_bytes(
+                project_id, relative_path, raw, run_id=run_id, source_ids=source_ids, mime=mime,
+            )
+
+    def _register_artifact_bytes(
+        self, project_id: str, relative: str, raw: bytes, *,
+        run_id: str | None = None, source_ids: list[str] | None = None,
+        mime: str | None = None, created_by: str | None = None,
+    ) -> Artifact:
+        """Caller holds the project lock and has captured an authorized source."""
+        from .artifact_edits import recover_pending_edit
+
+        recover_pending_edit(self, project_id)
         project = self.get_project(project_id)
-        duplicate = next(
-            (
-                item
-                for item in project.artifacts
-                if item.path == relative and item.checksum == checksum
-            ),
-            None,
+        latest = max(
+            (item for item in project.artifacts if item.path == relative),
+            key=lambda item: (item.version, item.created_at, item.id), default=None,
         )
-        if duplicate:
-            return duplicate
-        previous_versions = [item.version for item in project.artifacts if item.path == relative]
+        checksum = freeze_artifact(self._project_path(project_id).parent, raw)
+        if latest and latest.checksum == checksum:
+            if latest.content_storage != "snapshot":
+                def migrate(record):
+                    stored = next(item for item in record.artifacts if item.id == latest.id)
+                    stored.content_storage = "snapshot"
+                self.update_project(project_id, migrate)
+                latest.content_storage = "snapshot"
+            return latest
         artifact = Artifact(
-            project_id=project_id,
-            path=relative,
-            name=path.name,
-            mime=mime or mimetypes.guess_type(path.name)[0] or "application/octet-stream",
-            version=max(previous_versions, default=0) + 1,
-            run_id=run_id,
-            source_ids=source_ids or [],
-            checksum=checksum,
-            size_bytes=path.stat().st_size,
-            download_url="pending",
+            project_id=project_id, path=relative, name=Path(relative).name,
+            mime=mime or mimetypes.guess_type(relative)[0] or "application/octet-stream",
+            version=latest.version + 1 if latest else 1, run_id=run_id,
+            source_ids=source_ids or [], checksum=checksum, size_bytes=len(raw),
+            download_url="pending", content_storage="snapshot",
+            parent_artifact_id=latest.id if latest else None, created_by=created_by,
         )
-        artifact.download_url = (
-            f"/api/projects/{project_id}/artifacts/{artifact.id}/download"
-        )
+        artifact.download_url = f"/api/projects/{project_id}/artifacts/{artifact.id}/download"
         self.update_project(project_id, lambda item: item.artifacts.append(artifact))
         return artifact
 
@@ -1138,15 +1156,44 @@ class FileLedger:
                 relative = path.resolve().relative_to(workspace).as_posix()
             except ValueError:
                 continue
-            registered.append(self.register_artifact(project_id, relative, run_id=run_id))
+            try:
+                registered.append(self.register_artifact(project_id, relative, run_id=run_id))
+            except (OSError, ValueError):
+                # An unsafe/changing/oversized file must not suppress the others.
+                continue
         return registered
 
-    def get_artifact(self, project_id: str, artifact_id: str) -> tuple[Artifact, Path]:
+    def capture_artifact(
+        self, project_id: str, artifact_id: str, *, limit: int = MAX_ARTIFACT_BYTES,
+    ) -> tuple[Artifact, bytes]:
         project = self.get_project(project_id)
         artifact = next((item for item in project.artifacts if item.id == artifact_id), None)
         if artifact is None:
             raise LedgerNotFoundError(artifact_id)
-        return artifact, self._artifact_path(project_id, artifact.path)
+        if artifact.project_id != project_id or artifact.size_bytes > limit:
+            raise ValueError("artifact is outside the requested capture limits")
+        if artifact.content_storage == "snapshot":
+            raw = read_snapshot(self._project_path(project_id).parent, artifact.checksum, limit)
+        else:
+            # Legacy records are usable only if their original bytes still exist.
+            # Never serve a different workspace version under an old Artifact ID.
+            raw = read_relative(
+                self.workspace_for_project(project_id), artifact.path,
+                min(limit, MAX_ARTIFACT_BYTES),
+            )
+        if len(raw) != artifact.size_bytes or hashlib.sha256(raw).hexdigest() != artifact.checksum:
+            raise ValueError("artifact version is unavailable or has changed")
+        return artifact, raw
+
+    def get_artifact(self, project_id: str, artifact_id: str) -> tuple[Artifact, Path]:
+        """Local inspection helper. HTTP uses capture_artifact's verified byte copy."""
+        artifact, _ = self.capture_artifact(project_id, artifact_id)
+        path = (
+            self._project_path(project_id).parent / snapshot_relative(artifact.checksum)
+            if artifact.content_storage == "snapshot"
+            else self._artifact_path(project_id, artifact.path)
+        )
+        return artifact, path
 
     def _agent_path(self, agent_id: str) -> Path:
         return self.agents_dir / self._safe_id(agent_id) / "agent.json"

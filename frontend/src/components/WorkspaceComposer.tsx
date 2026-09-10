@@ -28,6 +28,7 @@ import { permissionLifecycleState } from '../permissionLifecycle'
 import PresentationCards, { extractPresentationFrames } from './PresentationCards'
 import ProjectMetricsPanel from './ProjectMetricsPanel'
 import ProjectKnowledgePanel from './ProjectKnowledgePanel'
+import ProjectArtifactsPanel from './ProjectArtifactsPanel'
 import ProjectShopsPanel from './ProjectShopsPanel'
 import WorkspaceNav from './WorkspaceNav'
 import './workspace-composer.css'
@@ -867,6 +868,7 @@ export default function WorkspaceComposer({
                   <FeedbackForm key={run.id} target={{ project_id: run.project_id, run_id: run.id, kind: 'run_failure' }} label="Flag run failure" />
                 )}
                 {project && <ProjectKnowledgePanel projectId={project.id} revision={project.artifacts.map((item) => item.id).join(':')} />}
+                {project && <ProjectArtifactsPanel projectId={project.id} artifacts={project.artifacts} onChanged={onProjectRefresh} />}
                 {project && <ProjectShopsPanel key={`shops:${project.id}`} projectId={project.id} onTask={onChange} />}
                 {project && <ProjectMetricsPanel key={`metrics:${project.id}`} projectId={project.id} />}
                 {project && <FeedbackReviewPanel key={project.id} projectId={project.id} />}
@@ -958,18 +960,6 @@ export default function WorkspaceComposer({
                                   })}
                                 </em>
                               )}
-                            </article>
-                          ))}
-                        </div>
-                      )}
-                      {project.artifacts.length > 0 && (
-                        <div className="conversation-evidence-ledger">
-                          <div><strong>{t('Artifacts')}</strong><span>{t('{n} files', { n: project.artifacts.length })}</span></div>
-                          {project.artifacts.slice(-4).reverse().map((artifact) => (
-                            <article key={artifact.id}>
-                              <small>{artifact.mime} · v{artifact.version}</small>
-                              <p>{artifact.name}</p>
-                              <a href={artifact.download_url}>{t('Download')}</a>
                             </article>
                           ))}
                         </div>
