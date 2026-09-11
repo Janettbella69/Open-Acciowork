@@ -8,26 +8,30 @@ from __future__ import annotations
 
 import hashlib
 import json
+import time
 from collections.abc import Callable
 from contextlib import nullcontext
 from datetime import datetime, timedelta
-from typing import Literal
+from typing import Any, Literal
 
+import httpx
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .auth import AuthorizationError, ProjectAccessStore, ProjectPermission
 from .config import Settings
-from .connectors import ConnectorRegistry
+from .connectors import ConnectorNotFoundError, ConnectorRegistry, ConnectorUnavailableError
 from .constants import TOOL_READ_MARKETPLACE, EvidenceSourceType, RunStatus
 from .marketplaces import (
-    TIKTOK_PRODUCT_SCOPE,
+    SHOPIFY_TYPE,
+    TIKTOK_SHOP_TYPE,
     MarketplaceError,
     MarketplaceReadRequest,
     ProductStatus,
     TikTokShopReader,
-    parse_tiktok_shop_credentials,
+    default_marketplace_transport,
 )
 from .models import PrincipalContext, new_id, utc_now
+from .shopify import ShopifyReader
 from .storage import FileLedger
 from .untrusted import UNTRUSTED_LIMITS, UntrustedSource, sanitize_untrusted_payload
 
@@ -119,7 +123,7 @@ class MarketplaceAccessRecord(BaseModel):
 class MarketplaceAgentRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 
-    operation: Literal["connections", "products"]
+    operation: Literal["connections", "products", "orders"]
     binding_id: str | None = Field(default=None, pattern=BINDING_PATTERN)
     page_size: int = Field(default=10, ge=1, le=10)
     offset: int = Field(default=0, ge=0, le=MAX_BINDINGS)
@@ -128,8 +132,10 @@ class MarketplaceAgentRequest(BaseModel):
 
     @model_validator(mode="after")
     def operation_arguments(self):
-        if self.operation == "products" and (not self.binding_id or self.offset):
-            raise ValueError("products require a binding and use the upstream cursor")
+        if self.operation in {"products", "orders"} and (not self.binding_id or self.offset):
+            raise ValueError("shop reads require a binding and use the upstream cursor")
+        if self.operation == "orders" and self.product_status != "ALL":
+            raise ValueError("orders do not accept product filters")
         if self.operation == "connections" and (
             self.binding_id or self.page_token or self.product_status != "ALL"
         ):
@@ -137,17 +143,65 @@ class MarketplaceAgentRequest(BaseModel):
         return self
 
 
+class MarketplaceReader:
+    """Route typed seller reads to the adapter for each connector's platform."""
+
+    def __init__(
+        self, connectors: ConnectorRegistry, *,
+        transport_factory: Callable[[], httpx.AsyncBaseTransport] | None = None,
+        clock: Callable[[], float] = time.time,
+    ) -> None:
+        self.connectors = connectors
+        self.transport_factory = transport_factory or default_marketplace_transport
+        self.clock = clock
+        # Adapters resolve these per request, so replacing them here reaches every platform.
+        options: dict[str, Any] = {
+            "transport_factory": lambda: self.transport_factory(),
+            "clock": lambda: self.clock(),
+        }
+        self.adapters: dict[str, TikTokShopReader | ShopifyReader] = {
+            TIKTOK_SHOP_TYPE: TikTokShopReader(connectors, **options),
+            SHOPIFY_TYPE: ShopifyReader(connectors, **options),
+        }
+
+    def adapter(self, connector_id: str) -> TikTokShopReader | ShopifyReader:
+        try:
+            connector = self.connectors.get(connector_id)
+        except (ConnectorNotFoundError, ValueError):
+            raise ConnectorUnavailableError(
+                "MARKETPLACE_NOT_CONFIGURED", "The marketplace connector is not configured.",
+            ) from None
+        adapter = self.adapters.get(connector.type)
+        if adapter is None:
+            raise ConnectorUnavailableError(
+                "MARKETPLACE_UNSUPPORTED", "This connector has no supported marketplace reader.",
+            )
+        return adapter
+
+    async def read(
+        self, connector_id: str, request: MarketplaceReadRequest, *,
+        authorize: Callable[[], None] | None = None,
+    ) -> dict[str, Any]:
+        return await self.adapter(connector_id).read(connector_id, request, authorize=authorize)
+
+    def identity_parts(self, connector_id: str) -> list[str | None]:
+        return self.adapter(connector_id).identity_parts(connector_id)
+
+    def require_grantable(self, connector_id: str) -> None:
+        self.adapter(connector_id).require_grantable(connector_id)
+
+
 class MarketplaceAccessService:
     def __init__(
         self, ledger: FileLedger, connectors: ConnectorRegistry, *, settings: Settings,
-        access: ProjectAccessStore, reader: TikTokShopReader | None = None,
+        access: ProjectAccessStore, reader: MarketplaceReader | None = None,
         clock: Callable[[], datetime] = utc_now,
     ) -> None:
         self.ledger = ledger
         self.connectors = connectors
         self.settings = settings
         self.access = access
-        self.reader = reader or TikTokShopReader(connectors)
+        self.reader = reader or MarketplaceReader(connectors)
         self.clock = clock
         self.root = ledger.root / "auth" / "marketplaces"
         self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -212,12 +266,9 @@ class MarketplaceAccessService:
         }
 
     def _connector_identity(self, connector_id: str) -> str:
-        runtime = self.connectors.require_tiktok_shop_runtime(connector_id)
-        credentials = parse_tiktok_shop_credentials(runtime.credential.get_secret_value())
-        # Refreshing a token for the same app/shop does not widen the human grant.
-        # Repointing the connector to a different app requires a new grant.
-        value = [runtime.connector.type, runtime.connector.endpoint,
-                 credentials.app_key.get_secret_value()]
+        # Refreshing a token or secret for the same app/shop does not widen the human
+        # grant. Repointing the connector to a different app or store requires a new grant.
+        value = self.reader.identity_parts(connector_id)
         return hashlib.sha256(json.dumps(value, separators=(",", ":")).encode()).hexdigest()
 
     def _revision(self, project_id: str, expected: int) -> MarketplaceAccessRecord:
@@ -238,11 +289,7 @@ class MarketplaceAccessService:
         principal: PrincipalContext | None,
     ) -> dict:
         actor = self.authorize_admin(project_id, principal)
-        runtime = self.connectors.require_tiktok_shop_runtime(payload.connector_id)
-        if TIKTOK_PRODUCT_SCOPE not in runtime.connector.scope.split():
-            raise MarketplaceError(
-                "MARKETPLACE_SCOPE_REQUIRED", "Configure seller product read permission first.",
-            )
+        self.reader.require_grantable(payload.connector_id)
         self._revision(project_id, payload.expected_revision)
         identity = self._connector_identity(payload.connector_id)
 
@@ -354,8 +401,9 @@ class MarketplaceAccessService:
         observation = await self.reader.read(
             binding.connector_id,
             MarketplaceReadRequest(
-                operation="products", shop_id=binding.shop_id, page_size=request.page_size,
-                page_token=request.page_token, product_status=request.product_status,
+                operation=request.operation, shop_id=binding.shop_id,
+                page_size=request.page_size, page_token=request.page_token,
+                product_status=request.product_status,
             ),
             authorize=authorized,
         )
@@ -384,7 +432,10 @@ class MarketplaceAccessService:
             receipt = self.ledger.issue_tool_receipt(
                 project_id=project_id, run_id=run_id, tool=TOOL_READ_MARKETPLACE,
                 source_type=EvidenceSourceType.TOOL, canonical_source=observation["source_url"],
-                payload=data.value, object_type="marketplace_product_page",
+                payload=data.value, object_type=(
+                    "marketplace_product_page" if request.operation == "products"
+                    else "marketplace_order_page"
+                ),
                 object_key=f"{binding.id}:{observation['request_id']}",
                 object_metadata={"binding_id": binding.id, "shop_id": binding.shop_id,
                                  "data_scope": "authorized_seller_data"},

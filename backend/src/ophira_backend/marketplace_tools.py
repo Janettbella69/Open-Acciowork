@@ -1,4 +1,4 @@
-"""One SDK-native read tool for project-bound shop discovery and product pages."""
+"""One SDK-native read tool for project-bound shop discovery, product and order pages."""
 
 import json
 
@@ -19,10 +19,13 @@ def build_marketplace_tool(service: MarketplaceAccessService, project_id: str, r
         "Read marketplace data within this project's human-approved shop grants. "
         "Use operation=connections to list available binding_id values (offset pagination), "
         "then operation=products with one returned binding_id and optionally a product status "
-        "and next-page token. Each product page includes a server source_receipt.id for "
+        "and next-page token. Shopify bindings also support operation=orders: newest orders "
+        "without customer names, emails or addresses, limited to the last 60 days unless "
+        "order_window is all. Each page includes a server source_receipt.id for "
         "record_evidence in this run/session. No credentials, connector URLs, project ids, "
-        "shop ciphers or grant changes are accepted. These are the seller's own listings, "
-        "not market-wide demand or competitor sales. Not a substitute for commercial judgement.",
+        "shop ciphers or grant changes are accepted. These are the seller's own listings and "
+        "orders, not market-wide demand or competitor sales. "
+        "Not a substitute for commercial judgement.",
         MarketplaceAgentRequest.model_json_schema(),
         annotations=ToolAnnotations(
             readOnlyHint=True, destructiveHint=False, idempotentHint=False, openWorldHint=True,

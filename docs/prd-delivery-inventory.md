@@ -744,3 +744,42 @@ diff-check 通过。主 JS 775.32 kB，既有大于 500 kB 的体积提示保留
 Browser 发现列表仍为空，浏览器目视验收保持开放。真实组织身份联调、跨组织物理隔离、
 长期容量/生产恢复、真实模型使用质量及其余 FR/章节 deferred 尚未完成；完整 PRD
 目标继续开放。
+
+## 2026-09-10：Shopify 店铺只读连接器与店铺体检 Skill
+
+交付前基线：`469b3e1`。合同见 [电商平台接入合同](marketplace-connectors.md)。
+
+- 用户要求接入 Shopify 店铺，并确认参照 Accio Work 插件分层：宿主 Connector 持有凭据
+  并执行读取，Plugin 只放 Skill。Accio `shopify-plugin` 仅核对清单与 Skill frontmatter
+  （`mcpServers` 为空、宿主 OAuth 连接器、捆绑 Shopify CLI、4 个固定角色子代理），未复制
+  Skill 正文；固定角色子代理与沙箱内 CLI 持有令牌不符合红线，未采用。
+- 2026-01-01 起 Shopify 后台不能再新建自定义应用。连接器保存店铺地址与 Dev Dashboard
+  应用 Client ID/secret，服务端经 client credentials grant 换取 24 小时令牌，只存进程内存，
+  到期前 60 秒刷新、HTTP 401 后丢弃，不落盘、不返回。
+- 固定 GraphQL Admin `2026-07` 文档读取店铺、商品（ACTIVE/DRAFT/ARCHIVED/UNLISTED）
+  与订单；订单不请求顾客姓名、邮箱、电话和地址，未授予 `read_all_orders` 时标注最近
+  60 天窗口。连接器允许与 Shopify 实际授予的权限双重校验；商品/订单查询核对 shop ID，
+  店铺域名不符即拒绝。GraphQL 200 错误与 HTTP 401/402/403/404/423/429 映射固定错误码，
+  任何错误整页拒绝。
+- 与 TikTok Shop 共用固定地址 DNS、TLS/SNI、无重定向、2 MiB 与 30 秒边界（抽出共享
+  传输函数）；`MarketplaceReader` 按连接器类型分派，管理员读取路由、项目店铺授权与主
+  Agent `read_marketplace` 两平台共用。新增 `operation=orders`，订单页签发
+  `marketplace_order_page` 来源凭证；不新增 MCP 工具或 server。
+- 连接器页面新增 Shopify 卡片：店铺地址规范化、凭据保存、读取店铺/商品/近期订单、
+  缺失权限与多余写权限提示、项目授权；中英文文案齐全。
+- 新增 `ophira-core:shopify-store-review` Skill（数据边界参考与体检模板），主 Agent 只经
+  已授权读取做店铺体检；Registry 审核 5 项通过，应用 Skill 由 13 个增至 14 个。
+
+验证命令与结果：
+
+- 后端 `OPHIRA_CONTRACT_PROVIDER= PYTHONPATH=backend/src .venv/bin/python -m pytest backend/tests -q`：
+  **1885 passed / 13 skipped**（99.31秒），其中新增 Shopify 测试 49 项。
+- 前端 `npm run test:run`：**351 passed / 36 files**（新增 Shopify 卡片测试 6 项）；ESLint、
+  Vite build 通过，主 JS 786.26 kB，既有大于 500 kB 提示保留。
+- 本批改动文件 Ruff 通过；全量 Ruff 仍报 9 项，均在非本批的未跟踪 `project_export_*.py`。
+
+本批未使用真实 Shopify 凭据，也未发送真实 Shopify Admin API 请求；目标店铺
+`skateboard-shop-7560.myshopify.com` 仅核对过公开 `meta.json`。真实店铺联调（需运营者
+创建 Dev Dashboard 应用并在界面保存凭据）、组织外店铺授权码流程、旧版后台令牌、商品/
+订单写入、Shop browser 平台列表加入 Shopify 及其余 FR deferred 继续开放；完整 PRD
+目标继续开放。

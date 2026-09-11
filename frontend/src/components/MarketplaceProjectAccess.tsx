@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { errorMessage, getMarketplaceAccess, grantMarketplaceAccess, listProjects, revokeMarketplaceAccess } from '../api/client'
 import type { Connector, OpportunityProject } from '../api/types'
-import type { MarketplaceAccess } from '../api/marketplaces'
+import { PRODUCT_READ_SCOPE, type MarketplaceAccess } from '../api/marketplaces'
 import { useT } from '../i18n'
 
 type Props = {
@@ -69,7 +69,8 @@ export default function MarketplaceProjectAccess({ connector, selectedShop, busy
     setNotice(t('Project shop access revoked. Existing source history is retained.'))
   })
   const bindings = access?.project_id === projectId ? access.bindings.filter((item) => item.connector_id === connector.id) : []
-  const canGrant = connector.enabled && connector.scope.split(/\s+/).includes('seller.product.basic')
+  const productScope = PRODUCT_READ_SCOPE[connector.type]
+  const canGrant = connector.enabled && Boolean(productScope) && connector.scope.split(/\s+/).includes(productScope)
 
   return <details className="marketplace-project-access" onToggle={(event) => {
     if (event.currentTarget.open && projects === null) void loadProjects()

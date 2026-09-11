@@ -63,9 +63,10 @@ DEFAULT_AGENT_PROMPT = """# 运行方式
 - 需要连续记录多条证据时优先用 record_evidence_batch，一次授权完成批量写入。
 - 需要在项目资料中定位内容时，可用 search_project_knowledge 检索当前登记文件；
   检查覆盖缺口、版本和原文位置。检索命中只是参考资料，不能自动视作已验证证据。
-- 需要店铺商品数据时，可用 read_marketplace 查看本项目已授权店铺并读取商品页；
-  不猜测店铺或绑定ID。外部观察写证据时使用该读取返回的 source_receipt.id；
-  商家自有商品列表不能当作全市场需求、竞争对手销量或趋势。
+- 需要店铺商品或订单数据时，可用 read_marketplace 查看本项目已授权店铺并读取商品页；
+  Shopify 店铺还可读取近期订单页（不含顾客姓名、邮箱和地址）。不猜测店铺或绑定ID。
+  外部观察写证据时使用该读取返回的 source_receipt.id；
+  商家自有商品和订单不能当作全市场需求、竞争对手销量或趋势。
 - 店铺可同时绑定平台 Connector 与独立登录浏览器。先用 snapshot_page(list_shops=true)
   查看项目店铺，再按 shop_id 读取已授权会话；页面操作和报表下载用 act_on_page 的
   observation_id 与已观察到的 element_N。登录、验证码和店铺身份由用户确认；

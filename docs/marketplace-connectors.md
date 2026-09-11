@@ -11,7 +11,7 @@ access or implement OAuth; current API and browser grants remain independent.
 
 ## Platform inventory
 
-Reviewed against official documentation on 2026-09-09. Dynamic documentation
+Reviewed against official documentation on 2026-09-09 (Shopify on 2026-09-10). Dynamic documentation
 was checked using official indexed pages where the supplied page returned only
 its JavaScript shell. These are documentation checks, not authenticated API tests.
 
@@ -22,6 +22,7 @@ its JavaScript shell. These are documentation checks, not authenticated API test
 | TikTok Shop | [Developer onboarding](https://partner.tiktokshop.com/docv2/page/developer-onboarding) | Seller credential configuration, authorized-shop reads, product pagination, project-specific expiring shop grants, main-Agent read tool and source receipts, administrator grant/revoke UI; offline adapter/API/SDK/UI verification | Live developer/test-shop and model certification, OAuth callback/token exchange and refresh, commercial writes |
 | AliExpress | [Register an application](https://developer.alibaba.com/docs/doc.htm?articleId=120674&docType=1&treeId=727) | Correct platform identification and documentation entry | Runtime adapter: verify current app category, read endpoints, permissions and seller authorization; supplied registration page is dated 2022 |
 | Shopee | [Developer guide](https://open.shopee.cn/developer-guide/12) | Documentation entry | Runtime adapter: supplied guide was inaccessible in this environment; equivalent global guide returned HTTP 403, so no signature or API contract is assumed |
+| Shopify | [Client credentials grant](https://shopify.dev/docs/apps/build/authentication-authorization/client-credentials-grant) | Store address and Dev Dashboard app credentials, in-memory 24-hour token exchange, shop/product/order reads on GraphQL Admin `2026-07`, project grants, main-Agent reads with source receipts, `shopify-store-review` Plugin Skill; offline adapter/API/UI verification | Live store E2E (needs the operator's app credentials); stores outside the app's Dev Dashboard organization (authorization code grant); legacy admin-created tokens; commercial writes |
 
 The Alibaba-hosted link describes **AliExpress**, not Alibaba.com International
 or 1688. The existing legacy `alibaba` connector record is preserved; its combined
@@ -98,12 +99,57 @@ The platform remains authoritative for actual grants. A successful response
 contains retrieval time, official source path without query, upstream request ID
 when supplied, and `data_scope: authorized_seller_data`.
 
+## Shopify read contract
+
+Shopify is read through a Dev Dashboard app installed on the operator's own store.
+Since 2026-01-01 new custom apps can no longer be created in the Shopify admin, so
+OPHIRA does not accept a pasted Admin API token. It stores the app's **client ID and
+client secret** and uses the client credentials grant:
+
+| Step | Official contract | Local handling |
+| --- | --- | --- |
+| Token | `POST https://{store}.myshopify.com/admin/oauth/access_token`, form fields `grant_type=client_credentials`, `client_id`, `client_secret` | Token (`expires_in` 86399) kept only in process memory, reused until 60 seconds before expiry, dropped after HTTP 401; never persisted, logged or returned |
+| Shop | [`shop`](https://shopify.dev/docs/api/admin-graphql/2026-07/queries/shop): `id name myshopifyDomain currencyCode shopAddress { countryCodeV2 }` | Domain must equal the configured store; the result lists `granted_scopes` from the token response |
+| Products | [`products`](https://shopify.dev/docs/api/admin-graphql/2026-07/queries/products)`(first, after, query, sortKey: UPDATED_AT, reverse: true)` | `read_products` must be allowed on the connector **and** granted to the app; filters ACTIVE, DRAFT, ARCHIVED, UNLISTED |
+| Orders | [`orders`](https://shopify.dev/docs/api/admin-graphql/2026-07/queries/orders)`(first, after, sortKey: CREATED_AT, reverse: true)` | `read_orders` allowed and granted; fields limited to order name, created/cancelled time, test flag, financial/fulfillment status, item quantity and current total; `order_window` is `last_60_days` unless `read_all_orders` is granted |
+
+All GraphQL documents are fixed; callers choose only page size, cursor and a documented
+product status. Product and order queries also read `shop { id }` and reject a `shop_id`
+that is not this store. Customer, address, email and phone fields are never requested
+([protected customer data](https://shopify.dev/docs/apps/launch/protected-customer-data)).
+GraphQL reports throttling and access failures with HTTP 200: `THROTTLED`,
+`ACCESS_DENIED` and `SHOP_INACTIVE` map to fixed codes, and any `errors` entry rejects the
+whole page. HTTP 401/402/403/404/423/429 map to fixed messages without reading the body.
+A plain `X-Request-Id` response header becomes `request_id` when supplied.
+
+The store address must be exactly `https://<store>.myshopify.com`. Token and GraphQL
+requests use the same pinned DNS, TLS/SNI, no-redirect, 2 MiB and 30-second bounds as
+TikTok Shop, and configuration or revocation is rechecked before sending and after each
+response. A token exchanged while the connector was revoked or changed is not cached.
+
+### Configure Shopify
+
+1. In the Shopify admin open **Settings → Apps → Develop apps → Build apps in Dev
+   Dashboard**, then **Create app → Start from Dev Dashboard**.
+2. On **Versions**, keep the default app URL `https://shopify.dev/apps/default-app-home`,
+   enter `read_products` (and `read_orders` for orders), then **Release**.
+3. From the app **Home**, select **Install app** for the store. The app and store must be
+   in the same Dev Dashboard organization; otherwise Shopify returns `shop_not_permitted`.
+4. Copy **Client ID** and **Client secret** from the app **Settings**.
+5. Open **Plugins → Connectors → Shopify → Configure store access**. Enter the store
+   (`store`, `store.myshopify.com` or an `admin.shopify.com/store/<store>` link is
+   normalized), both credentials and the reads to allow, save, then select **Read store**.
+
+Alternatively set `OPHIRA_CONNECTOR_SHOPIFY_KEY` to a JSON object with `client_id` and
+`client_secret` after saving the store address. A Shopify project grant requires product
+reads to be allowed; order reads follow the connector setting and the app's granted scopes.
+
 ## Boundaries and verification
 
-- `GET /api/connectors/marketplaces` exposes only five official guide entries and
-  implementation availability. Four planned adapters cannot be invoked.
-- `POST /api/connectors/{id}/marketplace-read` accepts only the two typed read
-  operations. In trusted-gateway mode it requires an owner/admin, independently
+- `GET /api/connectors/marketplaces` exposes six official guide entries and
+  implementation availability. SHEIN, Temu, AliExpress and Shopee adapters cannot be invoked.
+- `POST /api/connectors/{id}/marketplace-read` accepts only typed read operations
+  (authorized shops, products and Shopify orders). In trusted-gateway mode it requires an owner/admin, independently
   of the shared connector mutation guard. Local-only mode retains the existing
   loopback/source checks. The Agent uses the separately scoped tool below.
 - Credentials stay in the existing server vault or connector-only environment
@@ -127,7 +173,8 @@ when supplied, and `data_scope: authorized_seller_data`.
 ## Grant a shop to a project
 
 After reading authorized shops and selecting one, open **Project access for Agents**
-in the TikTok Shop card. Choose a saved project and a duration of 1, 7 or 30 days,
+in the TikTok Shop card, or after **Read store** in the Shopify card. Choose a saved
+project and a duration of 1, 7 or 30 days,
 then select **Allow Agent reads for selected shop**. This permits the project's
 main Agent, including its scheduled runs, to read that shop until expiry. It does
 not expose all shops authorized by the seller token. Existing grants can be
@@ -163,7 +210,10 @@ to the same app can reuse an unexpired project grant.
 server. `operation=connections` returns only this project's unexpired, unrevoked
 shop bindings, with `offset` pagination. `operation=products` accepts one of those
 binding IDs, `page_size` 1–10, an optional upstream `page_token` and product-status
-filter. Project, Run and SDK session are bound by the host; callers cannot supply
+filter. Shopify bindings also accept `operation=orders` with the same paging and no
+product filter; those pages mint `marketplace_order_page` receipts. The bundled
+`ophira-core:shopify-store-review` Skill guides the main Agent through catalog and
+recent-order reviews using only this tool. Project, Run and SDK session are bound by the host; callers cannot supply
 credentials, connector URLs, arbitrary shop IDs or grant changes.
 
 The host verifies current project membership, running status, SDK session, shop
@@ -207,3 +257,11 @@ They do **not** certify a real TikTok app, test shop, live grant, region, rate l
 or OAuth flow, or a real model's use of the new tool. Browser visual QA remains
 deferred because the in-app Browser is unavailable in this session. No real
 credentials or marketplace API requests were used.
+
+Shopify offline tests cover store-address and credential validation, the exact token
+form and header-only token use, token reuse/refresh/401 invalidation, local and granted
+scope checks, store identity, product/order field bounds and enums, cursor round trips,
+GraphQL error mapping, response bounds and closure, revoke/rotation/store changes during
+exchange without caching, a project grant with order receipts, production FastAPI routes,
+the Connectors page card and the bundled Skill review checks. They do **not** certify a
+real Shopify store, app installation, token, rate limit or a real model's use of orders.

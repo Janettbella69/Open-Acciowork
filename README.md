@@ -87,8 +87,11 @@ settlement schedules, distinguishing daily closing balances from a conservative
 intraday bound; see [`docs/cashflow.md`](docs/cashflow.md).
 
 **Plugins → Connectors** now includes official onboarding links for SHEIN, Temu,
-TikTok Shop, AliExpress and Shopee. TikTok Shop has a seller-authorized shop and
+TikTok Shop, AliExpress, Shopee and Shopify. TikTok Shop has a seller-authorized shop and
 product reader with pagination, scoped credentials and revoke/reconnect controls.
+Shopify reads one store in the app's Dev Dashboard organization through the client
+credentials grant (24-hour tokens kept in memory): shop details, products and recent
+orders without customer identity, guided by the `shopify-store-review` Plugin Skill.
 Project administrators can grant one shop for a fixed duration; the main Agent
 can then read that shop and cite server-issued source receipts when recording evidence.
 The other four adapters and live seller certification remain open; see

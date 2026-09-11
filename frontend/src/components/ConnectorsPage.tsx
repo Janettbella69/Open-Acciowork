@@ -4,6 +4,7 @@ import type { Connector } from '../api/types'
 import type { MarketplaceGuide } from '../api/marketplaces'
 import { useT } from '../i18n'
 import MarketplaceConnector from './MarketplaceConnector'
+import ShopifyConnector from './ShopifyConnector'
 import './connectors-page.css'
 
 function statusLabel(connector: Connector): string {
@@ -81,6 +82,10 @@ export default function ConnectorsPage() {
     }
   }
 
+  const replaceConnector = (updated: Connector) => {
+    setConnectors((current) => current.map((item) => item.id === updated.id ? updated : item))
+  }
+
   const revoke = async (connector: Connector) => {
     if (!connector.enabled || actionInFlightRef.current.has(connector.id)) return
     actionInFlightRef.current.add(connector.id)
@@ -124,7 +129,9 @@ export default function ConnectorsPage() {
           ) : connectors.length ? (
             <div className="connectors-list">
               {connectors.map((connector) => connector.type === 'tiktok_shop' ? (
-                <MarketplaceConnector key={connector.id} connector={connector} onChange={(updated) => setConnectors((current) => current.map((item) => item.id === updated.id ? updated : item))} />
+                <MarketplaceConnector key={connector.id} connector={connector} onChange={replaceConnector} />
+              ) : connector.type === 'shopify' ? (
+                <ShopifyConnector key={connector.id} connector={connector} onChange={replaceConnector} />
               ) : (
                 <article key={connector.id} data-enabled={connector.enabled ? 'true' : 'false'}>
                   <div className="connector-mark" aria-hidden="true">{connector.type.slice(0, 2).toUpperCase()}</div>

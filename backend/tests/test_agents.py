@@ -108,7 +108,7 @@ def test_single_agent_options_gate_write_tools_and_pass_resume(tmp_path: Path) -
     assert "/skills/runtime/" in options.plugins[0]["path"]
     assert options.plugins[0]["path"].endswith("ophira-core")
     assert isinstance(options.skills, list)
-    assert len(options.skills) == 13
+    assert len(options.skills) == 14
     assert options.enable_file_checkpointing is True
 
 

@@ -103,7 +103,7 @@ def test_default_sdk_options_keep_the_agent_general_and_observable(tmp_path: Pat
     assert options.env["OPHIRA_PUSH_VAPID_PRIVATE_KEY"] == ""
     assert options.setting_sources == []
     assert isinstance(options.skills, list)
-    assert len(options.skills) == 13
+    assert len(options.skills) == 14
     assert all(name.startswith("ophira-core:") for name in options.skills)
     assert options.plugins
     assert len(options.plugins) == 1

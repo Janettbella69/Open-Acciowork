@@ -1,7 +1,8 @@
 """Official marketplace contracts and a bounded, seller-authorized TikTok Shop reader.
 
-Only the two documented read operations below are callable. Credential material,
+Only the documented read operations below are callable. Credential material,
 shop ciphers, signed URLs and upstream error bodies never leave this adapter.
+The Shopify reader in ``shopify.py`` shares the contracts and transport bounds here.
 See docs/marketplace-connectors.md for source versions and acceptance limits.
 """
 
@@ -35,8 +36,10 @@ from .web_tools import pin_public_http_url
 
 if TYPE_CHECKING:
     from .connectors import ConnectorRegistry
+    from .web_tools import PinnedPublicDestination
 
 TIKTOK_SHOP_TYPE = "tiktok_shop"
+SHOPIFY_TYPE = "shopify"
 TIKTOK_SHOP_ORIGIN = "https://open-api.tiktokglobalshop.com"
 TIKTOK_SHOPS_PATH = "/authorization/202309/shops"
 TIKTOK_PRODUCTS_PATH = "/product/202502/products/search"
@@ -67,6 +70,11 @@ MARKETPLACE_GUIDES = [
     {
         "type": "shopee", "name": "Shopee", "read_adapter": False,
         "documentation_url": "https://open.shopee.cn/developer-guide/12",
+    },
+    {
+        "type": SHOPIFY_TYPE, "name": "Shopify", "read_adapter": True,
+        "documentation_url": "https://shopify.dev/docs/apps/build/authentication-authorization/"
+        "client-credentials-grant",
     },
 ]
 
@@ -117,14 +125,20 @@ def parse_tiktok_shop_credentials(raw: str) -> TikTokShopCredentials:
 
 ProductStatus = Literal[
     "ALL", "DRAFT", "PENDING", "FAILED", "ACTIVATE", "SELLER_DEACTIVATED",
-    "PLATFORM_DEACTIVATED", "FREEZE", "DELETED",
+    "PLATFORM_DEACTIVATED", "FREEZE", "DELETED", "ACTIVE", "ARCHIVED", "UNLISTED",
 ]
+# Each platform documents its own status vocabulary; filters never cross platforms.
+TIKTOK_PRODUCT_STATUSES = frozenset({
+    "ALL", "DRAFT", "PENDING", "FAILED", "ACTIVATE", "SELLER_DEACTIVATED",
+    "PLATFORM_DEACTIVATED", "FREEZE", "DELETED",
+})
+SHOPIFY_PRODUCT_STATUSES = frozenset({"ALL", "ACTIVE", "ARCHIVED", "DRAFT", "UNLISTED"})
 
 
 class MarketplaceReadRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 
-    operation: Literal["authorized_shops", "products"]
+    operation: Literal["authorized_shops", "products", "orders"]
     shop_id: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_-]{1,160}$")
     page_size: int = Field(default=20, ge=1, le=100)
     page_token: str | None = Field(default=None, min_length=1, max_length=2048)
@@ -132,8 +146,10 @@ class MarketplaceReadRequest(BaseModel):
 
     @model_validator(mode="after")
     def require_shop(self) -> MarketplaceReadRequest:
-        if self.operation == "products" and not self.shop_id:
-            raise ValueError("Select an authorized shop before reading products")
+        if self.operation in {"products", "orders"} and not self.shop_id:
+            raise ValueError("Select an authorized shop before reading products or orders")
+        if self.operation == "orders" and self.product_status != "ALL":
+            raise ValueError("Order reads do not accept product filters")
         if self.operation == "authorized_shops" and (
             self.shop_id is not None or self.page_token is not None
             or self.product_status != "ALL" or self.page_size != 20
@@ -160,6 +176,55 @@ def _protocol_error() -> MarketplaceError:
     )
 
 
+def default_marketplace_transport() -> httpx.AsyncBaseTransport:
+    return httpx.AsyncHTTPTransport(
+        trust_env=False, retries=0, limits=httpx.Limits(max_keepalive_connections=0),
+    )
+
+
+async def pin_marketplace_destination(url: str) -> PinnedPublicDestination:
+    """Resolve one adapter-owned URL to a validated public unicast address."""
+    from .connectors import is_public_unicast_address
+
+    # Pin only the adapter's origin. The caller/model cannot supply a host or route.
+    destination, _reason = await asyncio.to_thread(pin_public_http_url, url)
+    if destination is None or not is_public_unicast_address(
+        ipaddress.ip_address(destination.resolved_ip)
+    ):
+        raise MarketplaceError(
+            "MARKETPLACE_DESTINATION_REJECTED", "The marketplace host could not be validated.",
+            502,
+        )
+    return destination
+
+
+async def send_marketplace_request(
+    transport_factory: Callable[[], httpx.AsyncBaseTransport], request: httpx.Request,
+    reject: Callable[[int], MarketplaceError],
+) -> tuple[bytes, httpx.Headers]:
+    """Send once and read at most the response cap; rejected bodies are never read."""
+    # Public transport API avoids AsyncClient's INFO log of the signed URL.
+    # It has no proxy, cookies, redirect handling, retries or second DNS lookup.
+    async with transport_factory() as transport:
+        response = await transport.handle_async_request(request)
+        try:
+            if response.status_code != 200:
+                raise reject(response.status_code)
+            if response.headers.get("content-encoding", "identity") != "identity":
+                raise _protocol_error()
+            content = bytearray()
+            async for chunk in response.aiter_raw():
+                if len(content) + len(chunk) > MAX_MARKETPLACE_RESPONSE_BYTES:
+                    raise MarketplaceError(
+                        "MARKETPLACE_RESPONSE_TOO_LARGE",
+                        "The marketplace response exceeds the read limit.", 502,
+                    )
+                content.extend(chunk)
+        finally:
+            await response.aclose()
+    return bytes(content), response.headers
+
+
 class TikTokShopReader:
     def __init__(
         self, connectors: ConnectorRegistry, *,
@@ -167,12 +232,21 @@ class TikTokShopReader:
         clock: Callable[[], float] = time.time,
     ) -> None:
         self.connectors = connectors
-        self.transport_factory = transport_factory or (
-            lambda: httpx.AsyncHTTPTransport(
-                trust_env=False, retries=0, limits=httpx.Limits(max_keepalive_connections=0),
-            )
-        )
+        self.transport_factory = transport_factory or default_marketplace_transport
         self.clock = clock
+
+    def identity_parts(self, connector_id: str) -> list[str | None]:
+        runtime = self.connectors.require_tiktok_shop_runtime(connector_id)
+        credentials = parse_tiktok_shop_credentials(runtime.credential.get_secret_value())
+        return [runtime.connector.type, runtime.connector.endpoint,
+                credentials.app_key.get_secret_value()]
+
+    def require_grantable(self, connector_id: str) -> None:
+        runtime = self.connectors.require_tiktok_shop_runtime(connector_id)
+        if TIKTOK_PRODUCT_SCOPE not in runtime.connector.scope.split():
+            raise MarketplaceError(
+                "MARKETPLACE_SCOPE_REQUIRED", "Configure seller product read permission first.",
+            )
 
     async def read(
         self, connector_id: str, request: MarketplaceReadRequest, *,
@@ -186,6 +260,14 @@ class TikTokShopReader:
             secret.get_secret_value()
             for secret in (credentials.app_key, credentials.app_secret, credentials.access_token)
         }
+        if request.operation == "orders":
+            raise MarketplaceError(
+                "MARKETPLACE_OPERATION_UNSUPPORTED", "TikTok Shop order reads are not available.",
+            )
+        if request.product_status not in TIKTOK_PRODUCT_STATUSES:
+            raise MarketplaceError(
+                "MARKETPLACE_FILTER_UNSUPPORTED", "Use a TikTok Shop product status filter.",
+            )
         required = {TIKTOK_AUTH_SCOPE}
         if request.operation == "products":
             required.add(TIKTOK_PRODUCT_SCOPE)
@@ -355,19 +437,7 @@ class TikTokShopReader:
         parameters: dict[str, str], body: bytes, check_current: Callable[[], None],
         private_values: set[str],
     ) -> dict[str, Any]:
-        from .connectors import is_public_unicast_address
-
-        # Pin only the official origin. The caller/model cannot supply a host or route.
-        destination, _reason = await asyncio.to_thread(
-            pin_public_http_url, TIKTOK_SHOP_ORIGIN + path,
-        )
-        if destination is None or not is_public_unicast_address(
-            ipaddress.ip_address(destination.resolved_ip)
-        ):
-            raise MarketplaceError(
-                "MARKETPLACE_DESTINATION_REJECTED", "The marketplace host could not be validated.",
-                502,
-            )
+        destination = await pin_marketplace_destination(TIKTOK_SHOP_ORIGIN + path)
         check_current()
         parameters = {
             **parameters, "app_key": credentials.app_key.get_secret_value(),
@@ -389,28 +459,13 @@ class TikTokShopReader:
                 "timeout": {"connect": 10.0, "read": 15.0, "write": 10.0, "pool": 5.0},
             },
         )
-        # Public transport API avoids AsyncClient's INFO log of the signed URL.
-        # It has no proxy, cookies, redirect handling, retries or second DNS lookup.
-        async with self.transport_factory() as transport:
-            response = await transport.handle_async_request(wire_request)
-            try:
-                if response.status_code != 200:
-                    raise MarketplaceError(
-                        "MARKETPLACE_HTTP_REJECTED",
-                        f"The marketplace rejected the read (HTTP {response.status_code}).", 502,
-                    )
-                if response.headers.get("content-encoding", "identity") != "identity":
-                    raise _protocol_error()
-                content = bytearray()
-                async for chunk in response.aiter_raw():
-                    if len(content) + len(chunk) > MAX_MARKETPLACE_RESPONSE_BYTES:
-                        raise MarketplaceError(
-                            "MARKETPLACE_RESPONSE_TOO_LARGE",
-                            "The marketplace response exceeds the read limit.", 502,
-                        )
-                    content.extend(chunk)
-            finally:
-                await response.aclose()
+        content, _headers = await send_marketplace_request(
+            self.transport_factory, wire_request,
+            lambda status: MarketplaceError(
+                "MARKETPLACE_HTTP_REJECTED",
+                f"The marketplace rejected the read (HTTP {status}).", 502,
+            ),
+        )
         check_current()
         try:
             payload = json.loads(content)
