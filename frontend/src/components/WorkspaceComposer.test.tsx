@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { useState } from 'react'
 import { vi } from 'vitest'
 import type { PendingPermission, ProviderProfile, RunRecord, RunTelemetry, TelemetryMetric } from '../api/types'
@@ -43,10 +43,12 @@ function baseProps() {
     isActive: false,
     providers: [],
     providerProfileId: null,
+    approvalMode: 'default' as const,
     runMode: 'standard' as const,
     onChange: vi.fn(),
     onAttachedFilesChange: vi.fn(),
     onProviderProfileChange: vi.fn(),
+    onApprovalModeChange: vi.fn(async () => {}),
     onRunModeChange: vi.fn(),
     onSubmit: vi.fn(),
     onProjectRefresh: vi.fn(),
@@ -238,42 +240,82 @@ describe('WorkspaceComposer', () => {
     expect(props.onChange).not.toHaveBeenCalled()
   })
 
-  it('opens files, modes, experts, skills, and connectors from one composer tools menu', () => {
+  it('opens files, experts, skills, and connectors from one composer tools menu', () => {
     render(<StatefulComposer />)
 
     const attachment = new File(['supplier notes'], 'supplier-notes.pdf', { type: 'application/pdf' })
     fireEvent.change(screen.getByLabelText(/choose files or images/i), { target: { files: [attachment] } })
     expect(screen.getByLabelText(/locally staged attachments/i)).toHaveTextContent('supplier-notes.pdf')
 
-    expect(screen.queryByRole('button', { name: /^skills$/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: /^skills$/i })).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /open tools menu/i }))
 
-    expect(screen.getByRole('dialog', { name: /composer tools/i })).toBeInTheDocument()
+    const menu = screen.getByRole('dialog', { name: /composer tools/i })
     expect(screen.getByRole('button', { name: /^add files$/i })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /^mode$/i })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^mode$/i })).not.toBeInTheDocument()
+    expect(within(menu).queryByRole('button', { name: /deep research/i })).not.toBeInTheDocument()
     expect(screen.getByRole('link', { name: /^experts$/i })).toHaveAttribute('href', '/app/agents')
-    expect(screen.getByRole('button', { name: /^skills$/i })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /^skills$/i })).toHaveAttribute('href', '/app/plugins/skills')
     expect(screen.getByRole('link', { name: /^connectors$/i })).toHaveAttribute('href', '/app/plugins/connectors')
-
-    fireEvent.click(screen.getByRole('button', { name: /^mode$/i }))
-    expect(screen.getByRole('dialog', { name: /choose a mode/i })).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: /^deep research/i }))
-    expect(screen.queryByRole('dialog', { name: /choose a mode/i })).not.toBeInTheDocument()
-
-    fireEvent.click(screen.getByRole('button', { name: /open tools menu/i }))
-    fireEvent.click(screen.getByRole('button', { name: /^mode$/i }))
-    expect(screen.getByRole('button', { name: /^deep research/i })).toHaveAttribute('data-active', 'true')
-    fireEvent.click(screen.getByRole('button', { name: /back to tools/i }))
-    fireEvent.click(screen.getByRole('button', { name: /^skills$/i }))
-    expect(screen.getByRole('dialog', { name: /choose a trademind skill/i })).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: /buyer test designer/i }))
-    expect(screen.getByRole('textbox', { name: /ask trademind/i })).toHaveValue(
-      'Use Buyer Test Designer to turn our sales assumptions into the smallest credible and falsifiable buyer test.',
-    )
-    expect(screen.queryByRole('dialog', { name: /choose a trademind skill/i })).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: /remove supplier-notes.pdf/i }))
     expect(screen.queryByText('supplier-notes.pdf')).not.toBeInTheDocument()
+  })
+
+  it('turns Deep Research on and off from the composer as an explicit choice', () => {
+    render(<StatefulComposer />)
+
+    const toggle = screen.getByRole('button', { name: /deep research/i })
+    expect(toggle).toHaveAttribute('aria-pressed', 'false')
+
+    fireEvent.click(toggle)
+    expect(screen.getByRole('button', { name: /deep research/i })).toHaveAttribute('aria-pressed', 'true')
+
+    fireEvent.click(screen.getByRole('button', { name: /deep research/i }))
+    expect(screen.getByRole('button', { name: /deep research/i })).toHaveAttribute('aria-pressed', 'false')
+  })
+
+  it('locks the Deep Research choice while a task is running', () => {
+    render(<WorkspaceComposer {...baseProps()} busy />)
+
+    expect(screen.getByRole('button', { name: /deep research/i })).toBeDisabled()
+  })
+
+  it('switches the workspace approval mode without offering unsandboxed full access', async () => {
+    const onApprovalModeChange = vi.fn(async () => {})
+    render(<WorkspaceComposer {...baseProps()} onApprovalModeChange={onApprovalModeChange} />)
+
+    const trigger = screen.getByRole('button', { name: /open approval mode selector/i })
+    expect(trigger).toHaveTextContent('Ask for approval')
+    fireEvent.click(trigger)
+
+    const menu = screen.getByRole('dialog', { name: /choose an approval mode/i })
+    expect(within(menu).getByRole('link', { name: 'Settings' })).toHaveAttribute('href', '/app/settings')
+    expect(within(menu).getByRole('button', { name: /ask for approval/i })).toHaveAttribute('data-active', 'true')
+    expect(within(menu).getAllByRole('button')).toHaveLength(2)
+    expect(within(menu).queryByText(/full access/i)).not.toBeInTheDocument()
+    fireEvent.click(within(menu).getByRole('button', { name: /approve for me/i }))
+
+    expect(onApprovalModeChange).toHaveBeenCalledWith('auto')
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: /choose an approval mode/i })).not.toBeInTheDocument())
+  })
+
+  it('keeps the approval menu open with the reason when saving fails', async () => {
+    const onApprovalModeChange = vi.fn(async () => { throw new Error('Policy store unavailable') })
+    render(<WorkspaceComposer {...baseProps()} onApprovalModeChange={onApprovalModeChange} />)
+
+    fireEvent.click(screen.getByRole('button', { name: /open approval mode selector/i }))
+    fireEvent.click(screen.getByRole('button', { name: /approve for me/i }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Policy store unavailable')
+    expect(screen.getByRole('dialog', { name: /choose an approval mode/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /open approval mode selector/i })).toHaveTextContent('Ask for approval')
+  })
+
+  it('locks the approval mode while a task is running or waiting for approval', () => {
+    render(<WorkspaceComposer {...baseProps()} busy />)
+
+    expect(screen.getByRole('button', { name: /open approval mode selector/i })).toBeDisabled()
   })
 
   it('opens the workspace account menu and exposes the settings route', () => {

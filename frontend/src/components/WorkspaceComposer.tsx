@@ -8,6 +8,7 @@ import {
   type PendingPermission,
   type PermissionAnswers,
   type PermissionDecision,
+  type PermissionModePolicy,
   type ProviderProfile,
   type RunMode,
   type RunRecord,
@@ -15,9 +16,9 @@ import {
   type RunTelemetry,
   type TelemetryMetric,
 } from '../api/types'
-import { builtInSkills } from '../data/skillCatalog'
 import { useLanguage, useT, type Translate } from '../i18n'
 import { providerIsRunnable, providerUnavailableReason } from '../providerEligibility'
+import ApprovalModeSelector from './ApprovalModeSelector'
 import Brand from './Brand'
 import EvidenceDrawer from './EvidenceDrawer'
 import FeedbackForm from './FeedbackForm'
@@ -56,10 +57,13 @@ type WorkspaceComposerProps = {
   isActive: boolean
   providers: ProviderProfile[]
   providerProfileId: string | null
+  approvalMode: PermissionModePolicy | null
+  approvalModeError?: string
   runMode: RunMode
   onChange: (value: string) => void
   onAttachedFilesChange: (files: File[]) => void
   onProviderProfileChange: (providerProfileId: string | null) => void
+  onApprovalModeChange: (mode: PermissionModePolicy) => Promise<void>
   onRunModeChange: (mode: RunMode) => void
   onSubmit: (event: FormEvent<HTMLFormElement>) => void
   onProjectRefresh: () => void
@@ -80,8 +84,8 @@ type WorkspaceComposerProps = {
   onRetry?: (strategy: RunRetryStrategy) => void
 }
 
-type ComposerMenuView = 'closed' | 'root' | 'mode' | 'skills'
-type ComposerToolIconName = 'files' | 'mode' | 'experts' | 'skills' | 'connectors'
+type ComposerMenuView = 'closed' | 'root'
+type ComposerToolIconName = 'files' | 'experts' | 'skills' | 'connectors' | 'research'
 
 function ComposerToolIcon({ name }: { name: ComposerToolIconName }) {
   return (
@@ -89,11 +93,11 @@ function ComposerToolIcon({ name }: { name: ComposerToolIconName }) {
       {name === 'files' && (
         <path d="m8.8 12.8 5.7-5.7a3 3 0 0 1 4.2 4.2l-7.2 7.2a5 5 0 0 1-7.1-7.1l7-7a3.5 3.5 0 0 1 5 5l-7.1 7.1a2 2 0 1 1-2.8-2.8l6.4-6.4" />
       )}
-      {name === 'mode' && (
+      {name === 'research' && (
         <>
-          <path d="M4 20c1.7-4.8 5.1-8.2 10-10" />
-          <path d="M8.6 15.4c-1.8-2.9-.6-6.7 2.6-8.1L20 3.5l-3.8 8.8c-1.4 3.2-5.2 4.4-8.1 2.6" />
-          <path d="m5 4 .5 1.5L7 6l-1.5.5L5 8l-.5-1.5L3 6l1.5-.5L5 4Z" />
+          <circle cx="11" cy="11" r="7" />
+          <path d="m16.2 16.2 4.3 4.3" />
+          <path d="M11 7.6 12.2 10l2.4 1-2.4 1-1.2 2.4-1.2-2.4-2.4-1 2.4-1L11 7.6Z" />
         </>
       )}
       {name === 'experts' && (
@@ -321,10 +325,13 @@ export default function WorkspaceComposer({
   isActive,
   providers,
   providerProfileId,
+  approvalMode,
+  approvalModeError = '',
   runMode,
   onChange,
   onAttachedFilesChange,
   onProviderProfileChange,
+  onApprovalModeChange,
   onRunModeChange,
   onSubmit,
   onProjectRefresh,
@@ -423,19 +430,9 @@ export default function WorkspaceComposer({
     event.target.value = ''
   }
 
-  const selectSkill = (prompt: string) => {
-    onChange(prompt)
-    setComposerMenu('closed')
-  }
-
   const chooseFiles = () => {
     setComposerMenu('closed')
     fileInputRef.current?.click()
-  }
-
-  const selectRunMode = (mode: RunMode) => {
-    onRunModeChange(mode)
-    setComposerMenu('closed')
   }
 
   const selectProvider = (nextProviderProfileId: string | null) => {
@@ -511,21 +508,16 @@ export default function WorkspaceComposer({
                   <strong>{t('Add Files')}</strong>
                   <i aria-hidden="true">›</i>
                 </button>
-                <button className="conversation-tool-menu-row" type="button" onClick={() => setComposerMenu('mode')}>
-                  <ComposerToolIcon name="mode" />
-                  <strong>{t('Mode')}</strong>
-                  <i aria-hidden="true">›</i>
-                </button>
                 <a className="conversation-tool-menu-row" href="/app/agents">
                   <ComposerToolIcon name="experts" />
                   <strong>{t('Experts')}</strong>
                   <i aria-hidden="true">›</i>
                 </a>
-                <button className="conversation-tool-menu-row" type="button" onClick={() => setComposerMenu('skills')}>
+                <a className="conversation-tool-menu-row" href="/app/plugins/skills">
                   <ComposerToolIcon name="skills" />
                   <strong>{t('Skills')}</strong>
                   <i aria-hidden="true">›</i>
-                </button>
+                </a>
                 <a className="conversation-tool-menu-row" href="/app/plugins/connectors">
                   <ComposerToolIcon name="connectors" />
                   <strong>{t('Connectors')}</strong>
@@ -533,48 +525,27 @@ export default function WorkspaceComposer({
                 </a>
               </section>
             )}
-
-            {composerMenu === 'mode' && (
-              <section className="conversation-mode-menu" role="dialog" aria-label={t('Choose a mode')}>
-                <header>
-                  <button type="button" aria-label={t('Back to tools')} onClick={() => setComposerMenu('root')}>←</button>
-                  <div><span>{t('Run mode')}</span><strong>{t('Choose a mode')}</strong></div>
-                </header>
-                <div>
-                  <button type="button" data-active={runMode === 'standard' || undefined} onClick={() => selectRunMode('standard')}>
-                    <ComposerToolIcon name="experts" />
-                    <span><strong>{t('Single Agent')}</strong><small>{t('Standard · one Agent')}</small></span>
-                    <i aria-hidden="true">{runMode === 'standard' ? '✓' : ''}</i>
-                  </button>
-                  <button type="button" data-active={runMode === 'deep_research' || undefined} onClick={() => selectRunMode('deep_research')}>
-                    <ComposerToolIcon name="mode" />
-                    <span><strong>{t('Deep Research')}</strong><small>{t('Deep Research · explicit beta')}</small></span>
-                    <i aria-hidden="true">{runMode === 'deep_research' ? '✓' : ''}</i>
-                  </button>
-                </div>
-              </section>
-            )}
-
-            {composerMenu === 'skills' && (
-              <section className="conversation-skills-menu" role="dialog" aria-label={t('Choose a TradeMind skill')}>
-                <header>
-                  <button type="button" aria-label={t('Back to tools')} onClick={() => setComposerMenu('root')}>←</button>
-                  <div><span>{t('Built-in capabilities')}</span><strong>{t('Use a skill')}</strong></div>
-                  <a href="/app/plugins/skills">{t('Skills')} <i aria-hidden="true">→</i></a>
-                </header>
-                <div>
-                  {builtInSkills.map((skill) => (
-                    <button key={skill.id} type="button" onClick={() => selectSkill(t(skill.prompt))}>
-                      <span data-category={skill.category.toLowerCase()}>{skill.code}</span>
-                      <div><strong>{t(skill.name)}</strong><small>{t(skill.description)}</small></div>
-                      <i aria-hidden="true">→</i>
-                    </button>
-                  ))}
-                </div>
-                <footer>{t('Installed Plugin Skills are discovered by the Agent at runtime; this menu only helps frame intent.')}</footer>
-              </section>
-            )}
           </div>
+          <ApprovalModeSelector
+            mode={approvalMode}
+            loadError={approvalModeError}
+            disabled={busy}
+            onChange={onApprovalModeChange}
+          />
+          <button
+            className="conversation-research-toggle"
+            type="button"
+            aria-label={t('Deep Research')}
+            aria-pressed={runMode === 'deep_research'}
+            disabled={busy}
+            title={busy
+              ? t('Deep Research can only be chosen before a task starts.')
+              : t('Deep Research runs 3 read-only research subagents on this task budget.')}
+            onClick={() => onRunModeChange(runMode === 'deep_research' ? 'standard' : 'deep_research')}
+          >
+            <ComposerToolIcon name="research" />
+            <span>{t('Deep Research')}</span>
+          </button>
           <span className="conversation-composer-coordinator">{t('⌘ Enter to send')}</span>
           <div className="conversation-model-selector" ref={modelSelectorRef}>
             <button

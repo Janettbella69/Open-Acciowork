@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-import { errorMessage, listProviders } from '../api/client'
-import type { OpportunityProject, ProviderProfile, RunMode, RunRetryStrategy } from '../api/types'
+import { errorMessage, getOrgPolicy, listProviders, saveOrgPolicy } from '../api/client'
+import type { OpportunityProject, PermissionModePolicy, ProviderProfile, RunMode, RunRetryStrategy } from '../api/types'
 import { useOpportunityRuntime } from '../api/useOpportunityRuntime'
 import { providerIsRunnable } from '../providerEligibility'
 import WorkspaceComposer from './WorkspaceComposer'
@@ -29,6 +29,8 @@ export default function Workspace() {
   const [attachedFiles, setAttachedFiles] = useState<File[]>([])
   const [providers, setProviders] = useState<ProviderProfile[]>([])
   const [providerProfileId, setProviderProfileId] = useState<string | null>(null)
+  const [approvalMode, setApprovalMode] = useState<PermissionModePolicy | null>(null)
+  const [approvalModeError, setApprovalModeError] = useState('')
   const [runMode, setRunMode] = useState<RunMode>('standard')
   const [retrying, setRetrying] = useState<RunRetryStrategy | null>(null)
   const [retryFailure, setRetryFailure] = useState<{ runId: string; message: string } | null>(null)
@@ -40,8 +42,19 @@ export default function Workspace() {
     void listProviders()
       .then((items) => { if (active) setProviders(items) })
       .catch(() => { if (active) setProviders([]) })
+    void getOrgPolicy()
+      .then((policy) => { if (active) setApprovalMode(policy.permission_mode) })
+      .catch((loadError) => { if (active) setApprovalModeError(errorMessage(loadError)) })
     return () => { active = false }
   }, [])
+
+  const changeApprovalMode = async (permissionMode: PermissionModePolicy) => {
+    // Settings edits the same organization policy; save onto its latest copy.
+    const latest = await getOrgPolicy()
+    const saved = await saveOrgPolicy({ ...latest, permission_mode: permissionMode })
+    setApprovalMode(saved.permission_mode)
+    setApprovalModeError('')
+  }
 
   const runAnalysis = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -152,10 +165,13 @@ export default function Workspace() {
       isActive={runtime.isActive}
       providers={providers}
       providerProfileId={providerProfileId}
+      approvalMode={approvalMode}
+      approvalModeError={approvalModeError}
       runMode={runMode}
       onChange={setBriefInput}
       onAttachedFilesChange={setAttachedFiles}
       onProviderProfileChange={setProviderProfileId}
+      onApprovalModeChange={changeApprovalMode}
       onRunModeChange={setRunMode}
       onSubmit={runAnalysis}
       onProjectRefresh={() => void runtime.refreshActiveProject()}

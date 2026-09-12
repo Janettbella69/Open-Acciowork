@@ -22,13 +22,13 @@
 | FR-10 决策 | delivered：证据关联与失效联动 | 开放任务质量另行验收 |
 | FR-11 领域 MCP | delivered：确定性商业计算、用户记录加工、显式结算计划的现金流/日末与保守日内资金缺口；TikTok Shop项目指定店铺的主Agent只读MCP与来源凭证 | deferred：真实供应商/客户/市场/法规/物流/汇率授权数据适配及已实现商家接口的真实验收 |
 | FR-12 Skill 生命周期 | delivered：发现/启停/扫描/不可变版本/配额/租约/回滚；13个内置Skill的证据参考与输出模板、固定包原生只读访问；Agent候选冻结、人审发布默认关闭、凭证恢复与独立审阅UI；独立Skill备份及含项目账本/候选库的应用冷备份、新进程恢复 | deferred：真实模型提案质量、真端点回滚重跑、跨宿主/生产恢复及其余子系统的恢复认证 |
-| FR-13 权限 | delivered：范围/有效期/审计、删除确认、沙箱拒绝逃逸；可信设备单次审批；原生SDK持久等待、原Run恢复、跨进程决议竞争、消费前撤销复验 | deferred：真实远程审批与生产故障矩阵；原生多工具批次须拆为单次审批 |
+| FR-13 权限 | delivered：范围/有效期/审计、删除确认、沙箱拒绝逃逸；可信设备单次审批；原生SDK持久等待、原Run恢复、跨进程决议竞争、消费前撤销复验；工作台内切换组织授权模式，仅 SDK 原生 default/auto 两档 | deferred：真实远程审批与生产故障矩阵；原生多工具批次须拆为单次审批 |
 | FR-14 记忆 | delivered：提案人审、TTL/过期/检索/导出/删除恢复 | deferred：真实蒸馏质量、生产备份删除边界与恢复演练 |
 | FR-15 自动化 | delivered：计划/心跳/收件箱本地链路；跨进程自动调度租约和崩溃幂等；手动/自动触发共用租约与持久Run重叠检查、页面并发操作治理 | deferred：真实长期运行与渠道投递 |
 | FR-16 产物 | delivered：不可变文件版本/准确历史下载、同内容回退的新版本、并发登记去重；文本预览/修改对比/冲突保护/幂等保存/人类编辑溯源、编辑中断恢复与冷备恢复；Office 文件结构 | deferred：真实模型连续编辑与浏览器目视、Office 渲染 QA、布局回归；旧记录已丢失的原始字节无法补造 |
 | FR-17 可观测性 | delivered：trace、三层日志、脱敏、类型化卡片；项目范围Provider/模型/Skill/MCP/错误分组指标与工作区面板 | deferred：细分事件与生产指标/性能验收 |
 | FR-18 恢复 | delivered：保存产物、错误分类、重试与重启恢复；Run 起点的完整可支持工作区快照、Bash 修改恢复、人工变更预览/确认/结果重试、中断目录切换修复、真实进程退出与冷备往返；同项目执行与产物收尾租约 | deferred：真实 SDK 故障注入、生产/跨宿主恢复、容量保留管理、性能与浏览器目视验收 |
-| FR-19 Deep Research | delivered：三种原生只读研究单元的一次新建/同 Run 续接约束；共享预算/取消/原始截止时间；运行中资源 UI、来源包与主 Agent 去重落账；真实 DeepSeek 合成来源上的三单元并行/来源复核/证据合并与报告验收 | deferred：开放互联网研究质量、真实取消/耗尽/长时墙钟故障矩阵、其他 Provider 与浏览器目视验收 |
+| FR-19 Deep Research | delivered：输入框内显式开关发起（默认关闭、运行中锁定）；三种原生只读研究单元的一次新建/同 Run 续接约束；共享预算/取消/原始截止时间；运行中资源 UI、来源包与主 Agent 去重落账；真实 DeepSeek 合成来源上的三单元并行/来源复核/证据合并与报告验收 | deferred：开放互联网研究质量、真实取消/耗尽/长时墙钟故障矩阵、其他 Provider 与浏览器目视验收 |
 | FR-20 GUI | delivered：L1/L2 真实浏览器 smoke；项目独立店铺 profile、用户登录确认、当前页观察引用、主Agent页面动作/报表下载与来源/产物落账、真实Chromium离线链路 | deferred：真实卖家后台/验证码/风控兼容性和模型联调；真实攻击/恢复矩阵；L3 桌面桥与 OS 权限治理未实现 |
 | FR-21 Connector | delivered：Catalog/Vault/health/revoke、HTTPS JSON send_message；五平台官方文档入口，TikTok Shop授权店铺/商品分页只读adapter、项目店铺授权/到期/撤销、主Agent来源凭证接入与中英文管理员UI；项目店铺身份可关联平台Connector、独立浏览器授权及数据展示 | deferred：其余邮箱/店铺/CRM/社媒垂直adapter；TikTok Shop OAuth/refresh、真实授权test-account及模型调用验收/外发全链；API与浏览器数据自动合并 |
 | FR-22 组织治理 | delivered：单部署租户 principal/membership/策略；共享项目成员管理UI与版本冲突保护；持久团队讨论/回复/对象关联/编辑历史/解决状态；可复用项目模板、固定参考版本与来源、核对后创建和中断恢复；组织私有Skill导入人审、固定版本查看/导出、独立启停/恢复、跨进程凭证与冷备恢复 | deferred：真实身份网关联调、租户分区与隔离 runner、长期容量与浏览器目视验收 |
@@ -783,3 +783,39 @@ Browser 发现列表仍为空，浏览器目视验收保持开放。真实组织
 创建 Dev Dashboard 应用并在界面保存凭据）、组织外店铺授权码流程、旧版后台令牌、商品/
 订单写入、Shop browser 平台列表加入 Shopify 及其余 FR deferred 继续开放；完整 PRD
 目标继续开放。
+
+## 2026-09-11：工作台授权模式与显式 Deep Research 入口
+
+交付前基线：`3a58fc4`。本批只动前端工作台输入框，未改后端契约。
+
+- 输入框工具菜单收敛为「添加文件 / 专家 / Skills / 连接器」，Skills 与连接器直接进入已有管理页。
+  删除只改写提示词的内置 Skill 目录（`skillCatalog.ts`），它与运行时真实的 Plugin Skill 发现重复，
+  且会让用户以为选中的条目参与了装配。
+- 新增授权模式选择器：读写同一份 `/api/org/policy` 的 `permission_mode`，只提供后端
+  `PermissionModePolicy` 实际存在的 `default` 与 `auto`，不提供任何越过沙箱的完全放行档；
+  保存前先取最新策略再写回，失败保留菜单与原因，任务运行或等待授权时禁用。
+- Deep Research 保持 PRD §3.5 场景 G 的「用户显式选择」：改为输入框内的独立开关
+  （`aria-pressed`，默认关闭，运行中锁定），选择随 `mode` 提交到 `POST /api/projects/{id}/runs`。
+  **此前未提交的改动只删掉了模式菜单、没有替代入口，界面上已无法发起 Deep Research；本批补回该入口**，
+  FR-19 的运行时能力本身未变。
+- 授权与 Deep Research 药丸在停靠态和 430px 窄屏收敛为图标并保留无障碍名称；停靠态输入框由四列
+  改为五列，顺序为 工具 / 授权 / Deep Research / 模型 / 发送。
+
+验证命令与结果：
+
+- 前端 `npm run test:run`：**357 passed / 36 files**（新增 Deep Research 开关与授权模式用例）；
+  `npm run lint`、`npm run build`（含 `tsc -b`）通过，主 JS 783.24 kB，既有 >500 kB 提示保留。
+- 后端 `OPHIRA_CONTRACT_PROVIDER= PYTHONPATH=backend/src .venv/bin/python -m pytest backend/tests -q`：
+  **1885 passed / 13 skipped**（93.55秒），与上一批基线一致；本批未改后端。全量 Ruff 仍报 9 项，
+  全部在未跟踪、未纳入本批的 `project_export_*.py`。
+- 真实浏览器复核（仓库 `.venv` 的 Playwright + Chromium，临时 `OPHIRA_DATA_DIR`，真实后端进程）：
+  入口态与停靠态各一轮，**发现列表为空**。校验点：Deep Research 默认关闭且开关往返；run 请求体
+  `mode=deep_research`（该请求被拦截并返回 503，未真正启动 Run、未调用模型）；授权菜单恰好两档，
+  选择后 `/api/org/policy` 变为 `auto`，刷新后仍显示已保存档位；停靠态五个控件同一行且顺序正确、
+  不溢出；400px 窄屏控件仍可见可点。检查结束把组织策略复位为 `default`。
+- 复核中修正：按下态背景被 `:hover` 规则以更高优先级盖掉，选中态看起来与悬停一致，
+  已给 `[aria-pressed='true']` 补 hover 变体。
+
+边界：未调用真实模型、未启动 Run、未使用真实 Provider 凭据；Deep Research 的真实研究质量、
+真实取消/耗尽与长时墙钟故障矩阵仍 deferred。观察到一个既有问题、本批未改：400px 窄屏下固定输入框
+与页面文字重叠，属于原有停靠层布局，未纳入本批范围。完整 PRD 目标继续开放。

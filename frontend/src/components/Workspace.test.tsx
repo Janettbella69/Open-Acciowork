@@ -1,17 +1,36 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { FeedbackItem, RunRecord } from '../api/types'
+import type { FeedbackItem, OrgPolicy, RunRecord } from '../api/types'
 import { useOpportunityRuntime } from '../api/useOpportunityRuntime'
 import Workspace from './Workspace'
 
 vi.mock('../api/useOpportunityRuntime', () => ({ useOpportunityRuntime: vi.fn() }))
 vi.mock('../api/client', () => ({
   listProviders: vi.fn(async () => []),
+  getOrgPolicy: vi.fn(),
+  saveOrgPolicy: vi.fn(),
   submitFeedback: vi.fn(),
   errorMessage: (error: unknown) => error instanceof Error ? error.message : 'unknown error',
 }))
 
-import { submitFeedback } from '../api/client'
+import { getOrgPolicy, saveOrgPolicy, submitFeedback } from '../api/client'
+
+const organizationPolicy: OrgPolicy = {
+  permission_mode: 'default',
+  allowed_provider_ids: [],
+  allowed_skill_ids: [],
+  browser_enabled: true,
+  computer_control_enabled: false,
+  channel_delivery_enabled: false,
+  domain_allowlist: [],
+  commercial_actions_enabled: false,
+  allowed_commercial_operations: [],
+  allowed_commercial_connector_ids: [],
+  commercial_max_changes_per_action: 20,
+  commercial_forbidden_fields: [],
+  commercial_numeric_limits: [],
+  updated_at: '2026-09-11T00:00:00Z',
+}
 
 const retryRuntime = vi.fn()
 
@@ -72,6 +91,25 @@ beforeEach(() => {
     selectProject: vi.fn(),
     refreshActiveProject: vi.fn(),
     reset: vi.fn(),
+  })
+  vi.mocked(getOrgPolicy).mockResolvedValue(organizationPolicy)
+})
+
+describe('Workspace approval mode', () => {
+  it('saves the composer approval choice onto the latest organization policy', async () => {
+    const latest: OrgPolicy = { ...organizationPolicy, browser_enabled: false, updated_at: '2026-09-11T01:00:00Z' }
+    vi.mocked(getOrgPolicy).mockResolvedValueOnce(organizationPolicy).mockResolvedValueOnce(latest)
+    vi.mocked(saveOrgPolicy).mockImplementationOnce(async (policy) => policy)
+    render(<Workspace />)
+
+    const trigger = screen.getByRole('button', { name: /open approval mode selector/i })
+    await waitFor(() => expect(trigger).toHaveTextContent('Ask for approval'))
+    fireEvent.click(trigger)
+    fireEvent.click(screen.getByRole('button', { name: /approve for me/i }))
+
+    await waitFor(() => expect(saveOrgPolicy).toHaveBeenCalledWith({ ...latest, permission_mode: 'auto' }))
+    await waitFor(() => expect(trigger).toHaveTextContent('Approve for me'))
+    expect(screen.queryByRole('dialog', { name: /choose an approval mode/i })).not.toBeInTheDocument()
   })
 })
 
