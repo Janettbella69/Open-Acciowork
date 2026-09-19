@@ -15,22 +15,25 @@ from .project_lifecycle import ProjectLifecycleBusyError, ProjectUnavailableErro
 from .storage import LedgerNotFoundError
 
 
+async def deletion_result(operation):
+    try:
+        return await run_in_threadpool(operation)
+    except AuthorizationError as exc:
+        raise HTTPException(403, "Deletion operation access is unavailable.") from exc
+    except ProjectDeletionUncertainError as exc:
+        raise HTTPException(
+            503, "Deletion may have started. Check the original operation before retrying.",
+        ) from exc
+    except (LedgerNotFoundError, ProjectUnavailableError, FileNotFoundError) as exc:
+        raise HTTPException(404, "Project or deletion operation not found.") from exc
+    except (ProjectDeletionConflict, ProjectLifecycleBusyError, OSError, ValueError) as exc:
+        raise HTTPException(
+            409, "Deletion could not be verified. Refresh the review or check this operation.",
+        ) from exc
+
+
 def register_project_deletion_routes(app, service, read_body):
-    async def result(operation):
-        try:
-            return await run_in_threadpool(operation)
-        except AuthorizationError as exc:
-            raise HTTPException(403, "Deletion operation access is unavailable.") from exc
-        except ProjectDeletionUncertainError as exc:
-            raise HTTPException(
-                503, "Deletion may have started. Check the original operation before retrying.",
-            ) from exc
-        except (LedgerNotFoundError, ProjectUnavailableError, FileNotFoundError) as exc:
-            raise HTTPException(404, "Project or deletion operation not found.") from exc
-        except (ProjectDeletionConflict, ProjectLifecycleBusyError, OSError, ValueError) as exc:
-            raise HTTPException(
-                409, "Deletion could not be verified. Refresh the review or check this operation.",
-            ) from exc
+    result = deletion_result
 
     @app.get("/api/projects/{project_id}/deletion", response_model=ProjectDeletionPreview)
     async def preview(project_id: str, request: Request):

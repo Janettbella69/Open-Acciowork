@@ -77,6 +77,10 @@ type WorkspaceComposerProps = {
   deletionCanReviewAgain?: boolean
   onDeletionReviewAgain?: () => void
   onDeleteProject?: (projectId: string, request: ProjectDeletionRequest) => Promise<void>
+  conversationDeletionPending?: boolean
+  conversationDeletionCanReviewAgain?: boolean
+  onConversationDeletionReviewAgain?: () => void
+  onDeleteConversation?: (projectId: string, request: ProjectDeletionRequest, runId?: string) => Promise<void>
   onNewResearch: () => void
   onSelectProject: (projectId: string) => void
   onCancel: () => void
@@ -351,6 +355,10 @@ export default function WorkspaceComposer({
   deletionCanReviewAgain = false,
   onDeletionReviewAgain = () => {},
   onDeleteProject,
+  conversationDeletionPending = false,
+  conversationDeletionCanReviewAgain = false,
+  onConversationDeletionReviewAgain = () => {},
+  onDeleteConversation,
   onNewResearch,
   onSelectProject,
   onCancel,
@@ -865,6 +873,9 @@ export default function WorkspaceComposer({
                 {project && <ProjectKnowledgePanel projectId={project.id} revision={project.artifacts.map((item) => item.id).join(':')} />}
                 {project && <ProjectArtifactsPanel projectId={project.id} artifacts={project.artifacts} onChanged={onProjectRefresh} />}
                 {project && <ProjectExportPanel projectId={project.id} />}
+                {project && run && onDeleteConversation && <ProjectDeletionPanel projectId={project.id} runId={run.id}
+                  pending={conversationDeletionPending} canReviewAgain={conversationDeletionCanReviewAgain}
+                  onReviewAgain={onConversationDeletionReviewAgain} onSubmit={onDeleteConversation} onAccessCheck={onProjectRefresh} />}
                 {project && onDeleteProject && <ProjectDeletionPanel projectId={project.id} pending={deletionPending}
                   canReviewAgain={deletionCanReviewAgain} onReviewAgain={onDeletionReviewAgain}
                   onSubmit={onDeleteProject} onAccessCheck={onProjectRefresh} />}

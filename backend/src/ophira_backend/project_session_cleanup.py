@@ -65,6 +65,7 @@ class SessionCleanupPlan(_StrictModel):
     format: Literal["ophira-native-session-cleanup-v1"] = "ophira-native-session-cleanup-v1"
     project_id: str
     data_root_hash: str
+    scope: Literal["project", "conversation"] = "project"
     relative_files: list[SessionCleanupFile] = Field(default_factory=list)
     directories: list[str] = Field(default_factory=list)
     scan_roots: list[str] = Field(default_factory=list)
@@ -215,6 +216,92 @@ class ProjectSessionCleanup:
             # Arbitrary source paths/JSON/errors may contain secrets. Stable codes only.
             code = str(exc) if isinstance(exc, SessionCleanupConflict) else "unsafe_native_storage"
             plan.blockers.append(code)
+        plan.blockers = sorted(set(plan.blockers))
+        return plan
+
+    def preview_conversation(
+        self, project_id: str, runs: Iterable[RunRecord], all_runs: Iterable[RunRecord],
+    ) -> SessionCleanupPlan:
+        """Review only the selected resume chain, leaving the shared cwd intact.
+
+        The complete project inventory still proves native ownership. In particular,
+        an orphan is not silently assigned to the selected conversation. Session
+        indexes and checkpoint hardlinks without a separable boundary block deletion.
+        """
+        selected, all_records = list(runs), list(all_runs)
+        selected_ids = {run.id for run in selected}
+        keys = {
+            (run.provider_profile_id or "environment", sid)
+            for run in selected for sid in (run.sdk_session_id, run.resume_session_id) if sid
+        }
+        plan = self.preview(
+            project_id, [run for run in all_records if run.project_id == project_id], all_records,
+        )
+        plan.scope = "conversation"
+        if not selected_ids <= {run.id for run in all_records}:
+            plan.blockers.append("native_conversation_selection_incomplete")
+        if any(run.project_id != project_id for run in selected):
+            plan.blockers.append("foreign_project_run")
+        if (any(run.started_at is not None and not run.sdk_session_id for run in selected)
+                and any(not group.run_ids for group in plan.session_groups)):
+            plan.blockers.append("unrecorded_native_conversation_requires_review")
+        if any(
+            run.id not in selected_ids and (run.provider_profile_id or "environment", sid) in keys
+            for run in all_records for sid in (run.sdk_session_id, run.resume_session_id) if sid
+        ):
+            plan.blockers.append("native_conversation_selection_incomplete")
+        plan.session_groups = [
+            group for group in plan.session_groups
+            if (group.config_root.split("/")[1], group.session_id) in keys
+        ]
+        groups = {(group.config_root, group.session_id) for group in plan.session_groups}
+
+        def belongs(path):
+            parts = relative_parts(path)
+            config = "/".join(parts[:2])
+            ids = {sid for root, sid in groups if root == config}
+            if len(parts) < 4:
+                return False
+            if parts[2] == "projects":
+                if len(parts) < 5:
+                    return False
+                match = _TRANSCRIPT.fullmatch(parts[4])
+                return parts[4] in ids or bool(match and match[1] in ids)
+            if parts[2] in _SESSION_TREES:
+                return parts[3] in ids
+            if parts[2] == "debug":
+                return parts[3] in {sid + ".txt" for sid in ids}
+            return parts[2] == "todos" and any(
+                parts[3].startswith(sid + "-agent-") and parts[3].endswith(".json") for sid in ids
+            )
+
+        # Whole-project roots become exact transcript and sidecar roots. Keep
+        # absent session directories in the plan to detect late subagent writes.
+        roots = {path for path in plan.scan_roots if belongs(path)}
+        for group in plan.session_groups:
+            for directory in plan.scan_roots:
+                parts = relative_parts(directory)
+                if len(parts) == 4 and parts[2] == "projects" and (
+                    "/".join(parts[:2]) == group.config_root
+                ):
+                    roots.update({f"{directory}/{group.session_id}",
+                                  f"{directory}/{group.session_id}.jsonl"})
+        roots.update(item.relative_path for item in plan.relative_files
+                     if belongs(item.relative_path))
+        plan.scan_roots = sorted(path for path in roots if not any(
+            path.startswith(parent + "/") for parent in roots if parent != path
+        ))
+        plan.relative_files = [item for item in plan.relative_files if belongs(item.relative_path)]
+        plan.directories = [path for path in plan.directories if belongs(path)]
+        plan.retained.insert(0, (
+            "Other conversations, project files and shared native project memory are retained; "
+            "independently copied conversation content is not erased."
+        ))
+        try:
+            self._verify(plan)
+        except (OSError, ValueError) as exc:
+            plan.blockers.append(str(exc) if isinstance(exc, SessionCleanupConflict)
+                                 else "unsafe_native_storage")
         plan.blockers = sorted(set(plan.blockers))
         return plan
 
@@ -394,6 +481,12 @@ class ProjectSessionCleanup:
                     len(encoded) > 200 and parts[3].startswith(encoded[:200] + "-")
                 )):
                     raise SessionCleanupConflict("native_cwd_migration_requires_review")
+                if plan.scope == "conversation":
+                    match = _TRANSCRIPT.fullmatch(parts[4]) if len(parts) >= 5 else None
+                    if len(parts) < 5 or not (
+                        parts[4] in ids or (len(parts) == 5 and match and match[1] in ids)
+                    ):
+                        raise SessionCleanupConflict("invalid_native_conversation_scope")
             elif parts[2] in _SESSION_TREES:
                 if parts[3] not in ids:
                     raise SessionCleanupConflict("invalid_native_scope")
@@ -472,6 +565,30 @@ class ProjectSessionCleanup:
                 path = f"{directory}/{group.session_id}.jsonl"
                 if cap.info(path) is not None and path not in expected:
                     raise SessionCleanupConflict("ambiguous_native_session_location")
+                if plan.scope == "conversation":
+                    names = cap.names(directory)
+                    matching = [name for name in names if (
+                        (match := _TRANSCRIPT.fullmatch(name)) and match[1] == group.session_id
+                    ) or name == group.session_id]
+                    for name in matching:
+                        path = f"{directory}/{name}"
+                        if path not in plan.scan_roots and path not in plan.directories:
+                            raise SessionCleanupConflict("native_cleanup_snapshot_changed")
+                    if matching and "sessions-index.json" in names:
+                        raise SessionCleanupConflict("native_session_index_requires_review")
+            if plan.scope == "conversation":
+                # Check even on retry when the main transcript has disappeared.
+                for root in plan.scan_roots:
+                    parts = relative_parts(root)
+                    if parts[2] == "projects" and cap.info(
+                        "/".join(parts[:4]) + "/sessions-index.json"
+                    ) is not None:
+                        raise SessionCleanupConflict("native_session_index_requires_review")
+                for name in cap.names(f"{group.config_root}/todos"):
+                    path = f"{group.config_root}/todos/{name}"
+                    if name.startswith(group.session_id + "-agent-") and name.endswith(".json"):
+                        if path not in expected:
+                            raise SessionCleanupConflict("native_cleanup_snapshot_changed")
 
     def _unlink(self, relative: str, *, directory: bool = False) -> None:
         parts = relative_parts(relative)

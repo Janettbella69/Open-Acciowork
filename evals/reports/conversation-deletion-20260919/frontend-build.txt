@@ -1,0 +1,22 @@
+
+> trademind@0.1.0 lint
+> eslint .
+
+
+> trademind@0.1.0 build
+> tsc -b && vite build
+
+vite v7.3.6 building client environment for production...
+transforming...
+✓ 303 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                   1.38 kB │ gzip:   0.59 kB
+dist/assets/index-DxSvOUqe.css  212.57 kB │ gzip:  36.12 kB
+dist/assets/index-zj4AKlL0.js   835.31 kB │ gzip: 249.03 kB
+
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+✓ built in 639ms

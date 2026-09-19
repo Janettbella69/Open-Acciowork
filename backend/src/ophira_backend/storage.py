@@ -77,6 +77,8 @@ def _record_operation(model, path_method):
             try:
                 record = model.model_validate_json(path.read_text(encoding="utf-8"))
                 with self.lifecycle.lease(record.project_id):
+                    if model is RunRecord:
+                        self.lifecycle.assert_run_available(record.project_id, identifier)
                     return method(self, identifier, *args, **kwargs)
             except (FileNotFoundError, ProjectUnavailableError) as exc:
                 raise LedgerNotFoundError(identifier) from exc
@@ -674,6 +676,10 @@ class FileLedger:
         run_id: str | None = None,
     ) -> RunRecord:
         project = self.get_project(project_id)
+        self.lifecycle.assert_run_available(project_id, run_id, session_id=resume_session_id,
+                                            provider_id=provider_profile_id)
+        if resume_source_run_id:
+            self.lifecycle.assert_run_available(project_id, resume_source_run_id)
         identity: dict[str, Any] = {}
         if project.identity_binding == "authenticated_principal":
             if principal is None:
@@ -786,6 +792,10 @@ class FileLedger:
         with self._lock_for(run_id):
             run = self.get_run(run_id)
             updated = run.model_copy(update=changes)
+            self.lifecycle.assert_run_available(
+                run.project_id, run.id, session_id=updated.sdk_session_id,
+                provider_id=updated.provider_profile_id,
+            )
             self._atomic_write(self._run_path(run_id), updated)
             summary = self.get_run_summary(run_id).model_copy(
                 update={"status": updated.status, "updated_at": utc_now()}

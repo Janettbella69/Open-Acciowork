@@ -226,6 +226,9 @@ class ChannelDeliveryStore:
 
     def _write(self, record: ChannelDeliveryRecord) -> None:
         with ProjectLifecycle(self.root.parent).lease(record.project_id):
+            ProjectLifecycle(self.root.parent).assert_run_available(
+                record.project_id, record.run_id,
+            )
             path = self._path(record.id)
             temporary = path.with_suffix(".json.tmp")
             with temporary.open("w", encoding="utf-8") as handle:

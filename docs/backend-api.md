@@ -280,6 +280,27 @@ subscription may have added legitimate recovered observations.
 
 All event payloads pass through recursive secret redaction and bounded serialization before being appended. The backend intentionally does not expose hidden model chain-of-thought.
 
+## Conversation deletion
+
+Independent conversation deletion is human-only:
+
+- `GET /api/projects/{project_id}/conversations/{run_id}/deletion` resolves the entire
+  resume chain and returns its Run IDs, native-session counts, retained records, blockers
+  and fingerprint. An active project or nonterminal selected Run blocks confirmation.
+- `POST` to the same route accepts `{operation_id, fingerprint, confirmation_name, reason}`.
+  The UUID is immutable; `confirmation_name` must exactly match the project name.
+- `GET /api/conversation-deletions/{project_id}/{operation_id}` and `POST` to its `/retry`
+  suffix remain available after the source Runs have been erased. They return
+  `deleting|blocked|deleted` and are bound to the original requester session.
+
+Authorization uses project owner/admin deletion authority (or the fixed local operator).
+Responses are `no-store`. `409` means the review could not be accepted; `503` after a commit
+attempt is ambiguous and requires querying the same operation. A pending operation temporarily
+blocks project work. Completion restores access to the surviving project; deleted Run/session
+IDs remain unusable. Project exports include minimal provenance for retained artifacts and
+receipts, never the removed Run content. Retention and recovery details are documented in
+[`conversation-deletion.md`](conversation-deletion.md).
+
 ## Durable diagnostics
 
 The configured data directory uses three levels:

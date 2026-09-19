@@ -7,14 +7,16 @@ export default function ProjectDeletionProgress({ deletion }: { deletion: Return
   const { attempt, action, refresh, retry, resend, dismiss } = deletion
   if (!attempt) return null
   const { handle, operation, phase, accepted, request, error } = attempt
+  const conversation = !!handle.runId
   const dismissible = !action && (operation?.status === 'deleted' || (!accepted && ['missing', 'rejected', 'forbidden'].includes(phase)))
-  return <section className="project-deletion project-deletion-progress" aria-label={t('Project deletion progress')}>
+  return <section className="project-deletion project-deletion-progress" aria-label={t(conversation ? 'Conversation deletion progress' : 'Project deletion progress')}>
     <div className="project-deletion-body">
-      <h3>{t('Project deletion progress')}</h3>
+      <h3>{t(conversation ? 'Conversation deletion progress' : 'Project deletion progress')}</h3>
       <p>{t('This progress link can be reopened or refreshed. Leaving this page does not cancel a submitted deletion.')}</p>
       <dl className="project-deletion-identifiers"><dt>{t('Project')}</dt><dd>{handle.projectId}</dd><dt>{t('Deletion operation')}</dt><dd>{handle.operationId}</dd></dl>
+      {conversation && <p>{t('Conversation Run')}: <code>{handle.runId}</code></p>}
       <p role="status">{t(action === 'submit' ? 'Submitting deletion request…' : action === 'retry' ? 'Retrying the same deletion…'
-        : operation?.status === 'deleted' ? 'Application-controlled project content has been deleted.'
+        : operation?.status === 'deleted' ? (conversation ? 'The conversation has been deleted. Other conversations and retained project records remain available.' : 'Application-controlled project content has been deleted.')
           : operation?.status === 'blocked' ? 'Deletion is blocked. Erasure is not complete.'
             : operation?.status === 'deleting' ? 'Deletion is in progress. Erasure is not yet complete.'
               : action === 'query' ? 'Checking deletion status…'
@@ -27,7 +29,7 @@ export default function ProjectDeletionProgress({ deletion }: { deletion: Return
         {operation.error_message && <p role="alert">{t(operation.error_message)}</p>}
         {operation.error_code && <small>{t('Error code')}: <code>{operation.error_code}</code></small>}
         <p>{t('Last updated')}: <time dateTime={operation.updated_at}>{new Date(operation.updated_at).toLocaleString()}</time></p>
-        <DeletionScope domains={operation.domains} retained={operation.retained} />
+        <DeletionScope domains={operation.domains} retained={operation.retained} conversation={conversation} />
       </>}
       {phase === 'missing' && !request && <p>{t('Reopen the project to prepare a new deletion review. No deletion is inferred from a missing operation.')}</p>}
       <div className="project-deletion-actions">

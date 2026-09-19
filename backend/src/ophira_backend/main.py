@@ -118,6 +118,8 @@ from .constants import (
     RunStatus,
     ScheduleKind,
 )
+from .conversation_deletion import ConversationDeletionService
+from .conversation_deletion_api import register_conversation_deletion_routes
 from .durable_permissions import DurablePermissionConflict
 from .events import EventPublisher
 from .feedback import FeedbackStore
@@ -264,7 +266,7 @@ def _request_principal(request: Request) -> PrincipalContext | None:
 
 
 def _project_route_permission(method: str, path: str) -> ProjectPermission:
-    if path.split("/")[4:5] == ["deletion"]:
+    if path.split("/")[4:5] in (["deletion"], ["conversations"]):
         return ProjectPermission.PROJECT_DELETE
     if path.split("/")[4:5] == ["export"]:
         return ProjectPermission.PROJECT_EXPORT
@@ -332,6 +334,8 @@ def _create_app(
     project_access = ProjectAccessStore(settings.data_dir / "auth" / "projects")
     project_deletion = ProjectDeletionService(ledger, project_access)
     project_deletion.recover()
+    conversation_deletion = ConversationDeletionService(ledger, project_access)
+    conversation_deletion.recover()
     events = EventPublisher(ledger)
     project_events = ProjectEventProjector(ledger, events)
     memory = FileMemoryProvider(
@@ -610,6 +614,8 @@ def _create_app(
     )
     application.state.project_deletion = project_deletion
     register_project_deletion_routes(application, project_deletion, _read_bounded_body)
+    application.state.conversation_deletion = conversation_deletion
+    register_conversation_deletion_routes(application, conversation_deletion, _read_bounded_body)
 
     @application.exception_handler(ProjectUnavailableError)
     async def project_unavailable(_request, _exc):
@@ -818,10 +824,11 @@ def _create_app(
         parts = request.url.path.split("/")
         if parts[1:3] in (
             ["api", "skills"], ["api", "memory"], ["api", "project-deletions"],
+            ["api", "conversation-deletions"],
         ) or (
             parts[1:3] == ["api", "projects"] and parts[4:5] in (
                 ["comments"], ["collaboration"], ["access"], ["templates"], ["export"],
-                ["deletion"],
+                ["deletion"], ["conversations"],
             )
         ):
             response.headers["Cache-Control"] = "no-store"

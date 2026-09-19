@@ -56,7 +56,7 @@ class DiaryBlock(BaseModel):
 class PurgeRewrite(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
     path: str
-    kind: Literal["manifest", "diary", "pairing", "push"]
+    kind: Literal["manifest", "run-manifest", "diary", "pairing", "push"]
     selectors: list[str]
     selected_hash: str = Field(pattern=r"^[a-f0-9]{64}$")
     diary_blocks: list[DiaryBlock] = Field(default_factory=list)
@@ -398,6 +398,10 @@ def _capture_project_deletion(root: Path, project_id: str, *, limits=LIMITS) -> 
             if name.startswith(f".{project_id}.json.") and name.endswith(".tmp"):
                 capture.entry(f"{directory}/{name}", "staging")
     publications = []
+    from .conversation_deletion_state import ConversationDeletionStates
+    from .project_lifecycle import ProjectLifecycle
+
+    deleted_runs = ConversationDeletionStates(ProjectLifecycle(root)).origins(project_id)
     canonical = capture.json("skills/registry-state.json", optional=True) or {}
     if not isinstance(canonical, dict) or not isinstance(
         canonical.get("publication_receipts", {}), dict
@@ -409,8 +413,8 @@ def _capture_project_deletion(root: Path, project_id: str, *, limits=LIMITS) -> 
 
         proposal = _model(SkillProposal, value)
         SkillProposalService.validate_metadata(proposal, identifier)
-        if proposal.source_run_id not in runs or any(
-            row.id not in runs for row in proposal.source_runs
+        if proposal.source_run_id not in runs | deleted_runs or any(
+            row.id not in runs | deleted_runs for row in proposal.source_runs
         ):
             raise ProjectDeletionConflict("Skill proposal has foreign source runs")
         raw_receipt = canonical.get("publication_receipts", {}).get(identifier)
@@ -618,7 +622,7 @@ def diary_selection(raw: bytes, run_ids: set[str], *, runs=None, blocks=None):
     return removed, "".join(kept).encode(), metadata
 
 
-def _capture_shared(capture, project, runs, notifications):
+def _capture_shared(capture, project, runs, notifications, *, conversation=False):
     rewrites = []
     manifest = (
         capture.raw("_manifest.jsonl", min(capture.limits.file_bytes, 64 * 1024 * 1024))
@@ -629,24 +633,34 @@ def _capture_shared(capture, project, runs, notifications):
     rows = [parse_json(line) for line in manifest.splitlines() if line.strip()]
     if any(not isinstance(row, dict) for row in rows):
         raise ProjectDeletionConflict("Invalid project manifest")
-    selected = [row for row in rows if row.get("project_id") == project.id]
+    selected = [row for row in rows if (
+        row.get("run_id") in runs if conversation else row.get("project_id") == project.id
+    )]
     if selected:
         rewrites.append(
             PurgeRewrite(
                 path="_manifest.jsonl",
-                kind="manifest",
-                selectors=[project.id],
+                kind="run-manifest" if conversation else "manifest",
+                selectors=sorted(runs) if conversation else [project.id],
                 selected_hash=proof_hash(selected),
             )
         )
+    diary_scopes = {}
     for agent_id in sorted({row.agent_id for row in runs.values() if row.agent_id}):
         if not re.fullmatch(ID, agent_id):
             raise ProjectDeletionConflict("Invalid project Agent identity")
-        run_ids = {run.id for run in runs.values() if run.agent_id == agent_id}
-        for name in capture.names(f"agents/{agent_id}/diary"):
+        diary_scopes[f"agents/{agent_id}/diary"] = {
+            run.id for run in runs.values() if run.agent_id == agent_id
+        }
+    if conversation:
+        diary_scopes[f"projects/{project.id}/diary"] = {
+            run.id for run in runs.values() if not run.agent_id
+        }
+    for directory, run_ids in sorted(diary_scopes.items()):
+        for name in capture.names(directory):
             if not re.fullmatch(r"\d{4}-\d{2}-\d{2}\.md", name):
                 raise ProjectDeletionConflict("Unknown shared Agent diary file")
-            path = f"agents/{agent_id}/diary/{name}"
+            path = f"{directory}/{name}"
             selected, _retained, blocks = diary_selection(
                 capture.raw(path, JSON_LIMIT),
                 run_ids,
@@ -688,16 +702,18 @@ def _capture_shared(capture, project, runs, notifications):
             if not name.startswith(".pair-"):
                 raise ProjectDeletionConflict("Unknown Companion pairing staging record")
             # Interrupted shared staging cannot retain a deleted project's access copy.
-            capture.entry("companion-devices/" + name, "companion")
+            if not conversation:
+                capture.entry("companion-devices/" + name, "companion")
             continue
-        rewrites.append(
-            PurgeRewrite(
-                path="companion-devices/" + name,
-                kind="pairing",
-                selectors=[project.id],
-                selected_hash=proof_hash([project.id]),
+        if not conversation:
+            rewrites.append(
+                PurgeRewrite(
+                    path="companion-devices/" + name,
+                    kind="pairing",
+                    selectors=[project.id],
+                    selected_hash=proof_hash([project.id]),
+                )
             )
-        )
         push = capture.json("companion-push/" + name, optional=True)
         if push:
             from .push_store import PushRecord
@@ -712,7 +728,8 @@ def _capture_shared(capture, project, runs, notifications):
                     selected_hash=proof_hash(sorted(anchors)),
                 )
             )
-    capture_companion_staging(capture, project.id, pair_ids)
+    if not conversation:
+        capture_companion_staging(capture, project.id, pair_ids)
     return rewrites, pair_ids
 
 

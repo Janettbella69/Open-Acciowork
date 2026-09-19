@@ -30,7 +30,9 @@ export type ProjectDeletionOperation = {
   error_message: string | null
   can_retry: boolean
 }
-export type DeletionHandle = { projectId: string; operationId: string }
+export type ConversationDeletionPreview = ProjectDeletionPreview & { run_id: string; run_ids: string[] }
+export type ConversationDeletionOperation = ProjectDeletionOperation & { run_id: string; run_ids: string[] }
+export type DeletionHandle = { projectId: string; operationId: string; runId?: string }
 
 export function requireDeletionPreview(projectId: string, value: ProjectDeletionPreview) {
   if (value.schema_version !== 1 || value.project_id !== projectId || !value.project_name
@@ -40,4 +42,12 @@ export function requireDeletionPreview(projectId: string, value: ProjectDeletion
 export function requireDeletionOperation(handle: DeletionHandle, value: ProjectDeletionOperation) {
   if (value.schema_version !== 1 || value.project_id !== handle.projectId || value.operation_id !== handle.operationId
     || !['deleting', 'blocked', 'deleted'].includes(value.status)) throw new Error('The deletion response did not match this operation.')
+  if (handle.runId) requireConversationScope(handle.runId, value)
+}
+
+export function requireConversationScope(runId: string, value: unknown): asserts value is { run_id: string; run_ids: string[] } {
+  const row = value as Partial<ConversationDeletionOperation>
+  if (row?.run_id !== runId || !Array.isArray(row.run_ids) || !row.run_ids.includes(runId)
+    || row.run_ids.some((id) => typeof id !== 'string' || !/^run_[A-Za-z0-9_-]+$/.test(id))
+    || new Set(row.run_ids).size !== row.run_ids.length) throw new Error('The deletion response did not match this conversation.')
 }

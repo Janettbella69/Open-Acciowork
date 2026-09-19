@@ -178,13 +178,22 @@ def inspect_application(data: Path, plugin: Path) -> dict:
             registry._normalize_snapshot_unlocked(run.skill_snapshot)
     # This is a private, static snapshot: do not create a new ledger lock merely
     # to inspect a store which has never received a proposal.
+    from .conversation_deletion_state import ConversationDeletionStates
+
+    run_origins = dict(runs)
+    for project_id in projects:
+        origins = ConversationDeletionStates(ledger.lifecycle).origins(project_id)
+        for identifier, origin in origins.items():
+            if identifier in runs:
+                raise BackupError("deleted_conversation_run_reappeared")
+            run_origins[identifier] = origin
     items = [proposals.peek(identifier) for identifier in proposals._ids(clean_staging=False)]
     by_id = {item.id: item for item in items}
     for item in items:
         proposals._verified_files(item)
         if [row.id for row in item.source_runs] != item.manifest.related_run_ids:
             raise BackupError("proposal_related_run_mismatch")
-        run = runs.get(item.source_run_id)
+        run = run_origins.get(item.source_run_id)
         if (
             run is None
             or run.project_id != item.project_id
@@ -204,7 +213,7 @@ def inspect_application(data: Path, plugin: Path) -> dict:
         ):
             raise BackupError("proposal_artifact_mismatch")
         for source_run in item.source_runs:
-            related = runs.get(source_run.id)
+            related = run_origins.get(source_run.id)
             if (
                 related is None
                 or related.project_id != project.id

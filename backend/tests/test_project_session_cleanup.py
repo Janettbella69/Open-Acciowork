@@ -114,6 +114,114 @@ def test_missing_config_and_no_sessions_are_idempotent(tmp_path):
     assert cleanup.erase(plan).complete
 
 
+def test_conversation_cleanup_preserves_other_sessions_in_the_same_project(tmp_path):
+    first, config, directory = native_session(tmp_path)
+    second, _, _ = native_session(tmp_path)
+    orphan, _, _ = native_session(tmp_path)
+    write(config / "file-history" / first.sdk_session_id / "backup")
+    write(config / "file-history" / second.sdk_session_id / "backup")
+    write(directory / first.sdk_session_id / "subagents" / "agent.jsonl")
+    write(directory / second.sdk_session_id / "subagents" / "agent.jsonl")
+    write(directory / "memory" / "MEMORY.md", b"shared project memory")
+    write(directory / f"{first.sdk_session_id}.orphaned-fixture.jsonl",
+          (directory / f"{first.sdk_session_id}.jsonl").read_bytes())
+    before = {str(path.relative_to(tmp_path)): path.read_bytes()
+              for path in tmp_path.rglob("*") if path.is_file()}
+    cleanup = ProjectSessionCleanup(tmp_path)
+    plan = cleanup.preview_conversation(first.project_id, [first], [first, second])
+    assert not plan.blockers
+    assert plan.scope == "conversation"
+    assert [item.session_id for item in plan.session_groups] == [first.sdk_session_id]
+    assert all(first.sdk_session_id in path for path in plan.scan_roots)
+    assert cleanup.erase(SessionCleanupPlan.model_validate_json(plan.model_dump_json())).complete
+    assert cleanup.erase(plan).complete
+    for path, content in before.items():
+        if first.sdk_session_id in path:
+            assert not (tmp_path / path).exists()
+        else:
+            assert (tmp_path / path).read_bytes() == content
+    assert (directory / f"{orphan.sdk_session_id}.jsonl").exists()
+
+
+@pytest.mark.parametrize("mutation", ["subagent", "orphan", "todo", "index", "duplicate"])
+def test_conversation_cleanup_rejects_late_unreviewed_native_writes(tmp_path, mutation):
+    first, config, directory = native_session(tmp_path)
+    second, _, _ = native_session(tmp_path)
+    cleanup = ProjectSessionCleanup(tmp_path)
+    plan = cleanup.preview_conversation(first.project_id, [first], [first, second])
+    assert not plan.blockers
+    sid = first.sdk_session_id
+    main = directory / f"{sid}.jsonl"
+    if mutation == "subagent":
+        write(directory / sid / "subagents" / "late.jsonl")
+    elif mutation == "orphan":
+        write(directory / f"{sid}.orphaned-late.jsonl", main.read_bytes())
+    elif mutation == "todo":
+        write(config / "todos" / f"{sid}-agent-late.json")
+    elif mutation == "index":
+        write(directory / "sessions-index.json")
+    else:
+        write(config / "projects" / "duplicate" / main.name, main.read_bytes())
+    with pytest.raises(SessionCleanupConflict):
+        cleanup.erase(plan)
+    assert main.exists() and (directory / f"{second.sdk_session_id}.jsonl").exists()
+
+
+def test_conversation_subset_rejects_missing_run_and_shared_checkpoint_links(tmp_path):
+    first, config, _ = native_session(tmp_path)
+    resumed = first.model_copy(update={
+        "id": "run_resume", "resume_session_id": first.sdk_session_id,
+    })
+    cleanup = ProjectSessionCleanup(tmp_path)
+    assert "native_conversation_selection_incomplete" in cleanup.preview_conversation(
+        first.project_id, [first], [first, resumed],
+    ).blockers
+    second, _, _ = native_session(tmp_path)
+    first_backup = config / "file-history" / first.sdk_session_id / "backup"
+    second_backup = config / "file-history" / second.sdk_session_id / "backup"
+    write(first_backup)
+    second_backup.parent.mkdir(parents=True)
+    os.link(first_backup, second_backup)
+    plan = cleanup.preview_conversation(
+        first.project_id, [first, resumed], [first, resumed, second],
+    )
+    assert "native_checkpoint_has_unreviewed_links" in plan.blockers
+    assert first_backup.exists() and second_backup.exists()
+
+
+def test_conversation_plan_cannot_expand_to_shared_project_directory(tmp_path):
+    first, _, directory = native_session(tmp_path)
+    second, _, _ = native_session(tmp_path)
+    cleanup = ProjectSessionCleanup(tmp_path)
+    plan = cleanup.preview_conversation(first.project_id, [first], [first, second])
+    plan.scan_roots.append(str(directory.relative_to(tmp_path)))
+    with pytest.raises(SessionCleanupConflict, match="invalid_native_conversation_scope"):
+        cleanup.erase(plan)
+    assert (directory / f"{second.sdk_session_id}.jsonl").exists()
+
+
+def test_conversation_retry_preserves_other_sessions(tmp_path, monkeypatch):
+    first, config, directory = native_session(tmp_path)
+    second, _, _ = native_session(tmp_path)
+    backup = config / "file-history" / first.sdk_session_id / "backup"
+    write(backup)
+    cleanup = ProjectSessionCleanup(tmp_path)
+    plan = cleanup.preview_conversation(first.project_id, [first], [first, second])
+    actual = cleanup._sdk_delete
+
+    def interrupt(group):
+        actual(group)
+        raise RuntimeError("synthetic process interruption")
+
+    monkeypatch.setattr(cleanup, "_sdk_delete", interrupt)
+    with pytest.raises(RuntimeError, match="synthetic"):
+        cleanup.erase(plan)
+    assert backup.exists()
+    assert ProjectSessionCleanup(tmp_path).erase(plan).complete
+    assert not backup.exists()
+    assert (directory / f"{second.sdk_session_id}.jsonl").exists()
+
+
 @pytest.mark.parametrize("mutation", ["change", "addition", "foreign_duplicate", "global_copy"])
 def test_changed_preview_never_erases_anything(tmp_path, mutation):
     run, config, directory = native_session(tmp_path)

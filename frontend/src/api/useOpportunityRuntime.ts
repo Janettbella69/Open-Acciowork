@@ -123,6 +123,25 @@ export function useOpportunityRuntime(onProjectUnavailable?: (projectId: string)
     return true
   }, [onProjectUnavailable, reset])
 
+  const discardConversation = useCallback((projectId: string, runIds: string[], unavailable: boolean) => {
+    const selected = projectRef.current
+    const cleared = selected?.id === projectId && (unavailable || !!(runRef.current && runIds.includes(runRef.current.id)))
+    if (cleared) {
+      reset()
+      if (!unavailable) {
+        projectRef.current = selected
+        setProject(selected)
+      }
+    }
+    if (unavailable) setProjects((items) => items.filter((item) => item.id !== projectId))
+    else void getProject(projectId).then((updated) => {
+      if (!discardedProjectsRef.current.has(projectId)) {
+        setProjects((items) => [updated, ...items.filter((item) => item.id !== projectId)])
+      }
+    }).catch(() => {})
+    return cleared
+  }, [reset])
+
   const refreshProject = useCallback((projectId: string): Promise<void> => {
     if (projectRef.current?.id !== projectId) return Promise.resolve()
     const selection = selectionRef.current
@@ -737,6 +756,7 @@ export function useOpportunityRuntime(onProjectUnavailable?: (projectId: string)
     selectProject,
     refreshActiveProject,
     discardProject,
+    discardConversation,
     reset,
   }
 }

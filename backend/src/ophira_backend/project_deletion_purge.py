@@ -81,7 +81,7 @@ def _existing_store_lock(root, path):
 
 
 def _rewrite(root, plan, rewrite):
-    if rewrite.kind == "manifest":
+    if rewrite.kind in {"manifest", "run-manifest"}:
         lock = _existing_store_lock(
             root, ".ledger-locks/" + hashlib.sha256(b"manifest").hexdigest() + ".lock"
         )
@@ -98,13 +98,17 @@ def _rewrite(root, plan, rewrite):
             raw = read_relative(root, rewrite.path, max(JSON_LIMIT, 64 * 1024 * 1024))
         except FileNotFoundError:
             return
-        if rewrite.kind == "manifest":
+        if rewrite.kind in {"manifest", "run-manifest"}:
             rows = [parse_json(line) for line in raw.splitlines() if line.strip()]
             if any(not isinstance(row, dict) for row in rows):
                 raise ProjectDeletionConflict("Invalid manifest during project deletion")
-            selected = [row for row in rows if row.get("project_id") == plan.project_id]
+            def matches(row):
+                return (row.get("run_id") in rewrite.selectors if rewrite.kind == "run-manifest"
+                        else row.get("project_id") == plan.project_id)
+
+            selected = [row for row in rows if matches(row)]
             updated = b"".join(
-                _json_bytes(row) for row in rows if row.get("project_id") != plan.project_id
+                _json_bytes(row) for row in rows if not matches(row)
             )
         elif rewrite.kind == "diary":
             selected, updated, _blocks = diary_selection(

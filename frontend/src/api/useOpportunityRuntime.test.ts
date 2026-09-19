@@ -267,6 +267,37 @@ describe('project access loss', () => {
     expect(unavailable).toHaveBeenCalledExactlyOnceWith(projectB.id)
   })
 
+  it('clears a deleted conversation and stale stream without losing the project or another conversation', async () => {
+    const { result } = await setup()
+    const old = MockEventSource.instances.at(-1)!
+    act(() => old.emit('assistant.text.delta', { text: 'private conversation' }))
+    await act(async () => { expect(result.current.discardConversation(projectA.id, [runA.id], false)).toBe(true) })
+    expect(result.current.project).toEqual(projectA)
+    expect(result.current.run).toBeNull()
+    expect(result.current.assistantText).toBe('')
+    expect(result.current.events).toEqual([])
+    expect(old.closed).toBe(true)
+    act(() => old.emit('assistant.text.delta', { text: 'late private text' }))
+    expect(result.current.assistantText).toBe('')
+    await act(async () => { await result.current.selectProject(projectB) })
+    await act(async () => { expect(result.current.discardConversation(projectA.id, [runA.id], false)).toBe(false) })
+    expect(result.current.project).toEqual(projectB)
+    expect(result.current.run).toEqual(runB)
+  })
+
+  it('temporarily hides a project during conversation erasure and permits reopening after recovery', async () => {
+    const { result } = await setup()
+    act(() => { result.current.discardConversation(projectA.id, [runA.id], true) })
+    expect(result.current.project).toBeNull()
+    expect(result.current.projects.some((item) => item.id === projectA.id)).toBe(false)
+    await act(async () => { result.current.discardConversation(projectA.id, [runA.id], false) })
+    expect(result.current.projects.some((item) => item.id === projectA.id)).toBe(true)
+    vi.mocked(api.listProjectRuns).mockResolvedValueOnce([])
+    await act(async () => { await result.current.selectProject(projectA) })
+    expect(result.current.project).toEqual(projectA)
+    expect(result.current.run).toBeNull()
+  })
+
   it.each([false, true])('rechecks a denied run action before discarding project reads (read denied: %s)', async (denied) => {
     const { result } = await setup()
     vi.mocked(api.cancelRun).mockRejectedValueOnce(Object.assign(new Error('Cannot cancel this run'), { status: 403 }))

@@ -256,7 +256,19 @@ class WorkspaceCheckpoints:
         ):
             raise WorkspaceRecoveryError("Workspace checkpoint failed its integrity check.")
         if value.kind == "run_start":
-            run = self.ledger.get_run(value.run_id or "")
+            from .conversation_deletion_state import ConversationDeletionStates
+            from .storage import LedgerNotFoundError
+
+            try:
+                run = self.ledger.get_run(value.run_id or "")
+            except LedgerNotFoundError:
+                run = ConversationDeletionStates(self.ledger.lifecycle).origins(project_id).get(
+                    value.run_id,
+                )
+                if run is None:
+                    raise WorkspaceRecoveryError(
+                        "Workspace checkpoint Run origin is unavailable",
+                    ) from None
             if run.project_id != project_id or run.trace_id != value.trace_id:
                 raise WorkspaceRecoveryError("Workspace checkpoint has inconsistent Run origin.")
         elif value.run_id is not None or value.trace_id is not None:

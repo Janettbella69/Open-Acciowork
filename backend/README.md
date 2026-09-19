@@ -205,6 +205,13 @@ recovery completes an interrupted scrub. Deployment backups and physical-media e
 remain operator responsibilities. The full contract and endpoint shapes are documented in
 [`docs/memory-governance.md`](../docs/memory-governance.md).
 
+Owners/admins can also [delete one conversation](../docs/conversation-deletion.md) while keeping
+the project. Review resolves the full resume chain and distinguishes removed chat/session copies
+from retained files, evidence, memories and other project records. A durable operation prevents
+resuming or recreating deleted Runs; interrupted cleanup is retried before worker startup.
+Content-free provenance keeps surviving project exports, recovery checkpoints and Skill backups
+verifiable. The EN/ZH workspace exposes review, explicit confirmation and reloadable progress.
+
 ### Feishu reply channel (FR-24)
 
 The Feishu route accepts a business message only after timestamp/signature checks,

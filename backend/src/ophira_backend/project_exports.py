@@ -14,7 +14,11 @@ from .artifact_files import snapshot_relative
 from .auth import ProjectAccessRecord, ProjectPermission
 from .channel_delivery import ChannelDeliveryRecord
 from .constants import TERMINAL_RUN_STATUSES, MemoryScope
-from .events import redact
+from .conversation_deletion_state import (
+    ConversationDeletionStates,
+    run_excerpt_hash,
+    run_identity_hash,
+)
 from .marketplace_access import MarketplaceAccessRecord
 from .models import (
     CommercialActionRecord,
@@ -34,6 +38,7 @@ from .models import (
     utc_now,
 )
 from .project_comments import CommentLedger
+from .project_deletion_proofs import proof_hash
 from .project_export_capture import ExportCapture, json_bytes
 from .project_export_models import (
     EXPORT_FORMAT,
@@ -120,6 +125,18 @@ class ProjectExports:
                 raise ProjectExportConflict("Project data changed. Review a fresh export.")
             capture.add_json("project.json", raw_project, "project")
             runs = self._runs(capture, project)
+            deletion_root = f"conversation-deletions/{project.id}"
+            for name in _names(capture, deletion_root):
+                # Observe only; never export deletion requester data.
+                capture.json(f"{deletion_root}/{name}")
+            origins = ConversationDeletionStates(self.ledger.lifecycle).origins(project.id)
+            if set(origins) & set(runs):
+                raise ValueError("Deleted conversation Run has reappeared")
+            if origins:
+                capture.add_json("deleted-conversations/run-origins.json", [
+                    origin.model_dump(mode="json") for origin in origins.values()
+                ], "conversations")
+                runs.update(origins)
             capture.tree(source + "/workspace", "workspace", "workspace")
             for artifact in project.artifacts:
                 if artifact.project_id != project.id:
@@ -225,10 +242,10 @@ class ProjectExports:
             run = runs.get(receipt.run_id)
             if (receipt.id != identifier or run is None
                     or receipt.session_id != run.sdk_session_id
-                    or receipt.tenant_id != run.tenant_id
-                    or receipt.principal_id != run.principal_id
-                    or receipt.principal_role != run.principal_role
-                    or receipt.principal_session_id != run.principal_session_id
+                    or run_identity_hash(run) != proof_hash([
+                        receipt.tenant_id, receipt.principal_id, receipt.principal_role,
+                        receipt.principal_session_id,
+                    ])
                     or receipt.sanitized_payload_ref != source + "/payload.json"):
                 raise ValueError("Source receipt has a different project or Run")
             payload = capture.json(source + "/payload.json")
@@ -346,12 +363,14 @@ class ProjectExports:
                     raise ValueError("Project record refers to a different Run")
                 if isinstance(record, CommercialActionRecord):
                     run = runs.get(record.source_run_id)
+                    source_actor = (record.staged_by
+                                    if project.identity_binding == "authenticated_principal"
+                                    else None)
                     if (run is None or record.source_session_id != run.sdk_session_id
-                            or record.tenant_id != run.tenant_id
-                            or record.staged_role != run.principal_role
-                            or record.staged_principal_session_id != run.principal_session_id
-                            or (run.principal_id is not None
-                                and record.staged_by != run.principal_id)):
+                            or run_identity_hash(run) != proof_hash([
+                                record.tenant_id, source_actor,
+                                record.staged_role, record.staged_principal_session_id,
+                            ])):
                         raise ValueError("Commercial action source belongs to a different Run")
                     if record.source_receipt_id is not None:
                         receipt = receipts.get(record.source_receipt_id)
@@ -404,7 +423,7 @@ class ProjectExports:
                         or source_run.started_at != related.started_at
                         or source_run.finished_at != related.finished_at
                         or source_run.status != related.status
-                        or source_run.prompt_excerpt != str(redact(related.prompt))[:240]):
+                        or proof_hash(source_run.prompt_excerpt) != run_excerpt_hash(related)):
                     raise ValueError("Skill proposal includes another project's Run history")
             capture.add_json(source + "/record.json", value, "skill-proposals")
             manifest = capture.read(source + "/manifest.json")

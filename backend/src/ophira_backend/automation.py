@@ -58,6 +58,10 @@ class _FileStore:
     def _write(self, item) -> None:
         with (ProjectLifecycle(self.root.parent).lease(item.project_id)
               if item.project_id else nullcontext()):
+            if item.project_id and getattr(item, "run_id", None):
+                ProjectLifecycle(self.root.parent).assert_run_available(
+                    item.project_id, item.run_id,
+                )
             path = self._path(item.id)
             temporary = path.with_suffix(".tmp")
             temporary.write_text(item.model_dump_json(indent=2) + "\n", encoding="utf-8")

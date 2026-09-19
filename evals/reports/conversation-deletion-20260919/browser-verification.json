@@ -1,0 +1,63 @@
+{
+  "result": "passed",
+  "transport": "Chromium UI with real local Vite/API and disposable data",
+  "checks": [
+    {
+      "language": "en",
+      "width": 1280,
+      "no_horizontal_overflow": true,
+      "exact_name_required": true
+    },
+    {
+      "language": "en",
+      "width": 400,
+      "no_horizontal_overflow": true,
+      "exact_name_required": true
+    },
+    {
+      "language": "en",
+      "width": 320,
+      "no_horizontal_overflow": true,
+      "exact_name_required": true
+    },
+    {
+      "language": "en",
+      "deleted": true,
+      "project_retained": true,
+      "other_project_retained": true,
+      "draft_and_local_attachment_preserved": true,
+      "progress_survives_reload": true,
+      "operation_id": "3a0f59ca-a6c0-471d-9dee-b2a9d6894084"
+    },
+    {
+      "language": "zh-CN",
+      "width": 1280,
+      "no_horizontal_overflow": true,
+      "exact_name_required": true
+    },
+    {
+      "language": "zh-CN",
+      "width": 400,
+      "no_horizontal_overflow": true,
+      "exact_name_required": true
+    },
+    {
+      "language": "zh-CN",
+      "width": 320,
+      "no_horizontal_overflow": true,
+      "exact_name_required": true
+    },
+    {
+      "language": "zh-CN",
+      "deleted": true,
+      "project_retained": true,
+      "other_project_retained": true,
+      "draft_and_local_attachment_preserved": true,
+      "progress_survives_reload": true,
+      "operation_id": "a22c0193-fb5f-491c-a214-35419750e7e0"
+    }
+  ],
+  "page_errors": [],
+  "model_calls": 0,
+  "boundary": "No live Provider, external shop, real project or credentials accessed"
+}

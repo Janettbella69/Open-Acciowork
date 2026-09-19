@@ -91,6 +91,25 @@ class ProjectLifecycle:
             return  # Internal capture/cleanup in the exclusive operation only.
         if self.has_deletion(project_id):
             raise ProjectUnavailableError(project_id)
+        from .conversation_deletion_state import ConversationDeletionStates
+
+        states = ConversationDeletionStates(self).list(project_id)
+        if any(state["status"] != "deleted" for state in states):
+            raise ProjectUnavailableError(project_id)
+
+    def assert_run_available(self, project_id: str, run_id: str | None = None, *,
+                             session_id: str | None = None, provider_id: str | None = None) -> None:
+        from .conversation_deletion_state import ConversationDeletionStates
+
+        for state in ConversationDeletionStates(self).list(project_id):
+            if run_id is not None and run_id in state["run_ids"]:
+                raise ProjectUnavailableError(run_id)
+            if session_id is not None and any(
+                group["session_id"] == session_id
+                and group["config_root"] == f"runtime-config/{provider_id or 'environment'}"
+                for group in state["plan"]["sessions"]["session_groups"]
+            ):
+                raise ProjectUnavailableError(run_id or project_id)
 
     @contextmanager
     def lease(

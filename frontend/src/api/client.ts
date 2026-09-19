@@ -46,7 +46,7 @@ import type { CollaborationCapabilities, CommentChange, CommentCreate, CommentHi
 import type { ProjectTemplate, TemplateApplied, TemplateApplications, TemplateApply, TemplateDetail, TemplateLibrary, TemplateSave } from './projectTemplates'
 import type { SkillFilePreview, SkillImportReviewRequest, SkillImportView, SkillPackageView, SkillRepositoryCapabilities, SkillRepositorySelection } from './skillRepository'
 import type { ProjectExportPreview } from './projectExport'
-import type { ProjectDeletionOperation, ProjectDeletionPreview, ProjectDeletionRequest } from './projectDeletion'
+import type { ConversationDeletionOperation, ConversationDeletionPreview, ProjectDeletionOperation, ProjectDeletionPreview, ProjectDeletionRequest } from './projectDeletion'
 import type { GovernedMemory, MemoryExpiryUpdate, MemoryExport, MemoryTombstone } from '../types/MemoryGovernance'
 
 const configuredBaseUrl = import.meta.env.VITE_OPHIRA_API_URL?.trim() ?? ''
@@ -74,6 +74,24 @@ export function retryProjectDeletion(projectId: string, operationId: string, sig
   return request(`/api/project-deletions/${encodeURIComponent(projectId)}/${encodeURIComponent(operationId)}/retry`, {
     method: 'POST', signal, cache: 'no-store',
   })
+}
+
+export function getConversationDeletion(projectId: string, runId: string, signal?: AbortSignal): Promise<ConversationDeletionPreview> {
+  return request(`/api/projects/${encodeURIComponent(projectId)}/conversations/${encodeURIComponent(runId)}/deletion`, { signal, cache: 'no-store' })
+}
+
+export function submitConversationDeletion(projectId: string, runId: string, payload: ProjectDeletionRequest, signal?: AbortSignal): Promise<ConversationDeletionOperation> {
+  return request(`/api/projects/${encodeURIComponent(projectId)}/conversations/${encodeURIComponent(runId)}/deletion`, {
+    method: 'POST', body: JSON.stringify(payload), signal, cache: 'no-store',
+  })
+}
+
+export function getConversationDeletionOperation(projectId: string, operationId: string, signal?: AbortSignal): Promise<ConversationDeletionOperation> {
+  return request(`/api/conversation-deletions/${encodeURIComponent(projectId)}/${encodeURIComponent(operationId)}`, { signal, cache: 'no-store' })
+}
+
+export function retryConversationDeletion(projectId: string, operationId: string, signal?: AbortSignal): Promise<ConversationDeletionOperation> {
+  return request(`/api/conversation-deletions/${encodeURIComponent(projectId)}/${encodeURIComponent(operationId)}/retry`, { method: 'POST', signal, cache: 'no-store' })
 }
 
 export async function downloadProjectExport(projectId: string, fingerprint: string, signal?: AbortSignal): Promise<Blob> {

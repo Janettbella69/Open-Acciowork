@@ -1,0 +1,12 @@
+{
+  "result": "passed",
+  "workers": 2,
+  "crash_after_native_sdk_delete": true,
+  "peer_blocks_project_reads_and_new_runs": true,
+  "same_operation_recovered_on_peer": true,
+  "idempotent_replay": true,
+  "other_conversation_retained": true,
+  "project_available_after_recovery": true,
+  "project_export_after_deletion": true,
+  "model_calls": 0
+}

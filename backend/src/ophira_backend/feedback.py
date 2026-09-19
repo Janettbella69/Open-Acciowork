@@ -84,6 +84,10 @@ class FeedbackStore:
     def _write(self, item: FeedbackItem) -> None:
         with (ProjectLifecycle(self.root.parent).lease(item.project_id)
               if item.project_id else nullcontext()):
+            if item.project_id and item.run_id:
+                ProjectLifecycle(self.root.parent).assert_run_available(
+                    item.project_id, item.run_id,
+                )
             descriptor, temporary = tempfile.mkstemp(
                 prefix=".feedback-", suffix=".tmp", dir=self.root,
             )

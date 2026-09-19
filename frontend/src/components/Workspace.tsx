@@ -3,7 +3,7 @@ import { errorMessage, getOrgPolicy, listProviders, saveOrgPolicy } from '../api
 import type { OpportunityProject, PermissionModePolicy, ProviderProfile, RunMode, RunRetryStrategy } from '../api/types'
 import { useOpportunityRuntime } from '../api/useOpportunityRuntime'
 import { useProjectDeletion } from '../api/useProjectDeletion'
-import type { ProjectDeletionOperation } from '../api/projectDeletion'
+import { requireConversationScope, type ConversationDeletionOperation, type ProjectDeletionOperation } from '../api/projectDeletion'
 import { providerIsRunnable } from '../providerEligibility'
 import WorkspaceComposer from './WorkspaceComposer'
 import ProjectDeletionProgress from './ProjectDeletionProgress'
@@ -48,7 +48,7 @@ export default function Workspace() {
     setNotice('This project is no longer available. Your unsent message and local attachments are still here.')
   }, [])
   const runtime = useOpportunityRuntime(onProjectUnavailable)
-  const { discardProject, refreshActiveProject, project: currentProject } = runtime
+  const { discardProject, discardConversation, refreshActiveProject, project: currentProject } = runtime
   const onDeletionAccepted = useCallback((operation: ProjectDeletionOperation) => {
     if (discardProject(operation.project_id)) {
       setNotice('Deletion was accepted. Your unsent message and local attachments are still here.')
@@ -58,6 +58,17 @@ export default function Workspace() {
     if (currentProject?.id === projectId) void refreshActiveProject()
   }, [currentProject?.id, refreshActiveProject])
   const deletion = useProjectDeletion(onDeletionAccepted, onDeletionAccessCheck)
+  const onConversationDeleted = useCallback((operation: ProjectDeletionOperation) => {
+    const conversation = operation as ConversationDeletionOperation
+    requireConversationScope(conversation.run_id, conversation)
+    if (!discardConversation(conversation.project_id, conversation.run_ids, conversation.status !== 'deleted')) return
+    navigationRef.current += 1
+    retryInFlightRef.current = null
+    setRetrying(null)
+    setRetryFailure(null)
+    setNotice('Conversation deletion was accepted. Your unsent message and local attachments are still here.')
+  }, [discardConversation])
+  const conversationDeletion = useProjectDeletion(onConversationDeleted, onDeletionAccessCheck, 'conversation')
 
   useEffect(() => {
     let active = true
@@ -215,13 +226,19 @@ export default function Workspace() {
       onSubmit={runAnalysis}
       onProjectRefresh={() => void runtime.refreshActiveProject()}
       onProjectCreated={(project) => void selectProjectRecord(project)}
-      deletionProgress={<ProjectDeletionProgress deletion={deletion} />}
+      deletionProgress={<><ProjectDeletionProgress deletion={deletion} /><ProjectDeletionProgress deletion={conversationDeletion} /></>}
       deletionPending={!!deletion.attempt}
       deletionCanReviewAgain={!!deletion.attempt && !deletion.action && !deletion.attempt.accepted
         && deletion.attempt.handle.projectId === runtime.project?.id
         && ['missing', 'rejected', 'forbidden'].includes(deletion.attempt.phase)}
       onDeletionReviewAgain={deletion.dismiss}
       onDeleteProject={deletion.submit}
+      conversationDeletionPending={!!conversationDeletion.attempt || !!deletion.attempt}
+      conversationDeletionCanReviewAgain={!!conversationDeletion.attempt && !conversationDeletion.action && !conversationDeletion.attempt.accepted
+        && conversationDeletion.attempt.handle.projectId === runtime.project?.id
+        && ['missing', 'rejected', 'forbidden'].includes(conversationDeletion.attempt.phase)}
+      onConversationDeletionReviewAgain={conversationDeletion.dismiss}
+      onDeleteConversation={conversationDeletion.submit}
       onNewResearch={() => void startNewResearch()}
       onSelectProject={(projectId) => void selectSavedProject(projectId)}
       onCancel={() => void runtime.cancel()}
