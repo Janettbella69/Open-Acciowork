@@ -6,9 +6,9 @@
 
 - 快照来源：https://code.claude.com/docs/en/agent-sdk/ （官方，`<slug>.md` 可取原始 markdown）
 - 快照日期：**2026-08-20**（每篇开头的 Documentation Index 引言是源站自带的，非本仓添加）
-- 版本口径：线上文档描述**最新版 SDK**；本项目钉 `claude-agent-sdk==0.2.82`。
+- 版本口径：线上文档描述**最新版 SDK**；本项目钉 `claude-agent-sdk==0.2.143`。
   文档与实际行为冲突时，以安装包源码为准：
-  `.venv/lib/python3.11/site-packages/claude_agent_sdk/`（升级须先过 Provider 合约测试，见根 CLAUDE.md 红线）。
+  `.venv/lib/python3.11/site-packages/claude_agent_sdk/`（升级须先过 Provider 合约测试，见根 AGENTS.md 红线）。
 
 ## 快速索引（按本项目使用场景）
 

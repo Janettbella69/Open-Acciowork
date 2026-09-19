@@ -1,6 +1,6 @@
 # TradeMind
 
-**面向跨境团队的 AI 全球商业系统**
+**跨境电商版的 Codex，对标阿里的 Accio Work**
 
 > 发现世界所需，连接能够供应的人。  
 > *Discover what the world needs. Connect who can supply it.*
