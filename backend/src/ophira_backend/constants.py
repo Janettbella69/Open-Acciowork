@@ -142,6 +142,8 @@ class EventType(StrEnum):
     RUN_RESULT = "run.result"
 
     ARTIFACT_REGISTERED = "artifact.registered"
+    ARTIFACT_UPDATED = "artifact.updated"
+    MEMORY_PROPOSED = "memory.proposed"
     EVIDENCE_ADDED = "evidence.added"
     DECISION_RECORDED = "decision.recorded"
     UI_PRESENTATION = "ui.presentation"

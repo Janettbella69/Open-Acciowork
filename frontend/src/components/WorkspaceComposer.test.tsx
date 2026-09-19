@@ -60,6 +60,24 @@ function baseProps() {
 }
 
 describe('durable approval presentation', () => {
+  it.each([
+    ['en', ['Artifact saved', 'Artifact version saved', 'Memory proposed']],
+    ['zh-CN', ['交付物已保存', '交付物新版本已保存', '记忆提案已提交']],
+  ] as const)('renders resource observations in %s during history replay', (language, titles) => {
+    render(<I18nContext.Provider value={language}>
+      <WorkspaceComposer {...baseProps()} run={completedRun} events={[
+        'artifact.registered', 'artifact.updated', 'memory.proposed',
+      ].map((type, index) => ({
+        id: `run_1:${index + 1}`, sequence: index + 1, type, run_id: 'run_1',
+        project_id: 'project_1', trace_id: 'trace_1', sdk_session_id: null,
+        provider_profile_id: null, timestamp: '2026-09-19T10:00:00Z',
+        actor: { type: 'system', name: 'project-ledger', agent_id: null },
+        parent_id: null, tool_use_id: null, data: { resource_id: `resource_${index}` },
+      }))} />
+    </I18nContext.Provider>)
+    titles.forEach((title) => expect(screen.getByText(title)).toBeVisible())
+  })
+
   const saved: PendingPermission = {
     id: 'approval-1', toolName: 'Bash', toolInput: { command: 'touch report.txt' }, actor: { type: 'agent', name: 'TradeMind', agent_id: null },
     destructive: false, persistable: false, scope: 'report.txt', durable: true, state: 'resolved', expiresAt: '2099-01-01T00:00:00Z',

@@ -22,6 +22,7 @@ const protocol = {
     'run.created', 'run.started', 'run.status', 'run.completed', 'run.failed', 'run.cancelled',
     'assistant.text.delta', 'tool.completed', 'permission.requested', 'permission.resolved',
     'evidence.added', 'decision.recorded', 'task.completed', 'provider.preflight',
+    'artifact.registered', 'artifact.updated', 'memory.proposed',
   ],
   stream_end_event: 'stream.completed',
   run_statuses: ['queued', 'running', 'waiting_permission', 'paused', 'cancelling', 'completed', 'failed', 'cancelled'],
@@ -490,7 +491,37 @@ describe('durable approval reconciliation', () => {
 })
 
 describe('project record events and complete durable tails', () => {
-  it.each(['evidence.added', 'decision.recorded', 'task.completed', 'provider.preflight', 'tool.completed'])(
+  it.each(['artifact.registered', 'artifact.updated'])(
+    'refreshes authoritative artifacts on %s and ignores replay duplicates', async (type) => {
+      const { result } = await setup()
+      const saved = { ...projectA, name: 'Saved artifact revision', revision: 5 }
+      vi.mocked(api.getProject).mockResolvedValue(saved)
+      const source = MockEventSource.instances[0]
+      await act(async () => { source.emit(type, { artifact_id: 'artifact_1', version: 2 }) })
+      expect(result.current.project).toEqual(saved)
+      expect(api.getProject).toHaveBeenCalledTimes(1)
+      await act(async () => { source.emit(type, { artifact_id: 'artifact_1', version: 2 }, { sequence: 1 }) })
+      expect(result.current.events).toHaveLength(1)
+      expect(api.getProject).toHaveBeenCalledTimes(1)
+    },
+  )
+
+  it('replays a memory proposal after completion without approving it or changing the Run', async () => {
+    const { result } = await setup()
+    const source = MockEventSource.instances[0]
+    await act(async () => {
+      source.emit('run.completed', { status: 'completed' })
+      source.emit('memory.proposed', { memory_id: 'mem_1' })
+      source.emit('memory.proposed', { memory_id: 'mem_1' }, { sequence: 2 })
+    })
+    expect(result.current.events.map((event) => event.type)).toEqual(['run.completed', 'memory.proposed'])
+    expect(result.current.run?.status).toBe('completed')
+    expect(source.closed).toBe(false)
+    await act(async () => { source.end() })
+    expect(result.current.connection).toBe('closed')
+  })
+
+  it.each(['evidence.added', 'decision.recorded', 'artifact.registered', 'artifact.updated', 'memory.proposed', 'task.completed', 'provider.preflight', 'tool.completed'])(
     'does not apply %s status to the Run', async (type) => {
       const { result } = await setup()
       await act(async () => { MockEventSource.instances[0].emit(type, { status: 'failed', resource_id: 'record_1' }) })

@@ -337,11 +337,11 @@ def _create_app(
     conversation_deletion = ConversationDeletionService(ledger, project_access)
     conversation_deletion.recover()
     events = EventPublisher(ledger)
-    project_events = ProjectEventProjector(ledger, events)
     memory = FileMemoryProvider(
         settings.data_dir / "memory",
         agents_root=settings.data_dir / "agents",
     )
+    project_events = ProjectEventProjector(ledger, events, memory)
     grants = PermissionGrantStore(settings.data_dir / "grants")
     policy = OrgPolicyStore(settings.data_dir / "org" / "policy.json")
     feedback = FeedbackStore(settings.data_dir / "feedback")

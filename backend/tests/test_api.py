@@ -192,7 +192,10 @@ async def test_cancel_interrupts_runtime_and_reaches_terminal_state(tmp_path: Pa
         assert events[-1].type == "run.cancelled"
         artifact_events = [event for event in events if event.type == "artifact.registered"]
         assert artifact_events
-        assert artifact_events[-1].data["path"] == "partial-report.md"
+        artifact_id = artifact_events[-1].data["artifact_id"]
+        artifact = next(item for item in app.state.ledger.get_project(project_id).artifacts
+                        if item.id == artifact_id)
+        assert artifact.path == "partial-report.md"
         assert artifact_events[-1].sequence < events[-1].sequence
 
 

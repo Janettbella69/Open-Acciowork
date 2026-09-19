@@ -6,6 +6,13 @@ servers; every run writes evidence, decisions, and artifacts into the durable fi
 (The former four-subagent "opportunity team" is gone — Deep Research mode alone may spawn
 three read-only research subagents.)
 
+[Resource observations](../docs/resource-events.md) publish committed artifact versions
+and memory proposals into the originating Run's durable stream. Explicit MCP artifact
+registration notifies immediately; final workspace discovery and memory distillation
+are reconciled before stream completion. Notification failures are recoverable without
+repeating business writes. New resource events contain metadata only; download and
+memory review retain their existing authorization boundaries.
+
 ## Run locally
 
 From the repository root (the venv must live at the repo root; rebuild it with `--clear`

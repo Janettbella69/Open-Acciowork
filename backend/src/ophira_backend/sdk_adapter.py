@@ -280,7 +280,7 @@ class ClaudeAgentRuntime:
         self.settings = settings
         self.ledger = ledger
         self.events = events
-        self.project_events = project_events or ProjectEventProjector(ledger, events)
+        self.project_events = project_events or ProjectEventProjector(ledger, events, memory)
         self.permissions = permissions
         self.memory = memory
         self.providers = providers or ProviderRegistry(settings)

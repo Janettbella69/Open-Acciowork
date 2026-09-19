@@ -1,4 +1,9 @@
 export const dimensions = ['demand', 'supply', 'capital', 'sales'] as const
+export const RESOURCE_EVENT = {
+  ARTIFACT_REGISTERED: 'artifact.registered',
+  ARTIFACT_UPDATED: 'artifact.updated',
+  MEMORY_PROPOSED: 'memory.proposed',
+} as const
 export type Dimension = (typeof dimensions)[number]
 
 export type ValidationStatus = 'unverified' | 'in_progress' | 'validated' | 'blocked' | 'rejected'

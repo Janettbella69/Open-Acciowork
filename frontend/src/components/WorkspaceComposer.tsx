@@ -3,6 +3,7 @@ import Markdown from 'react-markdown'
 import {
   dimensions,
   UI_PRESENTATION_EVENT,
+  RESOURCE_EVENT,
   type OpportunityProject,
   type OphiraEvent,
   type PendingPermission,
@@ -37,6 +38,7 @@ import ProjectCollaborationPanel from './ProjectCollaborationPanel'
 import ProjectTemplatesPanel from './ProjectTemplatesPanel'
 import WorkspaceRecoveryPanel from './WorkspaceRecoveryPanel'
 import RunResourcesPanel from './RunResourcesPanel'
+import ResourceEventLinks from './ResourceEventLinks'
 import ProjectShopsPanel from './ProjectShopsPanel'
 import WorkspaceNav from './WorkspaceNav'
 import './workspace-composer.css'
@@ -225,6 +227,9 @@ function eventTitle(event: OphiraEvent, t: Translate): string {
   if (event.type === 'permission.requested') return t('Approval requested for {tool}', { tool: toolName })
   if (event.type === 'permission.resolved') return decision ? t('Confirmed: {decision}', { decision }) : t('Approval confirmed')
   if (event.type === 'run.result') return event.data.is_error ? t('Research ended with an error') : t('Research response prepared')
+  if (event.type === RESOURCE_EVENT.ARTIFACT_REGISTERED) return t('Artifact saved')
+  if (event.type === RESOURCE_EVENT.ARTIFACT_UPDATED) return t('Artifact version saved')
+  if (event.type === RESOURCE_EVENT.MEMORY_PROPOSED) return t('Memory proposed')
   return t(activityLabel(event))
 }
 
@@ -769,6 +774,7 @@ export default function WorkspaceComposer({
                                       <b aria-hidden="true">›</b>
                                     </summary>
                                     <div className="conversation-event-detail">
+                                      <ResourceEventLinks event={event} project={project} />
                                       <dl>
                                         <div><dt>{t('Event')}</dt><dd>{event.type}</dd></div>
                                         <div><dt>{t('Actor')}</dt><dd>{t(label(event.actor.type))}</dd></div>

@@ -8,18 +8,76 @@ from __future__ import annotations
 
 import logging
 
-from .constants import EventType
+from .constants import EventType, MemoryScope, MemorySource
 from .events import EventPublisher
-from .models import Decision, EventActor, Evidence
+from .memory import MemoryProvider
+from .models import Artifact, Decision, EventActor, Evidence, MemoryItem, RunRecord
 from .storage import FileLedger, LedgerNotFoundError
 
 logger = logging.getLogger(__name__)
 
 
 class ProjectEventProjector:
-    def __init__(self, ledger: FileLedger, events: EventPublisher) -> None:
+    def __init__(
+        self, ledger: FileLedger, events: EventPublisher, memory: MemoryProvider | None = None,
+    ) -> None:
         self.ledger = ledger
         self.events = events
+        self.memory = memory
+
+    async def artifact_saved(self, project_id: str, artifact_id: str) -> bool:
+        try:
+            project = self.ledger.get_project(project_id)
+            record = next((item for item in project.artifacts if item.id == artifact_id), None)
+            return True if record is None else await self._publish_record(project_id, record)
+        except Exception as exc:
+            self._log_failure(exc)
+            return False
+
+    async def memory_proposed(self, run_id: str, memory_id: str) -> bool:
+        try:
+            run = self.ledger.get_run(run_id)
+            record = next((item for item in self._run_memories(run) if item.id == memory_id), None)
+            return True if record is None else await self._publish_memory(run, record)
+        except Exception as exc:
+            self._log_failure(exc)
+            return False
+
+    def _run_memories(self, run: RunRecord) -> list[MemoryItem]:
+        if self.memory is None:
+            return []
+        pairs = [(MemoryScope.PROJECT, run.project_id)]
+        if run.agent_id:
+            pairs.append((MemoryScope.AGENT, run.agent_id))
+        return [
+            item for scope, scope_id in pairs
+            for item in self.memory.list(scope=scope, scope_id=scope_id)
+            if item.scope == scope and item.scope_id == scope_id and item.source_run_id == run.id
+        ]
+
+    async def _publish_memory(self, run: RunRecord, item: MemoryItem) -> bool:
+        # A project-scoped event may be read by other project members. Carry no
+        # memory prose, scope, identity or approval state, including on replay.
+        if item.source not in {MemorySource.AGENT_PROPOSAL, MemorySource.DISTILLATION}:
+            return True
+        if any(getattr(item, key) != getattr(run, key) for key in (
+            "identity_binding", "tenant_id", "principal_id", "principal_role",
+            "principal_session_id",
+        )):
+            return True
+        try:
+            await self.events.publish_once(
+                run.id, EventType.MEMORY_PROPOSED,
+                {
+                    "schema_version": 1, "resource_id": item.id, "memory_id": item.id,
+                    "recorded_at": item.created_at.isoformat(),
+                },
+                resource_id=item.id, actor=EventActor(type="system", name="memory-ledger"),
+            )
+        except Exception as exc:
+            self._log_failure(exc)
+            return False
+        return True
 
     async def evidence_added(self, project_id: str, evidence_id: str) -> bool:
         """Observe an existing record, including one returned by a duplicate call."""
@@ -58,19 +116,30 @@ class ProjectEventProjector:
             self._log_failure(exc)
             return False
         complete = True
-        for record in [*project.evidence, *project.decisions]:
-            if record.source_run_id == run.id:
+        for record in [*project.evidence, *project.decisions, *project.artifacts]:
+            source_id = record.run_id if isinstance(record, Artifact) else record.source_run_id
+            if source_id == run.id:
                 # Do not short-circuit: one failed notification must not suppress
                 # observations of other records already committed to the ledger.
                 confirmed = await self._publish_record(project.id, record)
                 complete = confirmed and complete
+        try:
+            for item in self._run_memories(run):
+                confirmed = await self._publish_memory(run, item)
+                complete = confirmed and complete
+        except Exception as exc:
+            self._log_failure(exc)
+            complete = False
         return complete
 
-    async def _publish_record(self, project_id: str, record: Evidence | Decision) -> bool:
-        if not record.source_run_id:
+    async def _publish_record(
+        self, project_id: str, record: Evidence | Decision | Artifact,
+    ) -> bool:
+        source_id = record.run_id if isinstance(record, Artifact) else record.source_run_id
+        if not source_id:
             return True
         try:
-            source_run = self.ledger.get_run(record.source_run_id)
+            source_run = self.ledger.get_run(source_id)
         except LedgerNotFoundError:
             # Historical/imported provenance cannot justify inventing a Run.
             return True
@@ -79,7 +148,16 @@ class ProjectEventProjector:
             return False
         if source_run.project_id != project_id:
             return True
-        if isinstance(record, Evidence):
+        extra = {}
+        if isinstance(record, Artifact):
+            if record.project_id != project_id:
+                return True
+            event_type = (EventType.ARTIFACT_UPDATED if record.version > 1
+                          else EventType.ARTIFACT_REGISTERED)
+            resource_field = "artifact_id"
+            recorded_at = record.created_at
+            extra = {"version": record.version}
+        elif isinstance(record, Evidence):
             event_type = EventType.EVIDENCE_ADDED
             resource_field = "evidence_id"
             recorded_at = record.recorded_at
@@ -96,6 +174,7 @@ class ProjectEventProjector:
                     "resource_id": record.id,
                     resource_field: record.id,
                     "recorded_at": recorded_at.isoformat(),
+                    **extra,
                 },
                 resource_id=record.id,
                 actor=EventActor(type="system", name="project-ledger"),

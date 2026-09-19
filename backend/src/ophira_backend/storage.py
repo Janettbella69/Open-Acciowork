@@ -878,7 +878,10 @@ class FileLedger:
         The durable business record remains authoritative. No second index is
         written: a crash after the JSONL append can recover from that same log.
         """
-        if event.type not in {EventType.EVIDENCE_ADDED.value, EventType.DECISION_RECORDED.value}:
+        if event.type not in {
+            EventType.EVIDENCE_ADDED, EventType.DECISION_RECORDED,
+            EventType.ARTIFACT_REGISTERED, EventType.ARTIFACT_UPDATED, EventType.MEMORY_PROPOSED,
+        }:
             raise ValueError("only committed project resource notifications can be deduplicated")
         if not isinstance(resource_id, str) or not resource_id:
             raise ValueError("resource_id must be a nonempty string")
@@ -898,7 +901,11 @@ class FileLedger:
                         or stored.run_id != run.id or stored.project_id != run.project_id
                         or stored.trace_id != run.trace_id):
                     raise ValueError("event log integrity check failed; refusing to project")
-                if stored.type == event.type and stored.data.get("resource_id") == resource_id:
+                stored_resource = stored.data.get("resource_id")
+                if stored.type == EventType.ARTIFACT_REGISTERED and stored_resource is None:
+                    # Earlier artifact observations contained the complete Artifact.
+                    stored_resource = stored.data.get("id")
+                if stored.type == event.type and stored_resource == resource_id:
                     if found is not None:
                         raise ValueError("resource notification has conflicting duplicate history")
                     found = stored

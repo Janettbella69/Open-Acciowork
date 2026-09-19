@@ -711,6 +711,8 @@ def build_ledger_tools(
             source_ids=args["source_ids"],
             mime=args.get("mime") or None,
         )
+        if project_events is not None:
+            await project_events.artifact_saved(project_id, artifact.id)
         if (
             skill_proposals is not None
             and is_skill_proposal_manifest(args["path"])
@@ -785,7 +787,10 @@ def build_ledger_tools(
                 confidence=args.get("confidence", 1.0),
                 created_by=agent_id or "agent",
                 principal=bound_run,
+                source_run_id=bound_run.id if bound_run is not None else None,
             )
+            if project_events is not None and bound_run is not None:
+                await project_events.memory_proposed(bound_run.id, item.id)
             return _tool_result(item)
 
         @tool(

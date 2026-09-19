@@ -1,0 +1,58 @@
+{
+  "result": "passed",
+  "transport": "Real loopback HTTP + Vite + Chromium",
+  "runtime": "Synthetic runtime using installed SDK in-process MCP handlers; no model calls",
+  "checks": [
+    {
+      "language": "en",
+      "width": 1280,
+      "no_horizontal_overflow": true
+    },
+    {
+      "language": "en",
+      "width": 400,
+      "no_horizontal_overflow": true
+    },
+    {
+      "language": "en",
+      "width": 320,
+      "no_horizontal_overflow": true
+    },
+    {
+      "language": "en",
+      "run_id": "run_6e907369d0ff48f8a7eecb514238673e",
+      "live_before_completion": true,
+      "immutable_version_downloads": true,
+      "authorized_memory_review_link": true,
+      "memory_requires_approval": true,
+      "reload_no_duplicates": true,
+      "no_memory_body_in_resource_events": true
+    },
+    {
+      "language": "zh-CN",
+      "width": 1280,
+      "no_horizontal_overflow": true
+    },
+    {
+      "language": "zh-CN",
+      "width": 400,
+      "no_horizontal_overflow": true
+    },
+    {
+      "language": "zh-CN",
+      "width": 320,
+      "no_horizontal_overflow": true
+    },
+    {
+      "language": "zh-CN",
+      "run_id": "run_b9826f9064674260bc58bd4f67358c42",
+      "live_before_completion": true,
+      "immutable_version_downloads": true,
+      "authorized_memory_review_link": true,
+      "memory_requires_approval": true,
+      "reload_no_duplicates": true,
+      "no_memory_body_in_resource_events": true
+    }
+  ],
+  "page_errors": []
+}

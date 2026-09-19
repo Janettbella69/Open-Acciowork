@@ -29,6 +29,7 @@ import type {
   RunStreamEnd,
 } from './types'
 import { permissionConflict, permissionLifecycleState } from '../permissionLifecycle'
+import { RESOURCE_EVENT } from './types'
 
 type ConnectionState = 'idle' | 'connecting' | 'live' | 'reconnecting' | 'closed'
 
@@ -37,7 +38,10 @@ const runStatusEvents = new Set([
   'run.created', 'run.started', 'run.status', 'run.completed', 'run.failed',
   'run.cancel_requested', 'run.cancelled',
 ])
-const projectRecordEvents = new Set(['evidence.added', 'decision.recorded'])
+const projectRecordEvents = new Set([
+  'evidence.added', 'decision.recorded',
+  RESOURCE_EVENT.ARTIFACT_REGISTERED, RESOURCE_EVENT.ARTIFACT_UPDATED,
+])
 const projectRefreshError = 'Could not refresh the saved project. Refresh before using this view.'
 const streamGapError = 'The runtime event stream has a gap. Reopen this project to restore its history.'
 

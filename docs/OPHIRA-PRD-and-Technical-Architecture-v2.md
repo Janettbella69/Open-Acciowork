@@ -757,9 +757,11 @@ Prompt Injection 防线维持 v1.1：外部内容一律标记为不可信数据�
 
 ### 4.12 事件协议与可观测性
 
-现状 32 种 SSE 事件，具体名称由 `GET /api/meta/protocol` 提供；事件具有单调 `sequence`，支持 `Last-Event-ID` 续传，先持久化再推送，并全量通过 `redact()` 脱敏（canary 测试口径保留）。每条事件带 `id/timestamp/project_id/run_id/trace_id/sdk_session_id/provider_profile_id`。
+事件清单由 `GET /api/meta/protocol` 提供；事件具有单调 `sequence`，支持 `Last-Event-ID` 续传，先持久化再推送，并全量通过 `redact()` 脱敏（canary 测试口径保留）。每条事件带 `id/timestamp/project_id/run_id/trace_id/sdk_session_id/provider_profile_id`。
 
-v1.1 规划仍缺的事件：`artifact.updated`、`evidence.added`、`decision.recorded`、`memory.proposed`、`provider.preflight.started/passed/failed` 细分、`schedule.skipped/completed/failed` 细分——随对应 UI 落地补齐。UI 不展示私有思维链；Provider 提供的公开 reasoning summary（现配置 `display:"summarized"`）按普通内容安全过滤并明确标识。指标管道可选接官方 OTel 导出。
+2026-09-19 增量实现：`evidence.added`、`decision.recorded`、`artifact.registered/updated` 和 `memory.proposed` 均由已提交且具真实来源 Run 的记录生成，可在通知失败后补发并跨进程去重；产物登记实时触发工作台刷新，保存新版本可下载对应不可变内容，记忆提案提供独立人审入口。这些资源通知仅带标识、版本和时间，不复制正文，不把历史提案当成当前审批状态；没有来源 Run 的人工变更不伪造事件。实现与验收边界见 `resource-events.md`。
+
+仍缺 `provider.preflight.started/passed/failed`、`schedule.skipped/completed/failed` 细分及无 Run 的项目变更通知。UI 不展示私有思维链；Provider 提供的公开 reasoning summary（现配置 `display:"summarized"`）按普通内容安全过滤并明确标识。指标管道可选接官方 OTel 导出。
 
 ### 4.13 部署拓扑（不变，两处更新）
 

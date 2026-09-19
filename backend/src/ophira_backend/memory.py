@@ -60,6 +60,9 @@ class MemoryProvider(Protocol):
         sensitivity: MemorySensitivity | None = None,
         confidence: float = 1.0,
         created_by: str = "system",
+        origin: MemoryOrigin | None = None,
+        source_run_id: str | None = None,
+        source_anchor: str = "",
         principal: PrincipalContext | RunRecord | None = None,
         expires_at: datetime | None = None,
     ) -> MemoryItem: ...

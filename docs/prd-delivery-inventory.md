@@ -48,9 +48,9 @@
 | §3.7 P2 知识库 | delivered：项目登记文本/OCR伴随文件索引、来源行列/版本、权限复验API、只读MCP与中英文工作区检索、校验和一致的下载；deferred：Office原件索引、真实检索质量/容量与浏览器目视验收 |
 | §3.7 P2 团队 | delivered：共享项目成员角色管理、关联项目/Run/消息/证据/决策/文件版本的团队讨论、项目模板保存/版本/参考文件下载/新建/归档/中断恢复、组织私有Skill审核发布与成员只读版本库及中英文UI；deferred：真实组织与浏览器目视验收、长期容量及生产隔离 |
 | §4.16 任务经验 | delivered：专属工具与版本/来源账本、创建时配置指纹、低信任检索注入、容量/事务恢复与人工停用UI；deferred：真实Provider自主调用及长期判断质量 |
-| §4.12 事件 | delivered：有真实Run归属的evidence.added/decision.recorded、持久幂等补发与完整SSE尾部消费；deferred：产物更新、记忆、无Run项目变更和 schedule/preflight 细分事件 |
+| §4.12 事件 | delivered：有真实Run归属的evidence.added/decision.recorded、artifact.registered/updated、memory.proposed；实时产物刷新、固定版本下载、记忆审核入口、持久幂等补发与完整SSE尾部消费；deferred：无Run项目变更和 schedule/preflight 细分事件 |
 | §3.9 / §4.10 | delivered：自动调度跨进程抢占与事件汇总恢复；Bash 工作区快照与人审恢复、跨进程目录切换修复；deferred：其余事件故障矩阵、生产恢复/容量与性能、CPU/内存/进程/输出限制 |
-| §3.9 数据主权 | delivered：操作者CLI完整数据目录冷备份与新目录恢复，覆盖项目账本/提案/Registry/工作区检查点一致性；项目工作文件恢复UI；项目owner/admin审核清单后导出文件、应用可见会话、来源与相关账本ZIP。本地交付：项目删除审核/API/UI、跨域擦除与原操作恢复，通过全量回归、真实HTTP双进程与中英文浏览器验收，见本轮记录及project-deletion-design.md；deferred：独立会话删除、凭据独立授权导出与删除（记忆已交付）、全应用恢复UI、历史备份删除登记对账与生产灾备；项目ZIP不含运行时会话、凭据和浏览器登录资料 |
+| §3.9 数据主权 | delivered：操作者CLI完整数据目录冷备份与新目录恢复，覆盖项目账本/提案/Registry/工作区检查点一致性；项目工作文件恢复UI；项目owner/admin审核清单后导出文件、应用可见会话、来源与相关账本ZIP。本地交付：项目及独立会话删除审核/API/UI、跨域擦除与原操作恢复，见project-deletion-design.md与conversation-deletion.md；deferred：凭据独立授权导出与删除（记忆已交付）、全应用恢复UI、历史备份删除登记对账与生产灾备；项目ZIP不含运行时会话、凭据和浏览器登录资料 |
 | §3.9 性能 | delivered：本地ASGI单/4并发各100样本，创建/首事件持久化/离线task取消P95基线；deferred：真实SDK进程、网络/SSE运输、多worker与生产负载验收 |
 | §3.9 / §3.10 | delivered：项目范围按Provider/model/Skill/tool/错误的有界指标汇总；deferred：业务成功指标、区域与数据流披露 |
 | §3.11 / §6.6 | deferred：当前 L2 基线、人亲自标注的 gold、judge 校准与 TPR/TNR 门槛；不能由 AI 伪造标注 |
@@ -969,3 +969,37 @@ Browser插件发现列表为空，因此使用已有本地浏览器测试工具�
 
 独立会话删除、外部消息/下载/备份治理、生产身份与跨宿主恢复及其余 FR deferred 继续开放。
 本轮未将真实用户 data 或凭据作为测试数据，没有付费模型调用；原有未跟踪 `deploy/companion/` 保留。
+
+## 2026-09-19：独立会话删除（补录已交付提交）
+
+提交：`e918d8b`。完整范围见 [会话删除](conversation-deletion.md)，证据见
+[该批报告](../evals/reports/conversation-deletion-20260919/README.md)。审核并删除选中会话的
+完整续接链、其应用记录及可证明归属的原生 SDK 历史；其他会话与项目保留。
+持久操作可重试、跨进程恢复，保留产物/来源/Skill 的证明不依赖复建被删除 Run。
+后端2138项、前端470项，以及真实HTTP和中英文浏览器验收通过。
+历史备份、外部副本、凭据独立导出删除及生产灾备继续 deferred。
+
+## 2026-09-19：产物版本与记忆提案事件
+
+交付前基线：`e918d8b`。本轮补齐 PRD §4.12 的两个事件缺口，
+[实现合同](resource-events.md) 保留逐项 delivered/deferred 清单。
+
+- Artifact 首次登记与更新不可变版本分别生成 `artifact.registered` / `artifact.updated`；
+  原生 MCP 显式登记即可通知工作台，重复登记和结束扫描不会重复通知。
+- Agent 直接记忆提案补齐真实来源 Run，直接提案与结束蒸馏生成 `memory.proposed`；
+  提案仍需用户批准，不从历史事件推断当前审批状态。
+- 复用既有业务记录观察器、跨进程事件锁和完整 SSE 尾部协议。异常后补发及进程退出恢复
+  不重复业务写入；通知只带标识/版本/时间，跨项目、scope、身份及无来源记录不冒认。
+- 工作台中英文事件标题、对应固定版本下载与当前授权记忆审核入口已接通；
+  项目访问失效清理和已有回放协议保持有效。
+
+验证：[本轮报告](../evals/reports/resource-events-20260919/README.md)。后端全量
+**2148 passed / 13 skipped**（129.00秒），前端 **485 passed / 45 files**；
+Ruff、ESLint、TypeScript/Vite、eval tools **59 passed**、Snapshot **61/61** 通过。
+真实 loopback HTTP + Chromium 覆盖任务结束前通知、两版文件下载字节、记忆审核跳转、
+刷新不重复和 EN/ZH 320/400/1280px 无横向溢出。写入进程退出后由两个新进程竞争恢复，
+每个资源恰好一个通知。测试运行时使用钉版 SDK MCP handler 和合成文件，没有模型调用。
+
+无 Run 人工变更、schedule/preflight 细分事件、生产负载与外部服务验收仍 deferred。
+PRD §4.12 已同步本轮实现边界；完整 PRD 仍未全部完成。原有未跟踪的部署目录和两份
+评审/对标文档均不纳入本轮提交。

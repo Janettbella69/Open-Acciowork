@@ -1,0 +1,59 @@
+
+> trademind@0.1.0 test:run
+> vitest run
+
+
+ RUN  v3.2.7 /Users/isabella/Open-Acciowork/frontend
+
+ ✓ src/components/MemoryReview.test.tsx (21 tests) 408ms
+ ✓ src/components/CompanionPushControls.test.tsx (17 tests) 431ms
+ ✓ src/components/ProjectDeletionPanel.test.tsx (12 tests) 393ms
+ ✓ src/components/ProjectShopsPanel.test.tsx (10 tests) 440ms
+ ✓ src/components/ProjectTemplatesPanel.test.tsx (7 tests) 383ms
+ ✓ src/components/ProjectExportPanel.test.tsx (13 tests) 458ms
+ ✓ src/components/MobilePage.test.tsx (26 tests) 579ms
+ ✓ src/components/SkillRepositoryPanel.test.tsx (12 tests) 580ms
+ ✓ src/components/ScheduledTasksPage.test.tsx (11 tests) 625ms
+ ✓ src/components/SettingsPage.test.tsx (11 tests) 707ms
+ ✓ src/components/Workspace.test.tsx (8 tests) 564ms
+ ✓ src/components/ProjectCollaborationPanel.test.tsx (13 tests) 799ms
+ ✓ src/components/WorkspaceComposer.test.tsx (26 tests) 751ms
+ ✓ src/components/ProjectArtifactsPanel.test.tsx (9 tests) 262ms
+ ✓ src/components/ProjectMetricsPanel.test.tsx (11 tests) 291ms
+ ✓ src/components/ShopifyConnector.test.tsx (6 tests) 279ms
+ ✓ src/components/MarketplaceConnector.test.tsx (5 tests) 300ms
+ ✓ src/components/WorkspaceRecoveryPanel.test.tsx (8 tests) 341ms
+ ✓ src/components/TaskExperiencePanel.test.tsx (7 tests) 288ms
+ ✓ src/components/ProjectKnowledgePanel.test.tsx (8 tests) 222ms
+ ✓ src/components/PresentationCards.test.tsx (16 tests) 226ms
+ ✓ src/components/MarketplaceProjectAccess.test.tsx (4 tests) 259ms
+ ✓ src/components/RunResourcesPanel.test.tsx (8 tests) 173ms
+ ✓ src/components/SkillsPage.test.tsx (4 tests) 205ms
+ ✓ src/components/ConversationDeletion.test.tsx (4 tests) 172ms
+ ✓ src/api/useProjectDeletion.test.tsx (14 tests) 173ms
+ ✓ src/components/AgentsPage.test.tsx (2 tests) 157ms
+ ✓ src/components/InboxPage.test.tsx (1 test) 112ms
+ ✓ src/components/ConnectorsPage.test.tsx (2 tests) 124ms
+ ✓ src/components/EvidenceDrawer.test.tsx (6 tests) 133ms
+ ✓ src/components/FeedbackForm.test.tsx (2 tests) 102ms
+ ✓ src/components/PluginsPage.test.tsx (1 test) 93ms
+ ✓ src/api/companion.test.ts (11 tests) 15ms
+ ✓ src/api/client.test.ts (15 tests) 11ms
+ ✓ src/api/skillProposals.test.ts (6 tests) 8ms
+ ✓ src/components/ResourceEventLinks.test.tsx (7 tests) 66ms
+ ✓ src/api/projectExport.test.ts (6 tests) 8ms
+ ✓ src/api/memoryGovernance.test.ts (7 tests) 6ms
+ ✓ src/App.test.tsx (21 tests) 1657ms
+ ✓ src/components/SkillProposalsPanel.test.tsx (28 tests) 2008ms
+ ✓ src/companionPushWorker.test.ts (8 tests) 4ms
+ ✓ src/api/projectDeletion.test.ts (5 tests) 4ms
+ ✓ src/i18n.test.tsx (5 tests) 62ms
+ ✓ src/api/useOpportunityRuntime.test.ts (51 tests) 2838ms
+ ✓ src/components/FeedbackReviewPanel.test.tsx (10 tests) 2990ms
+   ✓ FeedbackReviewPanel > advances by consumed server rows even when an entire appended page duplicates earlier records  2488ms
+   ✓ FeedbackReviewPanel > merges a newer revision from a duplicate page instead of discarding that record  306ms
+
+ Test Files  45 passed (45)
+      Tests  485 passed (485)
+   Start at  04:04:34
+   Duration  3.93s (transform 2.89s, setup 2.05s, collect 9.32s, tests 20.71s, environment 10.79s, prepare 1.66s)

@@ -8,6 +8,7 @@ from pathlib import Path
 
 from ophira_backend.constants import EventType, EvidenceKind, EvidenceSourceType
 from ophira_backend.events import EventPublisher
+from ophira_backend.memory import FileMemoryProvider
 from ophira_backend.models import Decision, Evidence, ProjectCreate
 from ophira_backend.project_events import ProjectEventProjector
 from ophira_backend.storage import FileLedger
@@ -41,7 +42,9 @@ def persist_records(ledger, project_id, assignments):
 def reconcile_worker(root, run_ids, barrier, connection):
     async def execute():
         ledger = FileLedger(Path(root))
-        projector = ProjectEventProjector(ledger, EventPublisher(ledger))
+        projector = ProjectEventProjector(
+            ledger, EventPublisher(ledger), FileMemoryProvider(Path(root) / "memory"),
+        )
         if barrier is not None:
             barrier.wait(timeout=15)
         for _ in range(3):
@@ -217,3 +220,54 @@ def test_new_process_recovers_records_after_writer_exits_before_event_projection
     assert ledger.list_events(first.id) == first_events
     assert ledger.list_events(second.id) == second_events
     assert ledger.list_events(foreign.id) == []
+
+
+def persist_resources_then_exit(root, project_id, run_id, connection):
+    from ophira_backend.constants import MemoryKind, MemoryScope, MemorySource
+
+    ledger = FileLedger(Path(root))
+    path = ledger.workspace_for_project(project_id) / "report.md"
+    path.write_text("First version")
+    first = ledger.register_artifact(project_id, path.name, run_id=run_id)
+    path.write_text("Second version")
+    second = ledger.register_artifact(project_id, path.name, run_id=run_id)
+    memory = FileMemoryProvider(Path(root) / "memory")
+    proposed = memory.propose(
+        scope=MemoryScope.PROJECT, scope_id=project_id, text="Synthetic preference",
+        kind=MemoryKind.PREFERENCE, source=MemorySource.AGENT_PROPOSAL, source_run_id=run_id,
+        principal=ledger.get_run(run_id),
+    )
+    connection.send([first.id, second.id, proposed.id])
+    os._exit(23)
+
+
+def test_two_processes_recover_artifacts_and_memory_after_writer_dies(tmp_path):
+    ledger, project, run, _second, _foreign = create_projects(tmp_path)
+    context = multiprocessing.get_context("spawn")
+    crashed, pipe = start_worker(context, persist_resources_then_exit, tmp_path, project.id, run.id)
+    try:
+        ids = receive_result(crashed, pipe)
+        crashed.join(15)
+        assert crashed.exitcode == 23
+    finally:
+        cleanup(crashed, pipe)
+    assert ledger.list_events(run.id) == []
+    barrier = context.Barrier(3)
+    workers = [
+        start_worker(context, reconcile_worker, tmp_path, [run.id], barrier) for _ in range(2)
+    ]
+    try:
+        barrier.wait(timeout=15)
+        for process, pipe in workers:
+            receive_result(process, pipe)
+            process.join(15)
+            assert process.exitcode == 0
+    finally:
+        for process, pipe in workers:
+            cleanup(process, pipe)
+    observations = ledger.list_events(run.id)
+    assert [row.sequence for row in observations] == [1, 2, 3]
+    assert [row.data["resource_id"] for row in observations] == ids
+    assert [row.type for row in observations] == [
+        EventType.ARTIFACT_REGISTERED, EventType.ARTIFACT_UPDATED, EventType.MEMORY_PROPOSED,
+    ]
