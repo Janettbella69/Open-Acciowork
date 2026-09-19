@@ -1,6 +1,6 @@
 # PDF / image Markdown ingestion
 
-This implements the upload-input rule in `CLAUDE.md` and PRD §3.5 B / §3.9.
+This implements the upload-input rule in `AGENTS.md` and PRD §3.5 B / §3.9.
 An upload keeps the original Artifact and registers `<original path>.md` as a
 second Artifact linked to the original ID. The companion identifies the actual
 extractor, warnings, and page boundaries. Text is sanitized and enclosed in the
