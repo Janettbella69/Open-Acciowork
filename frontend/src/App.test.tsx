@@ -394,6 +394,41 @@ describe('TradeMind frontend', () => {
     expect(screen.queryByText(/four dimensions, one decision/i)).not.toBeInTheDocument()
   })
 
+  it.each([403, 404, 503])('handles authoritative project read status %s without losing the unsent draft', async (status) => {
+    storedProjects = [project]
+    render(<Workspace />)
+    fireEvent.click(await screen.findByRole('button', { name: new RegExp(project.name, 'i') }))
+    await screen.findByText(/restoring the recorded response/i)
+    const source = MockEventSource.instances[0]
+    await act(async () => {
+      source.emit('assistant.text.delta', runtimeEvent('assistant.text.delta', { text: 'Private saved conversation.' }))
+      source.end()
+    })
+    await screen.findByText('Private saved conversation.')
+    const brief = screen.getByRole('textbox', { name: /ask trademind/i })
+    fireEvent.change(brief, { target: { value: 'Keep my unsent question' } })
+    fireEvent.change(screen.getByLabelText('Choose files or images'), {
+      target: { files: [new File(['local only'], 'unsent-quote.csv', { type: 'text/csv' })] },
+    })
+    const originalFetch = vi.mocked(fetch).getMockImplementation()!
+    vi.mocked(fetch).mockImplementation((input, init) => String(input).endsWith(`/api/projects/${project.id}`)
+      ? Promise.resolve(jsonResponse({ detail: 'Project read failed' }, status)) : originalFetch(input, init))
+    await act(async () => { window.dispatchEvent(new Event('focus')) })
+    expect(screen.getByRole('textbox', { name: /ask trademind/i })).toHaveValue('Keep my unsent question')
+    expect(screen.getByText('unsent-quote.csv')).toBeInTheDocument()
+    if (status === 503) {
+      expect(screen.getByText('Private saved conversation.')).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Project export' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: new RegExp(project.name, 'i') })).toBeInTheDocument()
+      expect(screen.getByRole('alert')).toHaveTextContent('Could not refresh the saved project')
+    } else {
+      expect(screen.queryByText('Private saved conversation.')).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'Project export' })).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: new RegExp(project.name, 'i') })).not.toBeInTheDocument()
+      expect(screen.getByRole('status')).toHaveTextContent('This project is no longer available.')
+    }
+  })
+
   it('refreshes the actual project ledger from record events after historical run completion', async () => {
     storedProjects = [project]
     const originalFetch = vi.mocked(fetch).getMockImplementation()!

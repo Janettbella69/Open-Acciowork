@@ -6,7 +6,6 @@ import type {
   Evidence,
   EvidenceStatus,
   EvidenceStatusChange,
-  MemoryItem,
   MemoryKind,
   MemorySensitivity,
   OpportunityProject,
@@ -47,6 +46,7 @@ import type { CollaborationCapabilities, CommentChange, CommentCreate, CommentHi
 import type { ProjectTemplate, TemplateApplied, TemplateApplications, TemplateApply, TemplateDetail, TemplateLibrary, TemplateSave } from './projectTemplates'
 import type { SkillFilePreview, SkillImportReviewRequest, SkillImportView, SkillPackageView, SkillRepositoryCapabilities, SkillRepositorySelection } from './skillRepository'
 import type { ProjectExportPreview } from './projectExport'
+import type { GovernedMemory, MemoryExpiryUpdate, MemoryExport, MemoryTombstone } from '../types/MemoryGovernance'
 
 const configuredBaseUrl = import.meta.env.VITE_OPHIRA_API_URL?.trim() ?? ''
 export const apiBaseUrl = configuredBaseUrl.replace(/\/$/, '')
@@ -524,16 +524,17 @@ export function runSchedule(scheduleId: string): Promise<RunRecord> {
   return request<RunRecord>(`/api/schedules/${scheduleId}/run`, { method: 'POST' })
 }
 
-export function listMemory(): Promise<MemoryItem[]> {
-  return request<MemoryItem[]>('/api/memory')
+export function listMemory(signal?: AbortSignal): Promise<GovernedMemory[]> {
+  return request('/api/memory', { signal, cache: 'no-store' })
 }
 
 export function decideMemory(
   memoryId: string,
   decision: 'approve' | 'reject' | 'disable',
-): Promise<MemoryItem> {
-  return request<MemoryItem>(`/api/memory/${memoryId}/decision`, {
+): Promise<GovernedMemory> {
+  return request(`/api/memory/${encodeURIComponent(memoryId)}/decision`, {
     method: 'POST',
+    cache: 'no-store',
     body: JSON.stringify({ decision, reason: 'Updated by the user in Settings.' }),
   })
 }
@@ -541,10 +542,27 @@ export function decideMemory(
 export function correctMemory(
   memoryId: string,
   input: { text: string; kind?: MemoryKind; sensitivity?: MemorySensitivity },
-): Promise<MemoryItem> {
-  return request<MemoryItem>(`/api/memory/${encodeURIComponent(memoryId)}`, {
+): Promise<GovernedMemory> {
+  return request(`/api/memory/${encodeURIComponent(memoryId)}`, {
     method: 'PATCH',
+    cache: 'no-store',
     body: JSON.stringify(input),
+  })
+}
+
+export function exportMemory(signal?: AbortSignal): Promise<MemoryExport> {
+  return request('/api/memory/export', { signal, cache: 'no-store' })
+}
+
+export function deleteMemory(memoryId: string, reason: string): Promise<MemoryTombstone> {
+  return request(`/api/memory/${encodeURIComponent(memoryId)}`, {
+    method: 'DELETE', body: JSON.stringify({ reason }), cache: 'no-store',
+  })
+}
+
+export function updateMemoryExpiry(memoryId: string, input: MemoryExpiryUpdate): Promise<GovernedMemory> {
+  return request(`/api/memory/${encodeURIComponent(memoryId)}/expiry`, {
+    method: 'PATCH', body: JSON.stringify(input), cache: 'no-store',
   })
 }
 

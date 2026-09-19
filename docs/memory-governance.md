@@ -43,6 +43,19 @@ to be vector or semantic retrieval, and it does not make model calls.
 
 ## Export and deletion
 
+Settings → Memory review provides an authorized JSON download, expiry/renewal,
+disable, and permanent deletion. Deletion first shows the selected text,
+explains the backup boundary, and requires a non-empty human reason plus
+an explicit permanent-delete action. Cancelling the form does not delete anything.
+Expired records must be renewed before approval or editing. Downloads report that
+the file was sent to the browser; they do not claim that the user saved it.
+
+List loading and mutations cannot overlap in this interface. Forbidden/missing
+records clear their local text and editor; transient errors preserve retry context.
+Late responses after cancellation or navigation cannot download or restore content.
+Memory API successes and errors use `Cache-Control: no-store` and
+`X-Content-Type-Options: nosniff`.
+
 - `GET /api/memory/export` returns a downloadable `memory-export-v1` JSON object. It may
   be filtered by `scope` plus `scope_id` and includes every authorized, non-deleted
   record, including proposed/rejected/disabled/expired records. Each item exposes text,
@@ -65,6 +78,28 @@ Deletion from filesystem snapshots, infrastructure backups, replicas, and storag
 requires the deployment operator's retention/erasure policy; this repository does not
 claim secure physical overwrite or remote-backup deletion.
 
+## Concurrent workers and recovery
+
+Every scope read, update, deletion, expiry-marker reconciliation and startup recovery
+uses the same reentrant transaction across provider instances, threads and local
+processes. Stable lock files are kept outside scope directories and must not be
+removed while a worker is running. A writer rereads the current snapshot inside the
+transaction; rollback and deletion audit the latest locked state. This prevents a
+late correction or recovery pass from rewriting deleted text or losing another write.
+
+Snapshots and marker rewrites use unique private temporary files, file fsync, atomic
+replacement and directory fsync. Recovery and deletion remove abandoned memory
+staging files while holding the same scope transaction. A durable deletion tombstone
+survives termination before snapshot publication and drives subsequent content scrub.
+The approved-memory limit remains 32 records / 8,000 characters per scope; all
+effective-approved writes, including user creation, rollback and renewal, check the
+same limit inside the transaction. Capacity failures are HTTP 400, not a missing-record
+404. Disabling or deleting an approved record frees capacity.
+
+This protocol requires all cooperating workers to run the new code. Stop older workers
+before upgrading. Local multi-process and killed-process recovery checks do not certify
+network filesystem locking, storage loss, physical erasure or infrastructure backups.
+
 ## Authorization boundary
 
 - Project memory requires current project membership and the appropriate `memory.read`
@@ -84,6 +119,8 @@ claim secure physical overwrite or remote-backup deletion.
 | Hard delete plus durable tombstone | Delivered locally | Tombstone-first write, content/history scrub, startup recovery |
 | Exact `MEMORY.md` cleanup | Delivered locally | Marker-only removal preserves user freehand content |
 | Authorized JSON export with provenance/sensitivity | Delivered locally | Public DTO omits principal-session binding |
+| Memory review lifecycle UI | Delivered locally | JSON download, expiry/renewal, disable, confirmed deletion; EN/ZH and narrow-screen checks |
+| Cross-process deletion and capacity consistency | Delivered locally | Scope flock transactions, real spawned workers and killed-process recovery |
 | Request-signal retrieval with deterministic metadata | Delivered locally | Lexical algorithm contract above; no external dependency |
 | Vector/semantic retrieval | Deferred | Not required for deterministic local acceptance; no embedding provider selected |
 | Backup/media erasure | Deployment responsibility | Requires infrastructure retention controls outside this repository |

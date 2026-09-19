@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+import fcntl
 import hashlib
 import json
 import os
+import stat
+import tempfile
 import threading
 import unicodedata
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 from typing import Literal, Protocol
@@ -30,6 +35,10 @@ from .models import (
 )
 
 MemoryDecisionValue = Literal["approve", "reject", "disable"]
+
+_SCOPE_LOCKS: dict[tuple[Path, str], threading.RLock] = {}
+_SCOPE_LOCKS_GUARD = threading.Lock()
+_HELD_SCOPE_LOCKS = threading.local()
 
 
 class MemoryNotFoundError(KeyError):
@@ -278,16 +287,94 @@ class FileMemoryProvider:
 
     def __init__(self, root: Path, agents_root: Path | None = None) -> None:
         self.root = root.resolve()
-        self.root.mkdir(parents=True, exist_ok=True)
+        self._ensure_directory(self.root)
         self.agents_root = agents_root.resolve() if agents_root else None
-        self._locks: dict[str, threading.RLock] = {}
-        self._locks_guard = threading.Lock()
+        self._locks_dir = self.root / ".memory-locks"
+        self._locks_dir.mkdir(mode=0o700, exist_ok=True)
+        if self._locks_dir.is_symlink():
+            raise ValueError("memory lock directory must not be a symlink")
         self._recover_hard_deletions()
         self._reconcile_expired_agent_markers()
 
-    def _lock_for(self, key: str) -> threading.RLock:
-        with self._locks_guard:
-            return self._locks.setdefault(key, threading.RLock())
+    @contextmanager
+    def _lock_for(self, key: str) -> Iterator[None]:
+        """Short scope transaction shared by providers, threads, and API workers."""
+        identity = (self.root, key)
+        with _SCOPE_LOCKS_GUARD:
+            lock = _SCOPE_LOCKS.setdefault(identity, threading.RLock())
+        with lock:
+            held = getattr(_HELD_SCOPE_LOCKS, "keys", set())
+            if identity in held:
+                yield
+                return
+            path = self._locks_dir / f"{hashlib.sha256(key.encode()).hexdigest()}.lock"
+            descriptor = os.open(
+                path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600,
+            )
+            try:
+                info = os.fstat(descriptor)
+                if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+                    raise ValueError("memory lock must be a private regular file")
+                fcntl.flock(descriptor, fcntl.LOCK_EX)
+                _HELD_SCOPE_LOCKS.keys = held | {identity}
+                yield
+            finally:
+                _HELD_SCOPE_LOCKS.keys = held
+                os.close(descriptor)
+
+    @staticmethod
+    def _sync_directory(path: Path) -> None:
+        descriptor = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+
+    @classmethod
+    def _ensure_directory(cls, path: Path) -> None:
+        if path.is_dir():
+            return
+        cls._ensure_directory(path.parent)
+        path.mkdir(mode=0o700, exist_ok=True)
+        cls._sync_directory(path.parent)
+
+    @classmethod
+    def _atomic_text(cls, path: Path, content: str) -> None:
+        cls._ensure_directory(path.parent)
+        descriptor, temporary = tempfile.mkstemp(
+            prefix=f".ophira-memory-{path.name}-", dir=path.parent,
+        )
+        try:
+            with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+                handle.write(content)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temporary, path)
+            cls._sync_directory(path.parent)
+        finally:
+            if os.path.exists(temporary):
+                os.unlink(temporary)
+
+    @classmethod
+    def _discard_staging(cls, directory: Path, names: tuple[str, ...]) -> None:
+        """Remove abandoned private writes only while owning the scope transaction."""
+        removed = False
+        for name in names:
+            candidates = list(directory.glob(f".ophira-memory-{name}-*"))
+            if name in {"items.json", "history.jsonl"}:
+                candidates.append(directory / f"{name}.tmp")
+            for path in candidates:
+                if not path.exists() and not path.is_symlink():
+                    continue
+                path.unlink()
+                removed = True
+        if removed:
+            cls._sync_directory(directory)
+
+    def _discard_scope_staging(self, scope: MemoryScope, scope_id: str) -> None:
+        self._discard_staging(self._scope_dir(scope, scope_id), ("items.json", "history.jsonl"))
+        if scope == MemoryScope.AGENT and self.agents_root is not None:
+            self._discard_staging(self.agents_root / self._safe_id(scope_id), ("MEMORY.md",))
 
     @staticmethod
     def _safe_id(value: str) -> str:
@@ -330,30 +417,28 @@ class FileMemoryProvider:
         ]
 
     def _read_items(self, scope: MemoryScope, scope_id: str) -> list[MemoryItem]:
-        deleted_ids = {
-            tombstone.memory_id for tombstone in self._read_tombstones(scope, scope_id)
-        }
-        return [
-            item
-            for item in self._read_items_raw(scope, scope_id)
-            if item.id not in deleted_ids
-        ]
+        with self._lock_for(f"{scope}:{scope_id}"):
+            deleted_ids = {
+                tombstone.memory_id for tombstone in self._read_tombstones(scope, scope_id)
+            }
+            return [
+                item
+                for item in self._read_items_raw(scope, scope_id)
+                if item.id not in deleted_ids
+            ]
 
     def _write_items(self, scope: MemoryScope, scope_id: str, items: list[MemoryItem]) -> None:
         path = self._items_path(scope, scope_id)
-        path.parent.mkdir(parents=True, exist_ok=True)
         payload = json.dumps(
             [item.model_dump(mode="json") for item in items],
             ensure_ascii=False,
             separators=(",", ":"),
         )
-        temporary = path.with_suffix(".json.tmp")
-        temporary.write_text(f"{payload}\n", encoding="utf-8")
-        os.replace(temporary, path)
+        self._atomic_text(path, f"{payload}\n")
 
     def _append_history(self, item: MemoryItem, action: str) -> None:
         path = self._history_path(item.scope, item.scope_id)
-        path.parent.mkdir(parents=True, exist_ok=True)
+        self._ensure_directory(path.parent)
         line = json.dumps(
             {
                 "at": utc_now().isoformat(),
@@ -367,14 +452,16 @@ class FileMemoryProvider:
             handle.write(f"{line}\n")
             handle.flush()
             os.fsync(handle.fileno())
+        self._sync_directory(path.parent)
 
     def _append_tombstone(self, tombstone: MemoryTombstone) -> None:
         path = self._tombstones_path(tombstone.scope, tombstone.scope_id)
-        path.parent.mkdir(parents=True, exist_ok=True)
+        self._ensure_directory(path.parent)
         with path.open("a", encoding="utf-8") as handle:
             handle.write(tombstone.model_dump_json() + "\n")
             handle.flush()
             os.fsync(handle.fileno())
+        self._sync_directory(path.parent)
 
     def _scrub_history(self, scope: MemoryScope, scope_id: str, memory_id: str) -> None:
         path = self._history_path(scope, scope_id)
@@ -389,13 +476,7 @@ class FileMemoryProvider:
             if isinstance(item, dict) and item.get("id") == memory_id:
                 continue
             retained.append(json.dumps(entry, ensure_ascii=False, separators=(",", ":")))
-        temporary = path.with_suffix(".jsonl.tmp")
-        with temporary.open("w", encoding="utf-8") as handle:
-            if retained:
-                handle.write("\n".join(retained) + "\n")
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(temporary, path)
+        self._atomic_text(path, "\n".join(retained) + "\n" if retained else "")
 
     def _remove_memory_md_marker(self, scope_id: str, memory_id: str) -> None:
         if self.agents_root is None:
@@ -408,7 +489,7 @@ class FileMemoryProvider:
         lines = path.read_text(encoding="utf-8").splitlines()
         retained = [line for line in lines if marker not in line]
         if retained != lines:
-            path.write_text("\n".join(retained) + "\n", encoding="utf-8")
+            self._atomic_text(path, "\n".join(retained) + "\n")
 
     def _recover_hard_deletions(self) -> None:
         """Finish content scrubbing after a crash once a tombstone is durable."""
@@ -418,18 +499,20 @@ class FileMemoryProvider:
             if not scope_root.exists():
                 continue
             for scope_dir in (path for path in scope_root.iterdir() if path.is_dir()):
-                tombstones = self._read_tombstones(scope, scope_dir.name)
-                if not tombstones:
-                    continue
-                deleted_ids = {item.memory_id for item in tombstones}
-                raw_items = self._read_items_raw(scope, scope_dir.name)
-                retained = [item for item in raw_items if item.id not in deleted_ids]
-                if len(retained) != len(raw_items):
-                    self._write_items(scope, scope_dir.name, retained)
-                for tombstone in tombstones:
-                    self._scrub_history(scope, scope_dir.name, tombstone.memory_id)
-                    if scope == MemoryScope.AGENT:
-                        self._remove_memory_md_marker(scope_dir.name, tombstone.memory_id)
+                with self._lock_for(f"{scope}:{scope_dir.name}"):
+                    self._discard_scope_staging(scope, scope_dir.name)
+                    tombstones = self._read_tombstones(scope, scope_dir.name)
+                    if not tombstones:
+                        continue
+                    deleted_ids = {item.memory_id for item in tombstones}
+                    raw_items = self._read_items_raw(scope, scope_dir.name)
+                    retained = [item for item in raw_items if item.id not in deleted_ids]
+                    if len(retained) != len(raw_items):
+                        self._write_items(scope, scope_dir.name, retained)
+                    for tombstone in tombstones:
+                        self._scrub_history(scope, scope_dir.name, tombstone.memory_id)
+                        if scope == MemoryScope.AGENT:
+                            self._remove_memory_md_marker(scope_dir.name, tombstone.memory_id)
 
     def _reconcile_expired_agent_markers(self) -> None:
         if self.agents_root is None:
@@ -438,9 +521,10 @@ class FileMemoryProvider:
         if not scope_root.exists():
             return
         for scope_dir in (path for path in scope_root.iterdir() if path.is_dir()):
-            for item in self._read_items(MemoryScope.AGENT, scope_dir.name):
-                if memory_is_expired(item):
-                    self._remove_memory_md_marker(scope_dir.name, item.id)
+            with self._lock_for(f"{MemoryScope.AGENT}:{scope_dir.name}"):
+                for item in self._read_items(MemoryScope.AGENT, scope_dir.name):
+                    if memory_is_expired(item):
+                        self._remove_memory_md_marker(scope_dir.name, item.id)
 
     def _sync_memory_md(self, item: MemoryItem) -> None:
         """Mirror agent-scope memories into the agent's MEMORY.md via marker lines.
@@ -466,7 +550,7 @@ class FileMemoryProvider:
             lines.append(
                 f"- [{item.kind.value}][置信度 {item.confidence:.2f}] {text} {marker}"
             )
-        path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        self._atomic_text(path, "\n".join(lines) + "\n")
 
     def propose(
         self,
@@ -538,6 +622,7 @@ class FileMemoryProvider:
             item.status = MemoryStatus.APPROVED
         with self._lock_for(f"{item.scope}:{item.scope_id}"):
             items = self._read_items(item.scope, item.scope_id)
+            self._validate_capacity(item, items)
             items.append(item)
             self._write_items(item.scope, item.scope_id, items)
             self._append_history(item, "propose")
@@ -556,6 +641,22 @@ class FileMemoryProvider:
                         return item
         raise MemoryNotFoundError(memory_id)
 
+    @staticmethod
+    def _validate_capacity(candidate: MemoryItem, items: list[MemoryItem]) -> None:
+        if candidate.status != MemoryStatus.APPROVED or memory_is_expired(candidate):
+            return
+        from .constants import APPROVED_MEMORY_CAP, APPROVED_MEMORY_CHARS
+
+        approved = [item for item in items if item.id != candidate.id
+                    and item.status == MemoryStatus.APPROVED and not memory_is_expired(item)]
+        if len(approved) >= APPROVED_MEMORY_CAP or (
+            sum(len(item.text) for item in approved) + len(candidate.text) > APPROVED_MEMORY_CHARS
+        ):
+            raise ValueError(
+                f"稳定记忆已达上限（{APPROVED_MEMORY_CAP} 条 / {APPROVED_MEMORY_CHARS} 字），"
+                "请先合并或停用旧条目。"
+            )
+
     def _update(self, memory_id: str, action: str, mutate) -> MemoryItem:
         current = self.get(memory_id)
         with self._lock_for(f"{current.scope}:{current.scope_id}"):
@@ -563,6 +664,7 @@ class FileMemoryProvider:
             for index, item in enumerate(items):
                 if item.id == memory_id:
                     updated = mutate(item)
+                    self._validate_capacity(updated, items)
                     updated.version = item.version + 1
                     updated.updated_at = utc_now()
                     items[index] = updated
@@ -581,30 +683,10 @@ class FileMemoryProvider:
             "disable": MemoryStatus.DISABLED,
         }
         target = status_by_decision[decision]
-        if target == MemoryStatus.APPROVED:
-            from .constants import APPROVED_MEMORY_CAP, APPROVED_MEMORY_CHARS
-
-            current = self.get(memory_id)
-            if memory_is_expired(current):
-                raise ValueError("expired memory requires a future expiry before approval")
-            existing = self.list(scope=current.scope, scope_id=current.scope_id)
-            approved = [
-                item
-                for item in existing
-                if item.status == MemoryStatus.APPROVED
-                and item.id != current.id
-                and not memory_is_expired(item)
-            ]
-            chars = sum(len(item.text) for item in approved)
-            over_count = len(approved) >= APPROVED_MEMORY_CAP
-            over_chars = chars + len(current.text) > APPROVED_MEMORY_CHARS
-            if over_count or over_chars:
-                raise ValueError(
-                    f"稳定记忆已达上限（{APPROVED_MEMORY_CAP} 条 / {APPROVED_MEMORY_CHARS} 字），"
-                    "请先合并或停用旧条目。"
-                )
 
         def mutate(item: MemoryItem) -> MemoryItem:
+            if target == MemoryStatus.APPROVED and memory_is_expired(item):
+                raise ValueError("expired memory requires a future expiry before approval")
             return item.model_copy(update={"status": target})
 
         action = f"decide.{decision}:{reason}" if reason else f"decide.{decision}"
@@ -622,29 +704,9 @@ class FileMemoryProvider:
         normalized = " ".join(text.split())
         if not normalized:
             raise ValueError("memory correction cannot be empty")
-        current = self.get(memory_id)
-        if memory_is_expired(current):
-            raise ValueError("expired memory requires a future expiry before correction")
-        existing = self.list(scope=current.scope, scope_id=current.scope_id)
-        approved = [
-            item
-            for item in existing
-            if item.status == MemoryStatus.APPROVED
-            and item.id != current.id
-            and not memory_is_expired(item)
-        ]
-        from .constants import APPROVED_MEMORY_CAP, APPROVED_MEMORY_CHARS
-
-        if len(approved) >= APPROVED_MEMORY_CAP or (
-            sum(len(item.text) for item in approved) + len(normalized)
-            > APPROVED_MEMORY_CHARS
-        ):
-            raise ValueError(
-                f"稳定记忆已达上限（{APPROVED_MEMORY_CAP} 条 / {APPROVED_MEMORY_CHARS} 字），"
-                "请先合并或停用旧条目。"
-            )
-
         def mutate(item: MemoryItem) -> MemoryItem:
+            if memory_is_expired(item):
+                raise ValueError("expired memory requires a future expiry before correction")
             return item.model_copy(
                 update={
                     "text": normalized,
@@ -667,6 +729,8 @@ class FileMemoryProvider:
                 raise ValueError("memory expiry must be in the future")
 
         def mutate(item: MemoryItem) -> MemoryItem:
+            if expires_at is not None and expires_at <= utc_now():
+                raise ValueError("memory expiry must be in the future")
             return item.model_copy(update={"expires_at": expires_at})
 
         action = "expiry.clear" if expires_at is None else "expiry.set"
@@ -688,10 +752,11 @@ class FileMemoryProvider:
         current = self.get(memory_id)
         lock_key = f"{current.scope}:{current.scope_id}"
         with self._lock_for(lock_key):
-            if any(
-                item.memory_id == memory_id
-                for item in self._read_tombstones(current.scope, current.scope_id)
-            ):
+            # Discovery only identifies the scope. Audit the latest version after
+            # acquiring its transaction, including any writer we just waited for.
+            current = next((item for item in self._read_items(current.scope, current.scope_id)
+                            if item.id == memory_id), None)
+            if current is None:
                 raise MemoryNotFoundError(memory_id)
             tombstone = MemoryTombstone(
                 memory_id=current.id,
@@ -713,6 +778,7 @@ class FileMemoryProvider:
             # The tombstone is authoritative and fsynced first. If the process exits
             # during content scrubbing, startup recovery finishes the deletion.
             self._append_tombstone(tombstone)
+            self._discard_scope_staging(current.scope, current.scope_id)
             items = [
                 item
                 for item in self._read_items_raw(current.scope, current.scope_id)
@@ -742,11 +808,12 @@ class FileMemoryProvider:
             else:
                 candidates = [path for path in scope_root.iterdir() if path.is_dir()]
             for candidate in candidates:
-                for item in self._read_items(item_scope, candidate.name):
-                    if memory_is_expired(item):
-                        self._sync_memory_md(item)
-                    if status is None or item.status == status:
-                        result.append(item)
+                with self._lock_for(f"{item_scope}:{candidate.name}"):
+                    for item in self._read_items(item_scope, candidate.name):
+                        if memory_is_expired(item):
+                            self._sync_memory_md(item)
+                        if status is None or item.status == status:
+                            result.append(item)
         return sorted(result, key=lambda item: item.updated_at, reverse=True)
 
     def list_tombstones(
@@ -767,7 +834,8 @@ class FileMemoryProvider:
                 else [path for path in scope_root.iterdir() if path.is_dir()]
             )
             for candidate in candidates:
-                result.extend(self._read_tombstones(item_scope, candidate.name))
+                with self._lock_for(f"{item_scope}:{candidate.name}"):
+                    result.extend(self._read_tombstones(item_scope, candidate.name))
         return sorted(result, key=lambda item: item.deleted_at, reverse=True)
 
     def search(
@@ -811,21 +879,19 @@ class FileMemoryProvider:
         )
 
     def rollback(self, memory_id: str, version: int) -> MemoryItem:
-        current = self.get(memory_id)
-        history_path = self._history_path(current.scope, current.scope_id)
-        snapshot: MemoryItem | None = None
-        if history_path.exists():
-            for line in history_path.read_text(encoding="utf-8").splitlines():
-                if not line.strip():
-                    continue
-                entry = json.loads(line)
-                item = MemoryItem.model_validate(entry["item"])
-                if item.id == memory_id and item.version == version:
-                    snapshot = item
-        if snapshot is None:
-            raise MemoryNotFoundError(f"{memory_id}@v{version}")
-
-        def mutate(_item: MemoryItem) -> MemoryItem:
+        def mutate(current: MemoryItem) -> MemoryItem:
+            history_path = self._history_path(current.scope, current.scope_id)
+            snapshot: MemoryItem | None = None
+            if history_path.exists():
+                for line in history_path.read_text(encoding="utf-8").splitlines():
+                    if not line.strip():
+                        continue
+                    entry = json.loads(line)
+                    item = MemoryItem.model_validate(entry["item"])
+                    if item.id == memory_id and item.version == version:
+                        snapshot = item
+            if snapshot is None:
+                raise MemoryNotFoundError(f"{memory_id}@v{version}")
             return snapshot
 
         return self._update(memory_id, f"rollback.v{version}", mutate)

@@ -41,6 +41,11 @@ const projectRecordEvents = new Set(['evidence.added', 'decision.recorded'])
 const projectRefreshError = 'Could not refresh the saved project. Refresh before using this view.'
 const streamGapError = 'The runtime event stream has a gap. Reopen this project to restore its history.'
 
+function accessUnavailable(reason: unknown): boolean {
+  return !!reason && typeof reason === 'object' && 'status' in reason
+    && (reason.status === 403 || reason.status === 404)
+}
+
 type ProjectRefresh = {
   projectId: string
   selection: number
@@ -49,7 +54,7 @@ type ProjectRefresh = {
   promise: Promise<void>
 }
 
-export function useOpportunityRuntime() {
+export function useOpportunityRuntime(onProjectUnavailable?: (projectId: string) => void) {
   const [projects, setProjects] = useState<OpportunityProject[]>([])
   const [project, setProject] = useState<OpportunityProject | null>(null)
   const [run, setRun] = useState<RunRecord | null>(null)
@@ -71,7 +76,8 @@ export function useOpportunityRuntime() {
   const permissionInFlightRef = useRef(new Set<string>())
   const permissionRevisionRef = useRef(0)
   const [permissionBusy, setPermissionBusy] = useState(false)
-  const retryInFlightRef = useRef(false)
+  const retryInFlightRef = useRef<object | null>(null)
+  const discardedProjectsRef = useRef(new Set<string>())
   const selectionRef = useRef(0)
   const [historyLoading, setHistoryLoading] = useState(false)
   const activeRunId = run?.id
@@ -83,6 +89,39 @@ export function useOpportunityRuntime() {
     projectRefreshRef.current?.controller.abort()
     projectRefreshRef.current = null
   }, [])
+
+  const reset = useCallback(() => {
+    selectionRef.current += 1
+    closeStream()
+    projectRef.current = null
+    runRef.current = null
+    permissionRevisionRef.current += 1
+    permissionInFlightRef.current.clear()
+    retryInFlightRef.current = null
+    sawTextDeltaRef.current = false
+    sawReasoningDeltaRef.current = false
+    setProject(null)
+    setRun(null)
+    setTelemetry(null)
+    setEvents([])
+    setAssistantText('')
+    setReasoningSummary('')
+    setPermissions([])
+    setPermissionBusy(false)
+    setConnection('idle')
+    setError('')
+    setStarting(false)
+    setHistoryLoading(false)
+  }, [closeStream])
+
+  const discardProject = useCallback((projectId: string): boolean => {
+    discardedProjectsRef.current.add(projectId)
+    setProjects((items) => items.filter((item) => item.id !== projectId))
+    if (projectRef.current?.id !== projectId) return false
+    reset()
+    onProjectUnavailable?.(projectId)
+    return true
+  }, [onProjectUnavailable, reset])
 
   const refreshProject = useCallback((projectId: string): Promise<void> => {
     if (projectRef.current?.id !== projectId) return Promise.resolve()
@@ -117,6 +156,7 @@ export function useOpportunityRuntime() {
           return
         } catch (cause) {
           if (!current()) return
+          if (accessUnavailable(cause)) { discardProject(projectId); return }
           if (revision !== refresh.revision) continue
           setError(projectRefreshError)
           throw cause
@@ -126,7 +166,12 @@ export function useOpportunityRuntime() {
       if (projectRefreshRef.current === refresh) projectRefreshRef.current = null
     })
     return refresh.promise
-  }, [])
+  }, [discardProject])
+
+  const checkProjectAccess = useCallback(async (reason: unknown, projectId: string) => {
+    // A missing run or denied write does not prove that project reads were revoked.
+    if (accessUnavailable(reason)) await refreshProject(projectId).catch(() => undefined)
+  }, [refreshProject])
 
   const refreshPermissions = useCallback(async () => {
     const currentRun = runRef.current
@@ -144,13 +189,15 @@ export function useOpportunityRuntime() {
         timeoutSeconds: item.timeout_seconds, durable: item.durable, state: item.state,
         toolUseId: item.tool_use_id, expiresAt: item.expires_at,
       })))
-    } catch {
+    } catch (cause) {
+      if (!current()) return
+      await checkProjectAccess(cause, currentRun.project_id)
       if (current()) {
         setPermissions((items) => items.map((item) => item.durable ? { ...item, state: 'unknown' } : item))
         setError('Could not refresh approvals. The previous view may be stale; retry before deciding.')
       }
     }
-  }, [])
+  }, [checkProjectAccess])
 
   const handleEvent = useCallback((event: OphiraEvent, validStatuses: Set<string>) => {
     const currentRun = runRef.current
@@ -321,7 +368,9 @@ export function useOpportunityRuntime() {
           runStatusRevisionRef.current += 1
           runRef.current = record
           setRun(record)
-        }).catch(() => {
+        }).catch(async (cause) => {
+          if (!selected()) return
+          await checkProjectAccess(cause, nextRun.project_id)
           if (selected()) setError('Could not refresh the saved run. Reopen this project to retry.')
         }),
       ]).then(() => { if (selected()) setHistoryLoading(false) })
@@ -330,9 +379,11 @@ export function useOpportunityRuntime() {
       if (current()) setConnection('live')
     }
     source.onerror = () => {
-      if (current()) setConnection('reconnecting')
+      if (!current()) return
+      setConnection('reconnecting')
+      void refreshProject(nextRun.project_id).catch(() => undefined)
     }
-  }, [closeStream, handleEvent, refreshProject])
+  }, [checkProjectAccess, closeStream, handleEvent, refreshProject])
 
   const start = useCallback(async (
     brief: string,
@@ -355,6 +406,7 @@ export function useOpportunityRuntime() {
     try {
       const nextProject = await createProject(brief)
       if (selectionRef.current !== selection) return null
+      if (discardedProjectsRef.current.has(nextProject.id)) return null
       projectRef.current = nextProject
       setProject(nextProject)
       setProjects((current) => [nextProject, ...current])
@@ -365,8 +417,10 @@ export function useOpportunityRuntime() {
       runRef.current = nextRun
       setRun(nextRun)
       await connectToRun(nextRun)
-      return nextRun
+      return selectionRef.current === selection ? nextRun : null
     } catch (startError) {
+      if (selectionRef.current !== selection) return null
+      if (projectRef.current) await checkProjectAccess(startError, projectRef.current.id)
       if (selectionRef.current !== selection) return null
       setConnection('closed')
       setError(errorMessage(startError))
@@ -374,7 +428,7 @@ export function useOpportunityRuntime() {
     } finally {
       if (selectionRef.current === selection) setStarting(false)
     }
-  }, [closeStream, connectToRun])
+  }, [checkProjectAccess, closeStream, connectToRun])
 
   const continueProject = useCallback(async (
     brief: string,
@@ -384,6 +438,7 @@ export function useOpportunityRuntime() {
     providerProfileId?: string | null,
   ) => {
     if (!project) return start(brief, files, mode, agentId, providerProfileId)
+    if (projectRef.current?.id !== project.id || discardedProjectsRef.current.has(project.id)) return null
 
     const selection = ++selectionRef.current
     closeStream()
@@ -404,8 +459,10 @@ export function useOpportunityRuntime() {
       runRef.current = nextRun
       setRun(nextRun)
       await connectToRun(nextRun)
-      return nextRun
+      return selectionRef.current === selection ? nextRun : null
     } catch (continueError) {
+      if (selectionRef.current !== selection) return null
+      await checkProjectAccess(continueError, project.id)
       if (selectionRef.current !== selection) return null
       setConnection('closed')
       setError(errorMessage(continueError))
@@ -413,10 +470,10 @@ export function useOpportunityRuntime() {
     } finally {
       if (selectionRef.current === selection) setStarting(false)
     }
-  }, [closeStream, connectToRun, project, run?.sdk_session_id, start])
+  }, [checkProjectAccess, closeStream, connectToRun, project, run?.sdk_session_id, start])
 
   const cancel = useCallback(async () => {
-    if (!run) return
+    if (!run || runRef.current?.id !== run.id || projectRef.current?.id !== run.project_id) return
     const selection = selectionRef.current
     try {
       const cancelled = await cancelRun(run.id)
@@ -424,19 +481,24 @@ export function useOpportunityRuntime() {
       runRef.current = cancelled
       setRun(cancelled)
     } catch (cancelError) {
+      if (selectionRef.current !== selection) return
+      await checkProjectAccess(cancelError, run.project_id)
       if (selectionRef.current === selection) setError(errorMessage(cancelError))
     }
-  }, [run])
+  }, [checkProjectAccess, run])
 
   const retry = useCallback(async (strategy: RunRetryStrategy): Promise<RunRecord | null> => {
     if (
       !run
+      || runRef.current?.id !== run.id
+      || projectRef.current?.id !== run.project_id
       || !terminalStatuses.has(run.status)
       || run.status === 'completed'
       || retryInFlightRef.current
     ) return null
 
-    retryInFlightRef.current = true
+    const operation = {}
+    retryInFlightRef.current = operation
     const sourceRunId = run.id
     const selection = ++selectionRef.current
     setStarting(true)
@@ -455,17 +517,19 @@ export function useOpportunityRuntime() {
       runRef.current = nextRun
       setRun(nextRun)
       await connectToRun(nextRun)
-      return nextRun
+      return selectionRef.current === selection ? nextRun : null
     } catch (retryError) {
+      if (selectionRef.current !== selection) return null
+      await checkProjectAccess(retryError, run.project_id)
       if (selectionRef.current !== selection) return null
       setConnection('closed')
       setError(errorMessage(retryError))
       throw retryError
     } finally {
-      retryInFlightRef.current = false
+      if (retryInFlightRef.current === operation) retryInFlightRef.current = null
       if (selectionRef.current === selection) setStarting(false)
     }
-  }, [closeStream, connectToRun, run])
+  }, [checkProjectAccess, closeStream, connectToRun, run])
 
   const decidePermission = useCallback(async (
     requestId: string,
@@ -473,7 +537,8 @@ export function useOpportunityRuntime() {
     answers?: Record<string, string | string[]>,
   ) => {
     const permission = permissions.find((item) => item.id === requestId)
-    if (!run || !permission || permissionLifecycleState(permission) !== 'pending' || permissionInFlightRef.current.size) return
+    if (!run || runRef.current?.id !== run.id || projectRef.current?.id !== run.project_id
+      || !permission || permissionLifecycleState(permission) !== 'pending' || permissionInFlightRef.current.size) return
     const selection = selectionRef.current
     permissionInFlightRef.current.add(requestId)
     permissionRevisionRef.current += 1
@@ -484,6 +549,8 @@ export function useOpportunityRuntime() {
       if (selectionRef.current !== selection) return
       setPermissions((current) => current.filter((item) => item.id !== requestId))
     } catch (permissionError) {
+      if (selectionRef.current !== selection) return
+      await checkProjectAccess(permissionError, run.project_id)
       if (selectionRef.current === selection) setError(permissionConflict(permissionError)
         ? `The approval could not continue yet. Refresh approvals and retry when the runtime is ready. ${errorMessage(permissionError)}`
         : errorMessage(permissionError))
@@ -494,11 +561,12 @@ export function useOpportunityRuntime() {
         if (permission.durable) await refreshPermissions()
       }
     }
-  }, [run, permissions, refreshPermissions])
+  }, [checkProjectAccess, run, permissions, refreshPermissions])
 
   const resumePermission = useCallback(async (requestId: string) => {
     const permission = permissions.find((item) => item.id === requestId)
-    if (!run || !permission || permissionLifecycleState(permission) !== 'resolved' || permissionInFlightRef.current.size) return
+    if (!run || runRef.current?.id !== run.id || projectRef.current?.id !== run.project_id
+      || !permission || permissionLifecycleState(permission) !== 'resolved' || permissionInFlightRef.current.size) return
     const selection = selectionRef.current
     const statusRevision = runStatusRevisionRef.current
     permissionInFlightRef.current.add(requestId)
@@ -518,6 +586,8 @@ export function useOpportunityRuntime() {
       // The existing event stream stays on this same run; do not replay the
       // entire SDK transcript or create a second run for a saved decision.
     } catch (cause) {
+      if (selectionRef.current !== selection) return
+      await checkProjectAccess(cause, run.project_id)
       if (selectionRef.current === selection) setError(permissionConflict(cause)
         ? `The approval could not continue yet. Refresh approvals and retry when the runtime is ready. ${errorMessage(cause)}`
         : errorMessage(cause))
@@ -525,9 +595,10 @@ export function useOpportunityRuntime() {
       permissionInFlightRef.current.delete(requestId)
       if (selectionRef.current === selection) { setPermissionBusy(false); await refreshPermissions() }
     }
-  }, [run, permissions, refreshPermissions])
+  }, [checkProjectAccess, run, permissions, refreshPermissions])
 
   const selectProject = useCallback(async (selected: OpportunityProject): Promise<RunRecord | null> => {
+    if (discardedProjectsRef.current.has(selected.id)) return null
     const selection = ++selectionRef.current
     closeStream()
     projectRef.current = selected
@@ -546,7 +617,10 @@ export function useOpportunityRuntime() {
     sawTextDeltaRef.current = false
     sawReasoningDeltaRef.current = false
     try {
-      const projectRuns = await listProjectRuns(selected.id)
+      const projectRuns = await listProjectRuns(selected.id).catch((cause) => {
+        if (selectionRef.current === selection && accessUnavailable(cause)) discardProject(selected.id)
+        throw cause
+      })
       if (selectionRef.current !== selection) return null
       const latestRun = projectRuns[0] ?? null
       if (!latestRun) {
@@ -570,7 +644,7 @@ export function useOpportunityRuntime() {
       }
       return null
     }
-  }, [closeStream, connectToRun])
+  }, [closeStream, connectToRun, discardProject])
 
   const refreshActiveProject = useCallback(async () => {
     if (!project) return
@@ -580,23 +654,6 @@ export function useOpportunityRuntime() {
       // The ledger view refresh is best-effort; the drawer shows its own errors.
     }
   }, [project, refreshProject])
-
-  const reset = useCallback(() => {
-    selectionRef.current += 1
-    closeStream()
-    projectRef.current = null
-    setProject(null)
-    setRun(null)
-    runRef.current = null
-    setEvents([])
-    setAssistantText('')
-    setReasoningSummary('')
-    setPermissions([])
-    setConnection('idle')
-    setError('')
-    setStarting(false)
-    setHistoryLoading(false)
-  }, [closeStream])
 
   useEffect(() => {
     setPermissionBusy(false)
@@ -614,23 +671,36 @@ export function useOpportunityRuntime() {
       return
     }
     let active = true
+    const selection = selectionRef.current
+    const current = () => active && selectionRef.current === selection && runRef.current?.id === run.id
     void getRunTelemetry(run.id)
       .then((result) => {
-        if (active) setTelemetry(result)
+        if (current()) setTelemetry(result)
       })
-      .catch(() => {
-        if (active) setTelemetry(null)
+      .catch(async (cause) => {
+        if (!current()) return
+        await checkProjectAccess(cause, run.project_id)
+        if (current()) setTelemetry(null)
       })
     return () => {
       active = false
     }
-  }, [run])
+  }, [checkProjectAccess, run])
+
+  useEffect(() => {
+    const check = () => {
+      if (projectRef.current) void refreshProject(projectRef.current.id).catch(() => undefined)
+    }
+    window.addEventListener('focus', check)
+    return () => window.removeEventListener('focus', check)
+  }, [refreshProject])
 
   useEffect(() => {
     let active = true
     void Promise.all([getProtocol(), listProjects()])
       .then(([, storedProjects]) => {
-        if (active) setProjects((current) => [...current, ...storedProjects.filter((item) => !current.some((known) => known.id === item.id))])
+        if (active) setProjects((current) => [...current, ...storedProjects.filter((item) =>
+          !discardedProjectsRef.current.has(item.id) && !current.some((known) => known.id === item.id))])
       })
       .catch((loadError) => {
         if (active) setError(`Backend unavailable: ${errorMessage(loadError)}`)
@@ -666,6 +736,7 @@ export function useOpportunityRuntime() {
     refreshPermissions,
     selectProject,
     refreshActiveProject,
+    discardProject,
     reset,
   }
 }

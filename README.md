@@ -187,6 +187,11 @@ npm run build
 The full PRD delivery inventory, including unimplemented and externally unverified
 requirements, is tracked in [`docs/prd-delivery-inventory.md`](docs/prd-delivery-inventory.md).
 
+Settings → **Memory review** supports JSON export, expiry and renewal, disabling,
+and confirmed permanent deletion. Cross-process transactions keep concurrent updates
+and deletion recovery consistent. See [memory governance](docs/memory-governance.md)
+for the live-store and backup boundaries.
+
 Saved projects also provide **Project shops**: configure a shop identity and optional
 platform Connector, open its independent login browser, confirm the signed-in shop,
 then let the main Agent collect source-linked page captures and reports. The window

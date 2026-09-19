@@ -23,7 +23,7 @@
 | FR-11 领域 MCP | delivered：确定性商业计算、用户记录加工、显式结算计划的现金流/日末与保守日内资金缺口；TikTok Shop项目指定店铺的主Agent只读MCP与来源凭证 | deferred：真实供应商/客户/市场/法规/物流/汇率授权数据适配及已实现商家接口的真实验收 |
 | FR-12 Skill 生命周期 | delivered：发现/启停/扫描/不可变版本/配额/租约/回滚；13个内置Skill的证据参考与输出模板、固定包原生只读访问；Agent候选冻结、人审发布默认关闭、凭证恢复与独立审阅UI；独立Skill备份及含项目账本/候选库的应用冷备份、新进程恢复 | deferred：真实模型提案质量、真端点回滚重跑、跨宿主/生产恢复及其余子系统的恢复认证 |
 | FR-13 权限 | delivered：范围/有效期/审计、删除确认、沙箱拒绝逃逸；可信设备单次审批；原生SDK持久等待、原Run恢复、跨进程决议竞争、消费前撤销复验；工作台内切换组织授权模式，仅 SDK 原生 default/auto 两档 | deferred：真实远程审批与生产故障矩阵；原生多工具批次须拆为单次审批 |
-| FR-14 记忆 | delivered：提案人审、TTL/过期/检索/导出/删除恢复 | deferred：真实蒸馏质量、生产备份删除边界与恢复演练 |
+| FR-14 记忆 | delivered：提案人审、TTL/过期/检索/导出/删除恢复；跨进程scope事务、批准容量一致校验、中英文导出/续期/停用/确认删除UI与真实本地HTTP/浏览器验收 | deferred：真实蒸馏质量、生产备份删除边界与恢复演练 |
 | FR-15 自动化 | delivered：计划/心跳/收件箱本地链路；跨进程自动调度租约和崩溃幂等；手动/自动触发共用租约与持久Run重叠检查、页面并发操作治理 | deferred：真实长期运行与渠道投递 |
 | FR-16 产物 | delivered：不可变文件版本/准确历史下载、同内容回退的新版本、并发登记去重；文本预览/修改对比/冲突保护/幂等保存/人类编辑溯源、编辑中断恢复与冷备恢复；Office 文件结构 | deferred：真实模型连续编辑与浏览器目视、Office 渲染 QA、布局回归；旧记录已丢失的原始字节无法补造 |
 | FR-17 可观测性 | delivered：trace、三层日志、脱敏、类型化卡片；项目范围Provider/模型/Skill/MCP/错误分组指标与工作区面板 | deferred：细分事件与生产指标/性能验收 |
@@ -50,7 +50,7 @@
 | §4.16 任务经验 | delivered：专属工具与版本/来源账本、创建时配置指纹、低信任检索注入、容量/事务恢复与人工停用UI；deferred：真实Provider自主调用及长期判断质量 |
 | §4.12 事件 | delivered：有真实Run归属的evidence.added/decision.recorded、持久幂等补发与完整SSE尾部消费；deferred：产物更新、记忆、无Run项目变更和 schedule/preflight 细分事件 |
 | §3.9 / §4.10 | delivered：自动调度跨进程抢占与事件汇总恢复；Bash 工作区快照与人审恢复、跨进程目录切换修复；deferred：其余事件故障矩阵、生产恢复/容量与性能、CPU/内存/进程/输出限制 |
-| §3.9 数据主权 | delivered：操作者CLI完整数据目录冷备份与新目录恢复，覆盖项目账本/提案/Registry/工作区检查点一致性；项目工作文件恢复UI；项目owner/admin审核清单后导出文件、应用可见会话、来源与相关账本ZIP；deferred：项目/会话删除、凭据独立授权导出与删除（记忆已交付）、全应用恢复UI及生产灾备；项目ZIP不含运行时会话、凭据和浏览器登录资料 |
+| §3.9 数据主权 | delivered：操作者CLI完整数据目录冷备份与新目录恢复，覆盖项目账本/提案/Registry/工作区检查点一致性；项目工作文件恢复UI；项目owner/admin审核清单后导出文件、应用可见会话、来源与相关账本ZIP；deferred：项目/会话删除（依赖审计与未实现设计见project-deletion-design.md）、凭据独立授权导出与删除（记忆已交付）、全应用恢复UI及生产灾备；项目ZIP不含运行时会话、凭据和浏览器登录资料 |
 | §3.9 性能 | delivered：本地ASGI单/4并发各100样本，创建/首事件持久化/离线task取消P95基线；deferred：真实SDK进程、网络/SSE运输、多worker与生产负载验收 |
 | §3.9 / §3.10 | delivered：项目范围按Provider/model/Skill/tool/错误的有界指标汇总；deferred：业务成功指标、区域与数据流披露 |
 | §3.11 / §6.6 | deferred：当前 L2 基线、人亲自标注的 gold、judge 校准与 TPR/TNR 门槛；不能由 AI 伪造标注 |
@@ -896,3 +896,47 @@ SSRF 检查保持原样；环境 DNS 代理返回198.18地址时仍正确拒绝�
 
 本轮未读取实际凭据目录、未调用真实模型或卖家接口、未启动店铺登录窗口。
 `deploy/companion/` 原有未跟踪内容保留，不纳入本批交付。
+
+## 2026-09-19：记忆生命周期与权限失效后的界面清理
+
+交付前基线：`4978fb4`。本批交付 [记忆治理](memory-governance.md) 的用户入口与一致性修复。
+[项目/会话完整删除的依赖审计](project-deletion-design.md) 仅为待实现设计，不能算作该功能交付。
+
+| 要求 | 状态 | 验证与边界 |
+|---|---|---|
+| 并发记忆写入不丢失，删除后正文不被迟到写入恢复 | delivered | 跨实例/线程/进程可重入 scope 事务覆盖读写、回滚、删除、恢复及 Agent 镜像；删除审计读取锁内最新版本 |
+| 批准容量限制不能经创建、回滚或续期绕过 | delivered | 所有有效 approved 写入在事务内校验原有32条/8000字限制；容量错误HTTP400，缺失版本404 |
+| 记忆生命周期可由用户管理 | delivered | 中英文设置页提供JSON导出、1/7/30/90天或永久续期、停用及带理由的明确永久删除；取消不删除，过期项先续期再编辑/批准 |
+| 私有记忆响应与界面清理 | delivered | 成功和错误响应no-store/nosniff；列表加载与变更互斥、取消/卸载后旧导出不触发下载、403/404清除私有条目与编辑内容，5xx保留重试上下文 |
+| 项目权限失效不留下可用旧视图 | delivered | 权威项目403/404移除侧栏和当前项目/Run/对话/审批/指标，关闭流并阻止晚响应恢复；拒绝单次写入先复核项目读取权限，5xx不抹掉项目 |
+| 用户未发送内容保留 | delivered | 权限撤销后保留输入草稿与本地附件；旧发送/重试响应不清除新草稿或覆盖提示 |
+| 项目/会话完整删除、生产擦除与外部验收 | deferred | 原生SDK历史、共享模板/Skill来源、自动化/浏览器回写与备份恢复仍需跨域实现；本批不删除真实项目、不调用模型或外部服务 |
+
+复现证据：旧实现中两provider同时新增只保留一个结果；迟到correct可在delete返回后把正文写回
+items/history/MEMORY.md。新增回归还覆盖rollback、最新版本删除审计、恢复与新增竞争、并发批准、
+过期列表读取与续期竞争。真实spawn进程在tombstone已fsync、快照rename前被SIGKILL，新实例能
+获得OS释放的锁并完成正文/历史/镜像和遗留暂存清理。不能据此宣称存储损坏或远程备份擦除通过。
+
+前端交叉审核发现并修复：初始/刷新列表尚未完成时，导出403或删除后可能被旧列表响应恢复；
+客户端时钟落后不能覆盖服务器的expired判断。浏览器目视还补齐了中文删除按钮文案。
+
+代码冻结后的验证：
+
+- 后端 `OPHIRA_CONTRACT_PROVIDER= PYTHONPATH=backend/src .venv/bin/python -m pytest backend/tests -q`：
+  **1999 passed / 13 skipped**（118.51秒）。
+- 前端 `npm run test:run`：**428 passed / 40 files**；`npm run lint`、`npm run build`
+  （含TypeScript）通过；主JS805.50kB，既有超过500kB的构建提示仍保留。
+- `.venv/bin/ruff check backend/src backend/tests backend/scripts/check_memory_lifecycle.py evals/tools`
+  与 `git diff --check` 通过；eval tools **59 passed**，Snapshot **61/61**。
+- `PYTHONPATH=backend/src .venv/bin/python backend/scripts/check_memory_lifecycle.py`：两个独立
+  HTTP worker共享临时账本，8项并发新增、8项改写、8项删除/续期和4项后续新增全部通过；
+  重启后变更两个worker均可见，删除项的改写/回滚均404且正文不在快照/历史中。
+  [真实HTTP报告](../evals/reports/memory-lifecycle-20260919/http-verification.json)。
+- 仓库Playwright/Chromium与真实临时后端：逐请求签名的测试owner撤销member后，工作台清除
+  旧私有结果并保留草稿/本地附件；实际JSON下载、续期、批准/停用、取消删除/确认删除、刷新及
+  再导出均通过。中英文各320/400/1280px列表与18组编辑/续期/删除表单检查无水平溢出，已目视截图。
+  [浏览器报告与截图](../evals/reports/memory-lifecycle-20260919/browser-verification.json)。
+
+Browser插件发现列表为空，因此使用已有本地浏览器测试工具；测试身份签名不能冒充真实身份网关、
+手机HTTPS或生产组织验收。未读取实际凭据目录、未创建模型Run。全量PRD目标及此前deferred继续开放；
+原有未跟踪 `deploy/companion/` 保留。

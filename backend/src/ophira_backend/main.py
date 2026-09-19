@@ -792,7 +792,7 @@ def _create_app(
     async def private_collaboration_responses(request: Request, call_next):
         response = await call_next(request)
         parts = request.url.path.split("/")
-        if parts[1:3] == ["api", "skills"] or (
+        if parts[1:3] in (["api", "skills"], ["api", "memory"]) or (
             parts[1:3] == ["api", "projects"] and parts[4:5] in (
                 ["comments"], ["collaboration"], ["access"], ["templates"], ["export"],
             )
@@ -2033,8 +2033,10 @@ def _create_app(
                 ProjectPermission.MEMORY_WRITE,
             )
             return memory.rollback(memory_id, payload.version)
-        except (MemoryNotFoundError, ValueError) as exc:
+        except MemoryNotFoundError as exc:
             raise HTTPException(status_code=404, detail="Memory version not found") from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     @application.patch("/api/memory/{memory_id}/expiry", response_model=MemoryItem)
     async def update_memory_expiry(

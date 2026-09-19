@@ -1,0 +1,17 @@
+{
+  "result": "passed",
+  "transport": "two separate loopback HTTP server processes",
+  "concurrent_creates": 8,
+  "concurrent_corrections": 8,
+  "concurrent_deletes_and_renewals": 8,
+  "subsequent_creates": 4,
+  "retained_memories": 8,
+  "deletion_audits": 4,
+  "private_response_headers": true,
+  "restart_preserves_deletions": true,
+  "restart_mutations_visible_to_both_workers": true,
+  "deleted_memory_edit_and_rollback_rejected": true,
+  "deleted_content_absent_from_snapshot_and_history": true,
+  "model_runs": 0,
+  "boundary": "Disposable local data; no Provider or external service"
+}

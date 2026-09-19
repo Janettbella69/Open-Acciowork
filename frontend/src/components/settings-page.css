@@ -111,7 +111,7 @@
 .memory-review { display: grid; gap: 12px; }
 .memory-review-item { display: flex; justify-content: space-between; gap: 12px; border: 1px solid rgba(15, 23, 42, 0.1); border-radius: 12px; padding: 12px 14px; }
 .memory-review-item small { color: rgba(15, 23, 42, 0.55); }
-.memory-review-actions { display: flex; gap: 8px; align-items: center; flex-shrink: 0; }
+.memory-review-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .memory-review-actions button[data-tone='danger'] { color: #b91c1c; border-color: rgba(185, 28, 28, 0.4); }
 .memory-review-history p span { text-transform: uppercase; font-size: 11px; margin-right: 8px; color: rgba(15, 23, 42, 0.55); }
 .memory-review-history-item { margin-top: 10px; }
@@ -119,6 +119,26 @@
 .memory-review-editor label { display: grid; gap: 5px; font-size: var(--ophira-type-small); }
 .memory-review-editor textarea, .memory-review-editor select { min-height: 44px; border: 1px solid rgba(15, 23, 42, 0.2); border-radius: 8px; padding: 8px 10px; font: inherit; }
 .memory-review-editor textarea { resize: vertical; }
+.memory-review-content { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.memory-review-content p { white-space: pre-wrap; }
+.memory-review-item > .memory-review-actions { flex: 0 1 320px; justify-content: flex-end; align-content: start; }
+.memory-expiry { display: block; margin-top: 5px; }
+.memory-expiry[data-expired='true'] { color: #9c4b12; }
+.memory-review-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; }
+.memory-review-toolbar p { flex: 1 1 260px; margin: 0; }
+.memory-review-history .memory-review-item { margin-top: 10px; }
+.memory-governance-form { display: grid; gap: 12px; min-width: 0; width: 100%; overflow-wrap: anywhere; }
+.memory-governance-form p { margin: 0; }
+.memory-governance-form label { display: grid; gap: 6px; }
+.memory-governance-form textarea, .memory-governance-form select { width: 100%; box-sizing: border-box; min-width: 0; min-height: 44px; border: 1px solid rgba(15, 23, 42, 0.2); border-radius: 8px; padding: 8px 10px; font: inherit; }
+.memory-governance-form .memory-review-actions { justify-content: flex-end; }
+.memory-review button:disabled { opacity: 0.5; cursor: not-allowed; }
+@media (max-width: 620px) {
+  .memory-review-item { flex-direction: column; padding: 12px; }
+  .memory-review-item > .memory-review-actions { flex: 0 1 auto; justify-content: flex-start; }
+  .memory-review-actions button { flex: 1 1 auto; }
+  .memory-review-toolbar > .memory-review-actions { width: 100%; }
+}
 .memory-review-editor > small { grid-column: 1 / -1; color: #6f7376; }
 .memory-review-editor .memory-review-actions { grid-column: 1 / -1; justify-content: flex-end; }
 @media (max-width: 760px) { .memory-review-editor { grid-template-columns: 1fr; } .memory-review-editor > small, .memory-review-editor .memory-review-actions { grid-column: 1; } }

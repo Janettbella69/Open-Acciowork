@@ -90,6 +90,7 @@ beforeEach(() => {
     refreshPermissions: vi.fn(),
     selectProject: vi.fn(),
     refreshActiveProject: vi.fn(),
+    discardProject: vi.fn(),
     reset: vi.fn(),
   })
   vi.mocked(getOrgPolicy).mockResolvedValue(organizationPolicy)
@@ -181,6 +182,27 @@ describe('Workspace approval mode', () => {
 })
 
 describe('Workspace new task', () => {
+  it('preserves an unsent draft and local attachments when project access is lost, ignoring late start failures', async () => {
+    const runtime = vi.mocked(useOpportunityRuntime)()
+    let failStart!: (reason: unknown) => void
+    vi.mocked(runtime.start).mockReturnValueOnce(new Promise((_resolve, reject) => { failStart = reject }))
+    render(<Workspace />)
+    await waitFor(() => expect(screen.getByRole('button', { name: /open approval mode selector/i })).toHaveTextContent('Ask for approval'))
+    const brief = screen.getByRole('textbox', { name: /ask trademind/i })
+    fireEvent.change(brief, { target: { value: 'My unsent supplier question' } })
+    fireEvent.change(screen.getByLabelText('Choose files or images'), {
+      target: { files: [new File(['private quote'], 'supplier-quote.csv', { type: 'text/csv' })] },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }))
+    const unavailable = vi.mocked(useOpportunityRuntime).mock.calls.at(-1)![0]!
+    act(() => { unavailable('project_1') })
+    await act(async () => { failStart(new Error('Old request failed after access loss')) })
+    expect(brief).toHaveValue('My unsent supplier question')
+    expect(screen.getByText('supplier-quote.csv')).toBeInTheDocument()
+    expect(screen.getByRole('status')).toHaveTextContent('This project is no longer available. Your unsent message and local attachments are still here.')
+    expect(screen.queryByText('The research run could not start. Your brief is still here so you can try again.')).not.toBeInTheDocument()
+  })
+
   it('clears staged attachments before sending to a new project', async () => {
     const runtime = vi.mocked(useOpportunityRuntime)()
     render(<Workspace />)

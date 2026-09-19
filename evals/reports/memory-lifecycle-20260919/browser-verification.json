@@ -1,0 +1,157 @@
+{
+  "result": "passed",
+  "browser": "Playwright Chromium",
+  "authentication": "real signed trusted-gateway requests with disposable owner/member principals",
+  "revoked_membership_clears_project_and_result": true,
+  "unsent_draft_and_local_attachment_retained": true,
+  "json_download_verified": true,
+  "expiry_renewal": true,
+  "approve_and_disable": true,
+  "explicit_delete_and_cancel": true,
+  "deleted_content_absent_after_reload_and_export": true,
+  "responsive_checks": [
+    {
+      "language": "en",
+      "viewport": 320,
+      "document": 320
+    },
+    {
+      "language": "en",
+      "viewport": 400,
+      "document": 400
+    },
+    {
+      "language": "en",
+      "viewport": 1280,
+      "document": 1280
+    },
+    {
+      "language": "zh-CN",
+      "viewport": 320,
+      "document": 320
+    },
+    {
+      "language": "zh-CN",
+      "viewport": 400,
+      "document": 400
+    },
+    {
+      "language": "zh-CN",
+      "viewport": 1280,
+      "document": 1280
+    }
+  ],
+  "model_runs_created": 0,
+  "boundary": "Disposable fixture data. No model, real identity gateway, external seller or production service.",
+  "responsive_form_checks": [
+    {
+      "language": "en",
+      "form": "edit",
+      "viewport": 320,
+      "document": 320
+    },
+    {
+      "language": "en",
+      "form": "expiry",
+      "viewport": 320,
+      "document": 320
+    },
+    {
+      "language": "en",
+      "form": "delete",
+      "viewport": 320,
+      "document": 320
+    },
+    {
+      "language": "en",
+      "form": "edit",
+      "viewport": 400,
+      "document": 400
+    },
+    {
+      "language": "en",
+      "form": "expiry",
+      "viewport": 400,
+      "document": 400
+    },
+    {
+      "language": "en",
+      "form": "delete",
+      "viewport": 400,
+      "document": 400
+    },
+    {
+      "language": "en",
+      "form": "edit",
+      "viewport": 1280,
+      "document": 1280
+    },
+    {
+      "language": "en",
+      "form": "expiry",
+      "viewport": 1280,
+      "document": 1280
+    },
+    {
+      "language": "en",
+      "form": "delete",
+      "viewport": 1280,
+      "document": 1280
+    },
+    {
+      "language": "zh-CN",
+      "form": "edit",
+      "viewport": 320,
+      "document": 320
+    },
+    {
+      "language": "zh-CN",
+      "form": "expiry",
+      "viewport": 320,
+      "document": 320
+    },
+    {
+      "language": "zh-CN",
+      "form": "delete",
+      "viewport": 320,
+      "document": 320
+    },
+    {
+      "language": "zh-CN",
+      "form": "edit",
+      "viewport": 400,
+      "document": 400
+    },
+    {
+      "language": "zh-CN",
+      "form": "expiry",
+      "viewport": 400,
+      "document": 400
+    },
+    {
+      "language": "zh-CN",
+      "form": "delete",
+      "viewport": 400,
+      "document": 400
+    },
+    {
+      "language": "zh-CN",
+      "form": "edit",
+      "viewport": 1280,
+      "document": 1280
+    },
+    {
+      "language": "zh-CN",
+      "form": "expiry",
+      "viewport": 1280,
+      "document": 1280
+    },
+    {
+      "language": "zh-CN",
+      "form": "delete",
+      "viewport": 1280,
+      "document": 1280
+    }
+  ],
+  "chinese_delete_label_verified": true
+}

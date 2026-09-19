@@ -13,9 +13,13 @@ import { collaborationZh } from './collaboration-zh'
 import { templatesZh } from './templates-zh'
 import { repositoryZh } from './repository-zh'
 import { exportZh } from './export-zh'
+import { workspaceZh } from './workspace-zh'
+import { memoryZh } from './memory-zh'
 
 /** 中文字典：key = 英文原文。缺条目时界面回落英文（可见即可补）。 */
 export const zh: Record<string, string> = {
+  ...memoryZh,
+  ...workspaceZh,
   ...exportZh,
   ...repositoryZh,
   ...templatesZh,

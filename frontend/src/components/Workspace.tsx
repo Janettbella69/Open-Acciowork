@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { errorMessage, getOrgPolicy, listProviders, saveOrgPolicy } from '../api/client'
 import type { OpportunityProject, PermissionModePolicy, ProviderProfile, RunMode, RunRetryStrategy } from '../api/types'
 import { useOpportunityRuntime } from '../api/useOpportunityRuntime'
@@ -20,7 +20,6 @@ function normalizeWorkspaceUrl(): void {
 }
 
 export default function Workspace() {
-  const runtime = useOpportunityRuntime()
   const agentId = importedAgentId()
   const [briefInput, setBriefInput] = useState(importedBrief)
   const [notice, setNotice] = useState(importedBrief()
@@ -36,8 +35,16 @@ export default function Workspace() {
   const [runMode, setRunMode] = useState<RunMode>('standard')
   const [retrying, setRetrying] = useState<RunRetryStrategy | null>(null)
   const [retryFailure, setRetryFailure] = useState<{ runId: string; message: string } | null>(null)
-  const retryInFlightRef = useRef(false)
+  const retryInFlightRef = useRef<object | null>(null)
   const navigationRef = useRef(0)
+  const onProjectUnavailable = useCallback(() => {
+    navigationRef.current += 1
+    retryInFlightRef.current = null
+    setRetrying(null)
+    setRetryFailure(null)
+    setNotice('This project is no longer available. Your unsent message and local attachments are still here.')
+  }, [])
+  const runtime = useOpportunityRuntime(onProjectUnavailable)
 
   useEffect(() => {
     let active = true
@@ -103,21 +110,25 @@ export default function Workspace() {
   const retryRun = async (strategy: RunRetryStrategy) => {
     const source = runtime.run
     if (!source || retryInFlightRef.current || approvalSaveRef.current) return
-    retryInFlightRef.current = true
+    const operation = {}
+    const navigation = navigationRef.current
+    retryInFlightRef.current = operation
     setRetrying(strategy)
     setRetryFailure(null)
     try {
       const retried = await runtime.retry(strategy)
-      if (retried) {
+      if (retried && navigationRef.current === navigation) {
         setNotice(strategy === 'resume'
           ? 'Resuming the recorded SDK session…'
           : 'Starting a new branch from the persisted run configuration…')
       }
     } catch (retryError) {
-      setRetryFailure({ runId: source.id, message: errorMessage(retryError) })
+      if (navigationRef.current === navigation) setRetryFailure({ runId: source.id, message: errorMessage(retryError) })
     } finally {
-      retryInFlightRef.current = false
-      setRetrying(null)
+      if (retryInFlightRef.current === operation) {
+        retryInFlightRef.current = null
+        setRetrying(null)
+      }
     }
   }
 

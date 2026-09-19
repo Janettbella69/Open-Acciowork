@@ -8,8 +8,9 @@ vi.mock('./client')
 
 function deferred<T>() {
   let resolve!: (value: T) => void
-  const promise = new Promise<T>((complete) => { resolve = complete })
-  return { promise, resolve }
+  let reject!: (reason: unknown) => void
+  const promise = new Promise<T>((complete, fail) => { resolve = complete; reject = fail })
+  return { promise, resolve, reject }
 }
 
 const projectA = { id: 'project_a', name: 'A' } as OpportunityProject
@@ -182,6 +183,168 @@ describe('project selection isolation', () => {
     await act(async () => { discovery.resolve(protocol); await selecting })
     expect(MockEventSource.instances).toHaveLength(1)
     expect(MockEventSource.instances[0].closed).toBe(true)
+  })
+})
+
+describe('project access loss', () => {
+  it.each([403, 404])('clears the selected project and private run state after an authoritative %s', async (status) => {
+    const { result } = await setup()
+    const source = MockEventSource.instances[0]
+    act(() => {
+      source.emit('assistant.text.delta', { text: 'Private answer' })
+      source.emit('permission.requested', { request_id: 'approval_private', tool_name: 'Bash', tool_input: { command: 'private' } })
+    })
+    expect(result.current.assistantText).toBe('Private answer')
+    expect(result.current.permissions).toHaveLength(1)
+    vi.mocked(api.getProject).mockRejectedValueOnce(Object.assign(new Error('Not available'), { status }))
+    await act(async () => { await result.current.refreshActiveProject() })
+    expect(result.current.project).toBeNull()
+    expect(result.current.run).toBeNull()
+    expect(result.current.telemetry).toBeNull()
+    expect(result.current.events).toEqual([])
+    expect(result.current.assistantText).toBe('')
+    expect(result.current.reasoningSummary).toBe('')
+    expect(result.current.permissions).toEqual([])
+    expect(result.current.projects).toEqual([projectB])
+    expect(result.current.connection).toBe('idle')
+    expect(source.closed).toBe(true)
+    act(() => {
+      source.emit('assistant.text.delta', { text: 'Late private answer' })
+      source.onopen?.(); source.onerror?.()
+    })
+    expect(result.current.assistantText).toBe('')
+    expect(result.current.connection).toBe('idle')
+  })
+
+  it('does not restore an unavailable project from the delayed initial list or an old selection', async () => {
+    const initial = deferred<OpportunityProject[]>()
+    vi.mocked(api.listProjects).mockReturnValueOnce(initial.promise)
+    vi.mocked(api.listProjectRuns).mockRejectedValueOnce(Object.assign(new Error('Not available'), { status: 404 }))
+    const { result } = renderHook(() => useOpportunityRuntime())
+    await act(async () => { await result.current.selectProject(projectA) })
+    await act(async () => { initial.resolve([projectA, projectB]) })
+    expect(result.current.project).toBeNull()
+    expect(result.current.projects).toEqual([projectB])
+    await act(async () => { await result.current.selectProject(projectA) })
+    expect(result.current.project).toBeNull()
+    expect(api.listProjectRuns).toHaveBeenCalledTimes(1)
+  })
+
+  it('checks project availability when its stream cannot reconnect', async () => {
+    const { result } = await setup()
+    vi.mocked(api.getProject).mockRejectedValueOnce(Object.assign(new Error('Deleted'), { status: 404 }))
+    await act(async () => { MockEventSource.instances[0].onerror?.() })
+    expect(result.current.project).toBeNull()
+    expect(result.current.projects).toEqual([projectB])
+    expect(MockEventSource.instances[0].closed).toBe(true)
+  })
+
+  it('ignores an obsolete access denial after another project is selected', async () => {
+    const { result } = await setup()
+    const old = deferred<OpportunityProject>()
+    vi.mocked(api.getProject).mockReturnValueOnce(old.promise)
+    let refresh!: Promise<void>
+    act(() => { refresh = result.current.refreshActiveProject() })
+    await act(async () => { await result.current.selectProject(projectB) })
+    await act(async () => { old.reject(Object.assign(new Error('Denied'), { status: 403 })); await refresh })
+    expect(result.current.project).toEqual(projectB)
+    expect(result.current.run).toEqual(runB)
+    expect(result.current.projects.map((item) => item.id)).toContain(projectB.id)
+  })
+
+  it('drops only the requested project and notifies the workspace only for its active selection', async () => {
+    const unavailable = vi.fn()
+    const { result } = renderHook(() => useOpportunityRuntime(unavailable))
+    await waitFor(() => expect(result.current.projects).toHaveLength(2))
+    await act(async () => { await result.current.selectProject(projectB) })
+    act(() => { expect(result.current.discardProject(projectA.id)).toBe(false) })
+    expect(result.current.project).toEqual(projectB)
+    expect(result.current.run).toEqual(runB)
+    expect(unavailable).not.toHaveBeenCalled()
+    act(() => { expect(result.current.discardProject(projectB.id)).toBe(true) })
+    act(() => { expect(result.current.discardProject(projectB.id)).toBe(false) })
+    expect(result.current.projects).toEqual([])
+    expect(unavailable).toHaveBeenCalledExactlyOnceWith(projectB.id)
+  })
+
+  it.each([false, true])('rechecks a denied run action before discarding project reads (read denied: %s)', async (denied) => {
+    const { result } = await setup()
+    vi.mocked(api.cancelRun).mockRejectedValueOnce(Object.assign(new Error('Cannot cancel this run'), { status: 403 }))
+    if (denied) vi.mocked(api.getProject).mockRejectedValueOnce(Object.assign(new Error('Cannot read this project'), { status: 403 }))
+    await act(async () => { await result.current.cancel() })
+    expect(api.getProject).toHaveBeenCalledWith(projectA.id, expect.any(AbortSignal))
+    expect(result.current.project).toEqual(denied ? null : projectA)
+    expect(result.current.run).toEqual(denied ? null : runA)
+    if (!denied) expect(result.current.error).toBe('Cannot cancel this run')
+  })
+
+  it('checks a saved project again when the window regains focus', async () => {
+    vi.mocked(api.listProjectRuns).mockResolvedValueOnce([])
+    const { result } = await setup()
+    vi.mocked(api.getProject).mockRejectedValueOnce(Object.assign(new Error('Deleted'), { status: 404 }))
+    await act(async () => { window.dispatchEvent(new Event('focus')) })
+    expect(result.current.project).toBeNull()
+    expect(result.current.projects).toEqual([projectB])
+  })
+
+  it('drops late ledger, run and telemetry results after discarding a completed project', async () => {
+    const { result } = await setup()
+    const ledger = deferred<OpportunityProject>()
+    const record = deferred<RunRecord>()
+    const telemetry = deferred<Awaited<ReturnType<typeof api.getRunTelemetry>>>()
+    vi.mocked(api.getProject).mockReturnValueOnce(ledger.promise)
+    vi.mocked(api.getRun).mockReturnValueOnce(record.promise)
+    vi.mocked(api.getRunTelemetry).mockReturnValueOnce(telemetry.promise)
+    act(() => {
+      MockEventSource.instances[0].emit('run.completed', { status: 'completed' })
+      MockEventSource.instances[0].end()
+    })
+    const signal = vi.mocked(api.getProject).mock.calls[0][1]!
+    act(() => { result.current.discardProject(projectA.id) })
+    expect(signal.aborted).toBe(true)
+    await act(async () => {
+      ledger.resolve({ ...projectA, name: 'Late private ledger' })
+      record.resolve({ ...runA, status: 'completed', prompt: 'Private prompt' })
+      telemetry.resolve({ private: 'old run metrics' } as unknown as Awaited<ReturnType<typeof api.getRunTelemetry>>)
+    })
+    expect(result.current.project).toBeNull()
+    expect(result.current.run).toBeNull()
+    expect(result.current.telemetry).toBeNull()
+    expect(result.current.projects).toEqual([projectB])
+    expect(result.current.historyLoading).toBe(false)
+  })
+
+  it('does not report a started run after access is lost during protocol discovery', async () => {
+    const { result } = await setup()
+    const discovery = deferred<ProtocolMetadata>()
+    vi.mocked(api.getProtocol).mockReturnValueOnce(discovery.promise)
+    vi.mocked(api.startRun).mockResolvedValueOnce(runA)
+    let operation!: ReturnType<typeof result.current.continueProject>
+    act(() => { operation = result.current.continueProject('Private next message') })
+    await waitFor(() => expect(api.getProtocol).toHaveBeenCalledTimes(3))
+    act(() => { result.current.discardProject(projectA.id) })
+    let response: RunRecord | null = runA
+    await act(async () => { discovery.resolve(protocol); response = await operation })
+    expect(response).toBeNull()
+    expect(result.current.project).toBeNull()
+    expect(MockEventSource.instances).toHaveLength(1)
+    expect(MockEventSource.instances[0].closed).toBe(true)
+  })
+
+  it('prevents retained action handlers from sending to a discarded project', async () => {
+    const { result } = await setup()
+    act(() => { MockEventSource.instances[0].emit('permission.requested', { request_id: 'private_request', tool_name: 'Bash' }) })
+    const previous = result.current
+    await act(async () => {
+      previous.discardProject(projectA.id)
+      await previous.continueProject('Do not send')
+      await previous.cancel()
+      await previous.decidePermission('private_request', 'allow_once')
+    })
+    expect(api.startRun).not.toHaveBeenCalled()
+    expect(api.cancelRun).not.toHaveBeenCalled()
+    expect(api.resolvePermission).not.toHaveBeenCalled()
+    expect(result.current.project).toBeNull()
   })
 })
 
@@ -433,7 +596,8 @@ describe('project record events and complete durable tails', () => {
     })
     expect(result.current.assistantText).toBe('Saved answer.')
     expect(result.current.events.map((event) => event.type)).toEqual(['run.completed', 'evidence.added'])
-    expect(api.getProject).toHaveBeenCalledTimes(1)
+    // The reconnect access check is followed by the newly observed ledger revision.
+    expect(api.getProject).toHaveBeenCalledTimes(2)
     await act(async () => { source.end() })
     expect(source.closed).toBe(true)
   })
@@ -479,9 +643,9 @@ describe('project record events and complete durable tails', () => {
     expect(result.current.historyLoading).toBe(false)
   })
 
-  it('preserves the last ledger view and reports a denied authoritative refresh', async () => {
+  it('preserves the last ledger view after an uncertain server failure', async () => {
     const { result } = await setup()
-    vi.mocked(api.getProject).mockRejectedValueOnce(Object.assign(new Error('Denied'), { status: 403 }))
+    vi.mocked(api.getProject).mockRejectedValueOnce(Object.assign(new Error('Unavailable'), { status: 503 }))
     await act(async () => { MockEventSource.instances[0].emit('evidence.added', { resource_id: 'never_fabricate', text: 'untrusted' }) })
     expect(result.current.project).toEqual(projectA)
     expect(result.current.project?.evidence).toBeUndefined()
