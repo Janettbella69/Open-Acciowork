@@ -741,6 +741,8 @@ class SkillTestResult(APIModel):
 
 class Connector(APIModel):
     id: str
+    # Changes to configuration or credentials invalidate in-flight health probes.
+    revision: int = Field(default=0, ge=0)
     type: str = Field(min_length=1, max_length=80)
     display_name: str = Field(min_length=1, max_length=160)
     scope: str = Field(default="", max_length=400)

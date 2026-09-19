@@ -819,3 +819,35 @@ Browser 发现列表仍为空，浏览器目视验收保持开放。真实组织
 边界：未调用真实模型、未启动 Run、未使用真实 Provider 凭据；Deep Research 的真实研究质量、
 真实取消/耗尽与长时墙钟故障矩阵仍 deferred。观察到一个既有问题、本批未改：400px 窄屏下固定输入框
 与页面文字重叠，属于原有停靠层布局，未纳入本批范围。完整 PRD 目标继续开放。
+
+## 2026-09-19：工作台交互与连接器并发缺陷修复
+
+交付前基线：`881a769`。本轮继续修复现有缺陷，完整 PRD 及前述 deferred 保持开放。
+
+| 要求 | 状态 | 验证 |
+|---|---|---|
+| 保存授权模式期间不能用旧模式发送或重试任务 | delivered | 保存过程由工作台统一持有；按钮、快捷键及同一事件批次中的直接调用均阻止启动；保存失败保留草稿和旧模式，恢复控件 |
+| 新任务不携带上一任务暂存的附件 | delivered | New task 清空附件；组件回归与真实浏览器附件操作通过 |
+| 窄屏输入区可用，对话正文不被输入框遮挡 | delivered | 对话与输入框独立布局，窄屏输入区和按钮分行，附件列表有界滚动，菜单不越界；320–1440px 共 13 档浏览器检查通过 |
+| 连接器健康检查不得覆盖撤销、配置或凭据更新 | delivered | 持久 revision 区分相同配置重连；锁内一致捕获配置/凭据，锁外探测，提交时复验；多进程修改与凭据写入串行化、独立临时文件原子发布 |
+| 本轮真实模型、店铺、远程设备及生产验收 | deferred | 本轮使用离线运行时和临时本地账本，不替代这些外部验收 |
+
+复现证据：原前端有 3 项新增回归失败；原连接器健康检查会重新启用已撤销的连接器、覆盖新地址。
+独立复审进一步复现并修复了相同配置重连和保存凭据的竞争窗口。
+原输入区在 440px/760px 宽度下仅剩 8px；修复后分别为 388px/460px。
+交互测试覆盖 12 个附件、滚动到对话末尾、清空附件、真实策略 PUT 挂起期间的发送拦截；
+没有创建模型 Run，策略在测试后恢复为 default。
+浏览器测量与截图归档于 [本轮页面验证报告](../evals/reports/bugfix-20260919/browser-verification.json)。
+
+验证命令与结果：
+
+- `OPHIRA_CONTRACT_PROVIDER= PYTHONPATH=backend/src .venv/bin/python -m pytest backend/tests -q`：
+  **1895 passed / 13 skipped**（100.96秒）；相对本轮基线新增 6 项连接器回归。
+- 前端 `npm run test:run`：**360 passed / 36 files**；新增 3 项工作台回归。
+  `npm run lint`、`npm run build`（含 TypeScript）、`git diff --check` 通过。
+- eval tools **59 passed**；离线 Snapshot **61/61**。
+- `.venv/bin/ruff check backend/src backend/tests evals/tools --exclude project_export_capture.py --exclude project_export_models.py` 通过。
+  不带排除项的全量 Ruff 仍有既存 9 项长行错误，全部在本轮开始前未跟踪的两个导出草稿中；
+  未修改或纳入本轮提交。原有店铺浏览器未提交修改和 `deploy/companion/` 同样保留。
+- 主 JS 783.51 kB，既有大于 500 kB 的构建提示保留。Browser 插件发现列表为空，
+  页面复核使用仓库已有 Playwright/Chromium 与临时后端；不宣称真实手机或付费 Provider 验收。

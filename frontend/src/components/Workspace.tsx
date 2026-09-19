@@ -31,6 +31,8 @@ export default function Workspace() {
   const [providerProfileId, setProviderProfileId] = useState<string | null>(null)
   const [approvalMode, setApprovalMode] = useState<PermissionModePolicy | null>(null)
   const [approvalModeError, setApprovalModeError] = useState('')
+  const [approvalModeSaving, setApprovalModeSaving] = useState(false)
+  const approvalSaveRef = useRef<Promise<void> | null>(null)
   const [runMode, setRunMode] = useState<RunMode>('standard')
   const [retrying, setRetrying] = useState<RunRetryStrategy | null>(null)
   const [retryFailure, setRetryFailure] = useState<{ runId: string; message: string } | null>(null)
@@ -48,16 +50,27 @@ export default function Workspace() {
     return () => { active = false }
   }, [])
 
-  const changeApprovalMode = async (permissionMode: PermissionModePolicy) => {
-    // Settings edits the same organization policy; save onto its latest copy.
-    const latest = await getOrgPolicy()
-    const saved = await saveOrgPolicy({ ...latest, permission_mode: permissionMode })
-    setApprovalMode(saved.permission_mode)
-    setApprovalModeError('')
+  const changeApprovalMode = (permissionMode: PermissionModePolicy): Promise<void> => {
+    if (approvalSaveRef.current) return approvalSaveRef.current
+    if (runtime.starting || runtime.isActive || runtime.historyLoading || retryInFlightRef.current) return Promise.resolve()
+    setApprovalModeSaving(true)
+    const saving = (async () => {
+      // Settings edits the same organization policy; save onto its latest copy.
+      const latest = await getOrgPolicy()
+      const saved = await saveOrgPolicy({ ...latest, permission_mode: permissionMode })
+      setApprovalMode(saved.permission_mode)
+      setApprovalModeError('')
+    })().finally(() => {
+      approvalSaveRef.current = null
+      setApprovalModeSaving(false)
+    })
+    approvalSaveRef.current = saving
+    return saving
   }
 
   const runAnalysis = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
+    if (approvalSaveRef.current) return
     const brief = briefInput.trim()
     if (!brief) return
     const navigation = ++navigationRef.current
@@ -89,7 +102,7 @@ export default function Workspace() {
 
   const retryRun = async (strategy: RunRetryStrategy) => {
     const source = runtime.run
-    if (!source || retryInFlightRef.current) return
+    if (!source || retryInFlightRef.current || approvalSaveRef.current) return
     retryInFlightRef.current = true
     setRetrying(strategy)
     setRetryFailure(null)
@@ -115,6 +128,7 @@ export default function Workspace() {
     runtime.reset()
     setRetryFailure(null)
     setBriefInput('')
+    setAttachedFiles([])
     normalizeWorkspaceUrl()
     setNotice('Start with whatever you want to accomplish.')
   }
@@ -167,6 +181,7 @@ export default function Workspace() {
       providerProfileId={providerProfileId}
       approvalMode={approvalMode}
       approvalModeError={approvalModeError}
+      approvalModeSaving={approvalModeSaving}
       runMode={runMode}
       onChange={setBriefInput}
       onAttachedFilesChange={setAttachedFiles}

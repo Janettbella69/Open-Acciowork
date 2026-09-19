@@ -111,6 +111,92 @@ describe('Workspace approval mode', () => {
     await waitFor(() => expect(trigger).toHaveTextContent('Approve for me'))
     expect(screen.queryByRole('dialog', { name: /choose an approval mode/i })).not.toBeInTheDocument()
   })
+
+  it('blocks sends and retries until the approval policy read and save both finish', async () => {
+    let finishRead!: (policy: OrgPolicy) => void
+    let finishSave!: (policy: OrgPolicy) => void
+    vi.mocked(getOrgPolicy).mockResolvedValueOnce({ ...organizationPolicy, permission_mode: 'auto' })
+      .mockImplementationOnce(() => new Promise((resolve) => { finishRead = resolve }))
+    vi.mocked(saveOrgPolicy).mockImplementationOnce(() => new Promise((resolve) => { finishSave = resolve }))
+    const runtime = vi.mocked(useOpportunityRuntime)()
+    vi.mocked(useOpportunityRuntime).mockReturnValue({ ...runtime, run: { ...failedRun, sdk_session_id: 'session_1' } })
+    render(<Workspace />)
+    const brief = screen.getByRole('textbox', { name: /ask trademind/i })
+    fireEvent.change(brief, { target: { value: 'Review the supplier quote' } })
+    const trigger = screen.getByRole('button', { name: /open approval mode selector/i })
+    await waitFor(() => expect(trigger).toHaveTextContent('Approve for me'))
+    fireEvent.click(trigger)
+
+    act(() => {
+      fireEvent.click(screen.getByRole('button', { name: /ask for approval/i }))
+      fireEvent.click(screen.getByRole('button', { name: /ask for approval/i }))
+      fireEvent.click(screen.getByRole('button', { name: /start new branch/i }))
+      fireEvent.submit(brief.closest('form')!)
+    })
+    expect(getOrgPolicy).toHaveBeenCalledTimes(2)
+    expect(runtime.start).not.toHaveBeenCalled()
+    expect(screen.getByRole('button', { name: 'Send' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: /resume session/i })).toBeDisabled()
+    expect(screen.getByRole('button', { name: /start new branch/i })).toBeDisabled()
+    fireEvent.keyDown(brief, { key: 'Enter', ctrlKey: true })
+    fireEvent.click(screen.getByRole('button', { name: /start new branch/i }))
+    expect(retryRuntime).not.toHaveBeenCalled()
+
+    await act(async () => { finishRead({ ...organizationPolicy, permission_mode: 'auto' }) })
+    expect(saveOrgPolicy).toHaveBeenCalledTimes(1)
+    expect(screen.getByRole('button', { name: 'Send' })).toBeDisabled()
+    expect(screen.getByRole('dialog', { name: /choose an approval mode/i })).toBeInTheDocument()
+    fireEvent.submit(brief.closest('form')!)
+    expect(runtime.start).not.toHaveBeenCalled()
+
+    await act(async () => { finishSave(organizationPolicy) })
+    expect(trigger).toHaveTextContent('Ask for approval')
+    expect(screen.getByRole('button', { name: 'Send' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: /start new branch/i })).toBeEnabled()
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }))
+    expect(runtime.start).toHaveBeenCalledWith('Review the supplier quote', [], 'standard', null, null)
+  })
+
+  it('restores sending after a policy save fails and keeps the selected mode and draft', async () => {
+    let failSave!: (reason: Error) => void
+    vi.mocked(saveOrgPolicy).mockImplementationOnce(() => new Promise((_resolve, reject) => { failSave = reject }))
+    const runtime = vi.mocked(useOpportunityRuntime)()
+    render(<Workspace />)
+    const brief = screen.getByRole('textbox', { name: /ask trademind/i })
+    fireEvent.change(brief, { target: { value: 'Keep this draft' } })
+    const trigger = screen.getByRole('button', { name: /open approval mode selector/i })
+    await waitFor(() => expect(trigger).toHaveTextContent('Ask for approval'))
+    fireEvent.click(trigger)
+    fireEvent.click(screen.getByRole('button', { name: /approve for me/i }))
+    await waitFor(() => expect(saveOrgPolicy).toHaveBeenCalledTimes(1))
+    expect(screen.getByRole('button', { name: 'Send' })).toBeDisabled()
+
+    await act(async () => { failSave(new Error('Policy store unavailable')) })
+    expect(await screen.findByText('Policy store unavailable')).toHaveAttribute('role', 'alert')
+    expect(trigger).toHaveTextContent('Ask for approval')
+    expect(brief).toHaveValue('Keep this draft')
+    expect(screen.getByRole('button', { name: 'Send' })).toBeEnabled()
+    expect(runtime.start).not.toHaveBeenCalled()
+  })
+})
+
+describe('Workspace new task', () => {
+  it('clears staged attachments before sending to a new project', async () => {
+    const runtime = vi.mocked(useOpportunityRuntime)()
+    render(<Workspace />)
+    await waitFor(() => expect(screen.getByRole('button', { name: /open approval mode selector/i })).toHaveTextContent('Ask for approval'))
+    fireEvent.change(screen.getByLabelText('Choose files or images'), {
+      target: { files: [new File(['private quote'], 'supplier-quote.csv', { type: 'text/csv' })] },
+    })
+    expect(screen.getByText('supplier-quote.csv')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /new task/i }))
+    expect(runtime.reset).toHaveBeenCalledTimes(1)
+    expect(screen.queryByText('supplier-quote.csv')).not.toBeInTheDocument()
+    fireEvent.change(screen.getByRole('textbox', { name: /ask trademind/i }), { target: { value: 'A separate task' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }))
+    expect(runtime.start).toHaveBeenCalledWith('A separate task', [], 'standard', null, null)
+  })
 })
 
 describe('Workspace feedback', () => {

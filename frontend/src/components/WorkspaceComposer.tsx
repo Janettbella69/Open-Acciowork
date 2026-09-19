@@ -59,6 +59,7 @@ type WorkspaceComposerProps = {
   providerProfileId: string | null
   approvalMode: PermissionModePolicy | null
   approvalModeError?: string
+  approvalModeSaving?: boolean
   runMode: RunMode
   onChange: (value: string) => void
   onAttachedFilesChange: (files: File[]) => void
@@ -327,6 +328,7 @@ export default function WorkspaceComposer({
   providerProfileId,
   approvalMode,
   approvalModeError = '',
+  approvalModeSaving = false,
   runMode,
   onChange,
   onAttachedFilesChange,
@@ -449,7 +451,7 @@ export default function WorkspaceComposer({
           value={value}
           onChange={(event) => onChange(event.target.value)}
           onKeyDown={(event) => {
-            if ((event.metaKey || event.ctrlKey) && event.key === 'Enter' && !busy && value.trim()) {
+            if ((event.metaKey || event.ctrlKey) && event.key === 'Enter' && !busy && !approvalModeSaving && value.trim()) {
               event.preventDefault()
               event.currentTarget.form?.requestSubmit()
             }
@@ -600,7 +602,7 @@ export default function WorkspaceComposer({
               </section>
             )}
           </div>
-          <button className="conversation-submit" type="submit" aria-label={busy ? t('Working') : t('Send')} disabled={busy || !value.trim() || selectedProviderUnavailable}>
+          <button className="conversation-submit" type="submit" aria-label={busy ? t('Working') : t('Send')} aria-busy={approvalModeSaving || undefined} disabled={busy || approvalModeSaving || !value.trim() || selectedProviderUnavailable}>
             <span className="conversation-submit-label">{busy ? t('Working…') : t('Send')}</span>
             <span aria-hidden="true">↑</span>
           </button>
@@ -809,7 +811,7 @@ export default function WorkspaceComposer({
                     <div className="conversation-retry-actions">
                       <button
                         type="button"
-                        disabled={retrying !== null || !run.sdk_session_id}
+                        disabled={approvalModeSaving || retrying !== null || !run.sdk_session_id}
                         title={!run.sdk_session_id ? t('No recorded SDK session is available.') : undefined}
                         onClick={() => onRetry('resume')}
                       >
@@ -820,7 +822,7 @@ export default function WorkspaceComposer({
                       </button>
                       <button
                         type="button"
-                        disabled={retrying !== null}
+                        disabled={approvalModeSaving || retrying !== null}
                         onClick={() => onRetry('new_branch')}
                       >
                         <strong>{retrying === 'new_branch' ? t('Starting branch…') : t('Start new branch')}</strong>

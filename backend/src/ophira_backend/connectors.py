@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import fcntl
 import ipaddress
 import os
 import re
 import socket
+import tempfile
 import threading
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -270,6 +273,28 @@ class ConnectorRegistry:
         self.root.mkdir(parents=True, exist_ok=True)
         self.vault = vault
         self._lock = threading.RLock()
+        self._held_transaction = threading.local()
+
+    @contextmanager
+    def _transaction(self) -> Iterator[None]:
+        # All connectors share one vault file, so serialize the complete registry
+        # across workers, including credential updates and catalog initialization.
+        with self._lock:
+            if getattr(self._held_transaction, "active", False):
+                yield
+                return
+            descriptor = os.open(
+                self.root / ".registry.lock",
+                os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW | os.O_CLOEXEC,
+                0o600,
+            )
+            try:
+                fcntl.flock(descriptor, fcntl.LOCK_EX)
+                self._held_transaction.active = True
+                yield
+            finally:
+                self._held_transaction.active = False
+                os.close(descriptor)
 
     @staticmethod
     def _safe_id(value: str) -> str:
@@ -282,23 +307,43 @@ class ConnectorRegistry:
 
     def _write(self, connector: Connector) -> None:
         path = self._path(connector.id)
-        temporary = path.with_suffix(".tmp")
-        temporary.write_text(connector.model_dump_json(indent=2) + "\n", encoding="utf-8")
-        os.replace(temporary, path)
+        # Match the ledger's private, unique and durable snapshot publication.
+        with tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", dir=self.root,
+            prefix=f".{path.name}.", suffix=".tmp", delete=False,
+        ) as handle:
+            temporary = Path(handle.name)
+            try:
+                handle.write(connector.model_dump_json(indent=2) + "\n")
+                handle.flush()
+                os.fsync(handle.fileno())
+            except BaseException:
+                temporary.unlink(missing_ok=True)
+                raise
+        try:
+            os.replace(temporary, path)
+            descriptor = os.open(self.root, os.O_RDONLY | os.O_DIRECTORY)
+            try:
+                os.fsync(descriptor)
+            finally:
+                os.close(descriptor)
+        finally:
+            temporary.unlink(missing_ok=True)
 
     def ensure_catalog(self) -> list[Connector]:
-        for item in CONNECTOR_CATALOG:
-            connector_id = str(item["id"])
-            if self._path(connector_id).exists():
-                continue
-            self.upsert(
-                connector_id,
-                type=str(item["type"]),
-                display_name=str(item["display_name"]),
-                scope=str(item.get("scope") or ""),
-                secret_env=item.get("secret_env"),  # type: ignore[arg-type]
-                endpoint=item.get("endpoint"),  # type: ignore[arg-type]
-            )
+        with self._transaction():
+            for item in CONNECTOR_CATALOG:
+                connector_id = str(item["id"])
+                if self._path(connector_id).exists():
+                    continue
+                self.upsert(
+                    connector_id,
+                    type=str(item["type"]),
+                    display_name=str(item["display_name"]),
+                    scope=str(item.get("scope") or ""),
+                    secret_env=item.get("secret_env"),  # type: ignore[arg-type]
+                    endpoint=item.get("endpoint"),  # type: ignore[arg-type]
+                )
         return self.list()
 
     def list(self) -> list[Connector]:
@@ -358,51 +403,60 @@ class ConnectorRegistry:
                 parse_shopify_credentials(secret)
                 if self.vault is None:
                     raise ValueError("connector vault is not configured")
-        existing = None
-        try:
-            existing = self.get(connector_id)
-        except ConnectorNotFoundError:
-            pass
-        connector = Connector(
-            id=connector_id,
-            type=type,
-            display_name=display_name,
-            scope=scope,
-            secret_env=secret_env,
-            endpoint=endpoint,
-            # An explicit PUT is also the reconnect action after revoke. Any
-            # configuration change must be health-checked again before runtime use.
-            enabled=True,
-            health="unknown",
-            last_checked_at=None,
-            created_at=existing.created_at if existing else utc_now(),
-        )
-        with self._lock:
+        with self._transaction():
+            existing = None
+            try:
+                existing = self.get(connector_id)
+            except ConnectorNotFoundError:
+                pass
+            connector = Connector(
+                id=connector_id,
+                revision=existing.revision + 1 if existing else 1,
+                type=type,
+                display_name=display_name,
+                scope=scope,
+                secret_env=secret_env,
+                endpoint=endpoint,
+                # An explicit PUT is also the reconnect action after revoke. Any
+                # configuration change must be health-checked again before runtime use.
+                enabled=True,
+                health="unknown",
+                last_checked_at=None,
+                created_at=existing.created_at if existing else utc_now(),
+            )
             self._write(connector)
             if secret and self.vault is not None:
                 self.vault.set(connector.id, secret)
         return connector
 
     def store_secret(self, connector_id: str, secret: str) -> Connector:
-        connector = self.get(connector_id)
-        if connector.type == TIKTOK_SHOP_TYPE:
-            parse_tiktok_shop_credentials(secret)
-        elif connector.type == SHOPIFY_TYPE:
-            parse_shopify_credentials(secret)
-        if self.vault is None:
-            raise ValueError("connector vault is not configured")
-        self.vault.set(connector.id, secret)
-        return connector
+        with self._transaction():
+            connector = self.get(connector_id)
+            if connector.type == TIKTOK_SHOP_TYPE:
+                parse_tiktok_shop_credentials(secret)
+            elif connector.type == SHOPIFY_TYPE:
+                parse_shopify_credentials(secret)
+            if self.vault is None:
+                raise ValueError("connector vault is not configured")
+            updated = connector.model_copy(update={
+                "revision": connector.revision + 1, "health": "unknown", "last_checked_at": None,
+            })
+            # Invalidate old probes before the new credential can become visible.
+            self._write(updated)
+            self.vault.set(connector.id, secret)
+            return updated
 
     def revoke(self, connector_id: str) -> Connector:
-        connector = self.get(connector_id)
-        if self.vault is not None:
-            self.vault.delete(connector.id)
-        updated = connector.model_copy(
-            update={"enabled": False, "health": "unknown", "last_checked_at": utc_now()}
-        )
-        with self._lock:
+        with self._transaction():
+            connector = self.get(connector_id)
+            updated = connector.model_copy(
+                update={"revision": connector.revision + 1, "enabled": False,
+                        "health": "unknown", "last_checked_at": utc_now()}
+            )
+            # Persist the disabled authority before removing its credential.
             self._write(updated)
+            if self.vault is not None:
+                self.vault.delete(connector.id)
         return updated
 
     def health_check(
@@ -411,7 +465,12 @@ class ConnectorRegistry:
         environ: Mapping[str, str] | None = None,
     ) -> Connector:
         env = os.environ if environ is None else environ
-        connector = self.get(connector_id)
+        with self._transaction():
+            connector = self.get(connector_id)
+            vaulted = self.vault is not None and self.vault.has(connector.id)
+            env_present = bool(connector.secret_env and env.get(connector.secret_env))
+        # Only local state is captured under the lock. Network probes cannot
+        # delay revocation; the durable revision catches even identical reconnects.
         if not connector.enabled:
             health = "unknown"
         elif connector.id == "chrome_cdp" and connector.type == "chrome_cdp":
@@ -422,8 +481,6 @@ class ConnectorRegistry:
                 else "ok"
             )
         elif connector.type == COMMERCIAL_HTTPS_JSON_CONNECTOR_TYPE:
-            vaulted = self.vault is not None and self.vault.has(connector.id)
-            env_present = bool(connector.secret_env and env.get(connector.secret_env))
             reason = check_commercial_https_endpoint(connector.endpoint or "")
             if reason:
                 health = "unreachable"
@@ -434,8 +491,6 @@ class ConnectorRegistry:
             else:
                 health = "ok"
         else:
-            vaulted = self.vault is not None and self.vault.has(connector.id)
-            env_present = bool(connector.secret_env and env.get(connector.secret_env))
             health = (
                 "no_credential"
                 if connector.secret_env and not vaulted and not env_present
@@ -444,7 +499,12 @@ class ConnectorRegistry:
         updated = connector.model_copy(
             update={"health": health, "last_checked_at": utc_now()}
         )
-        with self._lock:
+        with self._transaction():
+            current = self.get(connector_id)
+            if current != connector:
+                # A probe may overlap revoke/reconnect or an endpoint/scope edit.
+                # Never restore the old authority or certify a different endpoint.
+                return current
             self._write(updated)
         return updated
 

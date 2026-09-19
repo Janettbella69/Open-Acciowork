@@ -1,0 +1,542 @@
+{
+  "date": "2026-09-19",
+  "fixture": "Temporary local backend ledger with one seeded completed run; no model execution",
+  "browser": "Repository Playwright Chromium; Browser plugin discovery returned no available browsers",
+  "url": "http://localhost:5173/app",
+  "layout_assertions": [
+    "No horizontal overflow",
+    "Textarea width at least 200px",
+    "Conversation scroll region ends above composer",
+    "Approval, model and tool menus within viewport"
+  ],
+  "layout": [
+    {
+      "width": 1440,
+      "scrollWidth": 1440,
+      "dock": {
+        "x": 332,
+        "y": 704,
+        "width": 1040,
+        "height": 96,
+        "right": 1372,
+        "bottom": 800
+      },
+      "textarea": {
+        "x": 396,
+        "y": 718,
+        "width": 468.03125,
+        "height": 44,
+        "right": 864.03125,
+        "bottom": 762
+      },
+      "main": {
+        "x": 264,
+        "y": -100,
+        "width": 1176,
+        "height": 900,
+        "right": 1440,
+        "bottom": 800
+      },
+      "content": {
+        "x": 264,
+        "y": -100,
+        "width": 1176,
+        "height": 804,
+        "right": 1440,
+        "bottom": 704
+      }
+    },
+    {
+      "width": 1101,
+      "scrollWidth": 1101,
+      "dock": {
+        "x": 292,
+        "y": 704,
+        "width": 781,
+        "height": 96,
+        "right": 1073,
+        "bottom": 800
+      },
+      "textarea": {
+        "x": 356,
+        "y": 718,
+        "width": 209.03125,
+        "height": 44,
+        "right": 565.03125,
+        "bottom": 762
+      },
+      "main": {
+        "x": 264,
+        "y": 0,
+        "width": 837,
+        "height": 800,
+        "right": 1101,
+        "bottom": 800
+      },
+      "content": {
+        "x": 264,
+        "y": 0,
+        "width": 837,
+        "height": 704,
+        "right": 1101,
+        "bottom": 704
+      }
+    },
+    {
+      "width": 1100,
+      "scrollWidth": 1100,
+      "dock": {
+        "x": 292,
+        "y": 660,
+        "width": 780,
+        "height": 140,
+        "right": 1072,
+        "bottom": 800
+      },
+      "textarea": {
+        "x": 304,
+        "y": 670,
+        "width": 756,
+        "height": 44,
+        "right": 1060,
+        "bottom": 714
+      },
+      "main": {
+        "x": 264,
+        "y": 0,
+        "width": 836,
+        "height": 800,
+        "right": 1100,
+        "bottom": 800
+      },
+      "content": {
+        "x": 264,
+        "y": 0,
+        "width": 836,
+        "height": 660,
+        "right": 1100,
+        "bottom": 660
+      }
+    },
+    {
+      "width": 981,
+      "scrollWidth": 981,
+      "dock": {
+        "x": 292,
+        "y": 660,
+        "width": 661,
+        "height": 140,
+        "right": 953,
+        "bottom": 800
+      },
+      "textarea": {
+        "x": 304,
+        "y": 670,
+        "width": 637,
+        "height": 44,
+        "right": 941,
+        "bottom": 714
+      },
+      "main": {
+        "x": 264,
+        "y": 0,
+        "width": 717,
+        "height": 800,
+        "right": 981,
+        "bottom": 800
+      },
+      "content": {
+        "x": 264,
+        "y": 0,
+        "width": 717,
+        "height": 660,
+        "right": 981,
+        "bottom": 660
+      }
+    },
+    {
+      "width": 980,
+      "scrollWidth": 980,
+      "dock": {
+        "x": 292,
+        "y": 660,
+        "width": 660,
+        "height": 140,
+        "right": 952,
+        "bottom": 800
+      },
+      "textarea": {
+        "x": 304,
+        "y": 670,
+        "width": 636,
+        "height": 44,
+        "right": 940,
+        "bottom": 714
+      },
+      "main": {
+        "x": 264,
+        "y": 0,
+        "width": 716,
+        "height": 800,
+        "right": 980,
+        "bottom": 800
+      },
+      "content": {
+        "x": 264,
+        "y": 0,
+        "width": 716,
+        "height": 660,
+        "right": 980,
+        "bottom": 660
+      }
+    },
+    {
+      "width": 760,
+      "scrollWidth": 760,
+      "dock": {
+        "x": 248,
+        "y": 660,
+        "width": 484,
+        "height": 140,
+        "right": 732,
+        "bottom": 800
+      },
+      "textarea": {
+        "x": 260,
+        "y": 670,
+        "width": 460,
+        "height": 44,
+        "right": 720,
+        "bottom": 714
+      },
+      "main": {
+        "x": 220,
+        "y": 0,
+        "width": 540,
+        "height": 800,
+        "right": 760,
+        "bottom": 800
+      },
+      "content": {
+        "x": 220,
+        "y": 0,
+        "width": 540,
+        "height": 660,
+        "right": 760,
+        "bottom": 660
+      }
+    },
+    {
+      "width": 720,
+      "scrollWidth": 720,
+      "dock": {
+        "x": 28,
+        "y": 660,
+        "width": 664,
+        "height": 140,
+        "right": 692,
+        "bottom": 800
+      },
+      "textarea": {
+        "x": 40,
+        "y": 670,
+        "width": 640,
+        "height": 44,
+        "right": 680,
+        "bottom": 714
+      },
+      "main": {
+        "x": 0,
+        "y": 0,
+        "width": 720,
+        "height": 800,
+        "right": 720,
+        "bottom": 800
+      },
+      "content": {
+        "x": 0,
+        "y": 0,
+        "width": 720,
+        "height": 660,
+        "right": 720,
+        "bottom": 660
+      }
+    },
+    {
+      "width": 600,
+      "scrollWidth": 600,
+      "dock": {
+        "x": 14,
+        "y": 670,
+        "width": 572,
+        "height": 130,
+        "right": 586,
+        "bottom": 800
+      },
+      "textarea": {
+        "x": 26,
+        "y": 680,
+        "width": 548,
+        "height": 44,
+        "right": 574,
+        "bottom": 724
+      },
+      "main": {
+        "x": 0,
+        "y": 0,
+        "width": 600,
+        "height": 800,
+        "right": 600,
+        "bottom": 800
+      },
+      "content": {
+        "x": 0,
+        "y": 68,
+        "width": 600,
+        "height": 602,
+        "right": 600,
+        "bottom": 670
+      }
+    },
+    {
+      "width": 440,
+      "scrollWidth": 440,
+      "dock": {
+        "x": 14,
+        "y": 670,
+        "width": 412,
+        "height": 130,
+        "right": 426,
+        "bottom": 800
+      },
+      "textarea": {
+        "x": 26,
+        "y": 680,
+        "width": 388,
+        "height": 44,
+        "right": 414,
+        "bottom": 724
+      },
+      "main": {
+        "x": 0,
+        "y": 0,
+        "width": 440,
+        "height": 800,
+        "right": 440,
+        "bottom": 800
+      },
+      "content": {
+        "x": 0,
+        "y": 68,
+        "width": 440,
+        "height": 602,
+        "right": 440,
+        "bottom": 670
+      }
+    },
+    {
+      "width": 430,
+      "scrollWidth": 430,
+      "dock": {
+        "x": 14,
+        "y": 670,
+        "width": 402,
+        "height": 130,
+        "right": 416,
+        "bottom": 800
+      },
+      "textarea": {
+        "x": 26,
+        "y": 680,
+        "width": 378,
+        "height": 44,
+        "right": 404,
+        "bottom": 724
+      },
+      "main": {
+        "x": 0,
+        "y": 0,
+        "width": 430,
+        "height": 800,
+        "right": 430,
+        "bottom": 800
+      },
+      "content": {
+        "x": 0,
+        "y": 68,
+        "width": 430,
+        "height": 602,
+        "right": 430,
+        "bottom": 670
+      }
+    },
+    {
+      "width": 400,
+      "scrollWidth": 400,
+      "dock": {
+        "x": 14,
+        "y": 670,
+        "width": 372,
+        "height": 130,
+        "right": 386,
+        "bottom": 800
+      },
+      "textarea": {
+        "x": 26,
+        "y": 680,
+        "width": 348,
+        "height": 44,
+        "right": 374,
+        "bottom": 724
+      },
+      "main": {
+        "x": 0,
+        "y": 0,
+        "width": 400,
+        "height": 800,
+        "right": 400,
+        "bottom": 800
+      },
+      "content": {
+        "x": 0,
+        "y": 68,
+        "width": 400,
+        "height": 602,
+        "right": 400,
+        "bottom": 670
+      }
+    },
+    {
+      "width": 375,
+      "scrollWidth": 375,
+      "dock": {
+        "x": 14,
+        "y": 670,
+        "width": 347,
+        "height": 130,
+        "right": 361,
+        "bottom": 800
+      },
+      "textarea": {
+        "x": 26,
+        "y": 680,
+        "width": 323,
+        "height": 44,
+        "right": 349,
+        "bottom": 724
+      },
+      "main": {
+        "x": 0,
+        "y": 0,
+        "width": 375,
+        "height": 800,
+        "right": 375,
+        "bottom": 800
+      },
+      "content": {
+        "x": 0,
+        "y": 68,
+        "width": 375,
+        "height": 602,
+        "right": 375,
+        "bottom": 670
+      }
+    },
+    {
+      "width": 320,
+      "scrollWidth": 320,
+      "dock": {
+        "x": 14,
+        "y": 670,
+        "width": 292,
+        "height": 130,
+        "right": 306,
+        "bottom": 800
+      },
+      "textarea": {
+        "x": 26,
+        "y": 680,
+        "width": 268,
+        "height": 44,
+        "right": 294,
+        "bottom": 724
+      },
+      "main": {
+        "x": 0,
+        "y": 0,
+        "width": 320,
+        "height": 800,
+        "right": 320,
+        "bottom": 800
+      },
+      "content": {
+        "x": 0,
+        "y": 68,
+        "width": 320,
+        "height": 602,
+        "right": 320,
+        "bottom": 670
+      }
+    }
+  ],
+  "interaction_assertions": [
+    "12 attachments use bounded scroll area",
+    "New task removes staged attachments",
+    "Send and keyboard submit blocked during pending policy PUT",
+    "Draft retained after save",
+    "Policy restored to default"
+  ],
+  "interactions": [
+    {
+      "width": 1440,
+      "scrollWidth": 1440,
+      "contentBottom": 558,
+      "dockTop": 558,
+      "dockBottom": 800,
+      "attachmentHeight": 116,
+      "attachmentScroll": 116
+    },
+    {
+      "width": 760,
+      "scrollWidth": 760,
+      "contentBottom": 442,
+      "dockTop": 442,
+      "dockBottom": 800,
+      "attachmentHeight": 180,
+      "attachmentScroll": 321
+    },
+    {
+      "width": 440,
+      "scrollWidth": 440,
+      "contentBottom": 442,
+      "dockTop": 442,
+      "dockBottom": 800,
+      "attachmentHeight": 180,
+      "attachmentScroll": 485
+    },
+    {
+      "width": 400,
+      "scrollWidth": 400,
+      "contentBottom": 442,
+      "dockTop": 442,
+      "dockBottom": 800,
+      "attachmentHeight": 180,
+      "attachmentScroll": 485
+    },
+    {
+      "width": 320,
+      "scrollWidth": 320,
+      "contentBottom": 438,
+      "dockTop": 438,
+      "dockBottom": 800,
+      "attachmentHeight": 180,
+      "attachmentScroll": 485
+    },
+    {
+      "attachment_reset": "passed",
+      "approval_save_send_guard": "passed",
+      "run_requests": 0
+    }
+  ],
+  "scope": "Local browser and HTTP behavior only; no live provider, seller account or external side effects"
+}
