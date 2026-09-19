@@ -191,14 +191,20 @@ class ShopBrowserStore:
         return self.root / f"{shop_id}.json"
 
     def directory(self, shop_id: str) -> Path:
-        self.path(shop_id)
-        path = self.root / shop_id
-        path.mkdir(mode=0o700, exist_ok=True)
-        if path.is_symlink():
-            raise ValueError("Invalid shop directory")
-        return path
+        shop = self.get(shop_id)
+        with self.ledger.lifecycle.lease(shop.project_id):
+            path = self.root / shop_id
+            path.mkdir(mode=0o700, exist_ok=True)
+            if path.is_symlink():
+                raise ValueError("Invalid shop directory")
+            return path
 
     def get(self, shop_id: str) -> ShopIdentity:
+        shop = self._read(shop_id)
+        with self.ledger.lifecycle.lease(shop.project_id):
+            return shop
+
+    def _read(self, shop_id: str) -> ShopIdentity:
         path = self.path(shop_id)
         try:
             if path.is_symlink() or path.stat().st_size > 32_000:
@@ -215,46 +221,54 @@ class ShopBrowserStore:
             ) from None
 
     def list(self, project_id: str) -> list[ShopIdentity]:
-        result = []
-        for path in self.root.glob("shop_*.json"):
-            shop = self.get(path.stem)
-            if shop.project_id == project_id:
-                result.append(shop)
-        return sorted(result, key=lambda item: item.created_at)
+        with self.ledger.lifecycle.lease(project_id):
+            result = []
+            for path in self.root.glob("shop_*.json"):
+                # Discover association without entering an unrelated project's
+                # lease: deleting A must not break the shop list of B.
+                shop = self._read(path.stem)
+                if shop.project_id == project_id:
+                    result.append(shop)
+            return sorted(result, key=lambda item: item.created_at)
 
     def write(self, shop: ShopIdentity) -> None:
-        self.ledger._atomic_write(self.path(shop.id), shop)
+        with self.ledger.lifecycle.lease(shop.project_id):
+            self.ledger._atomic_write(self.path(shop.id), shop)
 
     def socket_path(self, shop_id: str) -> Path:
-        self.path(shop_id)
-        key = hashlib.sha256(str(self.root.resolve()).encode()).hexdigest()[:12]
-        folder = Path(tempfile.gettempdir()) / f"ophira-shops-{os.getuid()}-{key}"
-        folder.mkdir(mode=0o700, exist_ok=True)
-        info = folder.lstat()
-        if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o077:
-            raise ValueError("Invalid private browser socket directory")
-        return folder / f"{shop_id[-16:]}.sock"
+        shop = self.get(shop_id)
+        with self.ledger.lifecycle.lease(shop.project_id):
+            self.path(shop_id)
+            key = hashlib.sha256(str(self.root.resolve()).encode()).hexdigest()[:12]
+            folder = Path(tempfile.gettempdir()) / f"ophira-shops-{os.getuid()}-{key}"
+            folder.mkdir(mode=0o700, exist_ok=True)
+            info = folder.lstat()
+            if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o077:
+                raise ValueError("Invalid private browser socket directory")
+            return folder / f"{shop_id[-16:]}.sock"
 
     def session(self, shop_id: str) -> dict | None:
-        path = self.directory(shop_id) / "session.json"
-        if not path.exists():
-            return None
-        try:
-            if path.is_symlink() or path.stat().st_size > 4096:
-                raise ValueError("invalid session")
-            import json
+        shop = self.get(shop_id)
+        with self.ledger.lifecycle.lease(shop.project_id):
+            path = self.directory(shop_id) / "session.json"
+            if not path.exists():
+                return None
+            try:
+                if path.is_symlink() or path.stat().st_size > 4096:
+                    raise ValueError("invalid session")
+                import json
 
-            value = json.loads(path.read_text("utf-8"))
-            if (
-                not isinstance(value, dict)
-                or value.get("shop_id") != shop_id
-                or not re.fullmatch(SESSION_ID, value.get("id", ""))
-                or value.get("state") not in {"starting", "open", "closed", "failed"}
-                or not re.fullmatch(r"[A-Za-z0-9_-]{32,128}", value.get("token", ""))
-            ):
-                raise ValueError("invalid session")
-            return value
-        except (OSError, ValueError, TypeError):
-            raise ShopBrowserError(
-                "SHOP_SESSION_INVALID", "Browser session failed validation."
-            ) from None
+                value = json.loads(path.read_text("utf-8"))
+                if (
+                    not isinstance(value, dict)
+                    or value.get("shop_id") != shop_id
+                    or not re.fullmatch(SESSION_ID, value.get("id", ""))
+                    or value.get("state") not in {"starting", "open", "closed", "failed"}
+                    or not re.fullmatch(r"[A-Za-z0-9_-]{32,128}", value.get("token", ""))
+                ):
+                    raise ValueError("invalid session")
+                return value
+            except (OSError, ValueError, TypeError):
+                raise ShopBrowserError(
+                    "SHOP_SESSION_INVALID", "Browser session failed validation."
+                ) from None

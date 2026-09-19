@@ -1,0 +1,32 @@
+{
+  "baseline": "ed213af",
+  "result": "passed",
+  "backend_full": {
+    "passed": 2109,
+    "skipped": 13,
+    "seconds": 117.48
+  },
+  "additional_socket_service_suite": {
+    "passed": 9,
+    "note": "Adds an end-to-end service/socket case after the full-suite collection; source unchanged."
+  },
+  "frontend_full": {
+    "passed": 464,
+    "files": 43
+  },
+  "backend_ruff": "passed",
+  "frontend_eslint": "passed",
+  "typescript_and_vite_build": "passed",
+  "build_warning": "Existing bundle size warning; final JS approximately 828 kB.",
+  "eval_tools_passed": 59,
+  "snapshot_cases_passed": 61,
+  "diff_check": "passed",
+  "http_report": "http-verification.json",
+  "browser_report": "browser-verification.json",
+  "production_boundary": "Local temporary data; no paid model, real user project, external seller or production recovery certification.",
+  "remaining": [
+    "Independent session deletion",
+    "Historical/external backup deletion and reconciliation",
+    "Cross-host and production recovery certification"
+  ]
+}

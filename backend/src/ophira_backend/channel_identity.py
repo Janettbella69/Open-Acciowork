@@ -25,6 +25,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from .auth import AuthorizationError, ProjectAccessStore, ProjectPermission
 from .constants import PrincipalRole
 from .models import PrincipalBinding, PrincipalContext, new_id, utc_now
+from .project_lifecycle import ProjectLifecycleBusyError, ProjectUnavailableError
 
 _FEISHU_ID_PATTERN: Final = r"^[A-Za-z0-9][A-Za-z0-9._:@+\-]{0,255}$"
 _OPHIRA_ID_PATTERN: Final = r"^[A-Za-z0-9][A-Za-z0-9._:@+\-]{0,159}$"
@@ -248,6 +249,16 @@ class FeishuIdentityBindingStore:
             raise ChannelIdentityNotFoundError("channel identity binding not found")
         return self.root / f"{binding_id}.json"
 
+    @contextmanager
+    def _project_lease(self, project_id: str) -> Iterator[None]:
+        try:
+            with self.project_access.lifecycle.lease(project_id):
+                yield
+        except ProjectUnavailableError as exc:
+            raise ChannelIdentityNotFoundError("channel identity binding not found") from exc
+        except ProjectLifecycleBusyError as exc:
+            raise ChannelIdentityConflictError("channel identity project is busy") from exc
+
     def _read_path(self, path: Path) -> FeishuIdentityBinding:
         try:
             if path.is_symlink() or not path.is_file():
@@ -272,10 +283,15 @@ class FeishuIdentityBindingStore:
                 raise ChannelIdentityIntegrityError(
                     "channel identity binding failed integrity validation"
                 )
-            records.append(record)
+            if not self.project_access.lifecycle.has_deletion(record.project_id):
+                records.append(record)
         return records
 
     def _write(self, record: FeishuIdentityBinding, *, create: bool = False) -> None:
+        with self._project_lease(record.project_id):
+            self._write_available(record, create=create)
+
+    def _write_available(self, record: FeishuIdentityBinding, *, create: bool = False) -> None:
         path = self._path(record.id)
         temporary = path.with_name(f".{path.name}.{secrets.token_hex(12)}.tmp")
         flags = os.O_CREAT | os.O_EXCL | os.O_WRONLY | getattr(os, "O_CLOEXEC", 0)
@@ -326,6 +342,16 @@ class FeishuIdentityBindingStore:
     ) -> FeishuIdentityBinding:
         """Create an idempotent binding after validating actor and target membership."""
 
+        with self._project_lease(payload.project_id):
+            return self._create_available(payload, actor=actor)
+
+    def _create_available(
+        self,
+        payload: FeishuIdentityBindingCreate,
+        *,
+        actor: PrincipalContext,
+    ) -> FeishuIdentityBinding:
+
         if actor.role not in {PrincipalRole.OWNER, PrincipalRole.ADMIN}:
             raise AuthorizationError("tenant administrator authorization is required")
         self.project_access.authorize(
@@ -350,9 +376,7 @@ class FeishuIdentityBindingStore:
                 if item.active and item.selector == payload.selector
             ]
             if len(active) > 1:
-                raise ChannelIdentityAmbiguousError(
-                    "channel identity has multiple active bindings"
-                )
+                raise ChannelIdentityAmbiguousError("channel identity has multiple active bindings")
             if active:
                 if self._same_target(active[0], payload, actor.tenant_id):
                     return active[0]
@@ -403,7 +427,9 @@ class FeishuIdentityBindingStore:
             if not path.exists():
                 raise ChannelIdentityNotFoundError("channel identity binding not found")
             record = self._read_path(path)
-        if record.tenant_id != tenant_id:
+        if record.tenant_id != tenant_id or self.project_access.lifecycle.has_deletion(
+            record.project_id
+        ):
             raise ChannelIdentityNotFoundError("channel identity binding not found")
         return record
 
@@ -451,9 +477,7 @@ class FeishuIdentityBindingStore:
             matches = [item for item in self._list_unlocked() if item.selector == selector]
             active = [item for item in matches if item.active]
             if len(active) > 1:
-                raise ChannelIdentityAmbiguousError(
-                    "channel identity has multiple active bindings"
-                )
+                raise ChannelIdentityAmbiguousError("channel identity has multiple active bindings")
             if not active:
                 if matches:
                     raise ChannelIdentityRevokedError("channel identity binding is revoked")

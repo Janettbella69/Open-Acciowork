@@ -1,0 +1,26 @@
+.project-deletion { text-align: left; min-width: 0; margin: 16px 0; border: 1px solid #dfd4cf; border-radius: 12px; background: #fcfcfa; color: #383934; font-size: 13px; overflow-wrap: anywhere; }
+.project-deletion-toggle { display: flex; justify-content: space-between; gap: 12px; width: 100%; padding: 15px 18px; border: 0; border-radius: 12px; background: transparent; text-align: left; font: inherit; font-weight: 600; cursor: pointer; }
+.project-deletion-body { min-width: 0; padding: 0 18px 18px; }
+.project-deletion-progress > .project-deletion-body { padding-top: 16px; }
+.project-deletion p, .project-deletion li { line-height: 1.6; }
+.project-deletion h3, .project-deletion h4 { margin: 12px 0; font-weight: 600; }
+.project-deletion [role='alert'] { color: #9d3d32; }
+.project-deletion-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.project-deletion button { max-width: 100%; min-height: 44px; padding: 9px 12px; border: 1px solid #d3d4cc; border-radius: 6px; background: white; color: inherit; font: inherit; cursor: pointer; overflow-wrap: anywhere; }
+.project-deletion button:disabled { opacity: .5; cursor: not-allowed; }
+.project-deletion button.project-deletion-danger { color: #913b31; border-color: #cbaba4; background: #fff7f4; }
+.project-deletion-counts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.project-deletion dt, .project-deletion small { color: #696a64; }
+.project-deletion dd { margin: 4px 0 10px; }
+.project-deletion-domains { list-style: none; padding: 0; max-height: 340px; overflow-y: auto; }
+.project-deletion-domains li { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; padding: 8px 0; border-bottom: 1px solid #e6e2dc; }
+.project-deletion-domains span { color: #696a64; }
+.project-deletion-notes { padding-left: 20px; }
+.project-deletion-notes li { margin: 8px 0; }
+.project-deletion fieldset { min-width: 0; margin: 18px 0 0; padding: 12px; border: 1px solid #dfd4cf; border-radius: 8px; }
+.project-deletion label { display: grid; min-width: 0; gap: 7px; margin: 12px 0; }
+.project-deletion input:not([type='checkbox']), .project-deletion textarea { min-width: 0; width: 100%; box-sizing: border-box; padding: 8px; border: 1px solid #d3d4cc; border-radius: 6px; background: white; font: inherit; }
+.project-deletion .project-deletion-confirm { display: flex; align-items: flex-start; gap: 8px; line-height: 1.6; }
+.project-deletion-confirm input { flex: 0 0 auto; margin-top: 4px; }
+.project-deletion-progress { width: min(100%, 890px); box-sizing: border-box; }
+@media (max-width: 600px) { .project-deletion-body { padding-right: 12px; padding-left: 12px; } .project-deletion-counts { grid-template-columns: repeat(2, minmax(0, 1fr)); } }

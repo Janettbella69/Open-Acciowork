@@ -46,6 +46,7 @@ import type { CollaborationCapabilities, CommentChange, CommentCreate, CommentHi
 import type { ProjectTemplate, TemplateApplied, TemplateApplications, TemplateApply, TemplateDetail, TemplateLibrary, TemplateSave } from './projectTemplates'
 import type { SkillFilePreview, SkillImportReviewRequest, SkillImportView, SkillPackageView, SkillRepositoryCapabilities, SkillRepositorySelection } from './skillRepository'
 import type { ProjectExportPreview } from './projectExport'
+import type { ProjectDeletionOperation, ProjectDeletionPreview, ProjectDeletionRequest } from './projectDeletion'
 import type { GovernedMemory, MemoryExpiryUpdate, MemoryExport, MemoryTombstone } from '../types/MemoryGovernance'
 
 const configuredBaseUrl = import.meta.env.VITE_OPHIRA_API_URL?.trim() ?? ''
@@ -53,6 +54,26 @@ export const apiBaseUrl = configuredBaseUrl.replace(/\/$/, '')
 
 export function getProjectExport(projectId: string, signal?: AbortSignal): Promise<ProjectExportPreview> {
   return request(`/api/projects/${encodeURIComponent(projectId)}/export`, { signal, cache: 'no-store' })
+}
+
+export function getProjectDeletion(projectId: string, signal?: AbortSignal): Promise<ProjectDeletionPreview> {
+  return request(`/api/projects/${encodeURIComponent(projectId)}/deletion`, { signal, cache: 'no-store' })
+}
+
+export function submitProjectDeletion(projectId: string, payload: ProjectDeletionRequest, signal?: AbortSignal): Promise<ProjectDeletionOperation> {
+  return request(`/api/projects/${encodeURIComponent(projectId)}/deletion`, {
+    method: 'POST', body: JSON.stringify(payload), signal, cache: 'no-store',
+  })
+}
+
+export function getProjectDeletionOperation(projectId: string, operationId: string, signal?: AbortSignal): Promise<ProjectDeletionOperation> {
+  return request(`/api/project-deletions/${encodeURIComponent(projectId)}/${encodeURIComponent(operationId)}`, { signal, cache: 'no-store' })
+}
+
+export function retryProjectDeletion(projectId: string, operationId: string, signal?: AbortSignal): Promise<ProjectDeletionOperation> {
+  return request(`/api/project-deletions/${encodeURIComponent(projectId)}/${encodeURIComponent(operationId)}/retry`, {
+    method: 'POST', signal, cache: 'no-store',
+  })
 }
 
 export async function downloadProjectExport(projectId: string, fingerprint: string, signal?: AbortSignal): Promise<Blob> {

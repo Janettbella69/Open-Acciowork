@@ -6,6 +6,7 @@ import os
 import posixpath
 import re
 import threading
+from contextlib import nullcontext
 from datetime import timedelta
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -19,6 +20,7 @@ from .constants import (
 )
 from .destructive import is_destructive_delete
 from .models import PermissionGrant, utc_now
+from .project_lifecycle import ProjectLifecycle
 
 _MAX_PERMISSION_SCOPE_LENGTH = 1_000
 
@@ -120,10 +122,12 @@ class PermissionGrantStore:
         return self.root / f"{self._safe_id(grant_id)}.json"
 
     def _write(self, grant: PermissionGrant) -> None:
-        path = self._path(grant.id)
-        temporary = path.with_suffix(".tmp")
-        temporary.write_text(grant.model_dump_json(indent=2) + "\n", encoding="utf-8")
-        os.replace(temporary, path)
+        with (ProjectLifecycle(self.root.parent).lease(grant.project_id)
+              if grant.project_id else nullcontext()):
+            path = self._path(grant.id)
+            temporary = path.with_suffix(".tmp")
+            temporary.write_text(grant.model_dump_json(indent=2) + "\n", encoding="utf-8")
+            os.replace(temporary, path)
 
     def record(
         self,

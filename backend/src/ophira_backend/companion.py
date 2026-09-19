@@ -16,7 +16,7 @@ import secrets
 import tempfile
 import threading
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from datetime import datetime, timedelta
 from enum import StrEnum
 from pathlib import Path
@@ -24,6 +24,7 @@ from pathlib import Path
 from pydantic import Field, field_validator
 
 from .models import APIModel, PrincipalBinding, PrincipalContext, new_id, utc_now
+from .project_lifecycle import ProjectLifecycle
 
 COMPANION_COOKIE = "__Host-ophira-companion"
 COMPANION_HEADER = "x-ophira-companion"
@@ -160,6 +161,13 @@ class CompanionStore:
         return record
 
     def _write(self, record: PairingRecord) -> None:
+        with ExitStack() as leases:
+            lifecycle = ProjectLifecycle(self.root.parent)
+            for project_id in sorted(set(record.project_ids)):
+                leases.enter_context(lifecycle.lease(project_id))
+            self._write_owned(record)
+
+    def _write_owned(self, record: PairingRecord) -> None:
         with tempfile.NamedTemporaryFile(
             mode="w", encoding="utf-8", dir=self.root, prefix=".pair-", delete=False,
         ) as handle:

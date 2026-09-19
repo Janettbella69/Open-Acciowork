@@ -2,8 +2,11 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { errorMessage, getOrgPolicy, listProviders, saveOrgPolicy } from '../api/client'
 import type { OpportunityProject, PermissionModePolicy, ProviderProfile, RunMode, RunRetryStrategy } from '../api/types'
 import { useOpportunityRuntime } from '../api/useOpportunityRuntime'
+import { useProjectDeletion } from '../api/useProjectDeletion'
+import type { ProjectDeletionOperation } from '../api/projectDeletion'
 import { providerIsRunnable } from '../providerEligibility'
 import WorkspaceComposer from './WorkspaceComposer'
+import ProjectDeletionProgress from './ProjectDeletionProgress'
 
 function importedBrief(): string {
   return new URLSearchParams(window.location.search).get('brief') ?? ''
@@ -45,6 +48,16 @@ export default function Workspace() {
     setNotice('This project is no longer available. Your unsent message and local attachments are still here.')
   }, [])
   const runtime = useOpportunityRuntime(onProjectUnavailable)
+  const { discardProject, refreshActiveProject, project: currentProject } = runtime
+  const onDeletionAccepted = useCallback((operation: ProjectDeletionOperation) => {
+    if (discardProject(operation.project_id)) {
+      setNotice('Deletion was accepted. Your unsent message and local attachments are still here.')
+    }
+  }, [discardProject])
+  const onDeletionAccessCheck = useCallback((projectId: string) => {
+    if (currentProject?.id === projectId) void refreshActiveProject()
+  }, [currentProject?.id, refreshActiveProject])
+  const deletion = useProjectDeletion(onDeletionAccepted, onDeletionAccessCheck)
 
   useEffect(() => {
     let active = true
@@ -202,6 +215,13 @@ export default function Workspace() {
       onSubmit={runAnalysis}
       onProjectRefresh={() => void runtime.refreshActiveProject()}
       onProjectCreated={(project) => void selectProjectRecord(project)}
+      deletionProgress={<ProjectDeletionProgress deletion={deletion} />}
+      deletionPending={!!deletion.attempt}
+      deletionCanReviewAgain={!!deletion.attempt && !deletion.action && !deletion.attempt.accepted
+        && deletion.attempt.handle.projectId === runtime.project?.id
+        && ['missing', 'rejected', 'forbidden'].includes(deletion.attempt.phase)}
+      onDeletionReviewAgain={deletion.dismiss}
+      onDeleteProject={deletion.submit}
       onNewResearch={() => void startNewResearch()}
       onSelectProject={(projectId) => void selectSavedProject(projectId)}
       onCancel={() => void runtime.cancel()}

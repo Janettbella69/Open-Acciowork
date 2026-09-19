@@ -1,0 +1,101 @@
+{
+  "result": "passed",
+  "transport": "Chromium UI with real local Vite/API and disposable data",
+  "checks": [
+    {
+      "language": "en",
+      "width": 1280,
+      "no_horizontal_overflow": true,
+      "exact_name_required": true
+    },
+    {
+      "language": "en",
+      "width": 400,
+      "no_horizontal_overflow": true,
+      "exact_name_required": true
+    },
+    {
+      "language": "en",
+      "width": 320,
+      "no_horizontal_overflow": true,
+      "exact_name_required": true
+    },
+    {
+      "language": "en",
+      "deleted": true,
+      "project_removed": true,
+      "other_project_retained": true,
+      "draft_and_local_attachment_preserved": true,
+      "progress_survives_reload": true,
+      "operation_id": "1ab7c48e-704e-46f8-b562-096aa4643a73"
+    },
+    {
+      "language": "zh-CN",
+      "width": 1280,
+      "no_horizontal_overflow": true,
+      "exact_name_required": true
+    },
+    {
+      "language": "zh-CN",
+      "width": 400,
+      "no_horizontal_overflow": true,
+      "exact_name_required": true
+    },
+    {
+      "language": "zh-CN",
+      "width": 320,
+      "no_horizontal_overflow": true,
+      "exact_name_required": true
+    },
+    {
+      "language": "zh-CN",
+      "deleted": true,
+      "project_removed": true,
+      "other_project_retained": true,
+      "draft_and_local_attachment_preserved": true,
+      "progress_survives_reload": true,
+      "operation_id": "d5af13fc-197c-4ce4-b4bc-ddd128489c5f"
+    }
+  ],
+  "page_errors": [],
+  "model_calls": 0,
+  "boundary": "No live Provider, external shop, real project or credentials accessed",
+  "result_layout_checks": [
+    {
+      "language": "en",
+      "width": 1280,
+      "no_horizontal_overflow": true,
+      "result_copy_left_aligned": true
+    },
+    {
+      "language": "en",
+      "width": 400,
+      "no_horizontal_overflow": true,
+      "result_copy_left_aligned": true
+    },
+    {
+      "language": "en",
+      "width": 320,
+      "no_horizontal_overflow": true,
+      "result_copy_left_aligned": true
+    },
+    {
+      "language": "zh-CN",
+      "width": 1280,
+      "no_horizontal_overflow": true,
+      "result_copy_left_aligned": true
+    },
+    {
+      "language": "zh-CN",
+      "width": 400,
+      "no_horizontal_overflow": true,
+      "result_copy_left_aligned": true
+    },
+    {
+      "language": "zh-CN",
+      "width": 320,
+      "no_horizontal_overflow": true,
+      "result_copy_left_aligned": true
+    }
+  ]
+}

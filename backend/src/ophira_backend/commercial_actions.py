@@ -61,6 +61,7 @@ from .models import (
     utc_now,
 )
 from .policy import OrgPolicyStore
+from .project_lifecycle import ProjectLifecycle
 from .source_receipts import (
     VerifiedCommercialTargetReceipt,
     issue_commercial_target_receipt,
@@ -122,9 +123,10 @@ def validate_human_actor(actor_id: str) -> str:
 class CommercialActionStore:
     """Atomic JSON snapshots serialized by project across threads and processes."""
 
-    def __init__(self, root: Path) -> None:
+    def __init__(self, root: Path, *, lifecycle: ProjectLifecycle | None = None) -> None:
         self.root = root.resolve()
         self.root.mkdir(parents=True, exist_ok=True)
+        self.lifecycle = lifecycle or ProjectLifecycle(self.root.parent)
 
     @staticmethod
     def _safe_id(value: str) -> str:
@@ -155,7 +157,7 @@ class CommercialActionStore:
         safe_project = self._safe_id(project_id)
         project_directory = self.root / safe_project
         process_lock = self._process_lock_for(safe_project)
-        with process_lock:
+        with self.lifecycle.lease(safe_project), process_lock:
             try:
                 project_directory.mkdir(parents=True, exist_ok=True)
                 valid_directory = (
@@ -451,7 +453,7 @@ class CommercialActionService:
     ) -> None:
         if not 10 <= execution_lease_seconds <= 3_600:
             raise ValueError("commercial execution lease must be between 10 and 3600 seconds")
-        self.store = CommercialActionStore(root)
+        self.store = CommercialActionStore(root, lifecycle=ledger.lifecycle)
         self.ledger = ledger
         self.policy = policy
         self._clock = clock
@@ -480,38 +482,39 @@ class CommercialActionService:
     ) -> VerifiedCommercialTargetReceipt:
         """Read through the host adapter and durably bind what the Agent may stage."""
 
-        run = self._validate_source(project_id, source_run_id, source_session_id)
-        self._authorize_staging_run(run)
-        if self.target_reader is None:
-            raise CommercialActionConflictError(
-                "no trusted commercial target reader is configured"
+        with self.ledger.lifecycle.lease(project_id):
+            run = self._validate_source(project_id, source_run_id, source_session_id)
+            self._authorize_staging_run(run)
+            if self.target_reader is None:
+                raise CommercialActionConflictError(
+                    "no trusted commercial target reader is configured"
+                )
+            observation = self.target_reader.read_target(
+                connector_id,
+                resource_type,
+                resource_key,
             )
-        observation = self.target_reader.read_target(
-            connector_id,
-            resource_type,
-            resource_key,
-        )
-        if not isinstance(observation, CommercialTargetObservation) or (
-            observation.connector_id != connector_id
-            or observation.resource_type != resource_type
-            or observation.resource_key != resource_key
-        ):
-            raise CommercialActionIntegrityError(
-                "commercial target reader returned a mismatched observation"
+            if not isinstance(observation, CommercialTargetObservation) or (
+                observation.connector_id != connector_id
+                or observation.resource_type != resource_type
+                or observation.resource_key != resource_key
+            ):
+                raise CommercialActionIntegrityError(
+                    "commercial target reader returned a mismatched observation"
+                )
+            current_config_hash = self.target_reader.current_connector_config_hash(
+                connector_id
             )
-        current_config_hash = self.target_reader.current_connector_config_hash(
-            connector_id
-        )
-        if current_config_hash != observation.connector_config_hash:
-            raise CommercialActionConflictError(
-                "commercial connector configuration changed during target read"
+            if current_config_hash != observation.connector_config_hash:
+                raise CommercialActionConflictError(
+                    "commercial connector configuration changed during target read"
+                )
+            return issue_commercial_target_receipt(
+                self.ledger,
+                run.id,
+                observation,
+                now=self._clock(),
             )
-        return issue_commercial_target_receipt(
-            self.ledger,
-            run.id,
-            observation,
-            now=self._clock(),
-        )
 
     def stage(
         self,
@@ -841,177 +844,181 @@ class CommercialActionService:
         principal: PrincipalContext | None = None,
         actor_id: str | None = None,
     ) -> CommercialActionRecord:
-        with self.store.transaction(project_id):
-            record = self.store.get_unlocked(project_id, action_id)
-            actor, trusted_principal = self._resolve_actor(
-                record,
-                principal=principal,
-                actor_id=actor_id,
-                permission=ProjectPermission.COMMERCIAL_APPLY,
-            )
-            self._validate_action_scope(record, project_id, payload)
+        with self.ledger.lifecycle.lease(project_id):
+            with self.store.transaction(project_id):
+                record = self.store.get_unlocked(project_id, action_id)
+                actor, trusted_principal = self._resolve_actor(
+                    record,
+                    principal=principal,
+                    actor_id=actor_id,
+                    permission=ProjectPermission.COMMERCIAL_APPLY,
+                )
+                self._validate_action_scope(record, project_id, payload)
 
-            # Final states and adapter-less execution requests are immutable and
-            # idempotent. An installed executor may recover a retryable or leased
-            # request using the already durable remote idempotency key.
-            if record.status in {
-                CommercialActionStatus.APPLIED,
-                CommercialActionStatus.EXECUTION_FAILED,
-            }:
-                return record
-            if record.status == CommercialActionStatus.EXECUTION_REQUESTED:
-                if record.execution_request is None:
-                    raise CommercialActionIntegrityError(
-                        "execution-requested action has no durable request"
-                    )
-                if self.executor is None or not self.executor.supports(record):
+                # Final states and adapter-less execution requests are immutable and
+                # idempotent. An installed executor may recover a retryable or leased
+                # request using the already durable remote idempotency key.
+                if record.status in {
+                    CommercialActionStatus.APPLIED,
+                    CommercialActionStatus.EXECUTION_FAILED,
+                }:
                     return record
-            elif record.status != CommercialActionStatus.APPROVED or record.review is None:
-                raise CommercialActionConflictError(
-                    f"commercial action is {record.status.value}, not approved"
-                )
-
-            if record.status == CommercialActionStatus.APPROVED:
-                now = self._clock()
-                approval_deadline = record.review.valid_until
-                if (
-                    now >= record.expires_at
-                    or approval_deadline is None
-                    or now >= approval_deadline
-                ):
-                    self._expire_unlocked(record, now)
-                    raise CommercialActionConflictError("commercial action approval has expired")
-
-                self._validate_source(
-                    project_id,
-                    payload.source_run_id,
-                    payload.source_session_id,
-                )
-                self._revalidate_authenticated_participants(record)
-                project = self._get_project(project_id)
-                if project.revision != record.project_revision_at_stage:
+                if record.status == CommercialActionStatus.EXECUTION_REQUESTED:
+                    if record.execution_request is None:
+                        raise CommercialActionIntegrityError(
+                            "execution-requested action has no durable request"
+                        )
+                    if self.executor is None or not self.executor.supports(record):
+                        return record
+                elif record.status != CommercialActionStatus.APPROVED or record.review is None:
                     raise CommercialActionConflictError(
-                        "project state changed after staging; create and approve a new action"
+                        f"commercial action is {record.status.value}, not approved"
                     )
 
-                current_policy = self.policy.get()
-                projected_state = self._project_state(record)
-                self._enforce_current_policy(record, projected_state, current_policy)
-                if (
-                    record.review.policy_updated_at is not None
-                    and current_policy.updated_at
-                    != record.review.policy_updated_at
-                ):
-                    raise CommercialActionConflictError(
-                        "organization policy changed after approval; "
-                        "create and approve a new action"
-                    )
+                if record.status == CommercialActionStatus.APPROVED:
+                    now = self._clock()
+                    approval_deadline = record.review.valid_until
+                    if (
+                        now >= record.expires_at
+                        or approval_deadline is None
+                        or now >= approval_deadline
+                    ):
+                        self._expire_unlocked(record, now)
+                        raise CommercialActionConflictError(
+                            "commercial action approval has expired"
+                        )
 
-                execution_id = new_opaque_id("execution")
-                execution = CommercialExecutionRequest(
-                    id=execution_id,
-                    action_id=record.id,
-                    project_id=record.project_id,
-                    source_run_id=record.source_run_id,
-                    source_session_id=record.source_session_id,
-                    requested_by=actor,
-                    requested_tenant_id=(
-                        trusted_principal.tenant_id
-                        if trusted_principal is not None
-                        else None
-                    ),
-                    requested_role=(
-                        trusted_principal.role if trusted_principal is not None else None
-                    ),
-                    requested_session_id=(
-                        trusted_principal.session_id
-                        if trusted_principal is not None
-                        else None
-                    ),
-                    request_reason=payload.reason,
-                    requested_at=now,
-                    projected_state=projected_state,
-                    expected_target_version=record.target.expected_version,
-                    project_revision_checked=project.revision,
-                    project_constraints_checked=list(project.constraints),
-                    org_policy_updated_at=current_policy.updated_at,
-                    external_status=ExternalExecutionStatus.NOT_EXECUTED,
-                    adapter_required=True,
-                    adapter_type=(
-                        self.executor.adapter_type
-                        if self.executor and self.executor.supports(record)
-                        else None
-                    ),
-                    idempotency_key=record.idempotency_key or execution_id,
-                    adapter_preconditions=[
-                        "Reload the target from the external system.",
-                        "Match the current external version to expected_target_version.",
-                        "Re-evaluate scope, before-state, recipient/content, and policy.",
-                        "Use the durable execution ID as the remote idempotency key.",
-                        "Persist a server-issued external receipt before reporting success.",
-                    ],
-                )
-                record = record.model_copy(
-                    update={
-                        "status": CommercialActionStatus.EXECUTION_REQUESTED,
-                        "execution_request": execution,
-                        "updated_at": now,
-                        "history": [
-                            *record.history,
-                            CommercialActionAuditEntry(
-                                event="execution_requested",
-                                actor_id=actor,
-                                reason=payload.reason,
-                                recorded_at=now,
-                            ),
+                    self._validate_source(
+                        project_id,
+                        payload.source_run_id,
+                        payload.source_session_id,
+                    )
+                    self._revalidate_authenticated_participants(record)
+                    project = self._get_project(project_id)
+                    if project.revision != record.project_revision_at_stage:
+                        raise CommercialActionConflictError(
+                            "project state changed after staging; create and approve a new action"
+                        )
+
+                    current_policy = self.policy.get()
+                    projected_state = self._project_state(record)
+                    self._enforce_current_policy(record, projected_state, current_policy)
+                    if (
+                        record.review.policy_updated_at is not None
+                        and current_policy.updated_at
+                        != record.review.policy_updated_at
+                    ):
+                        raise CommercialActionConflictError(
+                            "organization policy changed after approval; "
+                            "create and approve a new action"
+                        )
+
+                    execution_id = new_opaque_id("execution")
+                    execution = CommercialExecutionRequest(
+                        id=execution_id,
+                        action_id=record.id,
+                        project_id=record.project_id,
+                        source_run_id=record.source_run_id,
+                        source_session_id=record.source_session_id,
+                        requested_by=actor,
+                        requested_tenant_id=(
+                            trusted_principal.tenant_id
+                            if trusted_principal is not None
+                            else None
+                        ),
+                        requested_role=(
+                            trusted_principal.role if trusted_principal is not None else None
+                        ),
+                        requested_session_id=(
+                            trusted_principal.session_id
+                            if trusted_principal is not None
+                            else None
+                        ),
+                        request_reason=payload.reason,
+                        requested_at=now,
+                        projected_state=projected_state,
+                        expected_target_version=record.target.expected_version,
+                        project_revision_checked=project.revision,
+                        project_constraints_checked=list(project.constraints),
+                        org_policy_updated_at=current_policy.updated_at,
+                        external_status=ExternalExecutionStatus.NOT_EXECUTED,
+                        adapter_required=True,
+                        adapter_type=(
+                            self.executor.adapter_type
+                            if self.executor and self.executor.supports(record)
+                            else None
+                        ),
+                        idempotency_key=record.idempotency_key or execution_id,
+                        adapter_preconditions=[
+                            "Reload the target from the external system.",
+                            "Match the current external version to expected_target_version.",
+                            "Re-evaluate scope, before-state, recipient/content, and policy.",
+                            "Use the durable execution ID as the remote idempotency key.",
+                            "Persist a server-issued external receipt before reporting success.",
                         ],
-                    }
-                )
-                # The remote idempotency key is durable before any adapter can
-                # inspect or mutate the external target.
-                self.store.write_unlocked(record)
+                    )
+                    record = record.model_copy(
+                        update={
+                            "status": CommercialActionStatus.EXECUTION_REQUESTED,
+                            "execution_request": execution,
+                            "updated_at": now,
+                            "history": [
+                                *record.history,
+                                CommercialActionAuditEntry(
+                                    event="execution_requested",
+                                    actor_id=actor,
+                                    reason=payload.reason,
+                                    recorded_at=now,
+                                ),
+                            ],
+                        }
+                    )
+                    # The remote idempotency key is durable before any adapter can
+                    # inspect or mutate the external target.
+                    self.store.write_unlocked(record)
 
-        if self.executor is None or not self.executor.supports(record):
-            return record
-        return self._execute_requested(project_id, action_id)
+            if self.executor is None or not self.executor.supports(record):
+                return record
+            return self._execute_requested(project_id, action_id)
 
     def _execute_requested(
         self,
         project_id: str,
         action_id: str,
     ) -> CommercialActionRecord:
-        assert self.executor is not None
-        claimed, should_execute = self._claim_execution(project_id, action_id)
-        if not should_execute:
-            return claimed
-        execution = claimed.execution_request
-        assert execution is not None
+        with self.ledger.lifecycle.lease(project_id):
+            assert self.executor is not None
+            claimed, should_execute = self._claim_execution(project_id, action_id)
+            if not should_execute:
+                return claimed
+            execution = claimed.execution_request
+            assert execution is not None
 
-        try:
-            snapshot = self.executor.inspect_target(claimed, execution)
-        except CommercialAdapterError as exc:
-            return self._record_adapter_failure(project_id, action_id, execution, exc)
-
-        # Keep the project/action lock through the final precondition check and
-        # commit. A second process can only observe the durable claim or final
-        # result, while the remote API independently deduplicates the stable key.
-        with self.store.transaction(project_id):
-            current = self.store.get_unlocked(project_id, action_id)
-            if not self._owns_attempt(current, execution):
-                return current
             try:
-                self._validate_execution_preconditions(current, self._clock())
-                self._validate_external_snapshot(current, snapshot)
-                result = self.executor.commit(current, execution, snapshot)
+                snapshot = self.executor.inspect_target(claimed, execution)
             except CommercialAdapterError as exc:
-                return self._record_adapter_failure_unlocked(current, exc)
-            except CommercialActionError as exc:
-                return self._record_terminal_failure_unlocked(
-                    current,
-                    code="LOCAL_PRECONDITION_CHANGED",
-                    message=str(exc),
-                )
-            return self._record_success_unlocked(current, result)
+                return self._record_adapter_failure(project_id, action_id, execution, exc)
+
+            # Keep the project/action lock through the final precondition check and
+            # commit. A second process can only observe the durable claim or final
+            # result, while the remote API independently deduplicates the stable key.
+            with self.store.transaction(project_id):
+                current = self.store.get_unlocked(project_id, action_id)
+                if not self._owns_attempt(current, execution):
+                    return current
+                try:
+                    self._validate_execution_preconditions(current, self._clock())
+                    self._validate_external_snapshot(current, snapshot)
+                    result = self.executor.commit(current, execution, snapshot)
+                except CommercialAdapterError as exc:
+                    return self._record_adapter_failure_unlocked(current, exc)
+                except CommercialActionError as exc:
+                    return self._record_terminal_failure_unlocked(
+                        current,
+                        code="LOCAL_PRECONDITION_CHANGED",
+                        message=str(exc),
+                    )
+                return self._record_success_unlocked(current, result)
 
     def _claim_execution(
         self,

@@ -187,13 +187,16 @@ def try_workspace_lease(ledger, project_id: str) -> int | None:
 
 @contextmanager
 def workspace_lease(ledger, project_id: str):
-    descriptor = try_workspace_lease(ledger, project_id)
-    if descriptor is None:
-        raise WorkspaceBusyError("The project workspace is in use. Wait for its runs to finish.")
-    try:
-        yield
-    finally:
-        os.close(descriptor)
+    with ledger.lifecycle.lease(project_id):
+        descriptor = try_workspace_lease(ledger, project_id)
+        if descriptor is None:
+            raise WorkspaceBusyError(
+                "The project workspace is in use. Wait for its runs to finish.",
+            )
+        try:
+            yield
+        finally:
+            os.close(descriptor)
 
 
 class WorkspaceCheckpoints:
@@ -501,6 +504,10 @@ class WorkspaceCheckpoints:
         return info.st_dev, info.st_ino
 
     def recover(self, project_id: str) -> None:
+        with self.ledger.lifecycle.lease(project_id):
+            self._recover(project_id)
+
+    def _recover(self, project_id: str) -> None:
         """Finish a reviewed directory swap under the project lock; no SDK work."""
         root = self._root(project_id)
         try:

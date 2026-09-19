@@ -5,6 +5,8 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 
 import pytest
@@ -21,6 +23,7 @@ from ophira_backend.models import (
     SkillTestResult,
     utc_now,
 )
+from ophira_backend.project_lifecycle import ProjectLifecycleBusyError, ProjectUnavailableError
 from ophira_backend.skill_proposal_files import is_skill_proposal_manifest
 from ophira_backend.skill_proposal_models import SkillProposalManifest, SkillProposalReviewRequest
 from ophira_backend.skill_proposals import (
@@ -97,6 +100,66 @@ def approve(service, registry, item, principal=None):
         ),
         principal,
     )
+
+
+def test_publication_holds_project_lease_through_shared_registry_commit(setup, monkeypatch):
+    ledger, project, _run, registry, service = setup
+    item, _directory, _artifact = submit(setup)
+    reached, release = threading.Event(), threading.Event()
+    original = registry.publish_reviewed_candidate
+
+    def paused(*args, **kwargs):
+        reached.set()
+        assert release.wait(5)
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(registry, "publish_reviewed_candidate", paused)
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(approve, service, registry, item)
+        try:
+            assert reached.wait(5)
+            with pytest.raises(ProjectLifecycleBusyError), ledger.lifecycle.lease(
+                project.id, exclusive=True,
+            ):
+                pass
+        finally:
+            release.set()
+        assert future.result(timeout=5).state == "published"
+
+
+def test_global_recovery_skips_deleted_project_without_rewriting_its_intent(setup, monkeypatch):
+    ledger, project, _run, registry, service = setup
+    item, _directory, _artifact = submit(setup)
+    original = registry.publish_reviewed_candidate
+
+    def interrupted(*_args, **_kwargs):
+        raise KeyboardInterrupt()
+
+    monkeypatch.setattr(registry, "publish_reviewed_candidate", interrupted)
+    with pytest.raises(KeyboardInterrupt):
+        approve(service, registry, item)
+    monkeypatch.setattr(registry, "publish_reviewed_candidate", original)
+    record_path = service.root / item.id / "record.json"
+    before = record_path.read_bytes()
+    other_project = ledger.create_project(ProjectCreate(name="Other", objective="Independent"))
+    other_run = ledger.create_run(other_project.id, "Different workflow")
+    other_run = ledger.update_run(other_run.id, started_at=utc_now(), sdk_session_id="other")
+    other_artifact, _ = write_candidate(ledger, other_project, other_run, name="other-workflow")
+    other = service.submit_artifact(other_run.id, other_artifact.id)
+    with ledger.lifecycle.lease(project.id, exclusive=True):
+        ledger.lifecycle.write_state(project.id, {
+            "schema_version": 1, "project_id": project.id, "operation_id": "deletion-test",
+            "status": "deleting",
+        })
+    report = service.recover()
+    assert report.reset_pending == report.published == report.failed == 0
+    assert record_path.read_bytes() == before
+    assert service.list() == [other]
+    assert service.list(recover=False) == [other]
+    with pytest.raises(ProjectUnavailableError):
+        service.get(item.id)
+    with pytest.raises(ProjectUnavailableError):
+        service._save(item)
 
 
 def test_submission_freezes_exact_bytes_without_publishing_and_preserves_true_source(setup):

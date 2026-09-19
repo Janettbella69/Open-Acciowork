@@ -24,7 +24,7 @@ class TestNotificationInbox:
         first = inbox.add(title="竞品价格变化", body="BlendGo 降价 2 EUR", severity="info",
                           project_id="project_1", run_id="run_1")
         second = inbox.add(title="定时任务失败", body="凭据无效", severity="error",
-                           schedule_id="schedule_1")
+                           project_id="project_1", schedule_id="schedule_1")
 
         assert [item.id for item in inbox.list()] == [second.id, first.id]
         assert all(item.read is False for item in inbox.list())

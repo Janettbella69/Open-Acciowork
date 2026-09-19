@@ -4,6 +4,7 @@ import asyncio
 import json
 import subprocess
 import sys
+import threading
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
@@ -37,6 +38,7 @@ from ophira_backend.models import (
     TaskExperienceCreate,
     TaskExperienceRetire,
 )
+from ophira_backend.project_lifecycle import ProjectLifecycleBusyError
 from ophira_backend.scheduler import new_schedule
 from ophira_backend.storage import FileLedger
 from ophira_backend.task_experience import (
@@ -99,6 +101,48 @@ def record(store, run, payload):
     return store.record(
         project_id=run.project_id, schedule_id=run.schedule_id, run_id=run.id, payload=payload,
     )
+
+
+@pytest.mark.parametrize("operation", ["context", "retire"])
+def test_snapshot_and_retirement_hold_project_lease_until_write_finishes(
+    tmp_path, monkeypatch, operation,
+):
+    ledger, schedule, store = setup_store(tmp_path)
+    run = start_run(ledger, schedule, store)
+    record(store, run, prepare(ledger, run))
+    entry = store.list(schedule.id)["entries"][0]
+    next_run = ledger.create_run(schedule.project_id, schedule.prompt, schedule_id=schedule.id)
+    next_run = ledger.update_run(
+        next_run.id, task_experience_config_hash=schedule_experience_config_hash(schedule),
+    )
+    target = (store._context_path(next_run.id) if operation == "context"
+              else store._path(schedule.id))
+    reached, release = threading.Event(), threading.Event()
+    original = ledger._atomic_write
+
+    def paused(path, value):
+        if path == target:
+            reached.set()
+            assert release.wait(5)
+        return original(path, value)
+
+    monkeypatch.setattr(ledger, "_atomic_write", paused)
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(
+            store.context_for_run, next_run,
+        ) if operation == "context" else pool.submit(
+            store.retire, schedule.id, entry["id"],
+            TaskExperienceRetire(expected_version=1, reason="No longer relevant"), actor="owner",
+        )
+        try:
+            assert reached.wait(5)
+            with pytest.raises(ProjectLifecycleBusyError), ledger.lifecycle.lease(
+                schedule.project_id, exclusive=True,
+            ):
+                pass
+        finally:
+            release.set()
+        future.result(timeout=5)
 
 
 def test_context_is_schedule_only_and_does_not_mutate_policy_or_memory(tmp_path):

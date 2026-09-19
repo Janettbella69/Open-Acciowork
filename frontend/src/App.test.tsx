@@ -5,6 +5,7 @@ import App from './App'
 import LandingPage from './components/LandingPage'
 import Workspace from './components/Workspace'
 import { pageTitle } from './pageMetadata'
+import { deletionOperation, deletionPreview } from './test/projectDeletionFixtures'
 
 const timestamp = '2026-08-05T10:00:00Z'
 const emptyAssessment = (dimension: 'demand' | 'supply' | 'capital' | 'sales') => ({
@@ -427,6 +428,103 @@ describe('TradeMind frontend', () => {
       expect(screen.queryByRole('button', { name: new RegExp(project.name, 'i') })).not.toBeInTheDocument()
       expect(screen.getByRole('status')).toHaveTextContent('This project is no longer available.')
     }
+  })
+
+  it('keeps deletion progress, the unsent draft and local attachments after an accepted deletion clears the project', async () => {
+    storedProjects = [project]
+    const originalFetch = vi.mocked(fetch).getMockImplementation()!
+    let acceptedOperation = deletionOperation('blocked')
+    vi.mocked(fetch).mockImplementation((input, init) => {
+      const url = String(input)
+      if (url.endsWith(`/api/projects/${project.id}/deletion`)) {
+        if (init?.method === 'POST') {
+          const payload = JSON.parse(String(init.body))
+          acceptedOperation = { ...deletionOperation('blocked'), project_id: project.id, operation_id: payload.operation_id }
+          return Promise.resolve(jsonResponse(acceptedOperation, 202))
+        }
+        return Promise.resolve(jsonResponse({ ...deletionPreview(project.id), project_name: project.name }))
+      }
+      if (url.includes(`/api/project-deletions/${project.id}/`)) return Promise.resolve(jsonResponse(acceptedOperation))
+      return originalFetch(input, init)
+    })
+    const { unmount } = render(<Workspace />)
+    fireEvent.click(await screen.findByRole('button', { name: new RegExp(project.name, 'i') }))
+    await screen.findByText(/restoring the recorded response/i)
+    const source = MockEventSource.instances[0]
+    await act(async () => {
+      source.emit('assistant.text.delta', runtimeEvent('assistant.text.delta', { text: 'Private project answer.' }))
+      source.end()
+    })
+    await screen.findByText('Private project answer.')
+    fireEvent.change(screen.getByRole('textbox', { name: /ask trademind/i }), { target: { value: 'Keep my local draft' } })
+    fireEvent.change(screen.getByLabelText('Choose files or images'), {
+      target: { files: [new File(['local only'], 'unsent-quote.csv', { type: 'text/csv' })] },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Delete project' }))
+    await screen.findByLabelText('Type the project name to confirm')
+    fireEvent.change(screen.getByLabelText('Type the project name to confirm'), { target: { value: project.name } })
+    fireEvent.change(screen.getByLabelText('Deletion reason'), { target: { value: 'No longer needed' } })
+    fireEvent.click(screen.getByRole('checkbox', { name: /submitted deletion is irreversible/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Permanently delete project' }))
+    await screen.findByText('Deletion is blocked. Erasure is not complete.')
+    expect(screen.queryByText('Private project answer.')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: new RegExp(project.name, 'i') })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Project export' })).not.toBeInTheDocument()
+    expect(screen.getByRole('textbox', { name: /ask trademind/i })).toHaveValue('Keep my local draft')
+    expect(screen.getByText('unsent-quote.csv')).toBeInTheDocument()
+    expect(screen.getByText('The SDK process has not stopped.')).toBeInTheDocument()
+    expect(new URLSearchParams(window.location.search).get('deletion_project')).toBe(project.id)
+    unmount()
+    // A refresh reconstructs the operation without resubmitting the destructive request.
+    render(<Workspace />)
+    await screen.findByText('Deletion is blocked. Erasure is not complete.')
+    expect(screen.queryByRole('button', { name: new RegExp(project.name, 'i') })).not.toBeInTheDocument()
+    expect(vi.mocked(fetch).mock.calls.filter(([input, init]) => String(input).endsWith('/deletion') && init?.method === 'POST')).toHaveLength(1)
+  })
+
+  it.each([200, 403, 404, 503])('rechecks project read access after denied deletion, preserving the draft and attachments (GET %s)', async (readStatus) => {
+    storedProjects = [project]
+    const originalFetch = vi.mocked(fetch).getMockImplementation()!
+    let submitted = false
+    let accessChecks = 0
+    vi.mocked(fetch).mockImplementation((input, init) => {
+      const url = String(input)
+      if (url.endsWith(`/api/projects/${project.id}/deletion`)) {
+        if (init?.method === 'POST') {
+          submitted = true
+          return Promise.resolve(jsonResponse({ detail: 'Deletion operation access is unavailable.' }, 403))
+        }
+        return Promise.resolve(jsonResponse({ ...deletionPreview(project.id), project_name: project.name }))
+      }
+      if (submitted && url.endsWith(`/api/projects/${project.id}`)) {
+        accessChecks += 1
+        return Promise.resolve(jsonResponse(readStatus === 200 ? project : { detail: 'Read unavailable' }, readStatus))
+      }
+      return originalFetch(input, init)
+    })
+    render(<Workspace />)
+    fireEvent.click(await screen.findByRole('button', { name: new RegExp(project.name, 'i') }))
+    await screen.findByText(/restoring the recorded response/i)
+    await act(async () => { MockEventSource.instances[0].end() })
+    fireEvent.change(screen.getByRole('textbox', { name: /ask trademind/i }), { target: { value: 'Keep this unsent message' } })
+    fireEvent.change(screen.getByLabelText('Choose files or images'), {
+      target: { files: [new File(['local'], 'unsent.csv', { type: 'text/csv' })] },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Delete project' }))
+    await screen.findByLabelText('Type the project name to confirm')
+    fireEvent.change(screen.getByLabelText('Type the project name to confirm'), { target: { value: project.name } })
+    fireEvent.change(screen.getByLabelText('Deletion reason'), { target: { value: 'No longer needed' } })
+    fireEvent.click(screen.getByRole('checkbox', { name: /submitted deletion is irreversible/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Permanently delete project' }))
+    await waitFor(() => expect(accessChecks).toBe(1))
+    await waitFor(() => {
+      const exported = screen.queryByRole('button', { name: 'Project export' })
+      if (readStatus === 403 || readStatus === 404) expect(exported).not.toBeInTheDocument()
+      else expect(exported).toBeInTheDocument()
+    })
+    expect(screen.getByRole('textbox', { name: /ask trademind/i })).toHaveValue('Keep this unsent message')
+    expect(screen.getByText('unsent.csv')).toBeInTheDocument()
+    expect(screen.queryByText('Application-controlled project content has been deleted.')).not.toBeInTheDocument()
   })
 
   it('refreshes the actual project ledger from record events after historical run completion', async () => {

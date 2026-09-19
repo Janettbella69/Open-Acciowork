@@ -7,6 +7,7 @@ import logging
 import os
 import threading
 from collections.abc import Callable
+from functools import wraps
 from typing import Protocol
 
 from .channel_delivery import ChannelDeliveryService, FeishuReplyTarget
@@ -36,6 +37,7 @@ from .models import (
 )
 from .permissions import PermissionBroker
 from .policy import OrgPolicyStore, PolicyDeniedError
+from .project_deletion_shared import shared_file_lease
 from .project_events import ProjectEventProjector
 from .providers import (
     ProviderConfigurationError,
@@ -52,6 +54,23 @@ INTERRUPTED_RUN_MESSAGE = (
     "and SDK session are preserved. Review the saved work before retrying."
 )
 logger = logging.getLogger(__name__)
+
+
+def _project_operation(method):
+    @wraps(method)
+    async def guarded(self, project_id, *args, **kwargs):
+        with self.ledger.lifecycle.lease(project_id):
+            return await method(self, project_id, *args, **kwargs)
+    return guarded
+
+
+def _run_operation(method):
+    @wraps(method)
+    async def guarded(self, run_id, *args, **kwargs):
+        project_id = self.ledger.get_run(run_id).project_id
+        with self.ledger.lifecycle.lease(project_id):
+            return await method(self, run_id, *args, **kwargs)
+    return guarded
 
 
 class AgentRuntime(Protocol):
@@ -239,6 +258,7 @@ class RunManager:
                 # enters _execute's cancellation handler.
                 await self._finalize_cancel(run_id)
 
+    @_run_operation
     async def resolve_permission(
         self, run_id: str, request_id: str, resolution: PermissionResolution,
         *, actor: EventActor | None = None,
@@ -273,6 +293,7 @@ class RunManager:
             os.close(lease)
             raise
 
+    @_run_operation
     async def resume_permission(self, run_id: str) -> RunRecord:
         if not getattr(self.runtime, "durable_resume_supported", False):
             raise DurablePermissionConflict("This SDK runtime has no verified durable resume gate.")
@@ -300,6 +321,7 @@ class RunManager:
         task.add_done_callback(release_run)
         return run
 
+    @_project_operation
     async def create_and_start(
         self,
         project_id: str,
@@ -501,6 +523,7 @@ class RunManager:
             )
         return source
 
+    @_run_operation
     async def _execute(self, run_id: str) -> None:
         workspace_lease = None
         try:
@@ -682,8 +705,12 @@ class RunManager:
                 lines.append(f"- 来源：前瞻意图 {run.standing_intent_id}")
             if note:
                 lines.append(f"- 备注：{note[:300]}")
-            with path.open("a", encoding="utf-8") as handle:
+            with self.ledger.lifecycle.lease(run.project_id), shared_file_lease(
+                self.ledger.root, path.relative_to(self.ledger.root).as_posix(),
+            ), path.open("a", encoding="utf-8") as handle:
                 handle.write("\n".join(lines) + "\n\n")
+                handle.flush()
+                os.fsync(handle.fileno())
         except Exception:
             # Diary is an audit aid; it must never break the run lifecycle.
             pass
@@ -785,6 +812,7 @@ class RunManager:
             # Inbox delivery must never break the run lifecycle.
             return
 
+    @_run_operation
     async def retry(
         self,
         run_id: str,
@@ -819,6 +847,7 @@ class RunManager:
             principal=principal,
         )
 
+    @_run_operation
     async def cancel(self, run_id: str, *, actor: EventActor | None = None) -> RunRecord:
         run = self.ledger.get_run(run_id)
         if run.status in TERMINAL_RUN_STATUSES:

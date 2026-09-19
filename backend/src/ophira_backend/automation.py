@@ -9,10 +9,11 @@ budget (cooldown / max triggers / expiry) before any trigger reaches the inbox.
 from __future__ import annotations
 
 import fcntl
+import json
 import os
 import re
 import threading
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Literal
@@ -27,6 +28,8 @@ from .models import (
     new_id,
     utc_now,
 )
+from .project_lifecycle import ProjectLifecycle
+from .skill_proposal_files import read_relative
 
 
 class NotificationNotFoundError(KeyError):
@@ -53,13 +56,46 @@ class _FileStore:
         return self.root / f"{_safe_id(item_id)}.json"
 
     def _write(self, item) -> None:
-        path = self._path(item.id)
-        temporary = path.with_suffix(".tmp")
-        temporary.write_text(item.model_dump_json(indent=2) + "\n", encoding="utf-8")
-        os.replace(temporary, path)
+        with (ProjectLifecycle(self.root.parent).lease(item.project_id)
+              if item.project_id else nullcontext()):
+            path = self._path(item.id)
+            temporary = path.with_suffix(".tmp")
+            temporary.write_text(item.model_dump_json(indent=2) + "\n", encoding="utf-8")
+            os.replace(temporary, path)
 
 
 class NotificationStore(_FileStore):
+    def _write(self, item: Notification) -> None:
+        # Older inbox rows can carry a run/schedule/intent without project_id.
+        # Resolve these before taking the lease so a stale row cannot reappear
+        # after its linked project's content has been erased.
+        project_id = item.project_id
+        if project_id is None:
+            scopes = set()
+            for identifier, pattern in (
+                (item.run_id, "runs/{}/run.json"),
+                (item.schedule_id, "schedules/{}/schedule.json"),
+                (item.intent_id, "intents/{}.json"),
+            ):
+                if identifier is None:
+                    continue
+                try:
+                    raw = read_relative(
+                        self.root.parent, pattern.format(_safe_id(identifier)), 16 * 1024 * 1024,
+                    )
+                except FileNotFoundError as exc:
+                    raise NotificationNotFoundError("Notification source is unavailable") from exc
+                source = json.loads(raw)
+                if source.get("id") != identifier or not source.get("project_id"):
+                    raise ValueError("Notification source scope is invalid")
+                scopes.add(source["project_id"])
+            if len(scopes) > 1:
+                raise ValueError("Notification sources have conflicting project scopes")
+            if scopes:
+                project_id = scopes.pop()
+                item = item.model_copy(update={"project_id": project_id})
+        super()._write(item)
+
     def add(
         self,
         *,

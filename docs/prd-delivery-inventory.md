@@ -50,7 +50,7 @@
 | §4.16 任务经验 | delivered：专属工具与版本/来源账本、创建时配置指纹、低信任检索注入、容量/事务恢复与人工停用UI；deferred：真实Provider自主调用及长期判断质量 |
 | §4.12 事件 | delivered：有真实Run归属的evidence.added/decision.recorded、持久幂等补发与完整SSE尾部消费；deferred：产物更新、记忆、无Run项目变更和 schedule/preflight 细分事件 |
 | §3.9 / §4.10 | delivered：自动调度跨进程抢占与事件汇总恢复；Bash 工作区快照与人审恢复、跨进程目录切换修复；deferred：其余事件故障矩阵、生产恢复/容量与性能、CPU/内存/进程/输出限制 |
-| §3.9 数据主权 | delivered：操作者CLI完整数据目录冷备份与新目录恢复，覆盖项目账本/提案/Registry/工作区检查点一致性；项目工作文件恢复UI；项目owner/admin审核清单后导出文件、应用可见会话、来源与相关账本ZIP；deferred：项目/会话删除（依赖审计与未实现设计见project-deletion-design.md）、凭据独立授权导出与删除（记忆已交付）、全应用恢复UI及生产灾备；项目ZIP不含运行时会话、凭据和浏览器登录资料 |
+| §3.9 数据主权 | delivered：操作者CLI完整数据目录冷备份与新目录恢复，覆盖项目账本/提案/Registry/工作区检查点一致性；项目工作文件恢复UI；项目owner/admin审核清单后导出文件、应用可见会话、来源与相关账本ZIP。本地交付：项目删除审核/API/UI、跨域擦除与原操作恢复，通过全量回归、真实HTTP双进程与中英文浏览器验收，见本轮记录及project-deletion-design.md；deferred：独立会话删除、凭据独立授权导出与删除（记忆已交付）、全应用恢复UI、历史备份删除登记对账与生产灾备；项目ZIP不含运行时会话、凭据和浏览器登录资料 |
 | §3.9 性能 | delivered：本地ASGI单/4并发各100样本，创建/首事件持久化/离线task取消P95基线；deferred：真实SDK进程、网络/SSE运输、多worker与生产负载验收 |
 | §3.9 / §3.10 | delivered：项目范围按Provider/model/Skill/tool/错误的有界指标汇总；deferred：业务成功指标、区域与数据流披露 |
 | §3.11 / §6.6 | deferred：当前 L2 基线、人亲自标注的 gold、judge 校准与 TPR/TNR 门槛；不能由 AI 伪造标注 |
@@ -940,3 +940,32 @@ items/history/MEMORY.md。新增回归还覆盖rollback、最新版本删除审�
 Browser插件发现列表为空，因此使用已有本地浏览器测试工具；测试身份签名不能冒充真实身份网关、
 手机HTTPS或生产组织验收。未读取实际凭据目录、未创建模型Run。全量PRD目标及此前deferred继续开放；
 原有未跟踪 `deploy/companion/` 保留。
+
+## 2026-09-19：项目删除、持久屏障与同操作恢复
+
+交付前基线：`ed213af`。[项目删除实现说明与验收清单](project-deletion-design.md)
+已替代此前的待实现设计；仍以 AGENTS.md 与 PRD 为架构权威。
+**项目删除已完成本地全量、真实 HTTP 双进程中断恢复和浏览器验收。独立会话删除仍 deferred，不用项目内的原生会话清理冒充该功能。**
+
+| 要求 | 当前状态 | 实现边界 |
+|---|---|---|
+| 人工审核后删除项目 | delivered：本地验证通过 | 本地操作者或项目 owner/admin；审核域计数、保留与阻塞项；准确项目名、非空理由和不可撤销确认；理由只存哈希 |
+| 应用拥有内容完整擦除 | delivered：本地验证通过 | 项目账本/workspace/产物版本/检查点、Run/对话/日志、来源/商业动作记录、项目记忆、自动化/通知、授权/协作、提案/模板与浏览器持久内容；共享记录按归属选择 |
+| 原生 SDK 与店铺端点 | delivered：本地验证通过 | 隔离配置根调用钉版 SDK 删除会话，验证原生检查点和侧存储残留；未知/跨项目归属阻塞；活动 worker/host/launch 阻塞，已审核私有 Unix socket 定向移除 |
+| 不复活与故障恢复 | delivered：本地验证通过 | 项目外持久 intent、非阻塞跨进程共享/独占生命周期租约、内容服务构造前恢复；原 ID 幂等，deleting/blocked 且允许重试时可继续 |
+| 前端隐私与未发送内容 | delivered：本地验证通过 | EN/ZH、明确进度与同 ID 查询；只有 deleted 报应用范围完成；项目/Run/SSE/服务端对话与审批清理，草稿和本地附件保留；403/404复验实际读取权限，5xx保留上下文 |
+| 共享与外部保留 | 已明确披露 | 共享 Provider/凭据/connector/组织策略、用户/Agent记忆、已发布共享Skill、其他项目独立副本、无正文来源凭证与协调锁保留；不撤回外部消息或擦除下载/备份 |
+| 旧 worker 与历史备份治理 | 运维约束及 deferred 保留 | 引入本版本必须停机统一升级全部旧worker/host；旧快照恢复到新目录不自动合并最新删除登记，不等同擦除外部备份；跨目录/宿主历史备份对账及生产灾备仍deferred |
+
+最终证据见 [验证记录](../evals/reports/project-deletion-20260919/verification.json)：
+
+- 后端 `pytest -q tests`：**2109 passed / 13 skipped，117.48s**；全量收集后补充实际 socket 服务集成，相关套 **9 passed**。Ruff 与 diff-check 通过。
+- 前端 **464 passed / 43 files**，ESLint、TypeScript/Vite 通过；既有 bundle-size warning 保留。
+- eval tools **59 passed**，Snapshot **61/61**。
+- [真实双 HTTP 进程](../evals/reports/project-deletion-20260919/http-verification.json)：意图/原生清理完成后进程退出，另一进程拒绝读取/新 Run，重启擦除应用内容，同 ID 重试不复建，其他项目保留。
+- [真实浏览器及截图](../evals/reports/project-deletion-20260919/browser-verification.json)：EN/ZH、320/400/1280px，审核与结果无溢出，准确名称确认，真实删除，保留未发送草稿/本地附件，刷新恢复进度，无页面异常。
+- 权限403/404、审核409、首次/最终 rename 后 fsync 失败503由 API/组件回归验证；服务不能把已提交的不确定结果说成“未开始”。不是这些错误路径的浏览器实测。
+- 原生会话/checkpoint、共享 Skill/模板来源、Agent 日记、设备授权和冷备往返有专项证据，详见实现说明第 8 节。
+
+独立会话删除、外部消息/下载/备份治理、生产身份与跨宿主恢复及其余 FR deferred 继续开放。
+本轮未将真实用户 data 或凭据作为测试数据，没有付费模型调用；原有未跟踪 `deploy/companion/` 保留。

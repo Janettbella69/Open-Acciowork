@@ -27,6 +27,7 @@ from .models import (
     SkillTestResult,
     utc_now,
 )
+from .project_lifecycle import ProjectLifecycleBusyError, ProjectUnavailableError
 from .skill_proposal_files import (
     MAX_MANIFEST_BYTES,
     capture_submission,
@@ -185,7 +186,7 @@ class SkillProposalService:
         if len((self.ledger._dump(item) + "\n").encode()) > MAX_SKILL_PROPOSAL_RECORD_BYTES:
             raise SkillProposalQuotaError("Skill proposal review metadata exceeds its limit")
         target = directory or self._path(item.id)
-        with directory_fd(target):
+        with self.ledger.lifecycle.lease(item.project_id), directory_fd(target):
             self.ledger._atomic_write(target / "record.json", item)
 
     def _ids(
@@ -273,7 +274,10 @@ class SkillProposalService:
         return summaries
 
     def submit_artifact(self, run_id: str, artifact_id: str) -> SkillProposal:
-        with self.ledger._lock_for("skill-proposals"):
+        with (
+            self.ledger._lock_for("skill-proposals"),
+            self.ledger.lifecycle.lease(self.ledger.get_run(run_id).project_id),
+        ):
             run = self._source_run(run_id)
             # Metadata lookup deliberately does not resolve the mutable Artifact path.
             project = self.ledger.get_project(run.project_id)
@@ -452,11 +456,12 @@ class SkillProposalService:
         return updated
 
     def _recover_one(self, item: SkillProposal) -> SkillProposal:
-        if item.state != "publishing":
-            return item
-        # Absence of a receipt is not consent to repeat an interrupted decision.
-        receipt = self.registry.publication_receipt(item.id)
-        return self._finish(item, receipt)
+        with self.ledger.lifecycle.lease(item.project_id):
+            if item.state != "publishing":
+                return item
+            # Absence of a receipt is not consent to repeat an interrupted decision.
+            receipt = self.registry.publication_receipt(item.id)
+            return self._finish(item, receipt)
 
     def get(self, proposal_id: str) -> SkillProposal:
         with self.ledger._lock_for("skill-proposals"):
@@ -464,7 +469,9 @@ class SkillProposalService:
 
     def peek(self, proposal_id: str) -> SkillProposal:
         """Read metadata for a scope check without recovering any publication."""
-        return self._load(proposal_id)
+        item = self._load(proposal_id)
+        with self.ledger.lifecycle.lease(item.project_id):
+            return item
 
     def list(
         self,
@@ -477,7 +484,12 @@ class SkillProposalService:
             for identifier in self._ids(clean_staging=recover, skip_invalid=skip_invalid):
                 try:
                     item = self._load(identifier)
-                    items.append(self._recover_one(item) if recover else item)
+                    with self.ledger.lifecycle.lease(item.project_id):
+                        items.append(self._recover_one(item) if recover else item)
+                except (ProjectUnavailableError, ProjectLifecycleBusyError):
+                    # A project erasure must not block the shared listing or
+                    # let background recovery recreate its private candidate.
+                    continue
                 except (OSError, ValueError, RuntimeError, KeyError) as exc:
                     if not skip_invalid:
                         raise
@@ -494,12 +506,15 @@ class SkillProposalService:
                 report.inspected += 1
                 try:
                     item = self._load(identifier)
-                    if item.state == "publishing":
-                        updated = self._recover_one(item)
-                        if updated.state == "published":
-                            report.published += 1
-                        else:
-                            report.reset_pending += 1
+                    with self.ledger.lifecycle.lease(item.project_id):
+                        if item.state == "publishing":
+                            updated = self._recover_one(item)
+                            if updated.state == "published":
+                                report.published += 1
+                            else:
+                                report.reset_pending += 1
+                except (ProjectUnavailableError, ProjectLifecycleBusyError):
+                    continue
                 except (OSError, ValueError, RuntimeError, KeyError) as exc:
                     report.failed += 1
                     logger.warning("Skill proposal recovery failed: %s", type(exc).__name__)
@@ -512,7 +527,10 @@ class SkillProposalService:
         principal: PrincipalContext | None,
     ) -> SkillProposal:
         request = SkillProposalReviewRequest.model_validate(request.model_dump())
-        with self.ledger._lock_for("skill-proposals"):
+        with (
+            self.ledger._lock_for("skill-proposals"),
+            self.ledger.lifecycle.lease(self._load(proposal_id).project_id),
+        ):
             item = self._recover_one(self._load(proposal_id))
             reviewer = self._reviewer(item, principal)
             if (
@@ -648,7 +666,10 @@ class SkillProposalService:
         content_hash: str,
     ) -> tuple[SkillProposalFile, bytes]:
         relative_parts(path)
-        with self.ledger._lock_for("skill-proposals"):
+        with (
+            self.ledger._lock_for("skill-proposals"),
+            self.ledger.lifecycle.lease(self._load(proposal_id).project_id),
+        ):
             item = self._recover_one(self._load(proposal_id))
             if content_hash != item.content_hash:
                 raise SkillProposalConflictError("Skill proposal content hash does not match")

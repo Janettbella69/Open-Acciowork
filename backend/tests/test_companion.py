@@ -22,9 +22,32 @@ from ophira_backend.config import Settings
 from ophira_backend.constants import PermissionDecision, PrincipalRole, RunStatus
 from ophira_backend.main import create_app
 from ophira_backend.models import PrincipalContext, ProjectCreate, utc_now
+from ophira_backend.project_lifecycle import ProjectLifecycle, ProjectUnavailableError
 
 PUBLIC_ORIGIN = "https://companion.example"
 DEVICE_HEADERS = {"X-Ophira-Companion": "1", "Origin": PUBLIC_ORIGIN}
+
+
+def test_deleted_project_cannot_be_reintroduced_by_cached_pairing_or_new_offer(tmp_path):
+    store = CompanionStore(tmp_path / "companion-devices")
+    view, _secret = store.create(PairingCreate(project_ids=["project_a", "project_z"]), None)
+    stale = store.owner_record(view.id, None)
+    lifecycle = ProjectLifecycle(tmp_path)
+    with lifecycle.lease("project_z", exclusive=True):
+        lifecycle.write_state("project_z", {
+            "schema_version": 1, "project_id": "project_z", "operation_id": "deletion-test",
+            "status": "deleting",
+        })
+    before = store._path(view.id).read_bytes()
+    with pytest.raises(ProjectUnavailableError):
+        store._write(stale)
+    with pytest.raises(ProjectUnavailableError):
+        store.create(PairingCreate(project_ids=["project_z"]), None)
+    assert store._path(view.id).read_bytes() == before
+    assert len(list(store.root.glob("pair_*.json"))) == 1
+    # A rejected multi-project write must release previously acquired leases.
+    with lifecycle.lease("project_a", exclusive=True):
+        pass
 
 
 class WaitingRuntime:

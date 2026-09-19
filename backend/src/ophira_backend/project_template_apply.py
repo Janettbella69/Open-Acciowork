@@ -55,6 +55,11 @@ class TemplateApplications:
         return self.root(project_id, template_id) / f"{application_id}.json"
 
     def load(self, project_id, template_id, application_id):
+        from .project_deletion_proofs import project_is_deleted
+
+        target_id = "project_template_" + application_id[-32:]
+        if project_is_deleted(self.ledger.root, target_id):
+            raise TemplateUnavailable("The created project was permanently deleted")
         path = self.path(project_id, template_id, application_id)
         try:
             record = TemplateApplication.model_validate(
@@ -88,6 +93,8 @@ class TemplateApplications:
             raise AuthorizationError("Creating a project requires its authenticated owner")
 
     def ids(self, project_id, template_id):
+        from .project_deletion_proofs import project_is_deleted
+
         identifiers = []
         with directory_fd(self.root(project_id, template_id)) as fd, os.scandir(fd) as entries:
             for index, entry in enumerate(entries):
@@ -103,7 +110,11 @@ class TemplateApplications:
                     APPLICATION_ID, entry.name[:-5]
                 ):
                     raise TemplateUnavailable("Project creation storage contains an unknown entry")
-                identifiers.append(entry.name[:-5])
+                if not project_is_deleted(
+                    self.ledger.root,
+                    "project_template_" + entry.name[:-5][-32:],
+                ):
+                    identifiers.append(entry.name[:-5])
         if len(identifiers) > MAX_TEMPLATE_APPLICATIONS:
             raise TemplateConflict("Template project creation history is full")
         return identifiers
@@ -356,6 +367,24 @@ class TemplateApplications:
                 raise TemplateUnavailable("Prepared project reference origin does not match")
 
     def finish(self, record, template, principal):
+        from .project_lifecycle import ProjectLifecycleBusyError, ProjectUnavailableError
+
+        try:
+            with (
+                self.ledger.lifecycle.lease(record.source_project_id),
+                self.ledger.lifecycle.lease(record.project_id),
+            ):
+                return self._finish_available(record, template, principal)
+        except ProjectUnavailableError as exc:
+            raise TemplateUnavailable("The project is no longer available") from exc
+        except ProjectLifecycleBusyError as exc:
+            raise TemplateConflict("Project has active operations; retry later") from exc
+
+    def _finish_available(self, record, template, principal):
+        from .project_deletion_proofs import project_is_deleted
+
+        if project_is_deleted(self.ledger.root, record.project_id):
+            raise TemplateUnavailable("The created project was permanently deleted")
         version = self.version_for(record, template)
         target = self.ledger._project_path(record.project_id).parent
         path = self.path(record.source_project_id, record.template_id, record.id)

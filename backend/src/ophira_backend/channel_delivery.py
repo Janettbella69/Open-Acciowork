@@ -31,6 +31,11 @@ from .config import Settings
 from .constants import EventType, RunStatus
 from .events import redact
 from .models import RunRecord, utc_now
+from .project_lifecycle import (
+    ProjectLifecycle,
+    ProjectLifecycleBusyError,
+    ProjectUnavailableError,
+)
 from .storage import FileLedger, LedgerNotFoundError
 
 logger = logging.getLogger(__name__)
@@ -220,25 +225,26 @@ class ChannelDeliveryStore:
         return self.root / f"{self._safe_id(delivery_id)}.json"
 
     def _write(self, record: ChannelDeliveryRecord) -> None:
-        path = self._path(record.id)
-        temporary = path.with_suffix(".json.tmp")
-        with temporary.open("w", encoding="utf-8") as handle:
-            handle.write(record.model_dump_json(indent=2) + "\n")
-            handle.flush()
-            os.fsync(handle.fileno())
-        try:
-            temporary.chmod(0o600)
-        except OSError:
-            pass
-        os.replace(temporary, path)
-        try:
-            directory_fd = os.open(self.root, os.O_RDONLY)
+        with ProjectLifecycle(self.root.parent).lease(record.project_id):
+            path = self._path(record.id)
+            temporary = path.with_suffix(".json.tmp")
+            with temporary.open("w", encoding="utf-8") as handle:
+                handle.write(record.model_dump_json(indent=2) + "\n")
+                handle.flush()
+                os.fsync(handle.fileno())
             try:
-                os.fsync(directory_fd)
-            finally:
-                os.close(directory_fd)
-        except OSError:
-            pass
+                temporary.chmod(0o600)
+            except OSError:
+                pass
+            os.replace(temporary, path)
+            try:
+                directory_fd = os.open(self.root, os.O_RDONLY)
+                try:
+                    os.fsync(directory_fd)
+                finally:
+                    os.close(directory_fd)
+            except OSError:
+                pass
 
     def bind_run(
         self,
@@ -305,9 +311,9 @@ class ChannelDeliveryStore:
             try:
                 if path.is_symlink():
                     raise ValueError("symlink delivery record")
-                records.append(
-                    ChannelDeliveryRecord.model_validate_json(path.read_text(encoding="utf-8"))
-                )
+                record = ChannelDeliveryRecord.model_validate_json(path.read_text(encoding="utf-8"))
+                if not ProjectLifecycle(self.root.parent).has_deletion(record.project_id):
+                    records.append(record)
             except (OSError, ValueError) as exc:
                 raise DeliveryLedgerError(
                     f"delivery record {path.name!r} failed validation"
@@ -896,6 +902,16 @@ class ChannelDeliveryService:
         delivery_id: str,
         *,
         now: datetime | None = None,
+    ) -> ChannelDeliveryRecord:
+        record = self.store.get(delivery_id)
+        try:
+            with self.ledger.lifecycle.lease(record.project_id):
+                return await self._attempt_owned(delivery_id, now=now)
+        except (ProjectUnavailableError, ProjectLifecycleBusyError):
+            return record
+
+    async def _attempt_owned(
+        self, delivery_id: str, *, now: datetime | None = None,
     ) -> ChannelDeliveryRecord:
         moment = (now or utc_now()).astimezone(UTC)
         claimed = self.store.claim_due(delivery_id, now=moment)

@@ -44,24 +44,28 @@ from .untrusted import UntrustedSource, sanitize_untrusted_payload
 
 @contextmanager
 def session_lease(store: ShopBrowserStore, shop_id: str):
-    path = store.directory(shop_id) / "owner.lock"
-    descriptor = os.open(path, os.O_CREAT | os.O_RDWR | os.O_CLOEXEC | os.O_NOFOLLOW, 0o600)
-    try:
-        fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        yield
-    finally:
-        os.close(descriptor)
+    shop = store.get(shop_id)
+    with store.ledger.lifecycle.lease(shop.project_id):
+        path = store.directory(shop_id) / "owner.lock"
+        descriptor = os.open(path, os.O_CREAT | os.O_RDWR | os.O_CLOEXEC | os.O_NOFOLLOW, 0o600)
+        try:
+            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            yield
+        finally:
+            os.close(descriptor)
 
 
 @contextmanager
 def launch_lease(store: ShopBrowserStore, shop_id: str):
-    path = store.directory(shop_id) / "launch.lock"
-    descriptor = os.open(path, os.O_CREAT | os.O_RDWR | os.O_CLOEXEC | os.O_NOFOLLOW, 0o600)
-    try:
-        fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        yield
-    finally:
-        os.close(descriptor)
+    shop = store.get(shop_id)
+    with store.ledger.lifecycle.lease(shop.project_id):
+        path = store.directory(shop_id) / "launch.lock"
+        descriptor = os.open(path, os.O_CREAT | os.O_RDWR | os.O_CLOEXEC | os.O_NOFOLLOW, 0o600)
+        try:
+            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            yield
+        finally:
+            os.close(descriptor)
 
 
 class ShopBrowserPolicy:
@@ -158,19 +162,22 @@ async def execute_authorized(driver, operation, authorize, reader):
 
 class ShopBrowserPage:
     def __init__(self, store: ShopBrowserStore, shop_id: str, session_id: str, policy: OrgPolicy):
-        self.store, self.shop_id, self.session_id, self.policy = store, shop_id, session_id, policy
-        self.page = None
-        self.observation_id = None
-        self.observed_url = None
-        self.elements = {}
-        self.blocked = []
-        self.capture_paths = set()
-        self.expecting_download = False
-        self.download_tasks = set()
-        self.staging = store.directory(shop_id) / "staging"
-        self.staging.mkdir(mode=0o700, exist_ok=True)
-        if self.staging.is_symlink():
-            raise ValueError("Invalid browser staging directory")
+        self.project_id = store.get(shop_id).project_id
+        with store.ledger.lifecycle.lease(self.project_id):
+            self.store, self.shop_id = store, shop_id
+            self.session_id, self.policy = session_id, policy
+            self.page = None
+            self.observation_id = None
+            self.observed_url = None
+            self.elements = {}
+            self.blocked = []
+            self.capture_paths = set()
+            self.expecting_download = False
+            self.download_tasks = set()
+            self.staging = store.directory(shop_id) / "staging"
+            self.staging.mkdir(mode=0o700, exist_ok=True)
+            if self.staging.is_symlink():
+                raise ValueError("Invalid browser staging directory")
 
     def discard_capture(self):
         for path in self.capture_paths:
@@ -228,83 +235,85 @@ class ShopBrowserPage:
             )
 
     async def snapshot(self) -> dict:
-        await self._safe_page()
-        # Playwright temporarily changes caret styles while taking a screenshot.
-        # Bind elements after those styles are restored, so our own capture cannot
-        # make the next observed-element action appear stale.
-        content = await self.page.screenshot(full_page=False, animations="disabled")
-        await self._safe_page()
-        self.observation_id = new_id("page")
-        self.observed_url = self.page.url
-        self.elements = {}
-        descriptions = []
-        handles = await self.page.locator(
-            'a, button, input:not([type="hidden"]):not([type="password"]), '
-            'textarea, select, [role="button"], [role="link"]',
-        ).element_handles()
-        for handle in handles[:150]:
-            if not await handle.is_visible():
-                continue
-            if len(descriptions) >= 60:
-                break
-            info = await handle.evaluate("""el => ({
-                tag: el.tagName.toLowerCase(), type: el.getAttribute('type') || '',
-                label: (el.getAttribute('aria-label') || el.innerText ||
-                        el.getAttribute('placeholder') ||
-                        el.getAttribute('name') || '').slice(0, 160),
-                markup: el.outerHTML
-            })""")
-            if info["type"] in {"file", "password"}:
-                continue
-            identifier = f"element_{len(descriptions)}"
-            self.elements[identifier] = (
-                handle,
-                hashlib.sha256(info.pop("markup").encode()).hexdigest(),
-            )
-            descriptions.append({"id": identifier, **info})
-        text = await self.page.locator("body").evaluate("el => el.innerText.slice(0, 12000)")
-        visible = sanitize_untrusted_payload(
-            {
-                "title": (await self.page.title())[:500],
-                "excerpt": text,
-                "elements": descriptions,
-            },
-            UntrustedSource.MARKETPLACE_PAGE,
-        ).value
-        name = f"{self.observation_id}.png"
-        if len(content) > MAX_SHOP_FILE_BYTES:
-            raise ShopBrowserError(
-                "SHOP_CAPTURE_TOO_LARGE", "The page capture exceeds the size limit."
-            )
-        path = self.staging / name
-        self.capture_paths.add(path)
-        path.write_bytes(content)
-        return {
-            "ok": True,
-            "observation_id": self.observation_id,
-            "session_id": self.session_id,
-            "source_url": source_url(self.page.url),
-            "retrieved_at": utc_now().isoformat(),
-            **visible,
-            "files": [
+        with self.store.ledger.lifecycle.lease(self.project_id):
+            await self._safe_page()
+            # Playwright temporarily changes caret styles while taking a screenshot.
+            # Bind elements after those styles are restored, so our own capture cannot
+            # make the next observed-element action appear stale.
+            content = await self.page.screenshot(full_page=False, animations="disabled")
+            await self._safe_page()
+            self.observation_id = new_id("page")
+            self.observed_url = self.page.url
+            self.elements = {}
+            descriptions = []
+            handles = await self.page.locator(
+                'a, button, input:not([type="hidden"]):not([type="password"]), '
+                'textarea, select, [role="button"], [role="link"]',
+            ).element_handles()
+            for handle in handles[:150]:
+                if not await handle.is_visible():
+                    continue
+                if len(descriptions) >= 60:
+                    break
+                info = await handle.evaluate("""el => ({
+                    tag: el.tagName.toLowerCase(), type: el.getAttribute('type') || '',
+                    label: (el.getAttribute('aria-label') || el.innerText ||
+                            el.getAttribute('placeholder') ||
+                            el.getAttribute('name') || '').slice(0, 160),
+                    markup: el.outerHTML
+                })""")
+                if info["type"] in {"file", "password"}:
+                    continue
+                identifier = f"element_{len(descriptions)}"
+                self.elements[identifier] = (
+                    handle,
+                    hashlib.sha256(info.pop("markup").encode()).hexdigest(),
+                )
+                descriptions.append({"id": identifier, **info})
+            text = await self.page.locator("body").evaluate("el => el.innerText.slice(0, 12000)")
+            visible = sanitize_untrusted_payload(
                 {
-                    "name": name,
-                    "kind": "screenshot",
-                    "mime": "image/png",
-                    "size": len(content),
-                    "sha256": hashlib.sha256(content).hexdigest(),
-                }
-            ],
-        }
+                    "title": (await self.page.title())[:500],
+                    "excerpt": text,
+                    "elements": descriptions,
+                },
+                UntrustedSource.MARKETPLACE_PAGE,
+            ).value
+            name = f"{self.observation_id}.png"
+            if len(content) > MAX_SHOP_FILE_BYTES:
+                raise ShopBrowserError(
+                    "SHOP_CAPTURE_TOO_LARGE", "The page capture exceeds the size limit."
+                )
+            path = self.staging / name
+            self.capture_paths.add(path)
+            path.write_bytes(content)
+            return {
+                "ok": True,
+                "observation_id": self.observation_id,
+                "session_id": self.session_id,
+                "source_url": source_url(self.page.url),
+                "retrieved_at": utc_now().isoformat(),
+                **visible,
+                "files": [
+                    {
+                        "name": name,
+                        "kind": "screenshot",
+                        "mime": "image/png",
+                        "size": len(content),
+                        "sha256": hashlib.sha256(content).hexdigest(),
+                    }
+                ],
+            }
 
     async def execute(self, operation: ShopBrowserOperation) -> dict:
-        self.capture_paths = set()
-        self.prepare_staging()
-        try:
-            return await self._execute(operation)
-        except BaseException:
-            self.discard_capture()
-            raise
+        with self.store.ledger.lifecycle.lease(self.project_id):
+            self.capture_paths = set()
+            self.prepare_staging()
+            try:
+                return await self._execute(operation)
+            except BaseException:
+                self.discard_capture()
+                raise
 
     async def _execute(self, operation: ShopBrowserOperation) -> dict:
         if operation.operation == "navigate":
@@ -441,9 +450,13 @@ async def serve(
         "token": secrets.token_urlsafe(32),
         "started_at": utc_now().isoformat(),
     }
-    path = store.directory(shop_id) / "session.json"
-    socket = store.socket_path(shop_id)
-    with data_directory_lease(root, exclusive=False), session_lease(store, shop_id):
+    with (
+        data_directory_lease(root, exclusive=False),
+        ledger.lifecycle.lease(shop.project_id),
+        session_lease(store, shop_id),
+    ):
+        path = store.directory(shop_id) / "session.json"
+        socket = store.socket_path(shop_id)
         ledger._atomic_write(path, session)
         policy = ShopBrowserPolicy(shop, OrgPolicyStore(root / "org" / "policy.json"))
         driver = ShopBrowserPage(store, shop_id, session["id"], policy)
@@ -489,59 +502,61 @@ async def serve(
 
                 async def handle(reader, writer):
                     try:
-                        async with asyncio.timeout(40):
-                            raw = await reader.readline()
-                            if len(raw) > MAX_SHOP_RPC_BYTES:
-                                raise ValueError("oversized command")
-                            value = json.loads(raw)
-                            if not hmac.compare_digest(
-                                str(value.pop("token", "")), session["token"]
-                            ):
-                                raise ValueError("invalid session credential")
-                            if value.pop("session_id", None) != session["id"]:
-                                raise ValueError("session changed")
-                            caller = ShopBrowserCaller.model_validate(value.pop("caller"))
-                            operation = ShopBrowserOperation.model_validate(value)
-                            async with lock:
+                        with ledger.lifecycle.lease(shop.project_id):
+                            try:
+                                async with asyncio.timeout(40):
+                                    raw = await reader.readline()
+                                    if len(raw) > MAX_SHOP_RPC_BYTES:
+                                        raise ValueError("oversized command")
+                                    value = json.loads(raw)
+                                    if not hmac.compare_digest(
+                                        str(value.pop("token", "")), session["token"]
+                                    ):
+                                        raise ValueError("invalid session credential")
+                                    if value.pop("session_id", None) != session["id"]:
+                                        raise ValueError("session changed")
+                                    caller = ShopBrowserCaller.model_validate(value.pop("caller"))
+                                    operation = ShopBrowserOperation.model_validate(value)
+                                    async with lock:
 
-                                def authorize():
-                                    authorize_caller(
-                                        store,
-                                        access,
-                                        shop_id,
-                                        session["id"],
-                                        caller,
-                                        operation,
-                                    )
+                                        def authorize():
+                                            authorize_caller(
+                                                store,
+                                                access,
+                                                shop_id,
+                                                session["id"],
+                                                caller,
+                                                operation,
+                                            )
 
-                                authorize()
-                                if operation.operation == "close":
-                                    result = {"ok": True}
-                                    closed.set()
-                                else:
-                                    result = await execute_authorized(
-                                        driver,
-                                        operation,
-                                        authorize,
-                                        reader,
-                                    )
-                    except AuthorizationError:
-                        result = {
-                            "ok": False,
-                            "error_code": "SHOP_ACCESS_CHANGED",
-                            "error": "Shop, project or Run authorization changed.",
-                        }
-                    except ShopBrowserError as exc:
-                        result = {"ok": False, "error_code": exc.code, "error": str(exc)}
-                    except Exception:
-                        result = {
-                            "ok": False,
-                            "error_code": "SHOP_BROWSER_FAILED",
-                            "error": "Browser operation failed. Inspect the shop window and retry.",
-                        }
-                    try:
-                        writer.write(json.dumps(result, ensure_ascii=False).encode() + b"\n")
-                        await writer.drain()
+                                        authorize()
+                                        if operation.operation == "close":
+                                            result = {"ok": True}
+                                            closed.set()
+                                        else:
+                                            result = await execute_authorized(
+                                                driver,
+                                                operation,
+                                                authorize,
+                                                reader,
+                                            )
+                            except AuthorizationError:
+                                result = {
+                                    "ok": False,
+                                    "error_code": "SHOP_ACCESS_CHANGED",
+                                    "error": "Shop, project or Run authorization changed.",
+                                }
+                            except ShopBrowserError as exc:
+                                result = {"ok": False, "error_code": exc.code, "error": str(exc)}
+                            except Exception:
+                                result = {
+                                    "ok": False,
+                                    "error_code": "SHOP_BROWSER_FAILED",
+                                    "error": "Browser operation failed. "
+                                    "Inspect the shop window and retry.",
+                                }
+                            writer.write(json.dumps(result, ensure_ascii=False).encode() + b"\n")
+                            await writer.drain()
                     finally:
                         writer.close()
                         await writer.wait_closed()

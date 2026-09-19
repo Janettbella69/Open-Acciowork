@@ -883,10 +883,10 @@ def test_commercial_store_normalizes_directory_and_temporary_io_errors(
 
     original_open = commercial_module.os.open
 
-    def denied_temporary(path, flags, mode=0o777):
+    def denied_temporary(path, flags, mode=0o777, **kwargs):
         if str(path).endswith(".tmp"):
             raise PermissionError("fixture denied")
-        return original_open(path, flags, mode)
+        return original_open(path, flags, mode, **kwargs)
 
     monkeypatch.setattr(commercial_module.os, "open", denied_temporary)
     with pytest.raises(CommercialActionIntegrityError, match="temporary file"):

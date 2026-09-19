@@ -196,8 +196,11 @@ from .models import (
 from .permissions import PermissionBroker, PermissionNotFoundError
 from .policy import OrgPolicyStore, PolicyDeniedError
 from .presentation_tools import PRESENTATION_COMPONENTS, PRESENTATION_SCHEMA_VERSION
+from .project_deletion import ProjectDeletionService
+from .project_deletion_api import register_project_deletion_routes
 from .project_events import ProjectEventProjector
 from .project_export_api import register_project_export_routes
+from .project_lifecycle import ProjectLifecycleBusyError, ProjectUnavailableError
 from .project_metrics import (
     MAX_METRICS_DAYS,
     MAX_METRICS_RUNS,
@@ -261,6 +264,8 @@ def _request_principal(request: Request) -> PrincipalContext | None:
 
 
 def _project_route_permission(method: str, path: str) -> ProjectPermission:
+    if path.split("/")[4:5] == ["deletion"]:
+        return ProjectPermission.PROJECT_DELETE
     if path.split("/")[4:5] == ["export"]:
         return ProjectPermission.PROJECT_EXPORT
     if "/access" in path:
@@ -324,6 +329,9 @@ def _create_app(
 ) -> FastAPI:
     settings = settings or get_settings()
     ledger = FileLedger(settings.data_dir, ingest_config=IngestConfig.from_settings(settings))
+    project_access = ProjectAccessStore(settings.data_dir / "auth" / "projects")
+    project_deletion = ProjectDeletionService(ledger, project_access)
+    project_deletion.recover()
     events = EventPublisher(ledger)
     project_events = ProjectEventProjector(ledger, events)
     memory = FileMemoryProvider(
@@ -338,7 +346,6 @@ def _create_app(
         settings,
         AuthNonceStore(settings.data_dir / "auth" / "nonces"),
     )
-    project_access = ProjectAccessStore(settings.data_dir / "auth" / "projects")
     task_experiences = TaskExperienceStore(ledger, access=project_access)
     channel_identity_bindings = FeishuIdentityBindingStore(
         settings.data_dir / "channels" / "feishu-bindings",
@@ -601,6 +608,18 @@ def _create_app(
     register_collaboration_routes(
         application, ledger, project_access, settings, _read_bounded_body,
     )
+    application.state.project_deletion = project_deletion
+    register_project_deletion_routes(application, project_deletion, _read_bounded_body)
+
+    @application.exception_handler(ProjectUnavailableError)
+    async def project_unavailable(_request, _exc):
+        return JSONResponse(status_code=404, content={"detail": "Project not found"},
+                            headers={"Cache-Control": "no-store"})
+
+    @application.exception_handler(ProjectLifecycleBusyError)
+    async def project_operation_busy(_request, _exc):
+        return JSONResponse(status_code=409, content={"detail": "Project is busy; retry shortly"},
+                            headers={"Cache-Control": "no-store"})
     register_project_template_routes(
         application, ledger, project_access, settings, _read_bounded_body,
     )
@@ -778,7 +797,12 @@ def _create_app(
                     )
                 )
                 authorize_project_request(run.project_id, principal, permission)
-        except (LedgerNotFoundError, ValueError):
+        except ProjectLifecycleBusyError:
+            return JSONResponse(
+                status_code=409, content={"detail": "Project is busy; retry shortly"},
+                headers={"Cache-Control": "no-store"},
+            )
+        except (LedgerNotFoundError, ProjectUnavailableError, ValueError):
             # Preserve each route's existing not-found contract.
             pass
         except (AuthenticationError, AuthorizationError):
@@ -792,9 +816,12 @@ def _create_app(
     async def private_collaboration_responses(request: Request, call_next):
         response = await call_next(request)
         parts = request.url.path.split("/")
-        if parts[1:3] in (["api", "skills"], ["api", "memory"]) or (
+        if parts[1:3] in (
+            ["api", "skills"], ["api", "memory"], ["api", "project-deletions"],
+        ) or (
             parts[1:3] == ["api", "projects"] and parts[4:5] in (
                 ["comments"], ["collaboration"], ["access"], ["templates"], ["export"],
+                ["deletion"],
             )
         ):
             response.headers["Cache-Control"] = "no-store"
@@ -2469,6 +2496,8 @@ def _create_app(
         principal = require_feishu_binding_admin(request)
         try:
             return channel_identity_bindings.create(payload, actor=principal)
+        except ChannelIdentityNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="Project binding target not found") from exc
         except (ChannelIdentityConflictError, ChannelIdentityAmbiguousError) as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         except AuthorizationError as exc:
@@ -2515,6 +2544,8 @@ def _create_app(
         principal = require_feishu_binding_admin(request)
         try:
             return channel_identity_bindings.revoke(binding_id, actor=principal)
+        except ChannelIdentityConflictError as exc:
+            raise HTTPException(status_code=409, detail="Project is busy; retry shortly") from exc
         except ChannelIdentityNotFoundError as exc:
             raise HTTPException(status_code=404, detail="Channel binding not found") from exc
         except AuthorizationError as exc:

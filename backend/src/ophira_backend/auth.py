@@ -31,6 +31,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from .config import Settings
 from .constants import PrincipalRole
 from .models import PrincipalContext, utc_now
+from .project_lifecycle import ProjectLifecycle
 
 AUTH_ASSERTION_VERSION: Final = "v1"
 AUTH_HEADER_TENANT: Final = "x-ophira-auth-tenant-id"
@@ -96,6 +97,7 @@ class ProjectPermission(StrEnum):
     PROJECT_READ = "project.read"
     PROJECT_WRITE = "project.write"
     PROJECT_EXPORT = "project.export"
+    PROJECT_DELETE = "project.delete"
     PROJECT_ACCESS_MANAGE = "project.access.manage"
     COMMENT_WRITE = "comment.write"
     RUN_CREATE = "run.create"
@@ -625,6 +627,9 @@ class ProjectAccessStore:
         self.root = root.resolve()
         self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
         self._clock = clock
+        data_root = (self.root.parents[1] if self.root.name == "projects"
+                     and self.root.parent.name == "auth" else self.root.parent)
+        self.lifecycle = ProjectLifecycle(data_root)
         self._locks: dict[str, threading.RLock] = {}
         self._locks_guard = threading.Lock()
 
@@ -642,7 +647,7 @@ class ProjectAccessStore:
         project_id = self._safe_project_id(project_id)
         with self._locks_guard:
             lock = self._locks.setdefault(project_id, threading.RLock())
-        with lock:
+        with self.lifecycle.lease(project_id), lock:
             directory = self.root / project_id
             directory.mkdir(parents=True, exist_ok=True, mode=0o700)
             lock_path = directory / ".access.lock"
@@ -688,17 +693,18 @@ class ProjectAccessStore:
                 pass
 
     def get(self, project_id: str) -> ProjectAccessRecord:
-        path = self._path(project_id)
-        try:
-            if path.is_symlink() or not path.is_file():
-                raise ProjectAccessNotFoundError("project access record not found")
-            return ProjectAccessRecord.model_validate_json(path.read_text(encoding="utf-8"))
-        except ProjectAccessNotFoundError:
-            raise
-        except (OSError, ValueError) as exc:
-            raise AuthorizationError(
-                "project access record failed integrity validation"
-            ) from exc
+        with self.lifecycle.lease(project_id):
+            path = self._path(project_id)
+            try:
+                if path.is_symlink() or not path.is_file():
+                    raise ProjectAccessNotFoundError("project access record not found")
+                return ProjectAccessRecord.model_validate_json(path.read_text(encoding="utf-8"))
+            except ProjectAccessNotFoundError:
+                raise
+            except (OSError, ValueError) as exc:
+                raise AuthorizationError(
+                    "project access record failed integrity validation"
+                ) from exc
 
     def bind_project(self, project_id: str, owner: PrincipalContext) -> ProjectAccessRecord:
         """Bind a new/migrated project only to an explicitly authenticated owner."""

@@ -10,7 +10,7 @@ import hashlib
 import json
 import time
 from collections.abc import Callable
-from contextlib import nullcontext
+from contextlib import contextmanager, nullcontext
 from datetime import datetime, timedelta
 from typing import Any, Literal
 
@@ -231,28 +231,30 @@ class MarketplaceAccessService:
         return principal.principal_id
 
     def get(self, project_id: str) -> MarketplaceAccessRecord:
-        project = self._project(project_id)
-        # get_project has already validated the ledger id, before using it in a path.
-        path = self.root / f"{project.id}.json"
-        if not path.exists() and not path.is_symlink():
-            return MarketplaceAccessRecord(
-                project_id=project.id, identity_binding=project.identity_binding,
-                tenant_id=project.tenant_id,
-            )
-        try:
-            if path.is_symlink() or not path.is_file() or path.stat().st_size > 2 * 1024 * 1024:
-                raise ValueError("invalid access file")
-            record = MarketplaceAccessRecord.model_validate_json(path.read_text("utf-8"))
-            if (
-                record.project_id != project.id or record.tenant_id != project.tenant_id
-                or record.identity_binding != project.identity_binding
-            ):
-                raise ValueError("invalid identity")
-            return record
-        except (OSError, ValueError):
-            raise MarketplaceError(
-                "MARKETPLACE_ACCESS_INVALID", "Project marketplace access failed validation.", 409,
-            ) from None
+        with self.ledger.lifecycle.lease(project_id):
+            project = self._project(project_id)
+            # get_project has already validated the ledger id, before using it in a path.
+            path = self.root / f"{project.id}.json"
+            if not path.exists() and not path.is_symlink():
+                return MarketplaceAccessRecord(
+                    project_id=project.id, identity_binding=project.identity_binding,
+                    tenant_id=project.tenant_id,
+                )
+            try:
+                if path.is_symlink() or not path.is_file() or path.stat().st_size > 2 * 1024 * 1024:
+                    raise ValueError("invalid access file")
+                record = MarketplaceAccessRecord.model_validate_json(path.read_text("utf-8"))
+                if (
+                    record.project_id != project.id or record.tenant_id != project.tenant_id
+                    or record.identity_binding != project.identity_binding
+                ):
+                    raise ValueError("invalid identity")
+                return record
+            except (OSError, ValueError):
+                raise MarketplaceError(
+                    "MARKETPLACE_ACCESS_INVALID",
+                    "Project marketplace access failed validation.", 409,
+                ) from None
 
     def view(self, project_id: str) -> dict:
         record = self.get(project_id)
@@ -280,71 +282,80 @@ class MarketplaceAccessService:
             )
         return record
 
+    @contextmanager
     def _identity_transaction(self, project_id: str):
-        return (self.access._transaction(project_id)
-                if self.settings.auth_mode == "trusted_gateway" else nullcontext())
+        with (
+            self.ledger.lifecycle.lease(project_id),
+            self.access._transaction(project_id)
+            if self.settings.auth_mode == "trusted_gateway" else nullcontext(),
+        ):
+            yield
 
     async def grant(
         self, project_id: str, payload: MarketplaceGrantRequest,
         principal: PrincipalContext | None,
     ) -> dict:
-        actor = self.authorize_admin(project_id, principal)
-        self.reader.require_grantable(payload.connector_id)
-        self._revision(project_id, payload.expected_revision)
-        identity = self._connector_identity(payload.connector_id)
-
-        def authorized():
-            self.authorize_admin(project_id, principal)
+        with self.ledger.lifecycle.lease(project_id):
+            actor = self.authorize_admin(project_id, principal)
+            self.reader.require_grantable(payload.connector_id)
             self._revision(project_id, payload.expected_revision)
-            if self._connector_identity(payload.connector_id) != identity:
-                raise MarketplaceError(
-                    "MARKETPLACE_CONFIGURATION_CHANGED", "The connector app changed.", 409,
-                )
+            identity = self._connector_identity(payload.connector_id)
 
-        observed = await self.reader.read(
-            payload.connector_id, MarketplaceReadRequest(operation="authorized_shops"),
-            authorize=authorized,
-        )
-        shop = next((item for item in observed["shops"] if item["id"] == payload.shop_id), None)
-        if shop is None:
-            raise MarketplaceError(
-                "MARKETPLACE_SHOP_NOT_AUTHORIZED", "The seller token does not authorize this shop.",
-                403,
+            def authorized():
+                self.authorize_admin(project_id, principal)
+                self._revision(project_id, payload.expected_revision)
+                if self._connector_identity(payload.connector_id) != identity:
+                    raise MarketplaceError(
+                        "MARKETPLACE_CONFIGURATION_CHANGED", "The connector app changed.", 409,
+                    )
+
+            observed = await self.reader.read(
+                payload.connector_id, MarketplaceReadRequest(operation="authorized_shops"),
+                authorize=authorized,
             )
-        with (
-            self.ledger._lock_for(f"marketplace-access:{project_id}"),
-            self._identity_transaction(project_id),
-        ):
-            authorized()
-            record = self.get(project_id)
-            if len(record.bindings) >= MAX_BINDINGS:
-                raise MarketplaceError("MARKETPLACE_ACCESS_LIMIT", "Project grant history is full.")
-            now = self.clock()
-            # Renewal replaces the old authority with a fresh immutable binding id.
-            bindings = [
-                item.model_copy(update={"revoked_at": now, "revoked_by": actor})
-                if item.active(now) and item.connector_id == payload.connector_id
-                and item.shop_id == payload.shop_id else item
-                for item in record.bindings
-            ]
-            bindings.append(MarketplaceBinding(
-                connector_id=payload.connector_id, connector_identity=identity,
-                shop_id=shop["id"], shop_name=shop["name"], region=shop["region"],
-                created_by=actor, created_at=now,
-                expires_at=now + timedelta(seconds=payload.expires_in_seconds),
-            ))
-            self.ledger._atomic_write(self.root / f"{project_id}.json", record.model_copy(
-                update={"revision": record.revision + 1, "bindings": bindings},
-            ))
-            return self.view(project_id)
+            shop = next((item for item in observed["shops"] if item["id"] == payload.shop_id), None)
+            if shop is None:
+                raise MarketplaceError(
+                    "MARKETPLACE_SHOP_NOT_AUTHORIZED",
+                    "The seller token does not authorize this shop.",
+                    403,
+                )
+            with (
+                self._identity_transaction(project_id),
+                self.ledger._lock_for(f"marketplace-access:{project_id}"),
+            ):
+                authorized()
+                record = self.get(project_id)
+                if len(record.bindings) >= MAX_BINDINGS:
+                    raise MarketplaceError(
+                        "MARKETPLACE_ACCESS_LIMIT", "Project grant history is full."
+                    )
+                now = self.clock()
+                # Renewal replaces the old authority with a fresh immutable binding id.
+                bindings = [
+                    item.model_copy(update={"revoked_at": now, "revoked_by": actor})
+                    if item.active(now) and item.connector_id == payload.connector_id
+                    and item.shop_id == payload.shop_id else item
+                    for item in record.bindings
+                ]
+                bindings.append(MarketplaceBinding(
+                    connector_id=payload.connector_id, connector_identity=identity,
+                    shop_id=shop["id"], shop_name=shop["name"], region=shop["region"],
+                    created_by=actor, created_at=now,
+                    expires_at=now + timedelta(seconds=payload.expires_in_seconds),
+                ))
+                self.ledger._atomic_write(self.root / f"{project_id}.json", record.model_copy(
+                    update={"revision": record.revision + 1, "bindings": bindings},
+                ))
+                return self.view(project_id)
 
     def revoke(
         self, project_id: str, binding_id: str, expected_revision: int,
         principal: PrincipalContext | None,
     ) -> dict:
         with (
-            self.ledger._lock_for(f"marketplace-access:{project_id}"),
             self._identity_transaction(project_id),
+            self.ledger._lock_for(f"marketplace-access:{project_id}"),
         ):
             actor = self.authorize_admin(project_id, principal)
             record = self._revision(project_id, expected_revision)
@@ -368,82 +379,86 @@ class MarketplaceAccessService:
     async def read_for_run(
         self, project_id: str, run_id: str, request: MarketplaceAgentRequest,
     ) -> dict:
-        run = self._run(project_id, run_id)
-        record = self.get(project_id)
-        if request.operation == "connections":
-            active = [item for item in record.bindings if item.active(self.clock())]
-            page = active[request.offset:request.offset + request.page_size]
-            self._run(project_id, run_id)
-            return {"connections": [
-                {"binding_id": item.id, "shop_name": item.shop_name[:160],
-                 "shop_id": item.shop_id, "connector_id": item.connector_id,
-                 "region": item.region, "expires_at": item.expires_at.isoformat()}
-                for item in page
-            ], "next_offset": (
-                request.offset + len(page) if request.offset + len(page) < len(active) else None
-            )}
-        binding = next((item for item in record.bindings if item.id == request.binding_id), None)
-        if binding is None:
-            raise AuthorizationError("This project has no matching shop grant")
-
-        def authorized():
-            current_run = self._run(project_id, run_id)
-            if current_run.sdk_session_id != run.sdk_session_id:
-                raise AuthorizationError("The bound SDK session changed")
-            current = next((item for item in self.get(project_id).bindings
-                            if item.id == binding.id), None)
-            if current != binding or not binding.active(self.clock()):
-                raise AuthorizationError("The project shop grant expired or was revoked")
-            if self._connector_identity(binding.connector_id) != binding.connector_identity:
-                raise AuthorizationError("The connector app no longer matches the shop grant")
-
-        authorized()
-        observation = await self.reader.read(
-            binding.connector_id,
-            MarketplaceReadRequest(
-                operation=request.operation, shop_id=binding.shop_id,
-                page_size=request.page_size, page_token=request.page_token,
-                product_status=request.product_status,
-            ),
-            authorize=authorized,
-        )
-        data = sanitize_untrusted_payload({
-            "binding_id": binding.id, "product_status": request.product_status,
-            "page_size": request.page_size, "observation": observation,
-        }, UntrustedSource.MARKETPLACE_PAGE)
-        # Reserve space for the fixed notice and source-receipt metadata that the
-        # SDK hook will see alongside this same observation. Include JSON framing
-        # in this conservative size check, even though the sanitizer counts leaves.
-        result_chars = len(json.dumps(data.value, ensure_ascii=False))
-        if data.truncated or result_chars > (
-            UNTRUSTED_LIMITS[UntrustedSource.MARKETPLACE_PAGE].total_chars - 1024
-        ):
-            raise MarketplaceError(
-                "MARKETPLACE_OBSERVATION_TOO_LARGE", "Read fewer products to capture a full page.",
+        with self.ledger.lifecycle.lease(project_id):
+            run = self._run(project_id, run_id)
+            record = self.get(project_id)
+            if request.operation == "connections":
+                active = [item for item in record.bindings if item.active(self.clock())]
+                page = active[request.offset:request.offset + request.page_size]
+                self._run(project_id, run_id)
+                return {"connections": [
+                    {"binding_id": item.id, "shop_name": item.shop_name[:160],
+                     "shop_id": item.shop_id, "connector_id": item.connector_id,
+                     "region": item.region, "expires_at": item.expires_at.isoformat()}
+                    for item in page
+                ], "next_offset": (
+                    request.offset + len(page) if request.offset + len(page) < len(active) else None
+                )}
+            binding = next(
+                (item for item in record.bindings if item.id == request.binding_id), None,
             )
-        # Receipt issuance and revoke are serialized only after HTTP IO has ended.
-        with (
-            self.ledger._lock_for(f"marketplace-access:{project_id}"),
-            self._identity_transaction(project_id),
-            self.ledger._lock_for(run_id),
-        ):
+            if binding is None:
+                raise AuthorizationError("This project has no matching shop grant")
+
+            def authorized():
+                current_run = self._run(project_id, run_id)
+                if current_run.sdk_session_id != run.sdk_session_id:
+                    raise AuthorizationError("The bound SDK session changed")
+                current = next((item for item in self.get(project_id).bindings
+                                if item.id == binding.id), None)
+                if current != binding or not binding.active(self.clock()):
+                    raise AuthorizationError("The project shop grant expired or was revoked")
+                if self._connector_identity(binding.connector_id) != binding.connector_identity:
+                    raise AuthorizationError("The connector app no longer matches the shop grant")
+
             authorized()
-            now = self.clock()
-            receipt = self.ledger.issue_tool_receipt(
-                project_id=project_id, run_id=run_id, tool=TOOL_READ_MARKETPLACE,
-                source_type=EvidenceSourceType.TOOL, canonical_source=observation["source_url"],
-                payload=data.value, object_type=(
-                    "marketplace_product_page" if request.operation == "products"
-                    else "marketplace_order_page"
+            observation = await self.reader.read(
+                binding.connector_id,
+                MarketplaceReadRequest(
+                    operation=request.operation, shop_id=binding.shop_id,
+                    page_size=request.page_size, page_token=request.page_token,
+                    product_status=request.product_status,
                 ),
-                object_key=f"{binding.id}:{observation['request_id']}",
-                object_metadata={"binding_id": binding.id, "shop_id": binding.shop_id,
-                                 "data_scope": "authorized_seller_data"},
-                ttl=min(timedelta(minutes=15), binding.expires_at - now), now=now,
+                authorize=authorized,
             )
-            authorized()
-        return {**data.value, "source_receipt": {
-            "id": receipt.id, "content_hash": receipt.content_hash,
-            "retrieved_at": receipt.retrieved_at.isoformat(),
-            "expires_at": receipt.expires_at.isoformat(),
-        }}
+            data = sanitize_untrusted_payload({
+                "binding_id": binding.id, "product_status": request.product_status,
+                "page_size": request.page_size, "observation": observation,
+            }, UntrustedSource.MARKETPLACE_PAGE)
+            # Reserve space for the fixed notice and source-receipt metadata that the
+            # SDK hook will see alongside this same observation. Include JSON framing
+            # in this conservative size check, even though the sanitizer counts leaves.
+            result_chars = len(json.dumps(data.value, ensure_ascii=False))
+            if data.truncated or result_chars > (
+                UNTRUSTED_LIMITS[UntrustedSource.MARKETPLACE_PAGE].total_chars - 1024
+            ):
+                raise MarketplaceError(
+                    "MARKETPLACE_OBSERVATION_TOO_LARGE",
+                    "Read fewer products to capture a full page.",
+                )
+            # Receipt issuance and revoke are serialized only after HTTP IO has ended.
+            with (
+                self._identity_transaction(project_id),
+                self.ledger._lock_for(f"marketplace-access:{project_id}"),
+                self.ledger._lock_for(run_id),
+            ):
+                authorized()
+                now = self.clock()
+                receipt = self.ledger.issue_tool_receipt(
+                    project_id=project_id, run_id=run_id, tool=TOOL_READ_MARKETPLACE,
+                    source_type=EvidenceSourceType.TOOL, canonical_source=observation["source_url"],
+                    payload=data.value, object_type=(
+                        "marketplace_product_page" if request.operation == "products"
+                        else "marketplace_order_page"
+                    ),
+                    object_key=f"{binding.id}:{observation['request_id']}",
+                    object_metadata={"binding_id": binding.id, "shop_id": binding.shop_id,
+                                     "data_scope": "authorized_seller_data"},
+                    ttl=min(timedelta(minutes=15), binding.expires_at - now), now=now,
+                )
+                authorized()
+            return {**data.value, "source_receipt": {
+                "id": receipt.id, "content_hash": receipt.content_hash,
+                "retrieved_at": receipt.retrieved_at.isoformat(),
+                "expires_at": receipt.expires_at.isoformat(),
+            }}

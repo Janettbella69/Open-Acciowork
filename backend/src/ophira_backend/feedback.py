@@ -10,7 +10,7 @@ import re
 import tempfile
 import threading
 from collections.abc import Iterator, Sequence
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from pathlib import Path
 
 from .constants import EventType, FeedbackKind, RunStatus
@@ -27,6 +27,7 @@ from .models import (
     PrincipalContext,
     RunRecord,
 )
+from .project_lifecycle import ProjectLifecycle
 from .storage import FileLedger
 
 logger = logging.getLogger(__name__)
@@ -81,21 +82,25 @@ class FeedbackStore:
                 os.close(descriptor)
 
     def _write(self, item: FeedbackItem) -> None:
-        descriptor, temporary = tempfile.mkstemp(prefix=".feedback-", suffix=".tmp", dir=self.root)
-        try:
-            with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
-                handle.write(item.model_dump_json(indent=2) + "\n")
-                handle.flush()
-                os.fsync(handle.fileno())
-            os.replace(temporary, self._path(item.id))
-            directory = os.open(self.root, os.O_RDONLY)
+        with (ProjectLifecycle(self.root.parent).lease(item.project_id)
+              if item.project_id else nullcontext()):
+            descriptor, temporary = tempfile.mkstemp(
+                prefix=".feedback-", suffix=".tmp", dir=self.root,
+            )
             try:
-                os.fsync(directory)
+                with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+                    handle.write(item.model_dump_json(indent=2) + "\n")
+                    handle.flush()
+                    os.fsync(handle.fileno())
+                os.replace(temporary, self._path(item.id))
+                directory = os.open(self.root, os.O_RDONLY)
+                try:
+                    os.fsync(directory)
+                finally:
+                    os.close(directory)
             finally:
-                os.close(directory)
-        finally:
-            if os.path.exists(temporary):
-                os.unlink(temporary)
+                if os.path.exists(temporary):
+                    os.unlink(temporary)
 
     def anchor(
         self, payload: FeedbackCreate, ledger: FileLedger

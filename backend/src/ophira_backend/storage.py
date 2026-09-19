@@ -12,6 +12,7 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from functools import wraps
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
@@ -49,11 +50,38 @@ from .models import (
     new_id,
     utc_now,
 )
+from .project_lifecycle import ProjectLifecycle, ProjectUnavailableError
 from .skill_proposal_files import read_relative, relative_parts
 
 
 class LedgerNotFoundError(KeyError):
     pass
+
+
+def _project_operation(method):
+    @wraps(method)
+    def guarded(self, project_id, *args, **kwargs):
+        try:
+            with self.lifecycle.lease(project_id):
+                return method(self, project_id, *args, **kwargs)
+        except ProjectUnavailableError as exc:
+            raise LedgerNotFoundError(project_id) from exc
+    return guarded
+
+
+def _record_operation(model, path_method):
+    def decorate(method):
+        @wraps(method)
+        def guarded(self, identifier, *args, **kwargs):
+            path = getattr(self, path_method)(identifier)
+            try:
+                record = model.model_validate_json(path.read_text(encoding="utf-8"))
+                with self.lifecycle.lease(record.project_id):
+                    return method(self, identifier, *args, **kwargs)
+            except (FileNotFoundError, ProjectUnavailableError) as exc:
+                raise LedgerNotFoundError(identifier) from exc
+        return guarded
+    return decorate
 
 
 class LedgerIdentityScopeError(RuntimeError):
@@ -123,6 +151,7 @@ class FileLedger:
 
     def __init__(self, root: Path, *, ingest_config: IngestConfig | None = None) -> None:
         self.root = root.resolve()
+        self.lifecycle = ProjectLifecycle(self.root)
         self.ingest_config = ingest_config or IngestConfig()
         self.projects_dir = self.root / "projects"
         self.runs_dir = self.root / "runs"
@@ -282,6 +311,7 @@ class FileLedger:
                 "source receipt payload must be finite JSON"
             ) from exc
 
+    @_project_operation
     def issue_tool_receipt(
         self,
         project_id: str,
@@ -424,6 +454,7 @@ class FileLedger:
             )
         return receipt
 
+    @_project_operation
     def replay_tool_receipt(
         self,
         project_id: str,
@@ -464,6 +495,7 @@ class FileLedger:
             expired=checked_at >= receipt.expires_at,
         )
 
+    @_project_operation
     def verify_tool_receipt(
         self,
         project_id: str,
@@ -511,6 +543,7 @@ class FileLedger:
             raise SourceReceiptExpiredError("source receipt has expired")
         return replay
 
+    @_project_operation
     def list_tool_receipts(
         self,
         project_id: str,
@@ -555,10 +588,11 @@ class FileLedger:
             **identity,
             **({"id": self._safe_id(project_id)} if project_id is not None else {}),
         )
-        with self._lock_for(project.id):
+        with self.lifecycle.lease(project.id), self._lock_for(project.id):
             self._atomic_write(self._project_path(project.id), project)
         return project
 
+    @_project_operation
     def bind_project_identity(
         self,
         project_id: str,
@@ -587,6 +621,7 @@ class FileLedger:
 
         return self.update_project(project_id, bind)
 
+    @_project_operation
     def get_project(self, project_id: str) -> OpportunityProject:
         path = self._project_path(project_id)
         if not path.exists():
@@ -597,13 +632,12 @@ class FileLedger:
         projects: list[OpportunityProject] = []
         for path in self.projects_dir.glob("*/project.json"):
             try:
-                projects.append(
-                    OpportunityProject.model_validate_json(path.read_text(encoding="utf-8"))
-                )
-            except (OSError, ValueError):
+                projects.append(self.get_project(path.parent.name))
+            except (OSError, ValueError, LedgerNotFoundError):
                 continue
         return sorted(projects, key=lambda project: project.updated_at, reverse=True)
 
+    @_project_operation
     def update_project(
         self,
         project_id: str,
@@ -617,6 +651,7 @@ class FileLedger:
             self._atomic_write(self._project_path(project_id), project)
             return project
 
+    @_project_operation
     def create_run(
         self,
         project_id: str,
@@ -696,6 +731,7 @@ class FileLedger:
             self._append_manifest(run, 0)
         return run
 
+    @_record_operation(RunRecord, "_run_path")
     def get_run(self, run_id: str) -> RunRecord:
         path = self._run_path(run_id)
         if not path.exists():
@@ -719,8 +755,8 @@ class FileLedger:
         runs: list[RunRecord] = []
         for path in self.runs_dir.glob("*/run.json"):
             try:
-                run = RunRecord.model_validate_json(path.read_text(encoding="utf-8"))
-            except (OSError, ValueError):
+                run = self.get_run(path.parent.name)
+            except (OSError, ValueError, LedgerNotFoundError):
                 continue
             runs.append(run)
         return runs
@@ -745,6 +781,7 @@ class FileLedger:
         ]
         return sorted(matches, key=lambda run: run.created_at, reverse=True)
 
+    @_record_operation(RunRecord, "_run_path")
     def update_run(self, run_id: str, **changes: Any) -> RunRecord:
         with self._lock_for(run_id):
             run = self.get_run(run_id)
@@ -758,6 +795,7 @@ class FileLedger:
                 self._append_manifest(updated, summary.last_sequence)
             return updated
 
+    @_record_operation(RunRecord, "_run_path")
     def get_run_summary(self, run_id: str) -> RunSummary:
         with self._lock_for(run_id):
             run = self.get_run(run_id)
@@ -802,7 +840,7 @@ class FileLedger:
             return repaired
 
     def append_event(self, event: EventEnvelope) -> EventEnvelope:
-        with self._lock_for(event.run_id):
+        with self.lifecycle.lease(event.project_id), self._lock_for(event.run_id):
             summary = self.get_run_summary(event.run_id)
             sequence = summary.last_sequence + 1
             stored = event.model_copy(
@@ -837,7 +875,7 @@ class FileLedger:
         self._safe_id(resource_id)
         if event.data.get("resource_id") != resource_id:
             raise ValueError("resource notification identity does not match")
-        with self._lock_for(event.run_id):
+        with self.lifecycle.lease(event.project_id), self._lock_for(event.run_id):
             run = self.get_run(event.run_id)
             if event.project_id != run.project_id or event.trace_id != run.trace_id:
                 raise ValueError("resource notification is outside the Run scope")
@@ -860,6 +898,7 @@ class FileLedger:
             # remains held across the uniqueness check and append.
             return self.append_event(event)
 
+    @_record_operation(RunRecord, "_run_path")
     def list_events(
         self,
         run_id: str,
@@ -1022,6 +1061,7 @@ class FileLedger:
         assert updated is not None
         return updated, affected
 
+    @_project_operation
     def workspace_for_project(self, project_id: str) -> Path:
         from .workspace_checkpoints import WorkspaceCheckpoints
 
@@ -1063,6 +1103,7 @@ class FileLedger:
             index += 1
         return relative.as_posix(), path
 
+    @_project_operation
     def save_upload(
         self,
         project_id: str,
@@ -1100,6 +1141,7 @@ class FileLedger:
             )
         return artifact
 
+    @_project_operation
     def register_artifact(
         self,
         project_id: str,
@@ -1152,6 +1194,7 @@ class FileLedger:
         self.update_project(project_id, lambda item: item.artifacts.append(artifact))
         return artifact
 
+    @_project_operation
     def scan_workspace(self, project_id: str, *, run_id: str | None = None) -> list[Artifact]:
         workspace = self.workspace_for_project(project_id).resolve()
         registered: list[Artifact] = []
@@ -1169,6 +1212,7 @@ class FileLedger:
                 continue
         return registered
 
+    @_project_operation
     def capture_artifact(
         self, project_id: str, artifact_id: str, *, limit: int = MAX_ARTIFACT_BYTES,
     ) -> tuple[Artifact, bytes]:
@@ -1191,6 +1235,7 @@ class FileLedger:
             raise ValueError("artifact version is unavailable or has changed")
         return artifact, raw
 
+    @_project_operation
     def get_artifact(self, project_id: str, artifact_id: str) -> tuple[Artifact, Path]:
         """Local inspection helper. HTTP uses capture_artifact's verified byte copy."""
         artifact, _ = self.capture_artifact(project_id, artifact_id)
@@ -1255,11 +1300,12 @@ class FileLedger:
         return self.schedules_dir / self._safe_id(schedule_id) / "schedule.json"
 
     def create_schedule(self, schedule: Schedule) -> Schedule:
-        self.get_project(schedule.project_id)
-        with self._lock_for(schedule.id):
+        with self.lifecycle.lease(schedule.project_id), self._lock_for(schedule.id):
+            self.get_project(schedule.project_id)
             self._atomic_write(self._schedule_path(schedule.id), schedule)
         return schedule
 
+    @_record_operation(Schedule, "_schedule_path")
     def get_schedule(self, schedule_id: str) -> Schedule:
         path = self._schedule_path(schedule_id)
         if not path.exists():
@@ -1270,11 +1316,12 @@ class FileLedger:
         schedules: list[Schedule] = []
         for path in self.schedules_dir.glob("*/schedule.json"):
             try:
-                schedules.append(Schedule.model_validate_json(path.read_text(encoding="utf-8")))
-            except (OSError, ValueError):
+                schedules.append(self.get_schedule(path.parent.name))
+            except (OSError, ValueError, LedgerNotFoundError):
                 continue
         return sorted(schedules, key=lambda schedule: schedule.created_at, reverse=True)
 
+    @_record_operation(Schedule, "_schedule_path")
     def update_schedule(self, schedule_id: str, **changes: Any) -> Schedule:
         with self._lock_for(schedule_id):
             schedule = self.get_schedule(schedule_id)
@@ -1282,6 +1329,7 @@ class FileLedger:
             self._atomic_write(self._schedule_path(schedule_id), updated)
             return updated
 
+    @_record_operation(Schedule, "_schedule_path")
     def advance_schedule(
         self,
         schedule_id: str,

@@ -1,0 +1,13 @@
+{
+  "result": "passed",
+  "transport": "two separate real loopback HTTP workers",
+  "process_death_after_durable_intent_and_native_cleanup": true,
+  "peer_denies_reads_and_new_runs": true,
+  "startup_completes_erasure": true,
+  "same_operation_retry_is_idempotent": true,
+  "other_project_preserved": true,
+  "application_and_native_content_absent": true,
+  "model_calls": 0,
+  "command": "PYTHONPATH=backend/src .venv/bin/python backend/scripts/check_project_deletion.py",
+  "boundary": "Temporary fixture data; no external services or user data"
+}

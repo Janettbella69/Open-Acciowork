@@ -115,6 +115,10 @@ class TaskExperienceStore:
         return self._path(schedule_id).with_suffix(".transaction.json")
 
     def _recover(self, schedule: Schedule) -> None:
+        with self.ledger.lifecycle.lease(schedule.project_id):
+            self._recover_owned(schedule)
+
+    def _recover_owned(self, schedule: Schedule) -> None:
         """Finish the sole durable intent before any later Schedule mutation.
 
         All callers hold the same Schedule lock. Publishing a bounded write-ahead
@@ -146,12 +150,13 @@ class TaskExperienceStore:
     def _commit(
         self, schedule: Schedule, state: TaskExperienceLedger, snapshot: dict[str, Any],
     ) -> None:
-        state_value = state.model_dump(mode="json")
-        self.ledger._atomic_write(self._transaction_path(schedule.id), {
-            "state": state_value, "run_context": snapshot,
-            "digest": _hash([state_value, snapshot]),
-        })
-        self._recover(schedule)
+        with self.ledger.lifecycle.lease(schedule.project_id):
+            state_value = state.model_dump(mode="json")
+            self.ledger._atomic_write(self._transaction_path(schedule.id), {
+                "state": state_value, "run_context": snapshot,
+                "digest": _hash([state_value, snapshot]),
+            })
+            self._recover(schedule)
 
     def _scope(self, run: RunRecord) -> Schedule:
         if not run.schedule_id or run.standing_intent_id:
@@ -183,7 +188,10 @@ class TaskExperienceStore:
         run = self.ledger.get_run(run.id)
         if not run.schedule_id or run.standing_intent_id:
             return ""
-        with self.ledger._lock_for(run.schedule_id), self.ledger._lock_for(run.id):
+        with (
+            self.ledger.lifecycle.lease(run.project_id),
+            self.ledger._lock_for(run.schedule_id), self.ledger._lock_for(run.id),
+        ):
             run = self.ledger.get_run(run.id)
             schedule = self._scope(run)
             self._recover(schedule)
@@ -256,7 +264,10 @@ class TaskExperienceStore:
         """Only the bound main-Agent MCP call with durable source events may write."""
         # Schedule -> Run is the shared lock order. Reload after acquiring both:
         # cancellation/session updates must not race a stale RUNNING snapshot.
-        with self.ledger._lock_for(schedule_id), self.ledger._lock_for(run_id):
+        with (
+            self.ledger.lifecycle.lease(project_id),
+            self.ledger._lock_for(schedule_id), self.ledger._lock_for(run_id),
+        ):
             run = self.ledger.get_run(run_id)
             if run.project_id != project_id or run.schedule_id != schedule_id:
                 raise ValueError("experience tool scope mismatch")
@@ -365,7 +376,8 @@ class TaskExperienceStore:
             return revision
 
     def list(self, schedule_id: str) -> dict[str, Any]:
-        with self.ledger._lock_for(schedule_id):
+        project_id = self.ledger.get_schedule(schedule_id).project_id
+        with self.ledger.lifecycle.lease(project_id), self.ledger._lock_for(schedule_id):
             schedule = self.ledger.get_schedule(schedule_id)
             state = self._load(schedule)
             config_hash = schedule_experience_config_hash(schedule)
@@ -383,7 +395,8 @@ class TaskExperienceStore:
     def retire(
         self, schedule_id: str, entry_id: str, payload: TaskExperienceRetire, *, actor: str,
     ) -> dict[str, Any]:
-        with self.ledger._lock_for(schedule_id):
+        project_id = self.ledger.get_schedule(schedule_id).project_id
+        with self.ledger.lifecycle.lease(project_id), self.ledger._lock_for(schedule_id):
             state = self._load(self.ledger.get_schedule(schedule_id))
             entry = next((item for item in state.entries if item.id == entry_id), None)
             if entry is None:

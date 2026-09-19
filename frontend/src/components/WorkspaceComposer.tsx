@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type ChangeEvent, type FormEvent, type ReactNode } from 'react'
 import Markdown from 'react-markdown'
 import {
   dimensions,
@@ -31,6 +31,8 @@ import ProjectMetricsPanel from './ProjectMetricsPanel'
 import ProjectKnowledgePanel from './ProjectKnowledgePanel'
 import ProjectArtifactsPanel from './ProjectArtifactsPanel'
 import ProjectExportPanel from './ProjectExportPanel'
+import ProjectDeletionPanel from './ProjectDeletionPanel'
+import type { ProjectDeletionRequest } from '../api/projectDeletion'
 import ProjectCollaborationPanel from './ProjectCollaborationPanel'
 import ProjectTemplatesPanel from './ProjectTemplatesPanel'
 import WorkspaceRecoveryPanel from './WorkspaceRecoveryPanel'
@@ -70,6 +72,11 @@ type WorkspaceComposerProps = {
   onSubmit: (event: FormEvent<HTMLFormElement>) => void
   onProjectRefresh: () => void
   onProjectCreated?: (project: OpportunityProject) => void
+  deletionProgress?: ReactNode
+  deletionPending?: boolean
+  deletionCanReviewAgain?: boolean
+  onDeletionReviewAgain?: () => void
+  onDeleteProject?: (projectId: string, request: ProjectDeletionRequest) => Promise<void>
   onNewResearch: () => void
   onSelectProject: (projectId: string) => void
   onCancel: () => void
@@ -339,6 +346,11 @@ export default function WorkspaceComposer({
   onSubmit,
   onProjectRefresh,
   onProjectCreated,
+  deletionProgress,
+  deletionPending = false,
+  deletionCanReviewAgain = false,
+  onDeletionReviewAgain = () => {},
+  onDeleteProject,
   onNewResearch,
   onSelectProject,
   onCancel,
@@ -650,6 +662,7 @@ export default function WorkspaceComposer({
 
         {!sessionOpen ? (
           <div className="conversation-entry-center">
+            {deletionProgress}
             <h1>What can I do for you?</h1>
 
             {composer}
@@ -668,6 +681,7 @@ export default function WorkspaceComposer({
         ) : (
           <section className="conversation-session" aria-label={t('Conversation with TradeMind')}>
             <div className="conversation-thread">
+              {deletionProgress}
               <article className="conversation-user-message">
                 <p>{run?.prompt ?? project?.objective ?? value}</p>
               </article>
@@ -851,6 +865,9 @@ export default function WorkspaceComposer({
                 {project && <ProjectKnowledgePanel projectId={project.id} revision={project.artifacts.map((item) => item.id).join(':')} />}
                 {project && <ProjectArtifactsPanel projectId={project.id} artifacts={project.artifacts} onChanged={onProjectRefresh} />}
                 {project && <ProjectExportPanel projectId={project.id} />}
+                {project && onDeleteProject && <ProjectDeletionPanel projectId={project.id} pending={deletionPending}
+                  canReviewAgain={deletionCanReviewAgain} onReviewAgain={onDeletionReviewAgain}
+                  onSubmit={onDeleteProject} onAccessCheck={onProjectRefresh} />}
                 {project && <ProjectCollaborationPanel project={project} currentRun={run} events={events} />}
                 {project && onProjectCreated && <ProjectTemplatesPanel project={project} onCreated={onProjectCreated} />}
                 {project && <WorkspaceRecoveryPanel projectId={project.id} onChanged={onProjectRefresh} />}

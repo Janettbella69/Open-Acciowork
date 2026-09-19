@@ -4,6 +4,7 @@ import re
 
 from .artifact_files import read_snapshot
 from .backup_files import BackupError, parse_json
+from .project_deletion_proofs import deleted_project_ids, proof_hash, template_deletion_proofs
 from .project_template_apply import TemplateApplications
 from .project_template_models import (
     APPLICATION_ID,
@@ -18,6 +19,11 @@ from .skill_proposal_files import read_relative
 
 
 def inspect_project_templates(data, projects):
+    try:
+        proofs = template_deletion_proofs(data)
+        deleted = deleted_project_ids(data)
+    except (OSError, ValueError) as exc:
+        raise BackupError("project_deletion_proof_invalid") from exc
     root = data / "collaboration" / "project-templates"
     origins = {
         item.template_origin.application_id: item
@@ -122,5 +128,28 @@ def inspect_project_templates(data, projects):
             raise
         except (OSError, ValueError, KeyError, IndexError) as exc:
             raise BackupError("project_templates_invalid") from exc
+    for identifier, target in origins.items():
+        if identifier in completed:
+            continue
+        link = proofs.get(identifier)
+        if (
+            link is None
+            or link.source_project_id not in deleted
+            or link.target_project_id != target.id
+            or link.origin_hash != proof_hash(target.template_origin)
+            or link.identity_binding != target.identity_binding
+            or link.tenant_id != target.tenant_id
+            or link.target_owner_principal_id != target.owner_principal_id
+        ):
+            raise BackupError("project_template_deleted_origin_invalid")
+        by_id = {row.id: row for row in target.artifacts}
+        for reference in target.template_origin.references:
+            artifact = by_id.get(reference.artifact_id)
+            if artifact is None or (
+                artifact.checksum != reference.source.checksum
+                or artifact.size_bytes != reference.source.size_bytes
+            ):
+                raise BackupError("project_template_deleted_reference_invalid")
+        completed.add(identifier)
     if set(origins) != completed:
         raise BackupError("project_template_origin_invalid")

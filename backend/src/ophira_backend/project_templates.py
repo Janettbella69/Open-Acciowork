@@ -85,12 +85,23 @@ class ProjectTemplates:
 
     @contextmanager
     def transaction(self, project_id, principal, *, write=False):
+        from .project_lifecycle import ProjectLifecycleBusyError, ProjectUnavailableError
+
         authority = self.access._transaction(project_id) if principal else nullcontext()
-        with authority, self.ledger._lock_for(f"project-templates:{project_id}"):
-            project = self.authorize(project_id, principal, write=write)
-            self.directory(self.root / self.ledger._safe_id(project_id))
-            yield project
-            self.authorize(project_id, principal, write=write)
+        try:
+            with (
+                self.ledger.lifecycle.lease(project_id),
+                authority,
+                self.ledger._lock_for(f"project-templates:{project_id}"),
+            ):
+                project = self.authorize(project_id, principal, write=write)
+                self.directory(self.root / self.ledger._safe_id(project_id))
+                yield project
+                self.authorize(project_id, principal, write=write)
+        except ProjectUnavailableError as exc:
+            raise LedgerNotFoundError(project_id) from exc
+        except ProjectLifecycleBusyError as exc:
+            raise TemplateConflict("Project has active operations; retry later") from exc
 
     def folder(self, project_id, template_id):
         if not re.fullmatch(TEMPLATE_ID, template_id):

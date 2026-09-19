@@ -9,7 +9,7 @@ import tempfile
 import threading
 import unicodedata
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from datetime import datetime
 from pathlib import Path
 from typing import Literal, Protocol
@@ -33,6 +33,7 @@ from .models import (
     RunRecord,
     utc_now,
 )
+from .project_lifecycle import ProjectLifecycle
 
 MemoryDecisionValue = Literal["approve", "reject", "disable"]
 
@@ -302,7 +303,10 @@ class FileMemoryProvider:
         identity = (self.root, key)
         with _SCOPE_LOCKS_GUARD:
             lock = _SCOPE_LOCKS.setdefault(identity, threading.RLock())
-        with lock:
+        scope, _, scope_id = key.partition(":")
+        lifecycle = (ProjectLifecycle(self.root.parent).lease(scope_id)
+                     if scope == MemoryScope.PROJECT.value else nullcontext())
+        with lifecycle, lock:
             held = getattr(_HELD_SCOPE_LOCKS, "keys", set())
             if identity in held:
                 yield
@@ -499,6 +503,9 @@ class FileMemoryProvider:
             if not scope_root.exists():
                 continue
             for scope_dir in (path for path in scope_root.iterdir() if path.is_dir()):
+                if (scope == MemoryScope.PROJECT
+                        and ProjectLifecycle(self.root.parent).has_deletion(scope_dir.name)):
+                    continue
                 with self._lock_for(f"{scope}:{scope_dir.name}"):
                     self._discard_scope_staging(scope, scope_dir.name)
                     tombstones = self._read_tombstones(scope, scope_dir.name)
@@ -636,6 +643,11 @@ class FileMemoryProvider:
             if not scope_root.exists():
                 continue
             for items_path in scope_root.glob("*/items.json"):
+                if (scope == MemoryScope.PROJECT
+                        and ProjectLifecycle(self.root.parent).has_deletion(
+                            items_path.parent.name,
+                        )):
+                    continue
                 for item in self._read_items(scope, items_path.parent.name):
                     if item.id == memory_id:
                         return item

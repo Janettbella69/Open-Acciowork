@@ -225,7 +225,10 @@ class ProjectComments:
     @contextmanager
     def _transaction(self, project_id, principal, permission=ProjectPermission.PROJECT_READ):
         authority = self.access._transaction(project_id) if principal else nullcontext()
-        with authority, self.ledger._lock_for(f"project-comments:{project_id}"):
+        with (
+            self.ledger.lifecycle.lease(project_id), authority,
+            self.ledger._lock_for(f"project-comments:{project_id}"),
+        ):
             project = self.authorize(project_id, principal, permission)
             path = self._path(project_id)
             try:

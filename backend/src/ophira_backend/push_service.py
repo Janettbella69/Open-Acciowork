@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
+from contextlib import ExitStack
 from datetime import datetime, timedelta
 from time import monotonic
 
@@ -15,6 +16,7 @@ from .companion_authorization import authorize_companion_project
 from .config import Settings
 from .models import utc_now
 from .permissions import PermissionBroker
+from .project_lifecycle import ProjectLifecycleBusyError, ProjectUnavailableError
 from .push_store import PushRecord, PushStore, PushWake
 from .push_transport import PushSubscription, WebPushAdapter
 from .storage import FileLedger
@@ -97,6 +99,21 @@ class PushDeliveryService:
         return sources
 
     async def _deliver(self, device_id: str, now: datetime) -> None:
+        try:
+            projects = self._projects(device_id)
+        except CompanionError:
+            projects = set()
+        try:
+            with ExitStack() as leases:
+                for project_id in sorted(projects):
+                    leases.enter_context(self.ledger.lifecycle.lease(project_id))
+                await self._deliver_owned(device_id, now, projects)
+        except (ProjectUnavailableError, ProjectLifecycleBusyError):
+            return
+
+    async def _deliver_owned(
+        self, device_id: str, now: datetime, leased_projects: set[str],
+    ) -> None:
         async with self._slots:
             with self.store.delivery_lease(device_id) as owned:
                 if not owned:
@@ -106,6 +123,8 @@ class PushDeliveryService:
                     return
                 try:
                     projects = self._projects(device_id)
+                    if not projects.issubset(leased_projects):
+                        return  # Authority changed; recapture leases on the next tick.
                 except CompanionError:
                     self.store.unsubscribe(
                         device_id, "device_authority_revoked", generation=record.generation,
@@ -174,7 +193,10 @@ class PushDeliveryService:
                     return
                 try:
                     # Revalidate after preparing the durable attempt, before any external send.
-                    active = self._sources(self._projects(device_id), now)
+                    current_projects = self._projects(device_id)
+                    if not current_projects.issubset(leased_projects):
+                        return
+                    active = self._sources(current_projects, now)
                     if not set(wake.anchors).intersection(active):
                         wake.state, wake.reason = "cancelled", "no_pending_updates"
                         self.store.save(record)

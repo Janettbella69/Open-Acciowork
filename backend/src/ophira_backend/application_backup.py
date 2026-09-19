@@ -24,6 +24,7 @@ from .backup_files import (
 from .constants import TERMINAL_RUN_STATUSES
 from .maintenance import MAINTENANCE_LOCK, DataDirectoryBusyError, data_directory_lease
 from .project_comments import MAX_COMMENT_BYTES, CommentLedger
+from .project_deletion_proofs import load_deletion_proofs
 from .project_template_backup import inspect_project_templates
 from .skill_proposal_files import directory_fd, read_relative
 from .skill_proposals import SkillProposalService
@@ -90,7 +91,9 @@ def inspect_application(data: Path, plugin: Path) -> dict:
             from .artifact_files import read_snapshot
 
             for identifier in checkpoints._ids(
-                project.id, "workspace-checkpoints", MAX_CHECKPOINTS,
+                project.id,
+                "workspace-checkpoints",
+                MAX_CHECKPOINTS,
             ):
                 item = checkpoints.load(project.id, identifier)
                 for row in item.files:
@@ -121,13 +124,19 @@ def inspect_application(data: Path, plugin: Path) -> dict:
             if path.name.startswith(".") and path.name.endswith(".tmp"):
                 continue  # Uncommitted atomic-write staging is not discussion history.
             try:
-                record = CommentLedger.model_validate_json(read_relative(
-                    data, f"collaboration/comments/{path.name}", MAX_COMMENT_BYTES,
-                ))
+                record = CommentLedger.model_validate_json(
+                    read_relative(
+                        data,
+                        f"collaboration/comments/{path.name}",
+                        MAX_COMMENT_BYTES,
+                    )
+                )
                 project = projects[record.project_id]
-                if (path.name != f"{project.id}.json"
-                        or record.tenant_id != project.tenant_id
-                        or record.identity_binding != project.identity_binding):
+                if (
+                    path.name != f"{project.id}.json"
+                    or record.tenant_id != project.tenant_id
+                    or record.identity_binding != project.identity_binding
+                ):
                     raise ValueError("comment scope mismatch")
             except (OSError, ValueError, KeyError) as exc:
                 raise BackupError("project_comments_invalid") from exc
@@ -212,13 +221,27 @@ def inspect_application(data: Path, plugin: Path) -> dict:
         ):
             raise BackupError("proposal_publication_receipt_mismatch")
     imports = inspect_skill_imports(ledger, registry)
+    try:
+        deleted_publications = {}
+        for proof in load_deletion_proofs(data).values():
+            for receipt in proof.publications:
+                if receipt.proposal_id in deleted_publications:
+                    raise ValueError("duplicate deleted publication proof")
+                deleted_publications[receipt.proposal_id] = receipt
+    except (OSError, ValueError) as exc:
+        raise BackupError("project_deletion_proof_invalid") from exc
     for proposal_id, receipt in canonical.get("publication_receipts", {}).items():
-        if proposal_id not in by_id and proposal_id not in imports:
+        deleted_receipt = deleted_publications.get(proposal_id)
+        if deleted_receipt is not None and deleted_receipt.model_dump(mode="json") != receipt:
+            raise BackupError("deleted_publication_receipt_mismatch")
+        if proposal_id not in by_id and proposal_id not in imports and deleted_receipt is None:
             raise BackupError("publication_proposal_missing")
         namespace, name = receipt["skill_id"].split(":", 1)
         registry._skill_from_history_unlocked(
             namespace, name, receipt["content_hash"], enabled=False
         )
+    if set(deleted_publications) - set(canonical.get("publication_receipts", {})):
+        raise BackupError("deleted_publication_receipt_missing")
     return {
         "projects": sorted(projects),
         "runs": sorted(runs),
