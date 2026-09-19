@@ -30,7 +30,7 @@
 | FR-18 恢复 | delivered：保存产物、错误分类、重试与重启恢复；Run 起点的完整可支持工作区快照、Bash 修改恢复、人工变更预览/确认/结果重试、中断目录切换修复、真实进程退出与冷备往返；同项目执行与产物收尾租约 | deferred：真实 SDK 故障注入、生产/跨宿主恢复、容量保留管理、性能与浏览器目视验收 |
 | FR-19 Deep Research | delivered：输入框内显式开关发起（默认关闭、运行中锁定）；三种原生只读研究单元的一次新建/同 Run 续接约束；共享预算/取消/原始截止时间；运行中资源 UI、来源包与主 Agent 去重落账；真实 DeepSeek 合成来源上的三单元并行/来源复核/证据合并与报告验收 | deferred：开放互联网研究质量、真实取消/耗尽/长时墙钟故障矩阵、其他 Provider 与浏览器目视验收 |
 | FR-20 GUI | delivered：L1/L2 真实浏览器 smoke；项目独立店铺 profile、用户登录确认、当前页观察引用、主Agent页面动作/报表下载与来源/产物落账、真实Chromium离线链路 | deferred：真实卖家后台/验证码/风控兼容性和模型联调；真实攻击/恢复矩阵；L3 桌面桥与 OS 权限治理未实现 |
-| FR-21 Connector | delivered：Catalog/Vault/health/revoke、HTTPS JSON send_message；五平台官方文档入口，TikTok Shop授权店铺/商品分页只读adapter、项目店铺授权/到期/撤销、主Agent来源凭证接入与中英文管理员UI；项目店铺身份可关联平台Connector、独立浏览器授权及数据展示 | deferred：其余邮箱/店铺/CRM/社媒垂直adapter；TikTok Shop OAuth/refresh、真实授权test-account及模型调用验收/外发全链；API与浏览器数据自动合并 |
+| FR-21 Connector | delivered：Catalog/Vault/health/revoke、HTTPS JSON send_message；六平台官方入口，TikTok Shop授权店铺/商品与Shopify同组织自有店铺/商品/近期订单只读adapter、项目店铺授权/到期/撤销、主Agent来源凭证与中英文管理员UI；含Shopify的店铺身份配置、同平台Connector关联、独立浏览器授权及数据展示 | deferred：其余邮箱/店铺/CRM/社媒垂直adapter；TikTok Shop OAuth/refresh、Shopify组织外店铺授权、真实授权test-account及模型调用验收/外发全链；API与浏览器数据自动合并 |
 | FR-22 组织治理 | delivered：单部署租户 principal/membership/策略；共享项目成员管理UI与版本冲突保护；持久团队讨论/回复/对象关联/编辑历史/解决状态；可复用项目模板、固定参考版本与来源、核对后创建和中断恢复；组织私有Skill导入人审、固定版本查看/导出、独立启停/恢复、跨进程凭证与冷备恢复 | deferred：真实身份网关联调、租户分区与隔离 runner、长期容量与浏览器目视验收 |
 | FR-23 Web 兜底 | delivered：Serper/Tavily 适配与 SSRF 防护 | deferred：真实配置搜索服务和 Provider 降级 E2E |
 | FR-24 IM | delivered：飞书签名入站/身份绑定/同 Agent/持久回复重试 | deferred：真实飞书/Lark 租户 E2E；微信适配未实现 |
@@ -50,7 +50,7 @@
 | §4.16 任务经验 | delivered：专属工具与版本/来源账本、创建时配置指纹、低信任检索注入、容量/事务恢复与人工停用UI；deferred：真实Provider自主调用及长期判断质量 |
 | §4.12 事件 | delivered：有真实Run归属的evidence.added/decision.recorded、持久幂等补发与完整SSE尾部消费；deferred：产物更新、记忆、无Run项目变更和 schedule/preflight 细分事件 |
 | §3.9 / §4.10 | delivered：自动调度跨进程抢占与事件汇总恢复；Bash 工作区快照与人审恢复、跨进程目录切换修复；deferred：其余事件故障矩阵、生产恢复/容量与性能、CPU/内存/进程/输出限制 |
-| §3.9 数据主权 | delivered：操作者CLI完整数据目录冷备份与新目录恢复，覆盖项目账本/提案/Registry/工作区检查点一致性；项目工作文件恢复UI；deferred：项目/会话/凭据的完整授权导出与删除（记忆已交付）、全应用恢复UI及生产灾备 |
+| §3.9 数据主权 | delivered：操作者CLI完整数据目录冷备份与新目录恢复，覆盖项目账本/提案/Registry/工作区检查点一致性；项目工作文件恢复UI；项目owner/admin审核清单后导出文件、应用可见会话、来源与相关账本ZIP；deferred：项目/会话删除、凭据独立授权导出与删除（记忆已交付）、全应用恢复UI及生产灾备；项目ZIP不含运行时会话、凭据和浏览器登录资料 |
 | §3.9 性能 | delivered：本地ASGI单/4并发各100样本，创建/首事件持久化/离线task取消P95基线；deferred：真实SDK进程、网络/SSE运输、多worker与生产负载验收 |
 | §3.9 / §3.10 | delivered：项目范围按Provider/model/Skill/tool/错误的有界指标汇总；deferred：业务成功指标、区域与数据流披露 |
 | §3.11 / §6.6 | deferred：当前 L2 基线、人亲自标注的 gold、judge 校准与 TPR/TNR 门槛；不能由 AI 伪造标注 |
@@ -851,3 +851,48 @@ Browser 发现列表仍为空，浏览器目视验收保持开放。真实组织
   未修改或纳入本轮提交。原有店铺浏览器未提交修改和 `deploy/companion/` 同样保留。
 - 主 JS 783.51 kB，既有大于 500 kB 的构建提示保留。Browser 插件发现列表为空，
   页面复核使用仓库已有 Playwright/Chromium 与临时后端；不宣称真实手机或付费 Provider 验收。
+
+## 2026-09-19：审核后项目 ZIP 导出与 Shopify 店铺身份
+
+交付前基线：`5cb8379`。接续原有未完成的导出草稿和 Shopify 店铺身份改动，
+交付范围以 [项目数据导出](project-export.md) 和 [店铺浏览器](shop-browsers.md) 为准。
+
+| 要求 | 状态 | 验证与边界 |
+|---|---|---|
+| 项目数据可携带 | delivered | 本地操作者及当前项目 owner/admin 审核清单后下载 ZIP；保存文件、不可变版本、应用可见会话、来源、项目记忆及相关持久账本 |
+| 导出前后内容与权限一致 | delivered | 绑定项目/主体/租户/角色/会话的审核指纹；下载重新捕获、复核权限和数据；源文件散列、跨项目来源、删除记忆、符号/硬链接与容量保护 |
+| 导出界面与错误处理 | delivered | 中英文、分页清单、取消和项目切换保护；403/404/409 清除旧预览；真实忙碌提示；StrictMode 首次展开仅发送一次预览请求 |
+| Shopify 店铺身份与窄屏显示 | delivered | 平台选择、可选同平台 Connector、创建/编辑/回读；不产生 API 或浏览器授权；160字符连续名称/ID 在320–1440px均不撑开卡片 |
+| 项目/会话删除、凭据独立导出删除、运行时恢复与生产灾备 | deferred | 本项目 ZIP 不承担上述能力，原有全量 PRD 目标继续开放 |
+| 真实 Shopify 登录/API、Provider、手机与生产多租户验收 | deferred | 本轮临时本地数据、测试卖家 DNS 和无模型运行时不能替代这些外部验收 |
+
+发现并修复的具体缺陷：原导出草稿没有可用服务/API/UI；已保存店铺及已发布 Skill 候选的
+严格日期字段不能从普通 Python 字典反序列化；损坏记忆历史和缺省汇总字段可能触发500；
+Skill 候选的跨项目运行摘要、审核/清单/包散列以及商业动作和 receipt 来源必须一致核验。
+共享存储按项目成员集合捕获，避免其他项目更新无故使当前清单失效。提取已有 Skill 候选
+元数据检查供导出复用，没有新增模型运行路径或读取共享 Skill 库。
+
+浏览器实测另复现并修复：StrictMode 重复 effect 的第一个请求虽被浏览器取消，后端线程仍
+持有租约，第二次预览因此冲突；请求发起前改为微任务检查取消状态。超长店铺名曾让卡片达到
+1191px，现四档视口下卡片宽均与容器一致。固定 DNS 测试只用于隔离环境的身份校验，生产
+SSRF 检查保持原样；环境 DNS 代理返回198.18地址时仍正确拒绝保存，不因此关闭保护。
+
+验证命令与结果：
+
+- `OPHIRA_CONTRACT_PROVIDER= PYTHONPATH=backend/src .venv/bin/python -m pytest backend/tests -q`：
+  **1980 passed / 13 skipped**（96.57秒）；导出 helper/service/API/integrity 专项 **85 passed**。
+- 前端 `npm run test:run`：**384 passed / 38 files**；`npm run lint`、`npm run build`（含
+  TypeScript）通过。主 JS 795.27kB，既有大于500kB提示保留。
+- `.venv/bin/ruff check backend/src backend/tests backend/scripts/check_project_export.py evals/tools`
+  全部通过，不再排除原来的导出草稿；`git diff --check`通过。
+- eval tools **59 passed**；离线 Snapshot **61/61**。
+- `PYTHONPATH=backend/src .venv/bin/python backend/scripts/check_project_export.py`：真实独立
+  loopback HTTP服务验证创建、上传、Shopify身份、审核失效和ZIP字节/散列；
+  [HTTP报告](../evals/reports/project-export-20260919/http-verification.json)。
+- 仓库 Playwright/Chromium 配合临时后端：真实下载附件名称、ZIP完整性与可见对话、内容变化
+  后409与刷新、StrictMode单次请求、中英文界面、320–1440px店铺卡片及320/400/760px导出面板
+  检查通过；[浏览器报告与截图](../evals/reports/project-export-20260919/browser-verification.json)。
+  Browser插件发现列表为空，因此使用已有本地浏览器测试工具。
+
+本轮未读取实际凭据目录、未调用真实模型或卖家接口、未启动店铺登录窗口。
+`deploy/companion/` 原有未跟踪内容保留，不纳入本批交付。

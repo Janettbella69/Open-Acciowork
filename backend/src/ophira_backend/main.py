@@ -197,6 +197,7 @@ from .permissions import PermissionBroker, PermissionNotFoundError
 from .policy import OrgPolicyStore, PolicyDeniedError
 from .presentation_tools import PRESENTATION_COMPONENTS, PRESENTATION_SCHEMA_VERSION
 from .project_events import ProjectEventProjector
+from .project_export_api import register_project_export_routes
 from .project_metrics import (
     MAX_METRICS_DAYS,
     MAX_METRICS_RUNS,
@@ -260,6 +261,8 @@ def _request_principal(request: Request) -> PrincipalContext | None:
 
 
 def _project_route_permission(method: str, path: str) -> ProjectPermission:
+    if path.split("/")[4:5] == ["export"]:
+        return ProjectPermission.PROJECT_EXPORT
     if "/access" in path:
         return ProjectPermission.PROJECT_ACCESS_MANAGE
     if path.split("/")[4:5] == ["comments"] and method not in {"GET", "HEAD"}:
@@ -601,6 +604,9 @@ def _create_app(
     register_project_template_routes(
         application, ledger, project_access, settings, _read_bounded_body,
     )
+    register_project_export_routes(
+        application, ledger, project_access, settings, _read_bounded_body,
+    )
     register_skill_repository_routes(
         application, ledger, skills, settings, _read_bounded_body,
     )
@@ -788,7 +794,7 @@ def _create_app(
         parts = request.url.path.split("/")
         if parts[1:3] == ["api", "skills"] or (
             parts[1:3] == ["api", "projects"] and parts[4:5] in (
-                ["comments"], ["collaboration"], ["access"], ["templates"],
+                ["comments"], ["collaboration"], ["access"], ["templates"], ["export"],
             )
         ):
             response.headers["Cache-Control"] = "no-store"

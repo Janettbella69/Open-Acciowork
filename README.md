@@ -123,6 +123,12 @@ workspace as another recovery point and retains project truth and version histor
 See [`docs/workspace-recovery.md`](docs/workspace-recovery.md) for the review flow,
 interrupted directory swaps, concurrent-run protection and capacity limits.
 
+Open **Project export** to review and download a project ZIP with saved files,
+visible conversations, provenance and project records. Downloads recheck the reviewed
+fingerprint and current owner/admin authority. Credentials and browser login profiles
+are excluded; this is a portable record archive, not runtime restoration. See
+[`docs/project-export.md`](docs/project-export.md) for contents, limits and verification.
+
 PDF/image uploads produce bounded Markdown companions with honest extraction
 diagnostics; optional local PaddleOCR-VL setup and remaining quality checks are in
 [`docs/ocr-ingestion.md`](docs/ocr-ingestion.md). Result/evidence feedback now has

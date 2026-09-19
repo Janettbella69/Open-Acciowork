@@ -5,7 +5,7 @@ import type { Connector } from '../api/types'
 import { useT } from '../i18n'
 import './project-shops.css'
 
-const platforms = { shein: 'SHEIN', temu: 'Temu', tiktok_shop: 'TikTok Shop', aliexpress: 'AliExpress', shopee: 'Shopee', other: 'Other platform' } as const
+const platforms = { shein: 'SHEIN', temu: 'Temu', tiktok_shop: 'TikTok Shop', aliexpress: 'AliExpress', shopee: 'Shopee', shopify: 'Shopify', other: 'Other platform' } as const satisfies Record<ShopIdentityInput['platform'], string>
 const empty: ShopIdentityInput = { name: '', platform: 'tiktok_shop', seller_shop_id: '', connector_id: null, entry_url: '', additional_domains: [] }
 
 export default function ProjectShopsPanel({ projectId, onTask }: { projectId: string; onTask?: (text: string) => void }) {

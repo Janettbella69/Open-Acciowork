@@ -95,6 +95,7 @@ class ProjectAccessConflictError(AuthorizationError):
 class ProjectPermission(StrEnum):
     PROJECT_READ = "project.read"
     PROJECT_WRITE = "project.write"
+    PROJECT_EXPORT = "project.export"
     PROJECT_ACCESS_MANAGE = "project.access.manage"
     COMMENT_WRITE = "comment.write"
     RUN_CREATE = "run.create"

@@ -1,0 +1,12 @@
+{
+  "result": "passed",
+  "transport": "loopback HTTP / separate server process",
+  "files": 6,
+  "bytes": 2925,
+  "archive_sha256": "0f0f4046e32b2694c58dcd1d132f4f6d781e78ecf48c50cfa13c9804465a5967",
+  "stale_preview_rejected": true,
+  "exact_bytes_and_hashes": true,
+  "shopify_identity_without_access_grant": true,
+  "model_runs": 0,
+  "boundary": "Disposable local data and fixture seller DNS; no live Provider or seller account"
+}

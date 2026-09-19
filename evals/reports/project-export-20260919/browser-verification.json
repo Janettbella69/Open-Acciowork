@@ -1,0 +1,58 @@
+{
+  "result": "passed",
+  "shopify_identity_and_edit": true,
+  "shopify_no_grants": true,
+  "shop_measurements": [
+    {
+      "width": 1440,
+      "scrollWidth": 1440,
+      "shopWidth": 890,
+      "cardWidth": 890
+    },
+    {
+      "width": 760,
+      "scrollWidth": 760,
+      "shopWidth": 430,
+      "cardWidth": 430
+    },
+    {
+      "width": 400,
+      "scrollWidth": 400,
+      "shopWidth": 330,
+      "cardWidth": 330
+    },
+    {
+      "width": 320,
+      "scrollWidth": 320,
+      "shopWidth": 250,
+      "cardWidth": 250
+    }
+  ],
+  "export_measurements": [
+    {
+      "width": 760,
+      "scrollWidth": 760,
+      "exportWidth": 460
+    },
+    {
+      "width": 400,
+      "scrollWidth": 400,
+      "exportWidth": 360
+    },
+    {
+      "width": 320,
+      "scrollWidth": 320,
+      "exportWidth": 280
+    }
+  ],
+  "download_filename": "project_da49a4ccdbb04063be9cfb5d9df37011-export.zip",
+  "files": 7,
+  "archive_bytes": 5562,
+  "byte_hashes_match": true,
+  "visible_conversation_exported": true,
+  "stale_download_rejected": true,
+  "strict_mode_single_preview": true,
+  "chinese_ui_verified": true,
+  "page_errors": [],
+  "boundary": "Isolated local HTTP backend and Chromium, fixture seller DNS; no live seller, Provider or external side effects."
+}

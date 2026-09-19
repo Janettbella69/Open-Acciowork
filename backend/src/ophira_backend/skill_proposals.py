@@ -139,42 +139,46 @@ class SkillProposalService:
             raise SkillProposalIntegrityError("Skill proposal metadata is unreadable") from exc
         try:
             item = SkillProposal.model_validate_json(raw)
-            if (
-                item.id != proposal_id
-                or item.id
-                != _proposal_id(item.project_id, item.source_run_id, item.source_artifact_id)
-                or item.scan_content_hash != item.content_hash
-                or item.scan.skill_id != item.skill_id
-            ):
-                raise ValueError("candidate metadata identity mismatch")
-            if (
-                any(
-                    _review_binding(item.id, review) != review.reviewer_binding
-                    for review in item.history
-                )
-                or (item.history[-1] if item.history else None) != item.review
-            ):
-                raise ValueError("candidate human review binding mismatch")
-            if item.state == "publishing" and (
-                item.review is None
-                or item.review.outcome != "publishing"
-                or item.review.review_revision != item.revision
-            ):
-                raise ValueError("candidate publication intent is incoherent")
-            if item.state == "published" and (
-                item.publication_receipt is None
-                or not self._receipt_matches(item, item.publication_receipt)
-                or item.review is None
-                or item.review.outcome != "published"
-            ):
-                raise ValueError("candidate publication receipt is incoherent")
-            for row in item.files:
-                relative_parts(row.path)
-            if len({row.path.casefold() for row in item.files}) != len(item.files):
-                raise ValueError("candidate file paths are ambiguous")
-            return item
+            return self.validate_metadata(item, proposal_id)
         except ValueError as exc:
             raise SkillProposalIntegrityError("Skill proposal metadata is invalid") from exc
+
+    @staticmethod
+    def validate_metadata(item: SkillProposal, proposal_id: str) -> SkillProposal:
+        """Validate captured metadata without reopening sources or a shared registry."""
+        if (
+            item.id != proposal_id
+            or item.id != _proposal_id(item.project_id, item.source_run_id, item.source_artifact_id)
+            or item.scan_content_hash != item.content_hash
+            or item.scan.skill_id != item.skill_id
+        ):
+            raise ValueError("candidate metadata identity mismatch")
+        if (
+            any(
+                _review_binding(item.id, review) != review.reviewer_binding
+                for review in item.history
+            )
+            or (item.history[-1] if item.history else None) != item.review
+        ):
+            raise ValueError("candidate human review binding mismatch")
+        if item.state == "publishing" and (
+            item.review is None
+            or item.review.outcome != "publishing"
+            or item.review.review_revision != item.revision
+        ):
+            raise ValueError("candidate publication intent is incoherent")
+        if item.state == "published" and (
+            item.publication_receipt is None
+            or not SkillProposalService._receipt_matches(item, item.publication_receipt)
+            or item.review is None
+            or item.review.outcome != "published"
+        ):
+            raise ValueError("candidate publication receipt is incoherent")
+        for row in item.files:
+            relative_parts(row.path)
+        if len({row.path.casefold() for row in item.files}) != len(item.files):
+            raise ValueError("candidate file paths are ambiguous")
+        return item
 
     def _save(self, item: SkillProposal, *, directory: Path | None = None) -> None:
         item = SkillProposal.model_validate(item.model_dump())
@@ -408,7 +412,8 @@ class SkillProposalService:
                 "Frozen Skill proposal integrity check failed"
             ) from exc
 
-    def _receipt_matches(self, item: SkillProposal, receipt: SkillPublicationReceipt) -> bool:
+    @staticmethod
+    def _receipt_matches(item: SkillProposal, receipt: SkillPublicationReceipt) -> bool:
         intent = item.review
         return bool(
             intent

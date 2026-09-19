@@ -2,7 +2,7 @@ import type { Artifact, Evidence } from './types'
 
 export type ShopIdentityInput = {
   name: string
-  platform: 'shein' | 'temu' | 'tiktok_shop' | 'aliexpress' | 'shopee' | 'other'
+  platform: 'shein' | 'temu' | 'tiktok_shop' | 'aliexpress' | 'shopee' | 'shopify' | 'other'
   seller_shop_id: string
   connector_id: string | null
   entry_url: string

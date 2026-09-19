@@ -46,9 +46,28 @@ import type { RunResources } from './runResources'
 import type { CollaborationCapabilities, CommentChange, CommentCreate, CommentHistory, CommentPage, CommentThread, ProjectAccess, ProjectComment, ProjectRole } from './collaboration'
 import type { ProjectTemplate, TemplateApplied, TemplateApplications, TemplateApply, TemplateDetail, TemplateLibrary, TemplateSave } from './projectTemplates'
 import type { SkillFilePreview, SkillImportReviewRequest, SkillImportView, SkillPackageView, SkillRepositoryCapabilities, SkillRepositorySelection } from './skillRepository'
+import type { ProjectExportPreview } from './projectExport'
 
 const configuredBaseUrl = import.meta.env.VITE_OPHIRA_API_URL?.trim() ?? ''
 export const apiBaseUrl = configuredBaseUrl.replace(/\/$/, '')
+
+export function getProjectExport(projectId: string, signal?: AbortSignal): Promise<ProjectExportPreview> {
+  return request(`/api/projects/${encodeURIComponent(projectId)}/export`, { signal, cache: 'no-store' })
+}
+
+export async function downloadProjectExport(projectId: string, fingerprint: string, signal?: AbortSignal): Promise<Blob> {
+  const response = await fetch(apiUrl(`/api/projects/${encodeURIComponent(projectId)}/export/download`), {
+    method: 'POST', body: JSON.stringify({ fingerprint }), signal, cache: 'no-store',
+    headers: { Accept: 'application/zip', 'Content-Type': 'application/json' },
+  })
+  if (!response.ok) throw await responseError(response)
+  if (response.headers.get('Content-Type')?.split(';')[0].trim().toLowerCase() !== 'application/zip') {
+    throw new Error('The project export response was not a ZIP archive.')
+  }
+  const archive = await response.blob()
+  if (!archive.size) throw new Error('The project export archive was empty.')
+  return archive
+}
 
 function templatePath(projectId: string, templateId?: string): string {
   return `/api/projects/${encodeURIComponent(projectId)}/templates${templateId ? `/${encodeURIComponent(templateId)}` : ''}`
@@ -166,18 +185,20 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       ...init?.headers,
     },
   })
-  if (!response.ok) {
-    let message = `Request failed (${response.status})`
-    try {
-      const body = (await response.json()) as { detail?: unknown }
-      message = apiDetailMessage(body.detail) ?? message
-    } catch {
-      // Keep the status-based message when the response is not JSON.
-    }
-    throw new ApiError(message, response.status)
-  }
+  if (!response.ok) throw await responseError(response)
   if (response.status === 204) return undefined as T
   return response.json() as Promise<T>
+}
+
+async function responseError(response: Response): Promise<ApiError> {
+  let message = `Request failed (${response.status})`
+  try {
+    const body = (await response.json()) as { detail?: unknown }
+    message = apiDetailMessage(body.detail) ?? message
+  } catch {
+    // Keep the status-based message when the response is not JSON.
+  }
+  return new ApiError(message, response.status)
 }
 
 function apiDetailMessage(detail: unknown): string | null {

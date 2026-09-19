@@ -1,0 +1,18 @@
+.project-export { margin: 16px 0; border: 1px solid #deded9; border-radius: 12px; background: #fcfcfa; font-size: 13px; }
+.project-export-toggle { display: flex; justify-content: space-between; width: 100%; padding: 15px 18px; border: 0; border-radius: 12px; background: transparent; text-align: left; font: inherit; font-weight: 600; cursor: pointer; }
+.project-export-body { min-width: 0; padding: 0 18px 18px; }
+.project-export-review p, .project-export-notes { color: #666760; line-height: 1.6; }
+.project-export-review [role='alert'] { color: #9d3d32; }
+.project-export-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 12px 0; }
+.project-export-actions button { min-height: 44px; padding: 9px 12px; border: 1px solid #d3d4cc; border-radius: 6px; background: white; font: inherit; cursor: pointer; }
+.project-export-actions button:disabled { opacity: 0.5; cursor: not-allowed; }
+.project-export-summary { display: flex; flex-wrap: wrap; gap: 16px 32px; }
+.project-export-summary dt { color: #686a62; }.project-export-summary dd { margin: 4px 0 0; font-size: 18px; }
+.project-export-notes { padding-left: 20px; }.project-export-notes li { margin: 8px 0; }
+.project-export-provenance { margin: 16px 0; }.project-export-provenance dd { margin: 2px 0 8px; overflow-wrap: anywhere; }
+.project-export-files { list-style: none; padding: 0; max-height: 400px; overflow-y: auto; }
+.project-export-files li { padding: 10px 0; border-top: 1px solid #e5e5de; }
+.project-export-files code { display: block; overflow-wrap: anywhere; white-space: pre-wrap; font-size: 12px; }
+.project-export-files small { display: block; margin: 6px 0; color: #686a62; }
+.project-export summary { cursor: pointer; }
+@media (max-width: 600px) { .project-export-body { padding: 0 12px 12px; } }

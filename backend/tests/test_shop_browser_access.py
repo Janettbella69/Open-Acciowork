@@ -26,6 +26,7 @@ from ophira_backend.shop_browser_store import (
     ShopBrowserCaller,
     ShopBrowserError,
     ShopBrowserOperation,
+    ShopBrowserStore,
     ShopIdentityInput,
     ShopUpdateInput,
 )
@@ -195,6 +196,122 @@ async def test_edit_identity_uses_new_profile_and_stale_revision_cannot_overwrit
     with pytest.raises(ShopBrowserError) as failure:
         await service.update(project.id, shop["id"], payload, None)
     assert failure.value.code == "SHOP_CONFLICT"
+
+
+@pytest.mark.parametrize("connector_id", [None, "shopify"])
+async def test_shopify_identity_routes_persist_without_granting_api_or_browser_access(
+    setup, connector_id,
+):
+    app, service, project, _ = setup
+
+    def unexpected_request(_request):
+        pytest.fail("Saving a browser identity must not call the seller API")
+
+    service.authority.reader.transport_factory = lambda: httpx.MockTransport(unexpected_request)
+    path = f"/api/projects/{project.id}/shops"
+    body = {
+        "name": "Shopify shop",
+        "platform": "shopify",
+        "seller_shop_id": "shop-123",
+        "connector_id": connector_id,
+        "entry_url": "https://admin.shopify.com/store/skate-demo",
+        "additional_domains": ["accounts.shopify.com"],
+    }
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app), base_url="http://localhost"
+    ) as client:
+        created = await client.post(path, json=body)
+        assert created.status_code == 200, created.text
+        assert created.headers["cache-control"] == "no-store"
+        shop = created.json()
+        assert {key: shop[key] for key in body} == body
+        assert shop["browser_state"] == "closed"
+        assert shop["agent_access"] is False
+        assert shop["session_id"] is None
+        assert shop["authorized_session_id"] is None
+        assert shop["grant_expires_at"] is None
+        persisted = ShopBrowserStore(service.ledger).get(shop["id"])
+        assert persisted.platform == "shopify"
+        assert persisted.connector_id == connector_id
+
+        updated = await client.put(
+            f"{path}/{shop['id']}",
+            json={**body, "name": "Renamed Shopify shop", "expected_revision": shop["revision"]},
+        )
+        assert updated.status_code == 200, updated.text
+        saved = updated.json()
+        assert saved["revision"] == shop["revision"] + 1
+        assert saved["profile_generation"] == shop["profile_generation"]
+        assert saved["agent_access"] is False
+        listed = await client.get(path)
+        assert listed.status_code == 200 and listed.json() == [saved]
+        persisted = ShopBrowserStore(service.ledger).get(shop["id"])
+        assert persisted.name == "Renamed Shopify shop"
+        assert persisted.platform == "shopify"
+        grants = await client.get(f"/api/projects/{project.id}/marketplace-access")
+        assert grants.status_code == 200 and grants.json()["bindings"] == []
+
+
+async def test_shopify_identity_routes_reject_another_platform_connector(setup):
+    app, service, project, _ = setup
+    path = f"/api/projects/{project.id}/shops"
+    body = {
+        "name": "Shopify shop",
+        "platform": "shopify",
+        "seller_shop_id": "shop-123",
+        "connector_id": "tiktok_shop",
+        "entry_url": "https://admin.shopify.com/store/skate-demo",
+    }
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app), base_url="http://localhost"
+    ) as client:
+        rejected = await client.post(path, json=body)
+        assert rejected.status_code == 400
+        assert "SHOP_CONNECTOR_MISMATCH" in rejected.text
+        assert service.list(project.id) == []
+
+        created = await client.post(path, json={**body, "connector_id": "shopify"})
+        assert created.status_code == 200, created.text
+        shop = created.json()
+        rejected = await client.put(
+            f"{path}/{shop['id']}", json={**body, "expected_revision": shop["revision"]}
+        )
+        assert rejected.status_code == 400
+        assert "SHOP_CONNECTOR_MISMATCH" in rejected.text
+        assert service.view(project.id, shop["id"]) == shop
+
+
+async def test_shopify_seller_change_on_shared_admin_host_replaces_profile_and_revokes_grant(setup):
+    app, service, project, run = setup
+    body = {
+        "name": "Shopify shop",
+        "platform": "shopify",
+        "seller_shop_id": "shop-123",
+        "entry_url": "https://admin.shopify.com/",
+    }
+    path = f"/api/projects/{project.id}/shops"
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app), base_url="http://localhost"
+    ) as client:
+        created = await client.post(path, json=body)
+        assert created.status_code == 200, created.text
+        shop = created.json()
+        session_id, _ = bind(service, shop, run)
+        assert service.store.get(shop["id"]).authorized(session_id)
+        updated = await client.put(
+            f"{path}/{shop['id']}",
+            json={**body, "seller_shop_id": "shop-456", "expected_revision": shop["revision"]},
+        )
+        assert updated.status_code == 200, updated.text
+        saved = updated.json()
+        assert saved["entry_url"] == shop["entry_url"]
+        assert saved["profile_generation"] == shop["profile_generation"] + 1
+        assert saved["agent_access"] is False
+        assert saved["authorized_session_id"] is None
+        assert saved["grant_expires_at"] is None
+        persisted = ShopBrowserStore(service.ledger).get(shop["id"])
+        assert persisted.seller_shop_id == "shop-456"
+        assert not persisted.authorized(session_id)
 
 
 async def test_gateway_shop_routes_require_current_project_admin_and_hide_invalid_input(

@@ -34,7 +34,7 @@ class ShopBrowserError(RuntimeError):
 class ShopIdentityInput(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
     name: str = Field(min_length=1, max_length=160)
-    platform: Literal["shein", "temu", "tiktok_shop", "aliexpress", "shopee", "other"]
+    platform: Literal["shein", "temu", "tiktok_shop", "aliexpress", "shopee", "shopify", "other"]
     seller_shop_id: str = Field(min_length=1, max_length=160)
     connector_id: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_-]{1,160}$")
     entry_url: str = Field(min_length=8, max_length=2000)

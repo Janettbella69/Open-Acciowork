@@ -17,9 +17,18 @@ flowchart LR
 
 平台 Connector 承担应用身份、OAuth / API Key / Token 及平台 API 适配；店铺记录保存
 平台、外部店铺标识、可选 Connector 关联和浏览器范围。上图中的 API 能力按平台逐项交付，
-具体状态见 [平台 Connector 清单](marketplace-connectors.md)。目前 TikTok Shop 具有手动
-配置卖家 Token 和授权店铺/商品读取能力，OAuth 回调、Token 交换/刷新及平台商业写入仍待交付。
-其余四个平台已有官方文档入口，不能据此宣称接入完成。
+具体状态见 [平台 Connector 清单](marketplace-connectors.md)：
+
+- 店铺身份配置支持 SHEIN、Temu、TikTok Shop、AliExpress、Shopee、Shopify 及其他平台。
+  Shopify 已可在前端选择、创建、显示与编辑，并可选关联同平台 Connector。
+- TikTok Shop 已有手动配置卖家 Token、授权店铺与商品分页读取、项目授权和主 Agent
+  来源凭证能力；OAuth 回调、Token 交换/刷新及平台商业写入仍待交付。
+- Shopify 已有同一 Dev Dashboard 组织内自有店铺的 client credentials grant、店铺/
+  商品/近期订单只读接口、项目授权、主 Agent 来源凭证及店铺体检 Skill。这些是已有的
+  Connector 能力，本轮补齐的身份选择与配置界面不增加 API 权限或新的平台适配。
+  真实店铺联调仍未验收；组织外店铺授权及商业写入尚未实现，详见平台清单。
+- SHEIN、Temu、AliExpress、Shopee 已有官方文档入口，运行时 API adapter 仍未交付。
+  保存这些平台的店铺身份不能证明已接通其 API 或兼容其真实登录流程。
 
 浏览器与 API 分别授权。关联 Connector 不会自动创建 API 店铺授权，也不会把 API
 授权转换成浏览器会话授权。浏览器产物记录内部 shop_id、外部 seller_shop_id、platform
@@ -49,6 +58,18 @@ flowchart LR
 前须关闭窗口；更换平台、外部店铺标识、Connector 或入口主机将启用新的浏览器配置目录。
 撤销阻止后续 Agent 使用，同时保留用户登录窗口和已采集项目数据。权限冲突后先刷新状态。
 
+### Shopify 店铺身份
+
+在 **Shop platform / 店铺平台** 选择 **Shopify**，填写店铺识别名称或 ID，以及该店铺的
+后台 HTTPS 地址，例如 `https://admin.shopify.com/store/<store>`。按需要添加登录和
+资源域名。**Platform Connector / 平台 Connector** 仅列出 Shopify 类型的连接器，也可
+选择不关联；切换平台会清空原来的 Connector 选择。
+
+新建保存后店铺仍处于浏览器关闭、Agent 未授权状态。后续需用户主动打开窗口、亲自登录并
+确认身份，才可授予浏览器读取权限。若要使用 Shopify API，仍须在已有 Connector 页面
+配置应用凭据并单独授予项目店铺访问权限。即使两个店铺共用 `admin.shopify.com`，更换
+店铺标识也会换用独立登录配置并撤销旧会话授权；编辑显示名称不会更换登录配置。
+
 ## 执行与来源
 
 沿用现有 `ophira_browser` MCP 的两个工具，无新增模型循环或独立业务 Agent：
@@ -77,7 +98,8 @@ Run/SDK session、店铺、URL、时间和文件 SHA-256；报表经过字节大
 - 每次动作最多 40 秒，下载等待最多 20 秒；临时文件受大小限制，失败时清理，旧临时文件
   在后续操作时清理。未通过 download 操作发起的下载会取消。
 - 域名范围与当前组织策略取交集，并复用 DNS 固定连接和私网地址拒绝。弹窗和 Service Worker
-  被禁用。依赖这些能力的卖家后台可能需要后续适配；不能宣称五平台登录流程均兼容。
+  被禁用。依赖这些能力的卖家后台可能需要后续适配；不能因平台出现在身份列表中就宣称
+  其真实登录流程已兼容，Shopify 也尚未完成真实登录验收。
 - `data/shop-browsers/` 保存私有配置、登录文件和会话元数据，位于项目工作区之外；主 Agent
   与预检的 SDK 沙箱配置显式禁止读写此目录。普通 Read/Grep 继续受现有项目路径门禁约束。
   这是本地宿主边界，尚未完成生产多租户物理隔离和真实 SDK 沙箱攻击认证。
@@ -112,6 +134,16 @@ OPHIRA_SHOP_BROWSER_E2E=1 PYTHONPATH=backend/src .venv/bin/pytest backend/tests/
 原生 MCP 与 PostToolUse 内容一致性、主 Agent 限制及逐次动作审批。权限取消、成员撤销、
 配置 CAS 和生产 HTTP 路由由 `test_shop_browser_access.py` 覆盖；UI 行为由
 `ProjectShopsPanel.test.tsx` 覆盖。真实平台、真实模型和人机登录验收仍待完成。
+
+本轮 Shopify 身份配置验证：
+
+- 前端店铺面板 10 项测试通过，其中新增 5 项覆盖有/无 Connector 的 Shopify 创建、
+  平台筛选与切换清空关联、英文和中文界面编辑时保留平台及修订号。
+- 后端店铺访问 17 项测试通过，其中 4 项 Shopify 用例覆盖 HTTP 创建、编辑、持久化
+  回读、拒绝关联其他平台 Connector，以及共用后台主机时更换店铺标识使旧授权失效。
+- 真实浏览器配合临时数据目录中的后端完成身份配置界面验收，范围仅为平台选择、保存、
+  编辑与回读。这不等于 Shopify 登录窗口、应用授权、真实 API 或模型任务的端到端验收。
+  本轮没有使用真实卖家凭据，也没有因此授予 API 或浏览器 Agent 访问权限。
 
 实现参考：[Playwright 持久浏览器](https://playwright.dev/python/docs/api/class-browsertype#browser-type-launch-persistent-context)、
 [下载处理](https://playwright.dev/python/docs/downloads)、
