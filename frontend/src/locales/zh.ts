@@ -44,10 +44,9 @@ export const zh: Record<string, string> = {
   'Principles': '理念',
   'Open workspace': '打开工作台',
   'Primary navigation': '主导航',
-  'AI global commerce intelligence for cross-border teams.': '为跨境团队打造的 AI 全球商业智能。',
+  'Go global boldly. TradeMind does the work.': '大胆出海，TradeMind 把活干完。',
 
   // ---- 营销页：Hero ----
-  'AI global commerce system': 'AI 全球商业系统',
   'For small teams that trade across borders': '为做跨境生意的小团队而生',
   'Discover what the': '发现世界',
   'world': '真正的',
@@ -132,7 +131,7 @@ export const zh: Record<string, string> = {
   'Research becomes useful when it changes what you do next. TradeMind turns the shared record into a buyer brief, outreach experiment, and stop condition your team can review and run.': '只有当研究改变下一步行动时，它才真正有用。TradeMind 把共享记录转成买家简报、触达实验与止损条件，让团队可以评审并执行。',
   'Turn research into a buyer brief, an outreach test, and a next move your team can actually review and run.': '把研究变成买家简报、触达实验，以及团队真正能评审和执行的下一步。',
   'Introduction to TradeMind': 'TradeMind 介绍',
-  'Your AI commerce team': '你的 AI 商业团队',
+  'Your go-global buddy': '你的出海搭子',
   'Find what sells': '找到真正卖得动的商品',
   'TradeMind reads search trends, bestseller movement, reviews, creator posts, and competitor gaps together—so your next product starts with evidence instead of a guess.': 'TradeMind 综合搜索趋势、畅销榜变化、评论、达人内容与竞争缺口，让下一款产品从证据出发，而不是靠猜。',
   'Source with confidence': '更有把握地采购',
