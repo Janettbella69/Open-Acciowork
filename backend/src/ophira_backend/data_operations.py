@@ -46,6 +46,18 @@ def protected_call(root, operation, *args, **kwargs):
         return operation(*args, **kwargs)
 
 
+class RequestDataLease:
+    """An authenticated handler may hand off to an independently owned EX lease."""
+
+    def __init__(self, lease):
+        self.lease = lease
+
+    def release(self):
+        if self.lease is not None:
+            lease, self.lease = self.lease, None
+            lease.__exit__(None, None, None)
+
+
 class DataOperationMiddleware:
     """Hold the gate until the ASGI response/stream has actually closed."""
 
@@ -76,7 +88,9 @@ class DataOperationMiddleware:
                     allow_credentials=True,
                 )
             return await response(scope, receive, send)
+        handle = RequestDataLease(lease)
+        scope.setdefault("state", {})["data_operation_lease"] = handle
         try:
             return await self.app(scope, receive, send)
         finally:
-            lease.__exit__(None, None, None)
+            handle.release()

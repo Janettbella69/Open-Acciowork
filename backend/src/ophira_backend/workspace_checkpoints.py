@@ -253,7 +253,9 @@ class WorkspaceCheckpoints:
         ):
             raise WorkspaceRecoveryError("Workspace checkpoint failed its integrity check.")
         if value.kind == "run_start":
-            run = self.ledger.get_run(value.run_id or "")
+            # Saved workspace versions outlive their conversation; a content-free
+            # erasure marker still authenticates this checkpoint's source.
+            run = self.ledger.read_run_entry(value.run_id or "")
             if run.project_id != project_id or run.trace_id != value.trace_id:
                 raise WorkspaceRecoveryError("Workspace checkpoint has inconsistent Run origin.")
         elif value.run_id is not None or value.trace_id is not None:

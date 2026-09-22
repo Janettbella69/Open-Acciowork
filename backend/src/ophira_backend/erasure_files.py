@@ -18,11 +18,12 @@ from pathlib import Path
 from typing import Literal
 from uuid import uuid4
 
-from pydantic import Field, model_validator
+from pydantic import Field, model_serializer, model_validator
 
 from .backup_files import parse_json
 from .maintenance import data_directory_lease
 from .models import APIModel, utc_now
+from .sdk_session_erasure import NativeSessionTarget, erase_native_sessions
 from .skill_proposal_files import child_directory, directory_fd, read_at, relative_parts
 
 JOURNAL = ".data-erasure"
@@ -102,8 +103,8 @@ def operation_lease(root: Path, *, exclusive=False, allow_pending=False):
 
 class ErasureFile(APIModel):
     path: str
-    before_size: int = Field(ge=0, le=MAX_SOURCE_BYTES)
-    before_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+    before_size: int | None = Field(default=None, ge=0, le=MAX_SOURCE_BYTES)
+    before_sha256: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
     # None means unlink; otherwise this file is replaced by retained data only.
     after_size: int | None = Field(default=None, ge=0, le=MAX_REPLACEMENT_BYTES)
     after_sha256: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
@@ -111,20 +112,36 @@ class ErasureFile(APIModel):
     @model_validator(mode="after")
     def valid(self):
         _path(self.path)
+        if (self.before_size is None) != (self.before_sha256 is None):
+            raise ValueError("incomplete source identity")
+        if self.before_sha256 is None and self.after_sha256 is None:
+            raise ValueError("erasure operation has neither source nor retained content")
         if (self.after_size is None) != (self.after_sha256 is None):
             raise ValueError("incomplete replacement")
         return self
 
 
 class ErasurePlan(APIModel):
-    schema_version: Literal[1] = 1
+    schema_version: Literal[1, 2] = 1
     # Caller-created content-free scope/identity, validated by its domain model.
     scope: dict
     files: list[ErasureFile] = Field(max_length=MAX_ERASURE_FILES)
     directories: list[str] = Field(max_length=MAX_ERASURE_FILES)
+    native_sessions: list[NativeSessionTarget] = Field(default_factory=list, max_length=1000)
+
+    @model_serializer(mode="wrap")
+    def serialized(self, handler):
+        value = handler(self)
+        if self.schema_version == 1:
+            value.pop("native_sessions")
+        return value
 
     @model_validator(mode="after")
     def valid(self):
+        if self.schema_version == 1 and (self.native_sessions or any(
+            item.before_sha256 is None for item in self.files
+        )):
+            raise ValueError("native operations and new files require erasure schema 2")
         seen: dict[str, tuple[str, bool]] = {}
         leaves = set()
         for path, directory in [
@@ -144,7 +161,7 @@ class ErasurePlan(APIModel):
                 seen[key] = value
         if sum(item.after_size or 0 for item in self.files) > MAX_REPLACEMENTS_TOTAL:
             raise ValueError("replacement byte limit exceeded")
-        if sum(item.before_size for item in self.files) > MAX_SOURCES_TOTAL:
+        if sum(item.before_size or 0 for item in self.files) > MAX_SOURCES_TOTAL:
             raise ValueError("source byte limit exceeded")
         if any(
             item.after_sha256 is not None
@@ -172,6 +189,8 @@ def _read(root, path, limit, *, missing=False):
 
 
 def _matches(raw, size, sha):
+    if size is None and sha is None:
+        return raw is None
     return raw is not None and len(raw) == size and digest(raw) == sha
 
 
@@ -221,9 +240,11 @@ class FileErasure:
 
     def _verify_sources(self, plan):
         for item in plan.files:
-            raw = _read(self.root, item.path, MAX_SOURCE_BYTES)
+            raw = _read(self.root, item.path, MAX_SOURCE_BYTES, missing=True)
             if not _matches(raw, item.before_size, item.before_sha256):
                 raise ErasureError("Data changed. Review the deletion again.")
+            with directory_fd((self.root / item.path).parent):
+                pass
         # Refuse nonempty unlisted directories before committing any deletion.
         expected = {item.path for item in plan.files} | set(plan.directories)
         for path in plan.directories:
@@ -266,6 +287,16 @@ class FileErasure:
         Returns a receipt after cleanup, or leaves an authoritative pending journal
         on failure. Call recover after a committed failure; do not submit a new plan.
         """
+        return self.commit_prepared(lambda: (plan, replacements), authorize=authorize)
+
+    def commit_prepared(self, prepare, *, authorize):
+        """Select and materialize the reviewed scope under the exclusive gate."""
+        with data_directory_lease(self.root), operation_lease(self.root, exclusive=True):
+            authorize()
+            plan, replacements = prepare()
+            return self._commit_locked(plan, replacements, authorize=authorize)
+
+    def _commit_locked(self, plan, replacements, *, authorize):
         plan = ErasurePlan.model_validate(plan.model_dump())
         replacement_paths = {item.path for item in plan.files if item.after_sha256 is not None}
         if set(replacements) != replacement_paths:
@@ -277,35 +308,33 @@ class FileErasure:
                 item.after_sha256,
             ):
                 raise ErasureError("Erasure replacement could not be verified.")
-        with data_directory_lease(self.root), operation_lease(self.root, exclusive=True):
+        self._verify_sources(plan)
+        identifier = f"erase_{uuid4().hex}"
+        record = {
+            "id": identifier,
+            "created_at": utc_now().isoformat(),
+            "fingerprint": plan.fingerprint(),
+            "plan": plan.model_dump(mode="json"),
+        }
+        record_bytes = encode(record)
+        if len(record_bytes) > MAX_JOURNAL_BYTES:
+            raise ErasureError("Erasure journal exceeds its byte limit.")
+        with directory_fd(self.root) as root_fd, self._journal_fd(root_fd) as journal:
+            self._cleanup_orphans(journal)
+            stage = f"staging-{identifier}"
+            os.mkdir(stage, mode=0o700, dir_fd=journal)
+            with child_directory(journal, (stage,)) as staged:
+                _write_at(staged, "record.json", record_bytes)
+                for index, item in enumerate(plan.files):
+                    if item.after_sha256 is not None:
+                        _write_at(staged, f"{index}.bin", replacements[item.path])
+            # Authorization and all source checks precede publication. The
+            # committed journal is the authority after an interrupted response.
             authorize()
             self._verify_sources(plan)
-            identifier = f"erase_{uuid4().hex}"
-            record = {
-                "id": identifier,
-                "created_at": utc_now().isoformat(),
-                "fingerprint": plan.fingerprint(),
-                "plan": plan.model_dump(mode="json"),
-            }
-            record_bytes = encode(record)
-            if len(record_bytes) > MAX_JOURNAL_BYTES:
-                raise ErasureError("Erasure journal exceeds its byte limit.")
-            with directory_fd(self.root) as root_fd, self._journal_fd(root_fd) as journal:
-                self._cleanup_orphans(journal)
-                stage = f"staging-{identifier}"
-                os.mkdir(stage, mode=0o700, dir_fd=journal)
-                with child_directory(journal, (stage,)) as staged:
-                    _write_at(staged, "record.json", record_bytes)
-                    for index, item in enumerate(plan.files):
-                        if item.after_sha256 is not None:
-                            _write_at(staged, f"{index}.bin", replacements[item.path])
-                # Authorization and all source checks precede publication. The
-                # committed journal is the authority after an interrupted response.
-                authorize()
-                self._verify_sources(plan)
-                os.rename(stage, "pending", src_dir_fd=journal, dst_dir_fd=journal)
-                os.fsync(journal)
-            return self._recover_locked()
+            os.rename(stage, "pending", src_dir_fd=journal, dst_dir_fd=journal)
+            os.fsync(journal)
+        return self._recover_locked()
 
     def recover(self):
         """Complete a previously authorized commit before reopening data access."""
@@ -392,6 +421,7 @@ class FileErasure:
                 with os.scandir(pending) as entries:
                     if {entry.name for entry in entries} != expected:
                         raise ErasureError("Committed deletion journal contains unexpected files.")
+                erase_native_sessions(self.root, plan.native_sessions, plan.files, plan.directories)
                 for index, item in enumerate(plan.files):
                     self._apply_file(pending, identifier, index, item)
                 for path in sorted(plan.directories, key=lambda p: (-p.count("/"), p)):

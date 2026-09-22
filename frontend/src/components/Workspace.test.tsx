@@ -91,6 +91,7 @@ beforeEach(() => {
     selectProject: vi.fn(),
     refreshActiveProject: vi.fn(),
     reset: vi.fn(),
+    conversationDeleted: vi.fn(),
   })
   vi.mocked(getOrgPolicy).mockResolvedValue(organizationPolicy)
 })

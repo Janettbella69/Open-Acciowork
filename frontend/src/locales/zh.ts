@@ -14,9 +14,11 @@ import { templatesZh } from './templates-zh'
 import { repositoryZh } from './repository-zh'
 import { credentialsZh } from './credentials-zh'
 import { projectExportsZh } from './project-exports-zh'
+import { conversationErasureZh } from './conversation-erasure-zh'
 
 /** 中文字典：key = 英文原文。缺条目时界面回落英文（可见即可补）。 */
 export const zh: Record<string, string> = {
+  ...conversationErasureZh,
   ...credentialsZh,
   ...projectExportsZh,
   ...repositoryZh,

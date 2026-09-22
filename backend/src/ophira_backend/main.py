@@ -118,6 +118,7 @@ from .constants import (
     RunStatus,
     ScheduleKind,
 )
+from .conversation_erasure_api import register_conversation_erasure_routes
 from .credential_api import register_credential_routes
 from .data_operations import DataOperationMiddleware, protected_call
 from .durable_permissions import DurablePermissionConflict
@@ -612,6 +613,9 @@ def _create_app(
         application, settings, ledger, providers, connectors, _read_bounded_body,
     )
     register_project_export_routes(
+        application, ledger, project_access, settings, runs, memory, _read_bounded_body,
+    )
+    register_conversation_erasure_routes(
         application, ledger, project_access, settings, runs, memory, _read_bounded_body,
     )
     register_project_template_routes(

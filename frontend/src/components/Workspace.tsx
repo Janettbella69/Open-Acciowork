@@ -176,6 +176,7 @@ export default function Workspace() {
       onSubmit={runAnalysis}
       onProjectRefresh={() => void runtime.refreshActiveProject()}
       onProjectCreated={(project) => void selectProjectRecord(project)}
+      onConversationDeleted={runtime.conversationDeleted}
       onNewResearch={() => void startNewResearch()}
       onSelectProject={(projectId) => void selectSavedProject(projectId)}
       onCancel={() => void runtime.cancel()}

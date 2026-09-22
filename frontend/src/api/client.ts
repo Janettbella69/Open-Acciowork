@@ -843,6 +843,16 @@ export function runEventUrl(runId: string): string {
   return apiUrl(`/api/runs/${runId}/events`)
 }
 
+export function previewConversationDeletion(projectId: string, runId: string, signal?: AbortSignal): Promise<import('./conversationErasure').ConversationDeletionPreview> {
+  return request(`/api/projects/${encodeURIComponent(projectId)}/conversations/${encodeURIComponent(runId)}/deletion`, { signal, cache: 'no-store' })
+}
+
+export function deleteConversation(projectId: string, preview: import('./conversationErasure').ConversationDeletionPreview): Promise<import('./conversationErasure').ConversationDeletionResult> {
+  return request(`/api/projects/${encodeURIComponent(projectId)}/conversations/${encodeURIComponent(preview.selected_run_id)}/deletion`, {
+    method: 'POST', cache: 'no-store', body: JSON.stringify({ request_id: preview.request_id, reviewed_at: preview.reviewed_at, fingerprint: preview.fingerprint, confirm_deletion: true }),
+  })
+}
+
 export function errorMessage(error: unknown): string {
   if (error instanceof Error) return error.message
   return 'The TradeMind backend returned an unknown error.'

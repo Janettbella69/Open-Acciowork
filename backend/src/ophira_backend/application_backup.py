@@ -22,6 +22,7 @@ from .backup_files import (
     tree_inventory,
 )
 from .constants import TERMINAL_RUN_STATUSES
+from .deletion_models import ErasedRun
 from .maintenance import MAINTENANCE_LOCK, DataDirectoryBusyError, data_directory_lease
 from .project_comments import MAX_COMMENT_BYTES, CommentLedger
 from .project_template_backup import inspect_project_templates
@@ -78,7 +79,7 @@ def inspect_application(data: Path, plugin: Path) -> dict:
     proposals = SkillProposalService(ledger, registry)
     # list_projects/list_runs deliberately hide malformed UI records. A backup
     # must instead read every directory strictly so missing truth cannot vanish.
-    projects, runs = {}, {}
+    projects, runs, erased_runs = {}, {}, {}
     checkpoints = WorkspaceCheckpoints(ledger)
     for directory in sorted(ledger.projects_dir.iterdir()):
         if not directory.is_dir():
@@ -138,12 +139,17 @@ def inspect_application(data: Path, plugin: Path) -> dict:
     for directory in sorted(ledger.runs_dir.iterdir()):
         if not directory.is_dir():
             raise BackupError("invalid_run_store")
-        run = ledger.get_run(directory.name)
+        run = ledger.read_run_entry(directory.name)
         if run.id != directory.name or run.project_id not in projects:
             raise BackupError("run_project_mismatch")
         project = projects[run.project_id]
         if run.tenant_id != project.tenant_id or run.identity_binding != project.identity_binding:
             raise BackupError("run_identity_mismatch")
+        if isinstance(run, ErasedRun):
+            if set(path.name for path in directory.iterdir()) != {"run.json"}:
+                raise BackupError("erased_run_contains_context")
+            erased_runs[run.id] = run
+            continue
         if run.status not in TERMINAL_RUN_STATUSES:
             raise BackupError("nonterminal_run_present")
         runs[run.id] = run
@@ -179,7 +185,7 @@ def inspect_application(data: Path, plugin: Path) -> dict:
         proposals._verified_files(item)
         if [row.id for row in item.source_runs] != item.manifest.related_run_ids:
             raise BackupError("proposal_related_run_mismatch")
-        run = runs.get(item.source_run_id)
+        run = runs.get(item.source_run_id) or erased_runs.get(item.source_run_id)
         if (
             run is None
             or run.project_id != item.project_id
@@ -199,12 +205,13 @@ def inspect_application(data: Path, plugin: Path) -> dict:
         ):
             raise BackupError("proposal_artifact_mismatch")
         for source_run in item.source_runs:
-            related = runs.get(source_run.id)
+            related = runs.get(source_run.id) or erased_runs.get(source_run.id)
             if (
                 related is None
                 or related.project_id != project.id
                 or related.id == run.id
                 or related.started_at != source_run.started_at
+                or (isinstance(related, ErasedRun) and source_run.prompt_excerpt)
             ):
                 raise BackupError("proposal_related_run_mismatch")
         receipt = registry.publication_receipt(item.id)

@@ -19,6 +19,7 @@ from .artifact_files import snapshot_relative
 from .auth import ProjectPermission
 from .backup_files import parse_json
 from .constants import TERMINAL_RUN_STATUSES, EventType, MemoryScope
+from .deletion_models import erased_run
 from .models import EventEnvelope, RunRecord, utc_now
 from .project_scope import authorize_project_scope, project_actor
 from .skill_proposal_files import directory_fd, read_relative, relative_parts
@@ -196,6 +197,17 @@ class ProjectExports:
             if not stat.S_ISDIR(info.st_mode):
                 raise ProjectExportError("Run storage could not be verified.")
             value, _ = inventory.record(f"runs/{name}/run.json")
+            deleted = erased_run(value)
+            if deleted is not None:
+                if deleted.id != name:
+                    raise ProjectExportError("Deleted run identity could not be verified.")
+                if deleted.project_id == project_id and seed is None:
+                    project = self.ledger.get_project(project_id)
+                    if (deleted.tenant_id != project.tenant_id
+                            or deleted.identity_binding != project.identity_binding):
+                        raise ProjectExportError("Deleted run scope could not be verified.")
+                    inventory.file(f"runs/{name}/run.json")
+                continue
             run = RunRecord.model_validate(value)
             if run.id != name:
                 raise ProjectExportError("Run identity could not be verified.")

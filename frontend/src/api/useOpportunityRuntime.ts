@@ -583,6 +583,15 @@ export function useOpportunityRuntime() {
     }
   }, [project, refreshProject])
 
+  const conversationDeleted = useCallback((projectId: string, runIds: string[]) => {
+    const current = projectRef.current
+    if (!current || current.id !== projectId || !runRef.current || !runIds.includes(runRef.current.id)) return
+    setTelemetry(null)
+    // selectProject invalidates delayed reads and clears text, events, approvals
+    // and the old SSE before loading the latest remaining conversation.
+    void selectProject(current).catch(() => {})
+  }, [selectProject])
+
   const reset = useCallback(() => {
     selectionRef.current += 1
     closeStream()
@@ -668,6 +677,7 @@ export function useOpportunityRuntime() {
     refreshPermissions,
     selectProject,
     refreshActiveProject,
+    conversationDeleted,
     reset,
   }
 }

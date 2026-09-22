@@ -698,10 +698,22 @@ class FileLedger:
         return run
 
     def get_run(self, run_id: str) -> RunRecord:
+        run = self.read_run_entry(run_id)
+        if not isinstance(run, RunRecord):
+            raise LedgerNotFoundError(run_id)
+        return run
+
+    def read_run_entry(self, run_id: str):
+        from .deletion_models import erased_run
+
         path = self._run_path(run_id)
         if not path.exists():
             raise LedgerNotFoundError(run_id)
-        return RunRecord.model_validate_json(path.read_text(encoding="utf-8"))
+        value = json.loads(path.read_text(encoding="utf-8"))
+        result = erased_run(value) or RunRecord.model_validate(value)
+        if result.id != run_id:
+            raise ValueError("run identity mismatch")
+        return result
 
     def list_runs(
         self, project_id: str | None = None, *, sort_by_created_at: bool = True,

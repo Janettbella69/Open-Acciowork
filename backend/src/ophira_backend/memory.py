@@ -80,6 +80,8 @@ class MemoryProvider(Protocol):
         self, scope: MemoryScope, scope_id: str, *, max_bytes: int = 16 * 1024 * 1024,
     ) -> dict: ...
 
+    def plan_run_erasure(self, selection, runs, *, deleted_by, deleted_at) -> int: ...
+
     def search(
         self,
         query: str | None = None,
@@ -293,6 +295,11 @@ class FileMemoryProvider:
     def _lock_for(self, key: str) -> threading.RLock:
         with self._locks_guard:
             return self._locks.setdefault(key, threading.RLock())
+
+    def plan_run_erasure(self, selection, runs, *, deleted_by, deleted_at) -> int:
+        from .memory_erasure import plan_run_erasure
+
+        return plan_run_erasure(self, selection, runs, deleted_by=deleted_by, deleted_at=deleted_at)
 
     @staticmethod
     def _safe_id(value: str) -> str:

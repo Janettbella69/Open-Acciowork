@@ -69,6 +69,22 @@ def test_exact_targets_are_erased_retained_data_survives_and_receipt_contains_no
     assert stored.stat().st_mode & 0o777 == 0o600
 
 
+def test_schema_one_fingerprint_remains_compatible_and_schema_two_creates_tombstones(tmp_path):
+    service, legacy, _ = fixture(tmp_path)
+    assert "native_sessions" not in legacy.model_dump()
+    assert legacy.fingerprint() == ef.digest(ef.encode(legacy.model_dump(mode="json")))
+    retained = b'{"content_free":true}\n'
+    item = ef.ErasureFile(path="tombstone.json", after_size=len(retained),
+                           after_sha256=ef.digest(retained))
+    with pytest.raises(ValidationError):
+        ef.ErasurePlan(scope={}, files=[item], directories=[])
+    plan = ef.ErasurePlan(schema_version=2, scope={}, files=[item], directories=[])
+    service.commit(plan, {item.path: retained}, authorize=lambda: None)
+    assert (tmp_path / item.path).read_bytes() == retained
+    with pytest.raises(ef.ErasureError, match="changed"):
+        service.commit(plan, {item.path: retained}, authorize=lambda: None)
+
+
 @pytest.mark.parametrize("change", ["source", "extra_child", "replacement", "authority"])
 def test_no_source_mutation_before_authorized_verified_commit(tmp_path, change):
     service, plan, replacements = fixture(tmp_path)

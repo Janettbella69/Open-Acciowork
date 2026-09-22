@@ -79,6 +79,25 @@ async function setup() {
 }
 
 describe('project selection isolation', () => {
+  it('clears deleted conversation content and ignores delayed events or deletion of another project', async () => {
+    const { result } = await setup()
+    const stream = MockEventSource.instances[0]
+    act(() => { stream.emit('assistant.text.delta', { text: 'private conversation' }) })
+    expect(result.current.assistantText).toBe('private conversation')
+    vi.mocked(api.listProjectRuns).mockResolvedValueOnce([])
+    await act(async () => { result.current.conversationDeleted(projectA.id, [runA.id]) })
+    expect(stream.closed).toBe(true)
+    expect(result.current.run).toBeNull()
+    expect(result.current.assistantText).toBe('')
+    expect(result.current.events).toEqual([])
+    expect(result.current.telemetry).toBeNull()
+    act(() => { stream.emit('assistant.text.delta', { text: 'late private text' }) })
+    expect(result.current.assistantText).toBe('')
+    await act(async () => { await result.current.selectProject(projectB) })
+    act(() => { result.current.conversationDeleted(projectA.id, [runA.id]) })
+    expect(result.current.run?.id).toBe(runB.id)
+    expect(result.current.project?.id).toBe(projectB.id)
+  })
   it('keeps a newly created template project when the initial project list arrives late and starts no run', async () => {
     const initial = deferred<OpportunityProject[]>()
     vi.mocked(api.listProjects).mockReturnValueOnce(initial.promise)
