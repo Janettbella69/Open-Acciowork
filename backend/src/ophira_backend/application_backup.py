@@ -22,7 +22,7 @@ from .backup_files import (
     tree_inventory,
 )
 from .constants import TERMINAL_RUN_STATUSES
-from .deletion_models import ErasedRun
+from .deletion_models import ErasedProject, ErasedRun
 from .maintenance import MAINTENANCE_LOCK, DataDirectoryBusyError, data_directory_lease
 from .project_comments import MAX_COMMENT_BYTES, CommentLedger
 from .project_template_backup import inspect_project_templates
@@ -79,14 +79,19 @@ def inspect_application(data: Path, plugin: Path) -> dict:
     proposals = SkillProposalService(ledger, registry)
     # list_projects/list_runs deliberately hide malformed UI records. A backup
     # must instead read every directory strictly so missing truth cannot vanish.
-    projects, runs, erased_runs = {}, {}, {}
+    projects, erased_projects, runs, erased_runs = {}, {}, {}, {}
     checkpoints = WorkspaceCheckpoints(ledger)
     for directory in sorted(ledger.projects_dir.iterdir()):
         if not directory.is_dir():
             raise BackupError("invalid_project_store")
-        project = ledger.get_project(directory.name)
+        project = ledger.read_project_entry(directory.name)
         if project.id != directory.name:
             raise BackupError("project_identity_mismatch")
+        if isinstance(project, ErasedProject):
+            if set(path.name for path in directory.iterdir()) != {"project.json"}:
+                raise BackupError("erased_project_contains_data")
+            erased_projects[project.id] = project
+            continue
         if (directory / PENDING_RESTORE).exists() or list(directory.glob("workspace-stage-*")):
             # Pending swaps bind actual directory inodes. Finish them on the
             # original host before copying; never replay them in a cold restore.
@@ -119,7 +124,7 @@ def inspect_application(data: Path, plugin: Path) -> dict:
                 except (OSError, ValueError) as exc:
                     raise BackupError("artifact_snapshot_invalid") from exc
         projects[project.id] = project
-    inspect_project_templates(data, projects)
+    inspect_project_templates(data, projects, erased_projects)
     comment_store = data / "collaboration" / "comments"
     if comment_store.exists():
         for path in sorted(comment_store.iterdir()):
@@ -140,9 +145,9 @@ def inspect_application(data: Path, plugin: Path) -> dict:
         if not directory.is_dir():
             raise BackupError("invalid_run_store")
         run = ledger.read_run_entry(directory.name)
-        if run.id != directory.name or run.project_id not in projects:
+        if run.id != directory.name or run.project_id not in projects | erased_projects:
             raise BackupError("run_project_mismatch")
-        project = projects[run.project_id]
+        project = projects.get(run.project_id) or erased_projects[run.project_id]
         if run.tenant_id != project.tenant_id or run.identity_binding != project.identity_binding:
             raise BackupError("run_identity_mismatch")
         if isinstance(run, ErasedRun):
@@ -150,6 +155,8 @@ def inspect_application(data: Path, plugin: Path) -> dict:
                 raise BackupError("erased_run_contains_context")
             erased_runs[run.id] = run
             continue
+        if isinstance(project, ErasedProject):
+            raise BackupError("erased_project_contains_live_run")
         if run.status not in TERMINAL_RUN_STATUSES:
             raise BackupError("nonterminal_run_present")
         runs[run.id] = run

@@ -68,28 +68,7 @@ def shared_context(selection, project_id, runs):
             value["entries"] = retained
             value["revision"] += 1
             selection.change(path, encode(value))
-    directories = {f"projects/{project_id}/diary"}
-    directories.update(f"agents/{run.agent_id}/diary" for run in runs if run.agent_id)
-    heading = re.compile(rb"^## \d{2}:\d{2}:\d{2} \xc2\xb7 ([A-Za-z0-9_-]+)\s*$")
-    for directory in sorted(directories):
-        for name, _ in selection.children(directory):
-            path = f"{directory}/{name}"
-            raw = selection.read(path, record=True)
-            kept, remove = [], False
-            for line in raw.splitlines(keepends=True):
-                match = heading.match(line)
-                if line.startswith(b"## "):
-                    remove = bool(match and match[1].decode() in selected)
-                if not remove:
-                    kept.append(line)
-            selection.change(path, b"".join(kept))
-    path = "_manifest.jsonl"
-    raw = selection.read(path, optional=True, record=True)
-    if raw:
-        if not raw.endswith(b"\n"):
-            raise ValueError("Manifest has an incomplete tail.")
-        rows = [parse_json(line) for line in raw.splitlines() if line.strip()]
-        selection.change(path, jsonl([row for row in rows if row.get("run_id") not in selected]))
+    source_diaries_and_manifest(selection, project_id, runs)
     path = f"collaboration/comments/{project_id}.json"
     if any(
         name.startswith(f".{project_id}.json.") and name.endswith(".tmp")
@@ -131,3 +110,41 @@ def shared_context(selection, project_id, runs):
                 if row["id"] in selected:
                     row["prompt_excerpt"] = ""
             selection.change(path, encode(value))
+
+
+def source_diaries_and_manifest(selection, project_id, runs, *, whole_project=False):
+    selected = {run.id for run in runs}
+    directories = set() if whole_project else {f"projects/{project_id}/diary"}
+    directories.update(
+        f"agents/{run.agent_id}/diary" for run in runs if getattr(run, "agent_id", None)
+    )
+    heading = re.compile(rb"^## \d{2}:\d{2}:\d{2} \xc2\xb7 ([A-Za-z0-9_-]+)\s*$")
+    for directory in sorted(directories):
+        for name, _ in selection.children(directory):
+            path = f"{directory}/{name}"
+            raw = selection.read(path, record=True)
+            kept, remove = [], False
+            for line in raw.splitlines(keepends=True):
+                match = heading.match(line)
+                if line.startswith(b"## "):
+                    remove = bool(match and match[1].decode() in selected)
+                if not remove:
+                    kept.append(line)
+            selection.change(path, b"".join(kept))
+    path = "_manifest.jsonl"
+    raw = selection.read(path, optional=True, record=True)
+    if raw:
+        if not raw.endswith(b"\n"):
+            raise ValueError("Manifest has an incomplete tail.")
+        rows = [parse_json(line) for line in raw.splitlines() if line.strip()]
+        selection.change(
+            path,
+            jsonl(
+                [
+                    row
+                    for row in rows
+                    if row.get("run_id") not in selected
+                    and not (whole_project and row.get("project_id") == project_id)
+                ]
+            ),
+        )

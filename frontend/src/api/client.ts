@@ -847,6 +847,16 @@ export function previewConversationDeletion(projectId: string, runId: string, si
   return request(`/api/projects/${encodeURIComponent(projectId)}/conversations/${encodeURIComponent(runId)}/deletion`, { signal, cache: 'no-store' })
 }
 
+export function previewProjectDeletion(projectId: string, signal?: AbortSignal): Promise<import('./projectErasure').ProjectDeletionPreview> {
+  return request(`/api/projects/${encodeURIComponent(projectId)}/deletion`, { signal, cache: 'no-store' })
+}
+
+export function deleteProject(projectId: string, preview: import('./projectErasure').ProjectDeletionPreview, confirmName: string): Promise<import('./projectErasure').ProjectDeletionResult> {
+  return request(`/api/projects/${encodeURIComponent(projectId)}/deletion`, {
+    method: 'POST', cache: 'no-store', body: JSON.stringify({ request_id: preview.request_id, reviewed_at: preview.reviewed_at, fingerprint: preview.fingerprint, confirm_deletion: true, confirm_project_name: confirmName }),
+  })
+}
+
 export function deleteConversation(projectId: string, preview: import('./conversationErasure').ConversationDeletionPreview): Promise<import('./conversationErasure').ConversationDeletionResult> {
   return request(`/api/projects/${encodeURIComponent(projectId)}/conversations/${encodeURIComponent(preview.selected_run_id)}/deletion`, {
     method: 'POST', cache: 'no-store', body: JSON.stringify({ request_id: preview.request_id, reviewed_at: preview.reviewed_at, fingerprint: preview.fingerprint, confirm_deletion: true }),

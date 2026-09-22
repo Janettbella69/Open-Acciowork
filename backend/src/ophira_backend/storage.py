@@ -557,6 +557,8 @@ class FileLedger:
             **({"id": self._safe_id(project_id)} if project_id is not None else {}),
         )
         with self._lock_for(project.id):
+            if self._project_path(project.id).exists():
+                raise ValueError("project already exists")
             self._atomic_write(self._project_path(project.id), project)
         return project
 
@@ -589,10 +591,22 @@ class FileLedger:
         return self.update_project(project_id, bind)
 
     def get_project(self, project_id: str) -> OpportunityProject:
+        project = self.read_project_entry(project_id)
+        if not isinstance(project, OpportunityProject):
+            raise LedgerNotFoundError(project_id)
+        return project
+
+    def read_project_entry(self, project_id: str):
+        from .deletion_models import erased_project
+
         path = self._project_path(project_id)
         if not path.exists():
             raise LedgerNotFoundError(project_id)
-        return OpportunityProject.model_validate_json(path.read_text(encoding="utf-8"))
+        value = json.loads(path.read_text(encoding="utf-8"))
+        result = erased_project(value) or OpportunityProject.model_validate(value)
+        if result.id != project_id:
+            raise ValueError("project identity mismatch")
+        return result
 
     def list_projects(self) -> list[OpportunityProject]:
         projects: list[OpportunityProject] = []

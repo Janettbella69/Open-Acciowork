@@ -93,6 +93,13 @@ archive or the current conversation, including available registered file version
 and project memory history. Downloads require current owner/admin access and
 finished runs; the ZIP is unencrypted. See [project data export](docs/project-data-export.md)
 for included records, excluded shared data and the distinction from app recovery.
+**Review conversation deletion** removes the conversation and attributable context while
+keeping saved project outputs. **Review project deletion** removes the complete project,
+file history, related automation, shop logins and project access after reviewing the scope,
+typing its name and confirming. Independent template copies remain usable. Interrupted
+commits recover before ordinary data access resumes; retries cannot recreate deleted IDs.
+See [project and conversation deletion](docs/project-data-deletion.md) for authorization,
+retained provenance and the boundaries with shared content, external services and old backups.
 The commerce MCP also calculates cash balances and peak funding gaps from explicit
 settlement schedules, distinguishing daily closing balances from a conservative
 intraday bound; see [`docs/cashflow.md`](docs/cashflow.md).

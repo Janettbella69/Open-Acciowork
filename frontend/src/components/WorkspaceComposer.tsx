@@ -36,6 +36,7 @@ import ProjectTemplatesPanel from './ProjectTemplatesPanel'
 import WorkspaceRecoveryPanel from './WorkspaceRecoveryPanel'
 import ProjectExportPanel from './ProjectExportPanel'
 import ConversationDeletionPanel from './ConversationDeletionPanel'
+import ProjectDeletionPanel from './ProjectDeletionPanel'
 import RunResourcesPanel from './RunResourcesPanel'
 import ProjectShopsPanel from './ProjectShopsPanel'
 import WorkspaceNav from './WorkspaceNav'
@@ -72,6 +73,7 @@ type WorkspaceComposerProps = {
   onProjectRefresh: () => void
   onProjectCreated?: (project: OpportunityProject) => void
   onConversationDeleted?: (projectId: string, runIds: string[]) => void
+  onProjectDeleted?: (projectId: string) => void
   onNewResearch: () => void
   onSelectProject: (projectId: string) => void
   onCancel: () => void
@@ -341,6 +343,7 @@ export default function WorkspaceComposer({
   onProjectRefresh,
   onProjectCreated,
   onConversationDeleted,
+  onProjectDeleted,
   onNewResearch,
   onSelectProject,
   onCancel,
@@ -857,6 +860,7 @@ export default function WorkspaceComposer({
                 {project && <WorkspaceRecoveryPanel projectId={project.id} onChanged={onProjectRefresh} />}
                 {project && <ProjectExportPanel projectId={project.id} runId={run?.id} />}
                 {project && run && onConversationDeleted && <ConversationDeletionPanel projectId={project.id} runId={run.id} disabled={isActive} onDeleted={onConversationDeleted} />}
+                {project && onProjectDeleted && <ProjectDeletionPanel projectId={project.id} disabled={isActive} onDeleted={onProjectDeleted} />}
                 {project && <ProjectShopsPanel key={`shops:${project.id}`} projectId={project.id} onTask={onChange} />}
                 {project && <ProjectMetricsPanel key={`metrics:${project.id}`} projectId={project.id} />}
                 {run && <RunMemoryPanel key={`memory:${run.id}`} runId={run.id} revision={events.filter((event) => event.run_id === run.id && event.type === 'memory.proposed').at(-1)?.sequence ?? 0} />}

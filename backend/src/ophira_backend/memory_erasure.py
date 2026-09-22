@@ -14,7 +14,7 @@ def jsonl(rows):
     return b"".join((json.dumps(row, ensure_ascii=False) + "\n").encode() for row in rows)
 
 
-def plan_run_erasure(provider, selection, runs, *, deleted_by, deleted_at):
+def plan_run_erasure(provider, selection, runs, *, deleted_by, deleted_at, project=None):
     if provider.root != selection.root / "memory":
         raise ValueError("Memory erasure requires the configured transaction store.")
     sources, count = {run.id: run for run in runs}, 0
@@ -26,6 +26,20 @@ def plan_run_erasure(provider, selection, runs, *, deleted_by, deleted_at):
             if not stat.S_ISDIR(info.st_mode):
                 raise ValueError("Invalid memory scope storage.")
             directory = f"memory/{scope_name}/{scope_id}"
+            if project is not None and scope == MemoryScope.PROJECT and scope_id == project.id:
+                snapshot = provider.export_scope(scope, scope_id)
+                for item in (
+                    snapshot["items"]
+                    + [row["item"] for row in snapshot["history"]]
+                    + snapshot["tombstones"]
+                ):
+                    if (item["tenant_id"] != project.tenant_id
+                            or item["identity_binding"] != project.identity_binding):
+                        raise ValueError("Project memory identity mismatch.")
+                count += len(snapshot["items"])
+                selection.remove_tree(directory)
+                selection.removed_directories.add(directory)
+                continue
             if any(
                 name not in {"items.json", "history.jsonl", "tombstones.jsonl"}
                 for name, _ in selection.children(directory)

@@ -17,6 +17,7 @@ from .backup_files import (
     sync_directories,
     tree_inventory,
 )
+from .deletion_models import ErasedProject
 from .models import ProjectCreate, utc_now
 from .project_scope import project_actor
 from .project_template_models import (
@@ -179,6 +180,14 @@ class TemplateApplications:
                     f"{project_id}\0{template_id}\0{actor}\0{payload.request_id}".encode()
                 ).hexdigest()[:32]
             )
+            target_id = "project_template_" + identifier[-32:]
+            try:
+                existing = self.ledger.read_project_entry(target_id)
+            except LedgerNotFoundError:
+                pass
+            else:
+                if isinstance(existing, ErasedProject):
+                    raise TemplateConflict("This template creation was permanently deleted")
             try:
                 record = self.load(project_id, template_id, identifier)
             except LedgerNotFoundError:

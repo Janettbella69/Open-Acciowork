@@ -200,6 +200,7 @@ from .models import (
 from .permissions import PermissionBroker, PermissionNotFoundError
 from .policy import OrgPolicyStore, PolicyDeniedError
 from .presentation_tools import PRESENTATION_COMPONENTS, PRESENTATION_SCHEMA_VERSION
+from .project_erasure_api import register_project_erasure_routes
 from .project_events import ProjectEventProjector
 from .project_export_api import register_project_export_routes
 from .project_metrics import (
@@ -613,6 +614,9 @@ def _create_app(
         application, settings, ledger, providers, connectors, _read_bounded_body,
     )
     register_project_export_routes(
+        application, ledger, project_access, settings, runs, memory, _read_bounded_body,
+    )
+    register_project_erasure_routes(
         application, ledger, project_access, settings, runs, memory, _read_bounded_body,
     )
     register_conversation_erasure_routes(

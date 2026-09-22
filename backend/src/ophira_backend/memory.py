@@ -82,6 +82,8 @@ class MemoryProvider(Protocol):
 
     def plan_run_erasure(self, selection, runs, *, deleted_by, deleted_at) -> int: ...
 
+    def plan_project_erasure(self, selection, project, runs, *, deleted_by, deleted_at) -> int: ...
+
     def search(
         self,
         query: str | None = None,
@@ -300,6 +302,12 @@ class FileMemoryProvider:
         from .memory_erasure import plan_run_erasure
 
         return plan_run_erasure(self, selection, runs, deleted_by=deleted_by, deleted_at=deleted_at)
+
+    def plan_project_erasure(self, selection, project, runs, *, deleted_by, deleted_at) -> int:
+        from .memory_erasure import plan_run_erasure
+
+        return plan_run_erasure(self, selection, runs, deleted_by=deleted_by,
+                                deleted_at=deleted_at, project=project)
 
     @staticmethod
     def _safe_id(value: str) -> str:

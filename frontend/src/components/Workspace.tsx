@@ -177,6 +177,13 @@ export default function Workspace() {
       onProjectRefresh={() => void runtime.refreshActiveProject()}
       onProjectCreated={(project) => void selectProjectRecord(project)}
       onConversationDeleted={runtime.conversationDeleted}
+      onProjectDeleted={(projectId) => {
+        if (!runtime.projectDeleted(projectId)) return
+        navigationRef.current += 1
+        setBriefInput(''); setAttachedFiles([]); setRetryFailure(null); setProviderProfileId(null)
+        normalizeWorkspaceUrl()
+        setNotice('Project deleted. Start a new project when you are ready.')
+      }}
       onNewResearch={() => void startNewResearch()}
       onSelectProject={(projectId) => void selectSavedProject(projectId)}
       onCancel={() => void runtime.cancel()}

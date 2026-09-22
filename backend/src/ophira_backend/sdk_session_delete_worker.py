@@ -8,11 +8,20 @@ import json
 import sys
 from pathlib import Path
 
-from claude_agent_sdk import delete_session, get_session_info
+from claude_agent_sdk import delete_session, get_session_info, list_sessions
 
 
 def main():
     operation, session_id, directory = sys.argv[1:]
+    if operation == "list":
+        sessions = list_sessions(directory=directory, include_worktrees=False, limit=1001)
+        if len(sessions) > 1000 or any(
+            item.cwd is None or Path(item.cwd).resolve() != Path(directory).resolve()
+            for item in sessions
+        ):
+            raise ValueError("project session inventory could not be verified")
+        print(json.dumps({"sessions": sorted(item.session_id for item in sessions)}))
+        return
     if operation not in {"inspect", "delete"}:
         raise ValueError("unsupported session operation")
     info = get_session_info(session_id, directory=directory)

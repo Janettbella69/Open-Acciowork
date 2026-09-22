@@ -8,4 +8,8 @@
 .project-export button:focus-visible { outline: 2px solid #4f6243; outline-offset: 3px; }
 .project-export-body p[role='alert'] { color: #91483e; }
 .project-export-review { margin-top: 16px; padding: 14px; border: 1px solid #deded9; border-radius: 8px; background: white; }
+.project-deletion .project-export-body { padding-top: 18px; }
+.project-deletion-name { display: grid; gap: 8px; margin: 12px 0; }
+.project-deletion-name input { width: 100%; box-sizing: border-box; min-height: 44px; border: 1px solid #d3d4cc; border-radius: 6px; padding: 9px 12px; font: inherit; }
+.project-deletion-confirm { color: #91483e; }
 @media (max-width: 600px) { .project-export-body { padding: 0 12px 12px; } }

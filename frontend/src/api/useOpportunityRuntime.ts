@@ -75,6 +75,7 @@ export function useOpportunityRuntime() {
   const [permissionBusy, setPermissionBusy] = useState(false)
   const retryInFlightRef = useRef(false)
   const selectionRef = useRef(0)
+  const deletedProjectsRef = useRef(new Set<string>())
   const [historyLoading, setHistoryLoading] = useState(false)
   const activeRunId = run?.id
   const activeRunStatus = run?.status
@@ -530,6 +531,7 @@ export function useOpportunityRuntime() {
   }, [run, permissions, refreshPermissions])
 
   const selectProject = useCallback(async (selected: OpportunityProject): Promise<RunRecord | null> => {
+    if (deletedProjectsRef.current.has(selected.id)) return null
     const selection = ++selectionRef.current
     closeStream()
     projectRef.current = selected
@@ -598,6 +600,7 @@ export function useOpportunityRuntime() {
     projectRef.current = null
     setProject(null)
     setRun(null)
+    setTelemetry(null)
     runRef.current = null
     setEvents([])
     setAssistantText('')
@@ -608,6 +611,14 @@ export function useOpportunityRuntime() {
     setStarting(false)
     setHistoryLoading(false)
   }, [closeStream])
+
+  const projectDeleted = useCallback((projectId: string): boolean => {
+    deletedProjectsRef.current.add(projectId)
+    setProjects((current) => current.filter((item) => item.id !== projectId))
+    if (projectRef.current?.id !== projectId) return false
+    reset()
+    return true
+  }, [reset])
 
   useEffect(() => {
     setPermissionBusy(false)
@@ -641,7 +652,7 @@ export function useOpportunityRuntime() {
     let active = true
     void Promise.all([getProtocol(), listProjects()])
       .then(([, storedProjects]) => {
-        if (active) setProjects((current) => [...current, ...storedProjects.filter((item) => !current.some((known) => known.id === item.id))])
+        if (active) setProjects((current) => [...current, ...storedProjects.filter((item) => !deletedProjectsRef.current.has(item.id) && !current.some((known) => known.id === item.id))])
       })
       .catch((loadError) => {
         if (active) setError(`Backend unavailable: ${errorMessage(loadError)}`)
@@ -678,6 +689,7 @@ export function useOpportunityRuntime() {
     selectProject,
     refreshActiveProject,
     conversationDeleted,
+    projectDeleted,
     reset,
   }
 }

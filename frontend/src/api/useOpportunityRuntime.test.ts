@@ -79,6 +79,59 @@ async function setup() {
 }
 
 describe('project selection isolation', () => {
+  it('clears a deleted project and refuses stale selection, refreshes and stream events', async () => {
+    const { result } = await setup()
+    const stream = MockEventSource.instances[0]
+    act(() => { stream.emit('assistant.text.delta', { text: 'private project' }) })
+    const refresh = deferred<OpportunityProject>()
+    vi.mocked(api.getProject).mockReturnValueOnce(refresh.promise)
+    let refreshing!: Promise<void>
+    act(() => { refreshing = result.current.refreshActiveProject() })
+    act(() => { expect(result.current.projectDeleted(projectA.id)).toBe(true) })
+    await act(async () => { refresh.resolve(projectA); await refreshing })
+    act(() => { stream.emit('assistant.text.delta', { text: 'late private text' }) })
+    expect(stream.closed).toBe(true)
+    expect(result.current.project).toBeNull()
+    expect(result.current.run).toBeNull()
+    expect(result.current.telemetry).toBeNull()
+    expect(result.current.assistantText).toBe('')
+    expect(result.current.events).toEqual([])
+    expect(result.current.projects).toEqual([projectB])
+    const requests = vi.mocked(api.listProjectRuns).mock.calls.length
+    await act(async () => { await result.current.selectProject(projectA) })
+    expect(api.listProjectRuns).toHaveBeenCalledTimes(requests)
+    expect(result.current.project).toBeNull()
+  })
+
+  it('preserves a newly selected project when deletion of the previous project finishes late', async () => {
+    const { result } = await setup()
+    await act(async () => { await result.current.selectProject(projectB) })
+    const stream = MockEventSource.instances.at(-1)!
+    act(() => { stream.emit('assistant.text.delta', { text: 'keep current work' }) })
+    act(() => { expect(result.current.projectDeleted(projectA.id)).toBe(false) })
+    expect(result.current.project).toEqual(projectB)
+    expect(result.current.run).toEqual(runB)
+    expect(result.current.assistantText).toBe('keep current work')
+    expect(result.current.projects).toEqual([projectB])
+    expect(stream.closed).toBe(false)
+  })
+
+  it('does not resurrect a deleted project from a delayed initial list or conversation read', async () => {
+    const initial = deferred<OpportunityProject[]>()
+    const runs = deferred<RunRecord[]>()
+    vi.mocked(api.listProjects).mockReturnValueOnce(initial.promise)
+    vi.mocked(api.listProjectRuns).mockReturnValueOnce(runs.promise)
+    const { result } = renderHook(() => useOpportunityRuntime())
+    let selecting!: Promise<RunRecord | null>
+    act(() => { selecting = result.current.selectProject(projectA) })
+    act(() => { result.current.projectDeleted(projectA.id) })
+    await act(async () => { initial.resolve([projectA, projectB]); runs.resolve([runA]); await selecting })
+    expect(result.current.project).toBeNull()
+    expect(result.current.run).toBeNull()
+    expect(result.current.projects).toEqual([projectB])
+    expect(MockEventSource.instances).toHaveLength(0)
+  })
+
   it('clears deleted conversation content and ignores delayed events or deletion of another project', async () => {
     const { result } = await setup()
     const stream = MockEventSource.instances[0]

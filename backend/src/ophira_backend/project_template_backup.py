@@ -13,11 +13,13 @@ from .project_template_models import (
     TEMPLATE_ID,
     ProjectTemplate,
     TemplateApplication,
+    fingerprint,
 )
 from .skill_proposal_files import read_relative
 
 
-def inspect_project_templates(data, projects):
+def inspect_project_templates(data, projects, erased_projects=None):
+    erased_projects = erased_projects or {}
     root = data / "collaboration" / "project-templates"
     origins = {
         item.template_origin.application_id: item
@@ -25,6 +27,22 @@ def inspect_project_templates(data, projects):
         if item.template_origin
     }
     completed = set()
+    for application_id, target in origins.items():
+        origin = target.template_origin
+        source = erased_projects.get(origin.source_project_id)
+        if source is None:
+            continue
+        if (source.template_copies.get(target.id) != fingerprint(origin)
+                or source.identity_binding != target.identity_binding
+                or source.tenant_id != target.tenant_id):
+            raise BackupError("deleted_template_source_mismatch")
+        by_id = {row.id: row for row in target.artifacts}
+        for item in origin.references:
+            artifact = by_id.get(item.artifact_id)
+            if (artifact is None or artifact.checksum != item.source.checksum
+                    or artifact.size_bytes != item.source.size_bytes):
+                raise BackupError("deleted_template_copy_mismatch")
+        completed.add(application_id)
     if len(origins) != sum(item.template_origin is not None for item in projects.values()):
         raise BackupError("project_template_origin_invalid")
     if root.exists():

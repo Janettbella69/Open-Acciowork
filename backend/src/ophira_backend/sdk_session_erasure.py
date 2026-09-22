@@ -6,6 +6,7 @@ import re
 import stat
 import subprocess
 import sys
+from contextlib import ExitStack
 from pathlib import Path
 
 from pydantic import Field, model_validator
@@ -46,7 +47,14 @@ class NativeSessionTarget(APIModel):
 
 def sdk_operation(root, target, operation):
     root = Path(root).resolve()
-    with directory_fd(root / target.config), directory_fd(root / target.workspace):
+    with ExitStack() as stack:
+        stack.enter_context(directory_fd(root / target.config))
+        try:
+            stack.enter_context(directory_fd(root / target.workspace))
+        except FileNotFoundError:
+            # A removed workspace can still have durable SDK transcripts. Its
+            # existing project parent remains validated without following links.
+            stack.enter_context(directory_fd((root / target.workspace).parent))
         result = subprocess.run(
             [
                 sys.executable,
@@ -64,9 +72,17 @@ def sdk_operation(root, target, operation):
             timeout=15,
             check=False,
         )
-    if result.returncode or len(result.stdout) > 100:
+    if result.returncode or len(result.stdout) > (50_000 if operation == "list" else 100):
         raise ValueError("Native session operation could not be verified.")
     value = json.loads(result.stdout)
+    if operation == "list":
+        if (not isinstance(value, dict) or set(value) != {"sessions"}
+                or not isinstance(value["sessions"], list) or len(value["sessions"]) > 1000
+                or any(not isinstance(item, str) or not re.fullmatch(UUID_PATTERN, item)
+                       for item in value["sessions"])
+                or len(set(value["sessions"])) != len(value["sessions"])):
+            raise ValueError("Native project session inventory is invalid.")
+        return value["sessions"]
     if not isinstance(value, dict) or set(value) != {"found"} or type(value["found"]) is not bool:
         raise ValueError("Native session response could not be verified.")
     return value["found"]
