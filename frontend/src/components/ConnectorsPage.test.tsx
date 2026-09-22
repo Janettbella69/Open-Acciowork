@@ -33,7 +33,10 @@ const shopify: Connector = {
 
 beforeEach(() => {
   vi.clearAllMocks()
-  vi.mocked(listConnectors).mockResolvedValue([connector, shopify])
+  vi.mocked(listConnectors).mockResolvedValue([connector, shopify, {
+    ...connector, id: 'shein', type: 'shein', display_name: 'SHEIN',
+    scope: 'shein:store:read shein:products:read', endpoint: 'https://openapi.sheincorp.com',
+  }])
   vi.mocked(listMarketplaceGuides).mockResolvedValue([])
   vi.mocked(checkConnectorHealth).mockResolvedValue({
     ...connector,
@@ -51,6 +54,8 @@ describe('ConnectorsPage', () => {
     expect(screen.getByText('OPHIRA_CONNECTOR_GMAIL_KEY')).toBeInTheDocument()
     expect(screen.getByText('Not verified')).toBeInTheDocument()
     expect(screen.getByText('Configure store access')).toBeInTheDocument()
+    expect(screen.getByText('Configure seller access')).toBeInTheDocument()
+    expect(screen.getByLabelText('Decrypted seller secretKey')).toHaveAttribute('type', 'password')
 
     fireEvent.click(screen.getByRole('button', { name: /check configuration/i }))
     await waitFor(() => expect(checkConnectorHealth).toHaveBeenCalledWith('connector_gmail'))

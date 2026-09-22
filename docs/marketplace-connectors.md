@@ -11,13 +11,14 @@ access or implement OAuth; current API and browser grants remain independent.
 
 ## Platform inventory
 
-Reviewed against official documentation on 2026-09-09 (Shopify on 2026-09-10). Dynamic documentation
+Reviewed against official documentation on 2026-09-09 (Shopify on 2026-09-10,
+SHEIN on 2026-09-22). Dynamic documentation
 was checked using official indexed pages where the supplied page returned only
 its JavaScript shell. These are documentation checks, not authenticated API tests.
 
 | Platform | Official starting point | Delivered | Deferred / reason |
 | --- | --- | --- | --- |
-| SHEIN | [Developer guide](https://open.sheincorp.com/documents/system/dad0d1c7-be76-4b03-a735-4e23f012bdd9) | Documentation entry and contract investigation | Runtime adapter: full signature rules and applicable seller program still need verification; no authorized account supplied |
+| SHEIN | [Developer guide](https://open.sheincorp.com/documents/system/dad0d1c7-be76-4b03-a735-4e23f012bdd9) | Seller-key configuration, store reads, SPU product pagination with nested SKC variants and shelf filters, project grants, main-Agent reads/source receipts, revoke/reconnect and offline API/SDK/UI verification | Live seller-program/model certification; authorization exchange/decryption; SKU price/inventory, orders and commercial writes |
 | Temu | [Developer guide](https://partner.temu.com/documentation?menu_code=52ef88bdef1d4527b15f6d303b173e48) | Documentation entry and authorization/signature references | Runtime adapter: region-specific gateway and specific read API contracts remain to be verified; no authorized account supplied |
 | TikTok Shop | [Developer onboarding](https://partner.tiktokshop.com/docv2/page/developer-onboarding) | Seller credential configuration, authorized-shop reads, product pagination, project-specific expiring shop grants, main-Agent read tool and source receipts, administrator grant/revoke UI; offline adapter/API/SDK/UI verification | Live developer/test-shop and model certification, OAuth callback/token exchange and refresh, commercial writes |
 | AliExpress | [Register an application](https://developer.alibaba.com/docs/doc.htm?articleId=120674&docType=1&treeId=727) | Correct platform identification and documentation entry | Runtime adapter: verify current app category, read endpoints, permissions and seller authorization; supplied registration page is dated 2022 |
@@ -34,9 +35,9 @@ credential is migrated between these platforms.
 
 - SHEIN's [authorization exchange](https://open.sheincorp.com/documents/apidoc/detail/3001520-1000012)
   documents `POST /open-api/auth/get-by-token`, a temporary token, app headers and
-  returned seller credentials. This establishes a credential exchange, not the
-  complete signing implementation. Its [seller SKC listing](https://open.sheincorp.com/zh/documents/apidoc/detail/3001710)
-  is a possible future read contract; it is not implemented here.
+  returned encrypted seller credentials. The implemented reader uses existing
+  decrypted credentials and the independently verified signature tool and product
+  search contract documented in [SHEIN seller reader](shein-connector.md).
 - Temu's [signature method](https://partner.temu.com/documentation?menu_code=38e79b35d2cb463d85619c1c786dd303&sub_menu_code=4a821c90d06442a09e061b0d4316fbf3)
   describes an MD5-based parameter signature. Its [authorization callback guide](https://partner.temu.com/documentation?menu_code=fb16b05f7a904765aac4af3a24b87d4a)
   distinguishes regional partner portals and seller consent. No generic OAuth
@@ -144,10 +145,20 @@ Alternatively set `OPHIRA_CONNECTOR_SHOPIFY_KEY` to a JSON object with `client_i
 `client_secret` after saving the store address. A Shopify project grant requires product
 reads to be allowed; order reads follow the connector setting and the app's granted scopes.
 
+## SHEIN read contract
+
+See [SHEIN seller reader](shein-connector.md) for the official signature evidence,
+both fixed origins, credential setup, store verification and SPU/SKC contract.
+The shared API accepts `page_size` 1–10 for SHEIN products (explicitly pass it;
+the general HTTP request default remains 20). Main-Agent requests already default
+to 10. Page tokens are positive decimal page numbers, with
+`pagination_unit: SPU`, `page_number` and `total_count` in the response.
+Filters are ALL, ON_SHELF and OFF_SHELF; the latter two filter SKC shelf status.
+
 ## Boundaries and verification
 
 - `GET /api/connectors/marketplaces` exposes six official guide entries and
-  implementation availability. SHEIN, Temu, AliExpress and Shopee adapters cannot be invoked.
+  implementation availability. Temu, AliExpress and Shopee adapters cannot be invoked.
 - `POST /api/connectors/{id}/marketplace-read` accepts only typed read operations
   (authorized shops, products and Shopify orders). In trusted-gateway mode it requires an owner/admin, independently
   of the shared connector mutation guard. Local-only mode retains the existing
@@ -173,7 +184,7 @@ reads to be allowed; order reads follow the connector setting and the app's gran
 ## Grant a shop to a project
 
 After reading authorized shops and selecting one, open **Project access for Agents**
-in the TikTok Shop card, or after **Read store** in the Shopify card. Choose a saved
+in the TikTok Shop card, or after **Read store** in the Shopify or SHEIN card. Choose a saved
 project and a duration of 1, 7 or 30 days,
 then select **Allow Agent reads for selected shop**. This permits the project's
 main Agent, including its scheduled runs, to read that shop until expiry. It does
@@ -200,7 +211,7 @@ creation/expiry times and revocation actor/time. Compare-and-swap revisions and
 cross-process locks protect updates. Renewal retires the old grant and issues a
 new immutable binding ID. History is retained, with a limit of 1,000 entries per
 project. The private connector identity includes the platform, fixed endpoint and
-app key; refreshing a token for the same app preserves a live grant, while changing
+app key (seller openKeyId for SHEIN); refreshing a token for the same app preserves a live grant, while changing
 apps requires a new grant. Local connector revoke blocks reads; explicit reconnect
 to the same app can reuse an unexpired project grant.
 

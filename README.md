@@ -121,9 +121,11 @@ product reader with pagination, scoped credentials and revoke/reconnect controls
 Shopify reads one store in the app's Dev Dashboard organization through the client
 credentials grant (24-hour tokens kept in memory): shop details, products and recent
 orders without customer identity, guided by the `shopify-store-review` Plugin Skill.
+SHEIN reads an authorized store and paginated SPU product groups with nested SKC
+variants, using existing decrypted seller keys; see [SHEIN setup](docs/shein-connector.md).
 Project administrators can grant one shop for a fixed duration; the main Agent
 can then read that shop and cite server-issued source receipts when recording evidence.
-The other four adapters and live seller certification remain open; see
+The Temu, AliExpress and Shopee adapters and live seller certification remain open; see
 [`docs/marketplace-connectors.md`](docs/marketplace-connectors.md).
 
 Open **Project run metrics** in a saved workspace to inspect recent execution,

@@ -49,7 +49,7 @@ MAX_MARKETPLACE_RESPONSE_BYTES = 2 * 1024 * 1024
 
 MARKETPLACE_GUIDES = [
     {
-        "type": "shein", "name": "SHEIN", "read_adapter": False,
+        "type": "shein", "name": "SHEIN", "read_adapter": True,
         "documentation_url": "https://open.sheincorp.com/documents/system/"
         "dad0d1c7-be76-4b03-a735-4e23f012bdd9",
     },
@@ -126,6 +126,7 @@ def parse_tiktok_shop_credentials(raw: str) -> TikTokShopCredentials:
 ProductStatus = Literal[
     "ALL", "DRAFT", "PENDING", "FAILED", "ACTIVATE", "SELLER_DEACTIVATED",
     "PLATFORM_DEACTIVATED", "FREEZE", "DELETED", "ACTIVE", "ARCHIVED", "UNLISTED",
+    "ON_SHELF", "OFF_SHELF",
 ]
 # Each platform documents its own status vocabulary; filters never cross platforms.
 TIKTOK_PRODUCT_STATUSES = frozenset({

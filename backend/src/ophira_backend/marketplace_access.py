@@ -31,6 +31,7 @@ from .marketplaces import (
     default_marketplace_transport,
 )
 from .models import PrincipalContext, new_id, utc_now
+from .shein import SHEIN_TYPE, SheinReader
 from .shopify import ShopifyReader
 from .storage import FileLedger
 from .untrusted import UNTRUSTED_LIMITS, UntrustedSource, sanitize_untrusted_payload
@@ -159,12 +160,13 @@ class MarketplaceReader:
             "transport_factory": lambda: self.transport_factory(),
             "clock": lambda: self.clock(),
         }
-        self.adapters: dict[str, TikTokShopReader | ShopifyReader] = {
+        self.adapters: dict[str, TikTokShopReader | ShopifyReader | SheinReader] = {
             TIKTOK_SHOP_TYPE: TikTokShopReader(connectors, **options),
             SHOPIFY_TYPE: ShopifyReader(connectors, **options),
+            SHEIN_TYPE: SheinReader(connectors, **options),
         }
 
-    def adapter(self, connector_id: str) -> TikTokShopReader | ShopifyReader:
+    def adapter(self, connector_id: str) -> TikTokShopReader | ShopifyReader | SheinReader:
         try:
             connector = self.connectors.get(connector_id)
         except (ConnectorNotFoundError, ValueError):

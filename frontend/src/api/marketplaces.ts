@@ -12,6 +12,8 @@ export type MarketplaceProduct = {
   vendor?: string
   product_type?: string
   updated_at?: string
+  category_id?: string
+  variants?: { id: string; title: string; status: string }[]
 }
 
 export type MarketplaceOrder = {
@@ -37,6 +39,9 @@ export type MarketplaceRead = {
   granted_scopes?: string[]
   order_window?: 'last_60_days' | 'all'
   next_page_token: string | null
+  pagination_unit?: 'SPU'
+  page_number?: number
+  total_count?: number
   source_url: string
   retrieved_at: string
   request_id: string
@@ -55,6 +60,7 @@ export type MarketplaceReadInput = {
 export const PRODUCT_READ_SCOPE: Record<string, string> = {
   tiktok_shop: 'seller.product.basic',
   shopify: 'read_products',
+  shein: 'shein:products:read',
 }
 
 export type MarketplaceBinding = {

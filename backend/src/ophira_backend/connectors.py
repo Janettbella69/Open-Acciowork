@@ -24,6 +24,13 @@ from .marketplaces import (
 )
 from .models import Connector, utc_now
 from .providers import FileSecretVault
+from .shein import (
+    SHEIN_DEFAULT_SCOPE,
+    SHEIN_ORIGIN,
+    SHEIN_ORIGINS,
+    SHEIN_TYPE,
+    parse_shein_credentials,
+)
 from .shopify import (
     SHOPIFY_DEFAULT_SCOPE,
     check_shopify_store_endpoint,
@@ -31,6 +38,14 @@ from .shopify import (
 )
 
 CONNECTOR_CATALOG: list[dict[str, str | None]] = [
+    {
+        "id": SHEIN_TYPE,
+        "type": SHEIN_TYPE,
+        "display_name": "SHEIN",
+        "scope": SHEIN_DEFAULT_SCOPE,
+        "secret_env": "OPHIRA_CONNECTOR_SHEIN_KEY",
+        "endpoint": SHEIN_ORIGIN,
+    },
     {
         "id": "gmail",
         "type": "gmail",
@@ -182,6 +197,7 @@ class CommercialConnectorRuntime:
 
     connector: Connector
     credential: SecretStr = field(repr=False)
+    credential_revision: str | None = field(default=None, repr=False)
 
 
 def check_commercial_https_endpoint(endpoint: str) -> str | None:
@@ -360,6 +376,13 @@ class ConnectorRegistry:
                 parse_shopify_credentials(secret)
                 if self.vault is None:
                     raise ValueError("connector vault is not configured")
+        if type == SHEIN_TYPE:
+            if endpoint not in SHEIN_ORIGINS:
+                raise ValueError("SHEIN requires an official API origin")
+            if secret is not None:
+                parse_shein_credentials(secret)
+                if self.vault is None:
+                    raise ValueError("connector vault is not configured")
         existing = None
         try:
             existing = self.get(connector_id)
@@ -391,6 +414,8 @@ class ConnectorRegistry:
             parse_tiktok_shop_credentials(secret)
         elif connector.type == SHOPIFY_TYPE:
             parse_shopify_credentials(secret)
+        elif connector.type == SHEIN_TYPE:
+            parse_shein_credentials(secret)
         if self.vault is None:
             raise ValueError("connector vault is not configured")
         self.vault.set(connector.id, secret)
@@ -557,6 +582,36 @@ class ConnectorRegistry:
                 "MARKETPLACE_CREDENTIAL_INVALID", "Replace the invalid Shopify app credentials.",
             ) from None
         return CommercialConnectorRuntime(connector=connector, credential=SecretStr(secret))
+
+    def require_shein_runtime(self, connector_id: str) -> CommercialConnectorRuntime:
+        try:
+            connector = self.get(connector_id)
+        except (ConnectorNotFoundError, ValueError):
+            raise ConnectorUnavailableError(
+                "MARKETPLACE_NOT_CONFIGURED", "The marketplace connector is not configured.",
+            ) from None
+        if connector.type != SHEIN_TYPE or connector.endpoint not in SHEIN_ORIGINS:
+            raise ConnectorUnavailableError(
+                "MARKETPLACE_UNSUPPORTED", "This connector has no supported marketplace reader.",
+            )
+        if not connector.enabled:
+            raise ConnectorUnavailableError(
+                "MARKETPLACE_DISABLED", "The marketplace connector is revoked.",
+            )
+        try:
+            fallback = self.environment_credential(connector)
+            if self.vault is None:
+                raise ValueError
+            view, secret = self.vault.resolve_versioned(connector.id, fallback=fallback)
+            if not secret:
+                raise ValueError
+            parse_shein_credentials(secret)
+        except (OSError, ValueError):
+            raise ConnectorUnavailableError(
+                "MARKETPLACE_CREDENTIAL_INVALID", "Configure valid SHEIN seller credentials first.",
+            ) from None
+        return CommercialConnectorRuntime(connector=connector, credential=SecretStr(secret),
+                                          credential_revision=view["revision"])
 
     def require_commercial_action_runtime(
         self,
