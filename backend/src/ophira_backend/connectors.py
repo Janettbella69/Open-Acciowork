@@ -265,10 +265,12 @@ def _cdp_endpoint_reachable(endpoint: str, timeout_seconds: float = 0.75) -> boo
 
 
 class ConnectorRegistry:
-    def __init__(self, root: Path, vault: FileSecretVault | None = None) -> None:
+    def __init__(self, root: Path, vault: FileSecretVault | None = None, *,
+                 credential_defaults: Mapping[str, SecretStr | None] | None = None) -> None:
         self.root = root.resolve()
         self.root.mkdir(parents=True, exist_ok=True)
         self.vault = vault
+        self._credential_defaults = dict(credential_defaults or {})
         self._lock = threading.RLock()
 
     @staticmethod
@@ -422,23 +424,19 @@ class ConnectorRegistry:
                 else "ok"
             )
         elif connector.type == COMMERCIAL_HTTPS_JSON_CONNECTOR_TYPE:
-            vaulted = self.vault is not None and self.vault.has(connector.id)
-            env_present = bool(connector.secret_env and env.get(connector.secret_env))
+            configured = bool(self.credential(connector, environ=env))
             reason = check_commercial_https_endpoint(connector.endpoint or "")
             if reason:
                 health = "unreachable"
-            elif connector.secret_env and not vaulted and not env_present:
-                health = "no_credential"
-            elif not vaulted and not env_present:
+            elif not configured:
                 health = "no_credential"
             else:
                 health = "ok"
         else:
-            vaulted = self.vault is not None and self.vault.has(connector.id)
-            env_present = bool(connector.secret_env and env.get(connector.secret_env))
+            configured = bool(self.credential(connector, environ=env))
             health = (
                 "no_credential"
-                if connector.secret_env and not vaulted and not env_present
+                if connector.secret_env and not configured
                 else "ok"
             )
         updated = connector.model_copy(
@@ -482,6 +480,21 @@ class ConnectorRegistry:
         assert connector.endpoint is not None
         return connector.endpoint
 
+    def environment_credential(self, connector: Connector, *, environ=None) -> str | None:
+        if not connector.secret_env:
+            return None
+        if check_connector_secret_env(connector.secret_env):
+            raise ValueError("Invalid connector credential reference")
+        value = (os.environ if environ is None else environ).get(connector.secret_env)
+        default = self._credential_defaults.get(connector.secret_env)
+        return value if value is not None else default.get_secret_value() if default else None
+
+    def credential(self, connector: Connector, *, environ=None) -> str | None:
+        fallback = self.environment_credential(connector, environ=environ)
+        if self.vault is None:
+            return fallback
+        return self.vault.resolve(connector.id, fallback=fallback)
+
     def require_tiktok_shop_runtime(self, connector_id: str) -> CommercialConnectorRuntime:
         """Resolve server-only seller material; health is never remote verification."""
         try:
@@ -498,13 +511,7 @@ class ConnectorRegistry:
             raise ConnectorUnavailableError(
                 "MARKETPLACE_DISABLED", "The marketplace connector is revoked.",
             )
-        secret = self.vault.get(connector.id) if self.vault is not None else None
-        if not secret and connector.secret_env:
-            if check_connector_secret_env(connector.secret_env):
-                raise ConnectorUnavailableError(
-                    "MARKETPLACE_CREDENTIAL_INVALID", "Invalid connector credential reference.",
-                )
-            secret = os.environ.get(connector.secret_env)
+        secret = self.credential(connector)
         if not secret:
             raise ConnectorUnavailableError(
                 "MARKETPLACE_CREDENTIAL_REQUIRED", "Configure a seller access token first.",
@@ -537,13 +544,7 @@ class ConnectorRegistry:
             raise ConnectorUnavailableError(
                 "MARKETPLACE_STORE_REQUIRED", "Enter the store's myshopify.com address first.",
             )
-        secret = self.vault.get(connector.id) if self.vault is not None else None
-        if not secret and connector.secret_env:
-            if check_connector_secret_env(connector.secret_env):
-                raise ConnectorUnavailableError(
-                    "MARKETPLACE_CREDENTIAL_INVALID", "Invalid connector credential reference.",
-                )
-            secret = os.environ.get(connector.secret_env)
+        secret = self.credential(connector)
         if not secret:
             raise ConnectorUnavailableError(
                 "MARKETPLACE_CREDENTIAL_REQUIRED",
@@ -590,9 +591,7 @@ class ConnectorRegistry:
         reason = check_commercial_https_endpoint(connector.endpoint or "")
         if reason:
             raise ConnectorUnavailableError("COMMERCIAL_CONNECTOR_INVALID", reason)
-        secret = self.vault.get(connector.id) if self.vault is not None else None
-        if not secret and connector.secret_env:
-            secret = env.get(connector.secret_env)
+        secret = self.credential(connector, environ=env)
         if not secret:
             raise ConnectorUnavailableError(
                 "COMMERCIAL_CONNECTOR_NO_CREDENTIAL",

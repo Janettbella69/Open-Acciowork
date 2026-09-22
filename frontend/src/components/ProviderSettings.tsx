@@ -84,7 +84,7 @@ function payloadFrom(editor: EditorState): ProviderInput {
   return payload
 }
 
-export default function ProviderSettings() {
+export default function ProviderSettings({ revision = 0 }: { revision?: number }) {
   const t = useT()
   const language = useLanguage()
   const [providers, setProviders] = useState<ProviderProfile[]>([])
@@ -99,7 +99,7 @@ export default function ProviderSettings() {
       .then((items) => { if (active) setProviders(items) })
       .catch((loadError) => { if (active) setError(errorMessage(loadError)) })
     return () => { active = false }
-  }, [])
+  }, [revision])
 
   const update = <Key extends keyof EditorState>(key: Key, value: EditorState[Key]) => {
     setEditor((current) => (current ? { ...current, [key]: value } : current))

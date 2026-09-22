@@ -1403,7 +1403,7 @@ def build_mcp_servers(
         from .media_tools import build_media_mcp_server
         from .web_tools import build_web_mcp_server
 
-        servers[WEB_MCP_SERVER_NAME] = build_web_mcp_server(settings)
+        servers[WEB_MCP_SERVER_NAME] = build_web_mcp_server(settings, connectors=connectors)
         servers[COMPLIANCE_MCP_SERVER_NAME] = build_compliance_mcp_server()
         org_policy = policy or OrgPolicy()
         if org_policy.browser_enabled:
@@ -1423,5 +1423,6 @@ def build_mcp_servers(
             settings,
             run_id=run_id,
             project_events=project_events,
+            connectors=connectors,
         )
     return servers

@@ -118,6 +118,7 @@ from .constants import (
     RunStatus,
     ScheduleKind,
 )
+from .credential_api import register_credential_routes
 from .durable_permissions import DurablePermissionConflict
 from .events import EventPublisher
 from .feedback import FeedbackStore
@@ -372,7 +373,13 @@ def _create_app(
     intents = IntentStore(settings.data_dir / "intents")
     connectors = ConnectorRegistry(
         settings.data_dir / "connectors",
-        vault=FileSecretVault(settings.data_dir / "secrets", filename="connector-secrets.json"),
+        vault=FileSecretVault(
+            settings.data_dir.resolve() / "secrets", filename="connector-secrets.json",
+        ),
+        credential_defaults={
+            "OPHIRA_SEARCH_API_KEY": settings.search_api_key,
+            "OPHIRA_MEDIA_API_KEY": settings.media_api_key,
+        },
     )
     connectors.ensure_catalog()
     marketplace_access = MarketplaceAccessService(
@@ -597,6 +604,9 @@ def _create_app(
 
     register_collaboration_routes(
         application, ledger, project_access, settings, _read_bounded_body,
+    )
+    register_credential_routes(
+        application, settings, ledger, providers, connectors, _read_bounded_body,
     )
     register_project_template_routes(
         application, ledger, project_access, settings, _read_bounded_body,

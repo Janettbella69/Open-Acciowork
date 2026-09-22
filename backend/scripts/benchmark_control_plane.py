@@ -181,6 +181,15 @@ def isolated_app(settings: Settings, runtime: OfflineWaitingRuntime):
 @contextmanager
 def offline_guard() -> Iterator[None]:
     """Fail closed on outgoing sockets, child processes and secret-vault reads."""
+    load = FileSecretVault._load
+
+    def empty_vault_only(vault, descriptor):
+        # New vaults initialize their empty schema at startup. Never read a
+        # pre-existing vault, including one initialized earlier in this benchmark.
+        if vault.path.exists():
+            raise RuntimeError("secret_read_forbidden")
+        return load(vault, descriptor)
+
     with ExitStack() as stack:
         for target in (
             "socket.socket.connect", "socket.socket.connect_ex", "socket.create_connection",
@@ -188,7 +197,7 @@ def offline_guard() -> Iterator[None]:
         ):
             stack.enter_context(patch(target, side_effect=RuntimeError("offline_boundary")))
         stack.enter_context(patch.object(
-            FileSecretVault, "_read", side_effect=RuntimeError("secret_read_forbidden"),
+            FileSecretVault, "_load", empty_vault_only,
         ))
         yield
 

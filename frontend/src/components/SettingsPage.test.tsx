@@ -15,6 +15,9 @@ vi.mock('../api/client', () => ({
   saveOrgPolicy: vi.fn(),
   listPermissionGrants: vi.fn(),
   revokePermissionGrant: vi.fn(),
+  listCredentials: vi.fn(),
+  deleteCredential: vi.fn(),
+  exportCredential: vi.fn(),
   errorMessage: (error: unknown) => (error instanceof Error ? error.message : 'unknown error'),
 }))
 
@@ -29,6 +32,8 @@ import {
   revokePermissionGrant,
   saveOrgPolicy,
   saveProvider,
+  listCredentials,
+  deleteCredential,
 } from '../api/client'
 
 const deepseekProfile: ProviderProfile = {
@@ -144,6 +149,25 @@ beforeEach(() => {
 })
 
 describe('SettingsPage · provider management', () => {
+  it('refreshes provider key status after credential deletion', async () => {
+    stubLocalStorage()
+    const credential = { kind: 'provider' as const, id: 'deepseek', display_name: deepseekProfile.display_name,
+      revision: 'a'.repeat(64), configured: true, source: 'stored' as const, deleted_at: null, deleted_by: null }
+    vi.mocked(listCredentials).mockResolvedValue([credential])
+    vi.mocked(deleteCredential).mockImplementation(async () => {
+      vi.mocked(listProviders).mockResolvedValue([{ ...deepseekProfile, secret_configured: false }])
+      return { ...credential, configured: false, source: 'deleted', deleted_at: '2026-09-22T10:00:00Z', deleted_by: 'local-operator' }
+    })
+    render(<SettingsPage />)
+    const row = (await screen.findByText(deepseekProfile.display_name)).closest('article')!
+    expect(within(row).getByText(/key configured/i)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Credential backups and deletion' }))
+    fireEvent.click(await screen.findByRole('button', { name: `Delete ${deepseekProfile.display_name}` }))
+    fireEvent.click(screen.getByRole('checkbox', { name: 'I confirm deletion of this credential access.' }))
+    fireEvent.submit(screen.getByRole('form', { name: 'Credential review' }))
+    await waitFor(() => expect(listProviders).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(within(row).queryByText(/key configured/i)).not.toBeInTheDocument())
+  })
   it('lists configured providers with status and never renders the key', async () => {
     stubLocalStorage()
     render(<SettingsPage />)

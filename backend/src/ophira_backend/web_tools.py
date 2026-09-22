@@ -258,9 +258,13 @@ async def search_public_web_impl(
     count: int = 5,
     *,
     transport: httpx.AsyncBaseTransport | None = None,
+    connectors=None,
 ) -> dict[str, Any]:
     provider = (settings.search_provider or "none").casefold()
     key = settings.search_api_key.get_secret_value() if settings.search_api_key else ""
+    if connectors is not None:
+        connector = connectors.get("search")
+        key = connectors.credential(connector) if connector.enabled else None
     if provider == "none" or not key:
         return {
             "error_code": "SEARCH_API_NOT_CONFIGURED",
@@ -348,7 +352,7 @@ async def search_public_web_impl(
     }
 
 
-def build_web_mcp_server(settings: Settings):
+def build_web_mcp_server(settings: Settings, *, connectors=None):
     @tool(
         "search_public_web",
         "Search the public web through the operator-configured retrieval API. This is "
@@ -365,7 +369,9 @@ def build_web_mcp_server(settings: Settings):
         },
     )
     async def search_public_web(args: dict[str, Any]) -> dict[str, Any]:
-        result = await search_public_web_impl(settings, args["query"], args.get("count", 5))
+        result = await search_public_web_impl(
+            settings, args["query"], args.get("count", 5), connectors=connectors,
+        )
         return _as_tool_result(result)
 
     @tool(

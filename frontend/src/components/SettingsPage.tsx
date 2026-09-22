@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import Brand from './Brand'
 import MemoryReview from './MemoryReview'
 import ProviderSettings from './ProviderSettings'
+import CredentialSettings from './CredentialSettings'
 import './settings-page.css'
 import { languageChangedEvent, useT } from '../i18n'
 import { loadLocalSettings, saveLocalSettings, type LocalSettings } from '../localSettings'
@@ -170,6 +171,7 @@ export default function SettingsPage() {
   const t = useT()
   const [settings, setSettings] = useState<LocalSettings>(loadLocalSettings)
   const [activeSection, setActiveSection] = useState('providers')
+  const [credentialRevision, setCredentialRevision] = useState(0)
 
   useEffect(() => {
     saveLocalSettings(settings)
@@ -216,7 +218,8 @@ export default function SettingsPage() {
 
         <section id="providers" className="settings-section" aria-labelledby="providers-heading">
           <div className="settings-section-heading"><span>01</span><div><h2 id="providers-heading">{t('Model providers')}</h2><p>{t('Anthropic-compatible endpoints the Agent runs on. Keys are stored in the backend vault and never shown again.')}</p></div></div>
-          <ProviderSettings />
+          <ProviderSettings revision={credentialRevision} />
+          <CredentialSettings onChanged={() => setCredentialRevision((value) => value + 1)} />
         </section>
 
         <section id="memory-review" className="settings-section" aria-labelledby="memory-review-heading">

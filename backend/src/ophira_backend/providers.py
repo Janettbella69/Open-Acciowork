@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import os
 import re
 import threading
@@ -14,6 +13,7 @@ from .models import (
     ProviderProfileUpsert,
     utc_now,
 )
+from .secret_vault import FileSecretVault as FileSecretVault
 
 MODEL_SECRET_NAMES = (
     "ANTHROPIC_API_KEY",
@@ -48,69 +48,12 @@ def provider_readiness_failures(profile: ProviderProfile) -> list[str]:
     return failures
 
 
-class FileSecretVault:
-    """Local key-vault port. The file is never served and is mode 0600."""
-
-    def __init__(self, root: Path, filename: str = "provider-secrets.json") -> None:
-        self.root = root.resolve()
-        self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
-        self.path = self.root / filename
-        self._lock = threading.RLock()
-        if self.path.exists():
-            self._secure()
-
-    def _secure(self) -> None:
-        try:
-            self.root.chmod(0o700)
-            self.path.chmod(0o600)
-        except OSError:
-            pass
-
-    def _read(self) -> dict[str, str]:
-        if not self.path.exists():
-            return {}
-        try:
-            data = json.loads(self.path.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            return {}
-        return {str(key): str(value) for key, value in data.items()}
-
-    def set(self, profile_id: str, secret: str) -> None:
-        with self._lock:
-            values = self._read()
-            values[profile_id] = secret
-            temporary = self.path.with_suffix(".tmp")
-            temporary.write_text(json.dumps(values, ensure_ascii=False), encoding="utf-8")
-            temporary.chmod(0o600)
-            os.replace(temporary, self.path)
-            self._secure()
-
-    def get(self, profile_id: str) -> str | None:
-        with self._lock:
-            return self._read().get(profile_id)
-
-    def has(self, profile_id: str) -> bool:
-        return self.get(profile_id) is not None
-
-    def delete(self, profile_id: str) -> None:
-        with self._lock:
-            values = self._read()
-            if profile_id not in values:
-                return
-            values.pop(profile_id)
-            temporary = self.path.with_suffix(".tmp")
-            temporary.write_text(json.dumps(values, ensure_ascii=False), encoding="utf-8")
-            temporary.chmod(0o600)
-            os.replace(temporary, self.path)
-            self._secure()
-
-
 class ProviderRegistry:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
         self.root = (settings.data_dir / "providers").resolve()
         self.root.mkdir(parents=True, exist_ok=True)
-        self.vault = FileSecretVault(settings.data_dir / "secrets")
+        self.vault = FileSecretVault(settings.data_dir.resolve() / "secrets")
         self._lock = threading.RLock()
         self._bootstrap_environment_profile()
 
@@ -156,8 +99,7 @@ class ProviderRegistry:
                 region="configured environment",
             )
             self._write(profile)
-        if not self.vault.has("environment"):
-            self.vault.set("environment", credential.get_secret_value())
+        self.vault.set("environment", credential.get_secret_value(), only_if_absent=True)
 
     def list(self) -> list[ProviderProfile]:
         profiles: list[ProviderProfile] = []

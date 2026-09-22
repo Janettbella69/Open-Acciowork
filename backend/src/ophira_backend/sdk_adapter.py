@@ -641,7 +641,9 @@ class ClaudeAgentRuntime:
         if run.provider_profile_id:
             self.providers.build_worker_env(run.provider_profile_id)
             return
-        if not (self.settings.anthropic_api_key or self.settings.anthropic_auth_token):
+        if self.providers.vault.was_deleted("environment") or not (
+            self.settings.anthropic_api_key or self.settings.anthropic_auth_token
+        ):
             raise ProviderConfigurationError(
                 "No Provider credential is configured. Save and preflight a Provider first.",
                 ProviderErrorCode.AUTH_REVOKED_OR_INVALID,
@@ -651,6 +653,8 @@ class ClaudeAgentRuntime:
         if run.provider_profile_id:
             env = self.providers.build_worker_env(run.provider_profile_id)
         else:
+            if self.providers.vault.was_deleted("environment"):
+                self._require_provider(run)
             env = self.settings.claude_sdk_env()
         # The model can use Bash inside its sandbox. Shadow human-gateway and
         # outbound-channel credentials inherited from the host process.

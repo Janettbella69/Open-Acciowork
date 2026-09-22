@@ -38,6 +38,7 @@ import type {
 import type { ProjectMetrics } from './projectMetrics'
 import type { SkillProposalDetail, SkillProposalPage, SkillProposalPreview, SkillProposalReviewRequest, SkillProposalState } from './skillProposals'
 import type { KnowledgeSearch } from './knowledge'
+import type { CredentialArchive, CredentialView } from './credentials'
 import type { MarketplaceAccess, MarketplaceGuide, MarketplaceRead, MarketplaceReadInput } from './marketplaces'
 import type { ProjectShop, ShopData, ShopIdentityInput } from './shops'
 import type { ArtifactTextUpdate, ArtifactTextView } from './artifacts'
@@ -49,6 +50,20 @@ import type { SkillFilePreview, SkillImportReviewRequest, SkillImportView, Skill
 
 const configuredBaseUrl = import.meta.env.VITE_OPHIRA_API_URL?.trim() ?? ''
 export const apiBaseUrl = configuredBaseUrl.replace(/\/$/, '')
+
+export function listCredentials(signal?: AbortSignal): Promise<CredentialView[]> {
+  return request('/api/credentials', { signal, cache: 'no-store' })
+}
+export function exportCredential(item: CredentialView, password: string, signal?: AbortSignal): Promise<CredentialArchive> {
+  return request(`/api/credentials/${item.kind}/${encodeURIComponent(item.id)}/export`, {
+    method: 'POST', signal, cache: 'no-store', body: JSON.stringify({ expected_revision: item.revision, password }),
+  })
+}
+export function deleteCredential(item: CredentialView, signal?: AbortSignal): Promise<CredentialView> {
+  return request(`/api/credentials/${item.kind}/${encodeURIComponent(item.id)}`, {
+    method: 'DELETE', signal, cache: 'no-store', body: JSON.stringify({ expected_revision: item.revision, confirm_delete: true }),
+  })
+}
 
 function templatePath(projectId: string, templateId?: string): string {
   return `/api/projects/${encodeURIComponent(projectId)}/templates${templateId ? `/${encodeURIComponent(templateId)}` : ''}`

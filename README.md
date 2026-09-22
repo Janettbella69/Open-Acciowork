@@ -83,6 +83,11 @@ The operator [application cold backup](docs/application-backup.md) captures the 
 data directory with its Plugin, verifies project/Run/proposal/receipt links, and restores
 into a new directory with reviewed publication recovery. Stop the application before
 backup; restoration does not start jobs or model sessions.
+**Settings → Providers → Credential backups and deletion** exports individual Provider
+or connector credentials in password-encrypted files and requires explicit confirmation
+to delete the reviewed key. Deletion also disables environment fallback across restarts.
+See [credential management](docs/credential-management.md) for offline recovery,
+administrator access and the boundary with external revocation and older backups.
 The commerce MCP also calculates cash balances and peak funding gaps from explicit
 settlement schedules, distinguishing daily closing balances from a conservative
 intraday bound; see [`docs/cashflow.md`](docs/cashflow.md).

@@ -98,10 +98,14 @@ async def generate_media_impl(
     *,
     run_id: str | None = None,
     transport: httpx.AsyncBaseTransport | None = None,
+    connectors=None,
 ) -> dict[str, Any]:
     """Call a raw-binary media endpoint without redirects or unbounded writes."""
     endpoint = settings.media_endpoint
     token = settings.media_api_key.get_secret_value() if settings.media_api_key else ""
+    if connectors is not None:
+        connector = connectors.get("image_gen")
+        token = connectors.credential(connector) if connector.enabled else None
     if not endpoint or not token:
         return _error(
             "MEDIA_API_NOT_CONFIGURED",
@@ -283,6 +287,7 @@ def build_media_mcp_server(
     *,
     run_id: str | None = None,
     project_events: ProjectEventProjector | None = None,
+    connectors=None,
 ):
     @tool(
         "generate_media",
@@ -313,6 +318,7 @@ def build_media_mcp_server(
             settings,
             args,
             run_id=run_id,
+            connectors=connectors,
         )
         if project_events is not None and result.get("ok"):
             await project_events.artifact_registered(project_id, result["artifact_id"])

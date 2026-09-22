@@ -24,13 +24,35 @@ import {
   getCommentHistory,
   setSkillEnabled,
   rollbackSkill,
+  listCredentials,
+  exportCredential,
+  deleteCredential,
 } from './client'
+import type { CredentialView } from './credentials'
 
 afterEach(() => {
   vi.unstubAllGlobals()
 })
 
 describe('API client', () => {
+  it('sends credential reviews without caching or placing passwords in the URL', async () => {
+    const fetchMock = vi.fn(async () => new Response('{}', { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+    const signal = new AbortController().signal
+    const item: CredentialView = { kind: 'connector', id: 'test/?', display_name: 'Test',
+      revision: 'a'.repeat(64), configured: true, source: 'stored', deleted_at: null, deleted_by: null }
+    await listCredentials(signal)
+    await exportCredential(item, 'private export password', signal)
+    await deleteCredential(item, signal)
+    expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/credentials', expect.objectContaining({ signal, cache: 'no-store' }))
+    expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/credentials/connector/test%2F%3F/export', expect.objectContaining({
+      method: 'POST', signal, cache: 'no-store',
+      body: JSON.stringify({ expected_revision: item.revision, password: 'private export password' }),
+    }))
+    expect(fetchMock).toHaveBeenNthCalledWith(3, '/api/credentials/connector/test%2F%3F', expect.objectContaining({
+      method: 'DELETE', signal, cache: 'no-store', body: JSON.stringify({ expected_revision: item.revision, confirm_delete: true }),
+    }))
+  })
   it('encodes the memory source Run and reads without browser caching', async () => {
     const controller = new AbortController()
     const fetchMock = vi.fn(async () => new Response('[]', { status: 200 }))
