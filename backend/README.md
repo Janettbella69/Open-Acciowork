@@ -93,6 +93,14 @@ needs a managed Chromium binary:
 .venv/bin/playwright install chromium
 ```
 
+SDK processes also use a [Run-scoped resource supervisor](../docs/sdk-worker-resources.md).
+The default `native` mode bounds time and output and cleans its child process group.
+For aggregate CPU, memory and process limits, deploy on Linux with systemd 254+,
+a user manager and delegated cgroup v2 controllers, and set
+`OPHIRA_WORKER_LIMITS='{"mode":"systemd"}'`. Required Linux limits are checked before
+the native CLI executes; unsupported environments fail instead of falling back.
+These limits do not establish production tenant isolation or bound API-host MCP handlers.
+
 L1 stores its own persistent profile under `backend/data/browser-profiles/`; it
 never reuses a personal browser profile. L2 is available only after the
 `chrome_cdp` connector points to a loopback CDP endpoint, is enabled, and passes

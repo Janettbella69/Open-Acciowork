@@ -75,6 +75,8 @@ def test_mode_contract_requires_three_returns_and_main_agent_source_verification
 async def test_native_startup_rules_allow_research_reads_without_weakening_writes(
     tmp_path, monkeypatch, mode,
 ):
+    from worker_report_fixture import synthetic_worker_finish, synthetic_worker_start
+
     from ophira_backend import sdk_adapter
     from ophira_backend.native_hooks import NativeHookBridge
 
@@ -94,10 +96,11 @@ async def test_native_startup_rules_allow_research_reads_without_weakening_write
             captured.append(options)
 
         async def __aenter__(self):
+            synthetic_worker_start(captured[-1])
             return self
 
         async def __aexit__(self, *_args):
-            pass
+            synthetic_worker_finish(captured[-1])
 
         async def query(self, _prompt):
             pass

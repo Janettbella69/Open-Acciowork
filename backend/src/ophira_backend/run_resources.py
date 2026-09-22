@@ -18,6 +18,7 @@ from .events import redact
 from .models import APIModel, EventEnvelope, RunRecord, utc_now
 from .storage import EventReplayLimitError, FileLedger
 from .telemetry import CostTelemetry, TokenTelemetry, build_run_telemetry
+from .worker_contract import WorkerLimits, WorkerOutcome
 
 MAX_RESOURCE_EVENT_BYTES = 32 * 1024 * 1024
 MAX_RESOURCE_EVENTS = 50_000
@@ -32,6 +33,12 @@ class RunResourceLimits(APIModel):
     sdk_budget_usd: float | None
     turn_limit: int | None
     wall_clock_deadline: datetime | None
+    worker: WorkerLimits | None = None
+    worker_initialized_at: datetime | None = None
+    worker_output_bytes: int = 0
+    worker_output_exhausted: bool = False
+    worker_last_outcome: WorkerOutcome | None = None
+    worker_kernel_limits_verified: bool = False
 
 
 class TaskResourceUsage(APIModel):
@@ -244,6 +251,11 @@ def build_run_resources(
         limits=RunResourceLimits(
             frozen=valid_budget, sdk_budget_usd=budget if valid_budget else None,
             turn_limit=run.sdk_turn_limit, wall_clock_deadline=run.sdk_wall_clock_deadline,
+            worker=run.worker_limits, worker_initialized_at=run.worker_limits_initialized_at,
+            worker_output_bytes=run.worker_output_bytes,
+            worker_output_exhausted=run.worker_output_exhausted,
+            worker_last_outcome=run.worker_last_outcome,
+            worker_kernel_limits_verified=run.worker_kernel_limits_verified,
         ), elapsed_seconds=elapsed, remaining_seconds=remaining,
         remaining_budget_usd=max(0.0, budget - cost) if valid_budget and cost is not None else None,
         cost=telemetry.cost, tokens=telemetry.tokens,

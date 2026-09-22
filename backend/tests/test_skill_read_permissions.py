@@ -93,6 +93,8 @@ async def test_pinned_skill_methods_keep_instructions_but_project_files_stay_dat
 
 @pytest.mark.asyncio
 async def test_startup_bridge_preserves_the_pinned_read_fence(tmp_path, monkeypatch):
+    from worker_report_fixture import synthetic_worker_finish, synthetic_worker_start
+
     _ledger, run, runtime, _all_view = pinned_runtime(tmp_path)
     captured = {}
 
@@ -115,10 +117,11 @@ async def test_startup_bridge_preserves_the_pinned_read_fence(tmp_path, monkeypa
             captured["options"] = options
 
         async def __aenter__(self):
+            synthetic_worker_start(captured["options"])
             return self
 
         async def __aexit__(self, *_args):
-            pass
+            synthetic_worker_finish(captured["options"])
 
         async def query(self, _prompt):
             pass

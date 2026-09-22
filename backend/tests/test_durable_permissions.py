@@ -380,6 +380,8 @@ async def test_deep_research_cannot_refresh_its_original_wall_clock_on_resume(tm
 
 @pytest.mark.asyncio
 async def test_successful_deferred_sdk_result_does_not_complete_the_run(tmp_path, monkeypatch):
+    from worker_report_fixture import synthetic_worker_finish, synthetic_worker_start
+
     ledger, run, runtime = build_runtime(tmp_path)
     runtime.durable_resume_supported = False  # Mapping-only test, not a native socket test.
     broker = runtime.permissions
@@ -387,13 +389,14 @@ async def test_successful_deferred_sdk_result_does_not_complete_the_run(tmp_path
 
     class Client:
         def __init__(self, **_kwargs):
-            pass
+            self.options = _kwargs["options"]
 
         async def __aenter__(self):
+            synthetic_worker_start(self.options)
             return self
 
         async def __aexit__(self, *_args):
-            pass
+            synthetic_worker_finish(self.options)
 
         async def query(self, _prompt):
             pass

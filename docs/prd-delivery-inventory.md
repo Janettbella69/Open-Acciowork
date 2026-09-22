@@ -24,7 +24,7 @@
 | FR-05 Provider | delivered：Registry/Vault/快照/UI；管理员独立导出和撤销 Provider 密钥、跨 worker 注册表事务、设置页配置区域与数据传输提示，见 `docs/provider-credentials.md` | deferred：其他上架组合的真实合约、条款与区域复核；需要合法账号 |
 | FR-06 预检 | delivered：SDK 预检、模型身份与错误分类 | deferred：其他 Provider 合约；DeepSeek vision/无效凭据快速失败仍明确降级 |
 | FR-07 Run/会话 | delivered：SSE、取消、恢复、重试、重启孤儿修复、并发事件序号与汇总恢复 | deferred：其余恢复故障矩阵、性能基线 |
-| FR-08 隔离 | delivered：项目路径、符号链接、独立 worker 配置 | deferred：生产 worker 资源包络与租户物理隔离演练 |
+| FR-08 隔离 | delivered：项目路径、符号链接、独立 worker 配置；原生进程时长/输出监督、Linux systemd CPU/内存/任务数门禁及配置/已验证状态区分（Linux验收见下方记录） | deferred：真实模型与原生沙箱的Linux联合验收、API宿主MCP资源限制、生产负载与租户物理隔离演练 |
 | FR-09 来源账本 | delivered：同 Run/session 的服务器 source receipt | 保持来源、失效、回放和内容完整性回归 |
 | FR-10 决策 | delivered：证据关联与失效联动 | 开放任务质量另行验收 |
 | FR-11 领域 MCP | delivered：确定性商业计算、用户记录加工、显式结算计划的现金流/日末与保守日内资金缺口；TikTok Shop 项目指定店铺的主 Agent 只读 MCP 与来源凭证；ECB 公开参考汇率的日期匹配/过期拒绝、欧元交叉计算及同 Run 来源凭证；现有 Web MCP 对限定世界银行 WDI 国家级宏观指标、Eurostat Comext 单国 HS6 商品年度进口贸易额的结构化读取与同 Run 来源凭证（见 `docs/fx-reference-rates.md`、`docs/market-indicators.md`） | deferred：真实供应商/客户、零售需求/销量、法规/物流/交易汇率授权数据适配及已实现商家接口的真实验收；本工作区生产传输层的公网 DNS 被安全策略拒绝，尚未完成汇率、WDI、Comext 工具的完整在线调用；Comext 官方真实响应已由解析器核对 |

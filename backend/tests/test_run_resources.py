@@ -10,6 +10,7 @@ from ophira_backend.constants import EventType, PrincipalRole, RunMode, RunStatu
 from ophira_backend.main import create_app
 from ophira_backend.models import ProjectCreate
 from ophira_backend.run_resources import build_run_resources, read_run_resources
+from ophira_backend.worker_contract import WorkerLimits
 
 
 def research_run():
@@ -126,6 +127,28 @@ def test_incomplete_log_hides_aggregates_but_preserves_frozen_limits(mutation):
     assert not value.observations_available
     assert value.tasks == [] and value.cost.estimated_cost_usd.value is None
     assert value.limits.sdk_budget_usd == 2
+
+
+def test_worker_enforcement_and_known_bytes_come_from_the_ledger_despite_missing_events():
+    run = research_run().model_copy(update={
+        "worker_limits": WorkerLimits(mode="systemd"),
+        "worker_limits_initialized_at": BASE,
+        "worker_output_bytes": 800,
+        "worker_output_exhausted": True,
+        "worker_last_outcome": "unconfirmed",
+        "worker_kernel_limits_verified": False,
+    })
+    rows = observations(run)[1:]
+    value = build_run_resources(run, rows, observed_at=BASE)
+    assert not value.observations_available
+    assert value.limits.worker.mode == "systemd"
+    assert value.limits.worker_initialized_at == BASE
+    assert value.limits.worker_output_bytes == 800
+    assert value.limits.worker_output_exhausted is True
+    assert value.limits.worker_last_outcome == "unconfirmed"
+    assert value.limits.worker_kernel_limits_verified is False
+    run.worker_kernel_limits_verified = True
+    assert build_run_resources(run, [], observed_at=BASE).limits.worker_kernel_limits_verified
 
 
 @pytest.mark.parametrize("identity_field", ["trace_id", "project_id", "run_id"])

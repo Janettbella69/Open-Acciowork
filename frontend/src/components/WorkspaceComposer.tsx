@@ -932,7 +932,7 @@ export default function WorkspaceComposer({
                 )}
 
                 {!historyLoading && <PresentationCards presentations={presentations} />}
-                {!historyLoading && run?.mode === 'deep_research' && <RunResourcesPanel run={run} onCancel={onCancel} />}
+                {!historyLoading && run && <RunResourcesPanel run={run} onCancel={onCancel} />}
 
                 {historyLoading ? (
                   <div className="conversation-agent-waiting" role="status">

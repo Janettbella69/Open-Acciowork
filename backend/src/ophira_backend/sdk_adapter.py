@@ -140,6 +140,7 @@ from .untrusted import (
     sanitize_untrusted_tool_output,
 )
 from .user_mcp import UserMcpConnector, UserMcpRegistry, UserMcpRunScope
+from .worker_envelope import SdkWorkerEnvelope
 
 
 class AgentRunError(RuntimeError):
@@ -549,7 +550,12 @@ class ClaudeAgentRuntime:
                 options = dataclasses.replace(
                     options, hooks={}, settings=bridge.settings(ask_tools=ask_tools),
                 )
+            worker = SdkWorkerEnvelope(
+                self.settings, options, ledger=self.ledger, run_id=run.id,
+            )
+            options = await stack.enter_async_context(worker)
             client = await stack.enter_async_context(ClaudeSDKClient(options=options))
+            worker.record_started()
             channel = _InterjectionChannel(client)
             async with self._clients_lock:
                 self._clients[run.id] = client
@@ -765,7 +771,13 @@ class ClaudeAgentRuntime:
         async def exercise_sdk() -> None:
             nonlocal sdk_session_id, discovered_skills, health_called, result_error
             with self.skills.runtime_snapshot_lease(preflight_snapshot):
-                async with ClaudeSDKClient(options=options) as client:
+                async with AsyncExitStack() as stack:
+                    worker = SdkWorkerEnvelope(self.settings, options)
+                    limited_options = await stack.enter_async_context(worker)
+                    client = await stack.enter_async_context(
+                        ClaudeSDKClient(options=limited_options),
+                    )
+                    worker.record_started()
                     await client.query(
                         "调用 ophira_preflight health 工具，然后只回复 OPHIRA_PREFLIGHT_OK。"
                     )

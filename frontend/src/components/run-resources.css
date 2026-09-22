@@ -4,6 +4,10 @@
 .run-resources small { display: block; margin: 6px 0; color: #526356; line-height: 1.5; }
 .run-resources button { border: 1px solid #bccfbd; border-radius: 6px; padding: 7px 10px; color: #264d34; background: white; cursor: pointer; }
 .run-resources button:disabled { opacity: .5; cursor: default; }
+.run-resources-disclosure { margin: 16px 0; }
+.run-resources-disclosure > summary { cursor: pointer; font-size: 13px; color: #526356; }
+.run-resources-disclosure > summary:focus-visible { outline: 2px solid #526356; outline-offset: 4px; }
+.worker-resources { border-top: 1px solid #dce5dc; margin-top: 12px; padding-top: 4px; }
 .run-resource-metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 16px 0; }
 .run-resource-metrics dt { font-size: 12px; color: #526356; }
 .run-resource-metrics dd { margin: 4px 0 0; font-size: 17px; font-weight: 600; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
