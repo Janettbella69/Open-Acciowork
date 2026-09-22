@@ -76,6 +76,10 @@ class MemoryProvider(Protocol):
         scope_id: str | None = None,
     ) -> list[MemoryTombstone]: ...
 
+    def export_scope(
+        self, scope: MemoryScope, scope_id: str, *, max_bytes: int = 16 * 1024 * 1024,
+    ) -> dict: ...
+
     def search(
         self,
         query: str | None = None,
@@ -315,6 +319,65 @@ class FileMemoryProvider:
             return []
         raw = json.loads(path.read_text(encoding="utf-8"))
         return [MemoryItem.model_validate(item) for item in raw]
+
+    def export_scope(
+        self, scope: MemoryScope, scope_id: str, *, max_bytes: int = 16 * 1024 * 1024,
+    ) -> dict:
+        """Read an exact scope with history, respecting authoritative deletions.
+
+        Unlike interactive listing, archive capture must bound all source bytes,
+        reject links and detect concurrent writers without changing memory state.
+        """
+        from .backup_files import parse_json
+        from .skill_proposal_files import read_relative
+
+        root = self._scope_dir(scope, scope_id)
+        names = ("items.json", "history.jsonl", "tombstones.jsonl")
+
+        def capture():
+            remaining, result = max_bytes, {}
+            for name in names:
+                try:
+                    raw = read_relative(root, name, remaining)
+                except FileNotFoundError:
+                    raw = b""
+                result[name] = raw
+                remaining -= len(raw)
+                if name.endswith(".jsonl") and raw and not raw.endswith(b"\n"):
+                    raise ValueError("Memory history has an incomplete tail")
+            return result
+
+        def scoped(value, model):
+            item = model.model_validate(value)
+            if item.scope != scope or item.scope_id != scope_id:
+                raise ValueError("Memory record is outside the exported scope")
+            return item
+
+        with self._lock_for(f"{scope}:{scope_id}"):
+            raw = capture()
+            tombstones = [scoped(parse_json(line), MemoryTombstone)
+                          for line in raw["tombstones.jsonl"].splitlines() if line.strip()]
+            deleted = {item.memory_id for item in tombstones}
+            items = [scoped(value, MemoryItem) for value in parse_json(raw["items.json"] or b"[]")]
+            history = []
+            for line in raw["history.jsonl"].splitlines():
+                if not line.strip():
+                    continue
+                value = parse_json(line)
+                if not isinstance(value, dict) or set(value) != {"at", "action", "item"}:
+                    raise ValueError("Memory history is invalid")
+                item = scoped(value["item"], MemoryItem)
+                if not isinstance(value["at"], str) or not isinstance(value["action"], str):
+                    raise ValueError("Memory history is invalid")
+                if item.id not in deleted:
+                    history.append({"at": value["at"], "action": value["action"],
+                                    "item": item.model_dump(mode="json")})
+            if raw != capture():
+                raise ValueError("Memory changed during export")
+            return {"items": [item.model_dump(mode="json") for item in items
+                              if item.id not in deleted],
+                    "history": history,
+                    "tombstones": [item.model_dump(mode="json") for item in tombstones]}
 
     def _read_tombstones(
         self,

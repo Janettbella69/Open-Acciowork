@@ -88,6 +88,11 @@ or connector credentials in password-encrypted files and requires explicit confi
 to delete the reviewed key. Deletion also disables environment fallback across restarts.
 See [credential management](docs/credential-management.md) for offline recovery,
 administrator access and the boundary with external revocation and older backups.
+Open **Export project data** in a saved workspace to review and download a project
+archive or the current conversation, including available registered file versions
+and project memory history. Downloads require current owner/admin access and
+finished runs; the ZIP is unencrypted. See [project data export](docs/project-data-export.md)
+for included records, excluded shared data and the distinction from app recovery.
 The commerce MCP also calculates cash balances and peak funding gaps from explicit
 settlement schedules, distinguishing daily closing balances from a conservative
 intraday bound; see [`docs/cashflow.md`](docs/cashflow.md).

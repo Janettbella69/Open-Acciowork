@@ -1,0 +1,11 @@
+.project-export { margin: 16px 0; border: 1px solid #deded9; border-radius: 12px; background: #fcfcfa; font-size: 13px; }
+.project-export-toggle { display: flex; justify-content: space-between; width: 100%; padding: 15px 18px; border: 0; border-radius: 12px; background: transparent; text-align: left; font: inherit; font-weight: 600; cursor: pointer; }
+.project-export-body { padding: 0 18px 18px; }
+.project-export-body p { color: #666760; line-height: 1.6; }
+.project-export-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.project-export-body button { min-height: 44px; padding: 9px 12px; border: 1px solid #d3d4cc; border-radius: 6px; background: white; font: inherit; cursor: pointer; }
+.project-export button:disabled { cursor: default; opacity: 0.55; }
+.project-export button:focus-visible { outline: 2px solid #4f6243; outline-offset: 3px; }
+.project-export-body p[role='alert'] { color: #91483e; }
+.project-export-review { margin-top: 16px; padding: 14px; border: 1px solid #deded9; border-radius: 8px; background: white; }
+@media (max-width: 600px) { .project-export-body { padding: 0 12px 12px; } }

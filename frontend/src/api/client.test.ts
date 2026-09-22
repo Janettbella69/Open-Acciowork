@@ -27,7 +27,10 @@ import {
   listCredentials,
   exportCredential,
   deleteCredential,
+  previewProjectExport,
+  downloadProjectExport,
 } from './client'
+import type { ProjectExportPreview } from './projectExports'
 import type { CredentialView } from './credentials'
 
 afterEach(() => {
@@ -35,6 +38,24 @@ afterEach(() => {
 })
 
 describe('API client', () => {
+  it('binds project ZIP downloads to the reviewed scope and propagates cancellation', async () => {
+    const preview = { fingerprint: 'a'.repeat(64), selected_run_id: 'run/one' } as ProjectExportPreview
+    const fetchMock = vi.fn().mockResolvedValueOnce(new Response(JSON.stringify(preview)))
+      .mockResolvedValueOnce(new Response('ZIP fixture', { headers: { 'Content-Type': 'application/zip' } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ detail: 'Project data changed.' }), { status: 409 }))
+      .mockResolvedValueOnce(new Response('<html>sign in</html>', { headers: { 'Content-Type': 'text/html' } }))
+    vi.stubGlobal('fetch', fetchMock)
+    const signal = new AbortController().signal
+    await previewProjectExport('project/one', 'run/one', signal)
+    const zip = await downloadProjectExport('project/one', preview, signal)
+    expect(zip.type).toBe('application/zip')
+    expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/projects/project%2Fone/data-export?run_id=run%2Fone', expect.objectContaining({ signal, cache: 'no-store' }))
+    expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/projects/project%2Fone/data-export', expect.objectContaining({
+      signal, cache: 'no-store', method: 'POST', body: JSON.stringify({ fingerprint: preview.fingerprint, run_id: 'run/one' }),
+    }))
+    await expect(downloadProjectExport('project/one', preview)).rejects.toThrow('Project data changed.')
+    await expect(downloadProjectExport('project/one', preview)).rejects.toThrow('not a ZIP archive')
+  })
   it('sends credential reviews without caching or placing passwords in the URL', async () => {
     const fetchMock = vi.fn(async () => new Response('{}', { status: 200 }))
     vi.stubGlobal('fetch', fetchMock)

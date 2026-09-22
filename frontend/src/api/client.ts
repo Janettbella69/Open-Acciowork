@@ -39,6 +39,7 @@ import type { ProjectMetrics } from './projectMetrics'
 import type { SkillProposalDetail, SkillProposalPage, SkillProposalPreview, SkillProposalReviewRequest, SkillProposalState } from './skillProposals'
 import type { KnowledgeSearch } from './knowledge'
 import type { CredentialArchive, CredentialView } from './credentials'
+import type { ProjectExportPreview } from './projectExports'
 import type { MarketplaceAccess, MarketplaceGuide, MarketplaceRead, MarketplaceReadInput } from './marketplaces'
 import type { ProjectShop, ShopData, ShopIdentityInput } from './shops'
 import type { ArtifactTextUpdate, ArtifactTextView } from './artifacts'
@@ -50,6 +51,17 @@ import type { SkillFilePreview, SkillImportReviewRequest, SkillImportView, Skill
 
 const configuredBaseUrl = import.meta.env.VITE_OPHIRA_API_URL?.trim() ?? ''
 export const apiBaseUrl = configuredBaseUrl.replace(/\/$/, '')
+
+export function previewProjectExport(projectId: string, runId?: string, signal?: AbortSignal): Promise<ProjectExportPreview> {
+  return request(`/api/projects/${encodeURIComponent(projectId)}/data-export${runId ? `?run_id=${encodeURIComponent(runId)}` : ''}`, { signal, cache: 'no-store' })
+}
+
+export function downloadProjectExport(projectId: string, preview: ProjectExportPreview, signal?: AbortSignal): Promise<Blob> {
+  return request(`/api/projects/${encodeURIComponent(projectId)}/data-export`, {
+    method: 'POST', signal, cache: 'no-store', headers: { Accept: 'application/zip' },
+    body: JSON.stringify({ fingerprint: preview.fingerprint, run_id: preview.selected_run_id }),
+  }, 'blob')
+}
 
 export function listCredentials(signal?: AbortSignal): Promise<CredentialView[]> {
   return request('/api/credentials', { signal, cache: 'no-store' })
@@ -172,7 +184,7 @@ function apiUrl(path: string): string {
   return `${apiBaseUrl}${path}`
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+async function request<T>(path: string, init?: RequestInit, responseType: 'json' | 'blob' = 'json'): Promise<T> {
   const response = await fetch(apiUrl(path), {
     ...init,
     headers: {
@@ -192,6 +204,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     throw new ApiError(message, response.status)
   }
   if (response.status === 204) return undefined as T
+  if (responseType === 'blob') {
+    if (response.headers.get('content-type')?.split(';')[0] !== 'application/zip') throw new ApiError('Export response was not a ZIP archive.', response.status)
+    return response.blob() as Promise<T>
+  }
   return response.json() as Promise<T>
 }
 

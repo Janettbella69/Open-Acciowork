@@ -34,6 +34,7 @@ import ProjectArtifactsPanel from './ProjectArtifactsPanel'
 import ProjectCollaborationPanel from './ProjectCollaborationPanel'
 import ProjectTemplatesPanel from './ProjectTemplatesPanel'
 import WorkspaceRecoveryPanel from './WorkspaceRecoveryPanel'
+import ProjectExportPanel from './ProjectExportPanel'
 import RunResourcesPanel from './RunResourcesPanel'
 import ProjectShopsPanel from './ProjectShopsPanel'
 import WorkspaceNav from './WorkspaceNav'
@@ -851,6 +852,7 @@ export default function WorkspaceComposer({
                 {project && <ProjectCollaborationPanel project={project} currentRun={run} events={events} />}
                 {project && onProjectCreated && <ProjectTemplatesPanel project={project} onCreated={onProjectCreated} />}
                 {project && <WorkspaceRecoveryPanel projectId={project.id} onChanged={onProjectRefresh} />}
+                {project && <ProjectExportPanel projectId={project.id} runId={run?.id} />}
                 {project && <ProjectShopsPanel key={`shops:${project.id}`} projectId={project.id} onTask={onChange} />}
                 {project && <ProjectMetricsPanel key={`metrics:${project.id}`} projectId={project.id} />}
                 {run && <RunMemoryPanel key={`memory:${run.id}`} runId={run.id} revision={events.filter((event) => event.run_id === run.id && event.type === 'memory.proposed').at(-1)?.sequence ?? 0} />}
