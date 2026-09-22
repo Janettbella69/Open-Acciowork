@@ -169,7 +169,9 @@ describe('ScheduledTasksPage', () => {
     expect(typeof input.timezone).toBe('string')
     expect(input.prompt).toMatch(/morning opportunity brief/i)
 
-    const createdRow = (await screen.findByText(/prepare a morning opportunity brief/i)).closest('article')!
+    const createdRow = (await screen.findByText(/prepare a morning opportunity brief/i, {
+      selector: 'article strong',
+    })).closest('article')!
     expect(within(createdRow).getByText(/read-only analysis · no added action grants/i)).toBeInTheDocument()
   })
 
