@@ -52,8 +52,9 @@ Deletion does not revoke the key at the external service, alter the host's envir
 configuration, erase older backups, or stop workers that already loaded the key.
 Restarted workers resolve the current vault state. External revocation and removal
 of separately retained copies remain separate actions. Vault files still use private
-local file permissions; this feature does not provide encrypted storage at rest,
-secure physical erasure, or deletion of separate identity-gateway signing secrets.
+local file permissions; this feature does not provide encrypted storage at rest
+or secure physical erasure. Identity-gateway signing keys use the separate
+[deployment-owner command](deployment-credentials.md).
 The built-in search and media connectors also resolve credentials through this vault,
 including values supplied through application settings or dotenv configuration.
 
@@ -100,9 +101,10 @@ the operator's `.env` remain separate copies. Stop all old-version workers befor
 upgrading: they do not consult the new service vault or observe its revocations.
 
 Identity-gateway signing keys and the unused legacy commercial signing setting are
-not exposed to ordinary service-credential endpoints. Their local deployment-owner
-export/deletion/recovery workflow remains open; web role management must not grant
-the power to mint gateway identities.
+not exposed to ordinary service-credential endpoints. Their
+[local deployment-owner workflow](deployment-credentials.md) supports encrypted
+export, revision-bound deletion, replacement and restore under the shutdown lease.
+Web role management does not grant the power to mint gateway identities.
 
 The previous flat Provider/connector vault format migrates automatically under a
 cross-process lock. Stop old application workers before upgrading: old code does not
@@ -140,5 +142,5 @@ to inspect a possibly completed mutation.
 These are human management endpoints; no Agent or MCP export/delete tool was added.
 
 Project/session export and deletion and the standalone application restore UI have
-their own contracts. Production disaster recovery, local identity-root key management
-and real identity-gateway/service acceptance remain separate open PRD requirements.
+their own contracts. Production disaster recovery and real identity-gateway/service
+acceptance remain separate open PRD requirements.

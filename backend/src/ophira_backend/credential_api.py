@@ -64,6 +64,8 @@ class CredentialService:
         if kind == CredentialKind.SERVICE:
             item = self.services.get(identifier)
             return item, self.services.vault, self.services.environment_credential(item)
+        if kind != CredentialKind.CONNECTOR:
+            raise ServiceCredentialNotFoundError(identifier)
         item = self.connectors.get(identifier)
         if self.connectors.vault is None:
             raise VaultError("Credential storage is unavailable")

@@ -142,6 +142,13 @@ sessions, schedules, notifications or commercial writes. Data-directory credenti
 are included under private local permissions; `.env`/external keys, backup encryption,
 cross-host session resume and production disaster recovery remain separate concerns.
 
+The separate [deployment-credential command](../docs/deployment-credentials.md) manages
+gateway root keys without starting the application. Encrypted export and confirmed
+delete/restore use reviewed revisions; mutations require the exclusive shutdown lease.
+`OPHIRA_TRUSTED_GATEWAY_AUTH_SOURCE=local_vault` supports startup with a saved root key
+and no environment secret. Missing or revoked keys fail closed in trusted mode;
+ordinary HTTP owner/admin roles cannot manage these deployment keys.
+
 Project/action reads and human review/apply/cancel are available through HTTP. In
 `trusted_gateway` mode, every normal control-plane API request requires a short-lived,
 request-bound HMAC

@@ -7,7 +7,9 @@ from typing import Annotated, Literal
 from urllib.parse import urlsplit
 
 from pydantic import AliasChoices, Field, SecretStr, field_validator, model_validator
-from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
+from pydantic_settings import NoDecode, SettingsConfigDict
+
+from .deployment_credentials import DeploymentCredentialSettings
 
 BACKEND_DIR = Path(__file__).resolve().parents[2]
 
@@ -33,7 +35,7 @@ def companion_origin(value: str) -> str:
         raise ValueError("companion_public_origin must be an exact HTTPS origin") from exc
 
 
-class Settings(BaseSettings):
+class Settings(DeploymentCredentialSettings):
     model_config = SettingsConfigDict(
         env_prefix="OPHIRA_",
         env_file=BACKEND_DIR / ".env",
@@ -125,17 +127,6 @@ class Settings(BaseSettings):
     # ``local_only`` is an explicit single-operator boundary, not authentication.
     # A deployed multi-tenant control plane must opt into signed gateway assertions.
     auth_mode: Literal["local_only", "trusted_gateway"] = "local_only"
-    trusted_gateway_auth_secret: SecretStr | None = Field(
-        default=None,
-        min_length=32,
-        max_length=512,
-    )
-    trusted_gateway_tenant_id: str | None = Field(
-        default=None,
-        min_length=1,
-        max_length=160,
-        pattern=r"^[A-Za-z0-9][A-Za-z0-9._:@+\-]{0,159}$",
-    )
     auth_assertion_max_age_seconds: int = Field(default=60, ge=10, le=300)
     auth_assertion_future_skew_seconds: int = Field(default=5, ge=0, le=30)
     companion_enabled: bool = False
@@ -169,13 +160,6 @@ class Settings(BaseSettings):
     feishu_delivery_retry_base_seconds: float = Field(default=2, ge=0.1, le=3_600)
     feishu_delivery_retry_max_seconds: float = Field(default=60, ge=0.1, le=3_600)
     feishu_delivery_worker_interval_seconds: float = Field(default=5, ge=0.1, le=300)
-    # Shared only with the trusted authentication gateway. It is deliberately
-    # shadowed out of every Claude Agent SDK worker environment.
-    commercial_approval_secret: SecretStr | None = Field(
-        default=None,
-        min_length=32,
-        max_length=512,
-    )
     # A bad credential can make the SDK hang instead of failing fast (observed with
     # DeepSeek + an invalid token in the 2026-08-20 contract run); preflight must
     # always come back with an actionable diagnosis (FR-06).
@@ -199,9 +183,6 @@ class Settings(BaseSettings):
         "claude_default_opus_model",
         "claude_subagent_model",
         "claude_effort_level",
-        "commercial_approval_secret",
-        "trusted_gateway_auth_secret",
-        "trusted_gateway_tenant_id",
         "channel_webhook_url",
         "feishu_encrypt_key",
         "feishu_bot_open_id",
@@ -248,7 +229,8 @@ class Settings(BaseSettings):
                 )
         if self.auth_mode == "trusted_gateway":
             missing: list[str] = []
-            if self.trusted_gateway_auth_secret is None:
+            if (self.trusted_gateway_auth_source == "environment"
+                    and self.trusted_gateway_auth_secret is None):
                 missing.append("OPHIRA_TRUSTED_GATEWAY_AUTH_SECRET")
             if self.trusted_gateway_tenant_id is None:
                 missing.append("OPHIRA_TRUSTED_GATEWAY_TENANT_ID")

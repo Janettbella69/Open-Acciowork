@@ -11,6 +11,7 @@ class CredentialKind(StrEnum):
     PROVIDER = "provider"
     CONNECTOR = "connector"
     SERVICE = "service"
+    DEPLOYMENT = "deployment"
 
 
 class CredentialReview(APIModel):

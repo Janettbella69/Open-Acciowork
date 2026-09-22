@@ -96,6 +96,9 @@ Application service keys can be explicitly replaced from the same panel; running
 observe their current generation and discard revoked caches before new requests.
 See [credential management](docs/credential-management.md) for offline recovery,
 administrator access and the boundary with external revocation and older backups.
+Deployment-owner gateway signing keys have a separate [local maintenance command](docs/deployment-credentials.md)
+for encrypted export, reviewed deletion, replacement and recovery. Mutations require all
+application workers to be stopped; ordinary HTTP administrators cannot access these keys.
 Open **Export project data** in a saved workspace to review and download a project
 archive or the current conversation, including available registered file versions
 and project memory history. Downloads require current owner/admin access and

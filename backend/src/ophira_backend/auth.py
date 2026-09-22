@@ -30,6 +30,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .config import Settings
 from .constants import PrincipalRole
+from .deployment_credentials import DeploymentCredentialId, DeploymentCredentialRegistry
 from .models import PrincipalContext, utc_now
 
 AUTH_ASSERTION_VERSION: Final = "v1"
@@ -380,21 +381,28 @@ class PrincipalAuthenticator:
         self.mode = settings.auth_mode
         self.max_age = timedelta(seconds=settings.auth_assertion_max_age_seconds)
         self.future_skew = timedelta(seconds=settings.auth_assertion_future_skew_seconds)
-        configured = settings.trusted_gateway_auth_secret
         self.tenant_id = settings.trusted_gateway_tenant_id
+        self._credentials = None
         if self.mode == "trusted_gateway":
-            if configured is None or self.tenant_id is None:
+            if self.tenant_id is None:
                 raise AuthConfigurationError(
                     "trusted gateway signing secret or deployment tenant is not configured"
                 )
-            self._secret = configured.get_secret_value().encode("utf-8")
-            if len(self._secret) < 32:
-                raise AuthConfigurationError(
-                    "gateway signing secret must contain at least 32 bytes"
-                )
-        else:
-            self._secret = None
+            try:
+                self._credentials = DeploymentCredentialRegistry(settings)
+                self._current_secret()
+            except (OSError, ValueError) as exc:
+                raise AuthConfigurationError("gateway credential storage is unavailable") from exc
         self.nonce_store = nonce_store
+
+    def _current_secret(self):
+        try:
+            _, secret = self._credentials.snapshot(DeploymentCredentialId.TRUSTED_GATEWAY)
+        except (OSError, ValueError) as exc:
+            raise AuthConfigurationError("gateway credential storage is unavailable") from exc
+        if not secret or len(secret.encode("utf-8")) < 32:
+            raise AuthConfigurationError("gateway signing credential is not configured")
+        return secret.encode("utf-8")
 
     @property
     def status(self) -> AuthDeploymentStatus:
@@ -424,7 +432,7 @@ class PrincipalAuthenticator:
             # an authenticated tenant/principal.
             return None
 
-        assert self._secret is not None
+        secret = self._current_secret()
         values = _auth_header_values(headers)
         tenant_id = values[AUTH_HEADER_TENANT]
         principal_id = values[AUTH_HEADER_PRINCIPAL]
@@ -477,7 +485,7 @@ class PrincipalAuthenticator:
             issued_at=issued_epoch,
             nonce=nonce,
         )
-        expected = hmac.new(self._secret, canonical, hashlib.sha256).hexdigest()
+        expected = hmac.new(secret, canonical, hashlib.sha256).hexdigest()
         if not hmac.compare_digest(supplied.encode("ascii"), expected.encode("ascii")):
             raise InvalidAuthAssertionError("trusted gateway signature is invalid")
 
