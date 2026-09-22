@@ -56,8 +56,14 @@ class FileSecretVault:
     def _transaction(self):
         with self._lock, directory_fd(self.root) as fd:
             os.fchmod(fd, 0o700)
-            lock = os.open(self.path.name + ".lock", os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW
-                           | os.O_CLOEXEC | os.O_NONBLOCK, 0o600, dir_fd=fd)
+            name = self.path.name + ".lock"
+            flags = os.O_RDWR | os.O_NOFOLLOW | os.O_CLOEXEC | os.O_NONBLOCK
+            try:
+                # Concurrent nonexclusive creation can fail with ENOENT on macOS.
+                # Only the creator makes the file; all other processes open it.
+                lock = os.open(name, flags | os.O_CREAT | os.O_EXCL, 0o600, dir_fd=fd)
+            except FileExistsError:
+                lock = os.open(name, flags, dir_fd=fd)
             try:
                 info = os.fstat(lock)
                 if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:

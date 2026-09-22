@@ -34,7 +34,8 @@ def test_invalid_vault_is_not_treated_as_empty_or_overwritten(tmp_path, raw):
     assert path.read_bytes() == raw
 
 
-@pytest.mark.parametrize("attack", ["symlink", "hardlink", "fifo", "parent", "lock"])
+@pytest.mark.parametrize("attack", ["symlink", "hardlink", "fifo", "parent", "lock",
+                                    "lock_symlink", "lock_fifo"])
 def test_vault_rejects_links_and_special_files(tmp_path, attack):
     root = tmp_path / "vault"
     root.mkdir()
@@ -51,6 +52,10 @@ def test_vault_rejects_links_and_special_files(tmp_path, attack):
         os.mkfifo(path)
     elif attack == "lock":
         os.link(source, root / "provider-secrets.json.lock")
+    elif attack == "lock_symlink":
+        (root / "provider-secrets.json.lock").symlink_to(source)
+    elif attack == "lock_fifo":
+        os.mkfifo(root / "provider-secrets.json.lock")
     else:
         root.rmdir()
         root.symlink_to(other, target_is_directory=True)
@@ -106,23 +111,42 @@ def test_environment_provider_stays_deleted_after_bootstrap(tmp_path):
 
 
 def _writer(root, identifier, gate):
-    vault = FileSecretVault(Path(root))
-    gate.wait()
+    original_open = os.open
+    first_lock = True
+
+    def synchronized_open(path, flags, *args, **kwargs):
+        nonlocal first_lock
+        if path == "provider-secrets.json.lock" and first_lock:
+            first_lock = False
+            # Reproduce both processes creating the first lock at the same time.
+            gate.wait(10)
+        return original_open(path, flags, *args, **kwargs)
+
+    os.open = synchronized_open
+    try:
+        vault = FileSecretVault(Path(root))
+    finally:
+        os.open = original_open
     for index in range(10):
         vault.set(identifier, f"{identifier}-{index}")
 
 
 def test_concurrent_processes_preserve_unrelated_credential_updates(tmp_path):
     context = multiprocessing.get_context("spawn")
-    gate = context.Event()
+    gate = context.Barrier(2)
     processes = [context.Process(target=_writer, args=(str(tmp_path), name, gate))
                  for name in ("one", "two")]
     for process in processes:
         process.start()
-    gate.set()
-    for process in processes:
-        process.join(15)
-        assert process.exitcode == 0
+    try:
+        for process in processes:
+            process.join(15)
+        assert [process.exitcode for process in processes] == [0, 0]
+    finally:
+        for process in processes:
+            if process.is_alive():
+                process.terminate()
+            process.join(5)
     vault = FileSecretVault(tmp_path)
     assert vault.get("one") == "one-9" and vault.get("two") == "two-9"
 
