@@ -112,6 +112,12 @@ Linux-only cases. A separate case starts the actual pinned CLI with `--help` in
 the scope without invoking a model. Live model calls, native sandbox integration,
 long-duration fault tests and production load remain separate acceptance work.
 
+The missing-manager test makes both the private manager socket under
+`XDG_RUNTIME_DIR` and the user bus unreachable. Setting only
+`DBUS_SESSION_BUS_ADDRESS` does not simulate this failure: systemd first tries
+the private socket, as shown in its official
+[connection implementation](https://github.com/systemd/systemd/blob/v255/src/shared/bus-util.c#L217-L249).
+
 Official references: SDK [Python API](claude-agent-sdk/python.md) and
 [secure deployment](claude-agent-sdk/secure-deployment.md); systemd v255
 [systemd-run](https://github.com/systemd/systemd/blob/v255/man/systemd-run.xml),
