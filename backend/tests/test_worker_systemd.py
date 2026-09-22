@@ -31,7 +31,12 @@ async def test_unavailable_user_manager_never_falls_back_to_unrestricted_executi
         tmp_path,
         f"from pathlib import Path; Path({str(marker)!r}).touch()",
         limits=WorkerLimits(mode="systemd"),
-        environment={"DBUS_SESSION_BUS_ADDRESS": "unix:path=/nonexistent/ophira-test-bus"},
+        # systemd first tries XDG_RUNTIME_DIR/systemd/private, then the user bus.
+        # Both must be unreachable to simulate an absent manager (v255 bus-util.c).
+        environment={
+            "XDG_RUNTIME_DIR": str(tmp_path / "missing-user-runtime"),
+            "DBUS_SESSION_BUS_ADDRESS": "unix:path=/nonexistent/ophira-test-bus",
+        },
     )
     assert result["code"] != 0 and result["started"] is None
     assert "error" in result and not marker.exists()
