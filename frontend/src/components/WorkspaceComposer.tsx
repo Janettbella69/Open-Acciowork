@@ -19,6 +19,7 @@ import {
 import { useLanguage, useT, type Translate } from '../i18n'
 import { providerIsRunnable, providerUnavailableReason } from '../providerEligibility'
 import ApprovalModeSelector from './ApprovalModeSelector'
+import ProviderDataNotice, { ProviderDataSummary } from './ProviderDataNotice'
 import Brand from './Brand'
 import EvidenceDrawer from './EvidenceDrawer'
 import FeedbackForm from './FeedbackForm'
@@ -576,10 +577,11 @@ export default function WorkspaceComposer({
             {modelMenuOpen && (
               <section className="conversation-model-menu" role="dialog" aria-label={t('Choose a model')}>
                 <header><span>{t('Model')}</span><strong>{t('Choose a model')}</strong></header>
+                <p className="provider-data-menu-note">{t('Provider regions are administrator-reported. Model requests may cross borders.')}</p>
                 <div>
                   <button type="button" data-active={!providerProfileId || undefined} onClick={() => selectProvider(null)}>
                     <ModelIcon />
-                    <span><strong>{t('Auto')}</strong><small>{t('Use workspace default model')}</small></span>
+                    <span><strong>{t('Auto')}</strong><small>{t('Use workspace default model')}</small><small className="provider-data-route">{t('Region unknown until a Provider is chosen.')}</small></span>
                     <i aria-hidden="true">{!providerProfileId ? '✓' : ''}</i>
                   </button>
                   {providers.map((provider) => {
@@ -597,6 +599,7 @@ export default function WorkspaceComposer({
                         <span>
                           <strong>{provider.model}</strong>
                           <small>{selectable ? provider.display_name : `${provider.display_name} · ${status}`}</small>
+                          <small className="provider-data-route"><ProviderDataSummary provider={provider} /></small>
                         </span>
                         <i aria-hidden="true">{providerProfileId === provider.id ? '✓' : ''}</i>
                       </button>
@@ -614,6 +617,7 @@ export default function WorkspaceComposer({
           </button>
         </div>
       </form>
+      <ProviderDataNotice provider={selectedProvider} automatic={!providerProfileId} />
       {notice && <p className="conversation-notice" role="status">{t(notice)}</p>}
       {error && (sessionOpen || value.trim()) && <p className="conversation-error" role="alert">{t(error)}</p>}
     </div>

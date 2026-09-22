@@ -6,6 +6,11 @@ an Anthropic Messages-compatible endpoint. Do not use its OpenAI Chat Completion
 Copy `backend/.env.example` to `backend/.env`, then configure one provider. Use the API
 key issued for the same product, plan, and region as the selected Base URL.
 
+The workspace model selector and Provider settings show the configured endpoint and
+administrator-reported region, with data-sharing and cross-border transfer information.
+Unknown regions and automatic routing stay explicit. This label does not verify or enforce
+data residency; see [Provider data disclosure](provider-data-disclosure.md).
+
 | Provider | `ANTHROPIC_BASE_URL` | Credential variable | Current example model |
 | --- | --- | --- | --- |
 | Anthropic | leave unset | `ANTHROPIC_API_KEY` | leave unset or a Claude model ID |

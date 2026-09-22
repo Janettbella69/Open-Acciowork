@@ -8,6 +8,7 @@ import {
 } from '../api/client'
 import type { ProviderPreflightResult, ProviderProfile } from '../api/types'
 import { useLanguage, useT } from '../i18n'
+import ProviderDataNotice from './ProviderDataNotice'
 
 type EditorState = {
   id: string
@@ -156,7 +157,6 @@ export default function ProviderSettings({ revision = 0 }: { revision?: number }
                 <strong>{provider.display_name}</strong>
                 <small>
                   <code>{provider.model}</code>
-                  {provider.base_url ? <> · {provider.base_url}</> : <> · {t('Anthropic default endpoint')}</>}
                 </small>
               </div>
               <div className="provider-row-actions">
@@ -177,7 +177,6 @@ export default function ProviderSettings({ revision = 0 }: { revision?: number }
               <span data-tone={provider.production_eligible ? 'ok' : 'neutral'}>
                 {provider.production_eligible ? t('Production eligible') : t('Not production-cleared')}
               </span>
-              <span data-tone="neutral">{provider.region}</span>
               <span data-tone={provider.capabilities.native_web_search ? 'ok' : 'warn'}>
                 {provider.capabilities.native_web_search
                   ? t('Web: native search')
@@ -189,6 +188,7 @@ export default function ProviderSettings({ revision = 0 }: { revision?: number }
                 </span>
               ))}
             </div>
+            <ProviderDataNotice provider={provider} />
             <p className="provider-row-status">
               {provider.last_error_code ? (
                 <span data-tone="error">
@@ -262,6 +262,8 @@ export default function ProviderSettings({ revision = 0 }: { revision?: number }
           <label>{t('Region')}
             <input value={editor.region} onChange={(event) => update('region', event.target.value)} />
           </label>
+          <p>{t('Enter the processing region reported in your Provider agreement, or leave it unspecified. This label does not enforce data residency.')}</p>
+          <ProviderDataNotice provider={{ base_url: editor.base_url, region: editor.region }} />
           <label className="provider-editor-checkbox">
             <input
               type="checkbox"

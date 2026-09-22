@@ -1,0 +1,9 @@
+.provider-data-notice { min-width: 0; padding: 10px 12px; border: 1px solid #e3e7e2; border-radius: 9px; color: #58645b; background: #f8faf7; font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
+.provider-data-summary { display: grid; gap: 2px; min-width: 0; overflow-wrap: anywhere; }
+.provider-data-notice p { margin: 6px 0; }
+.provider-data-notice details { margin-top: 6px; }
+.provider-data-notice summary { cursor: pointer; color: #365640; }
+.provider-data-notice summary:focus-visible { outline: 2px solid #346b45; outline-offset: 3px; }
+.conversation-composer-dock > .provider-data-notice { margin-top: 10px; }
+.conversation-model-menu .provider-data-menu-note { margin: 0 10px 8px; color: #58645b; font-size: 11px; line-height: 1.5; }
+.conversation-model-menu > div > button small.provider-data-route { white-space: normal; overflow: visible; text-overflow: clip; }

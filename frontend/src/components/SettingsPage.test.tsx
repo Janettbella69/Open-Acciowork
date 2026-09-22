@@ -176,6 +176,9 @@ describe('SettingsPage · provider management', () => {
     expect(within(row).getByText(/deepseek-v4-pro/)).toBeInTheDocument()
     expect(within(row).getByText(/key configured/i)).toBeInTheDocument()
     expect(within(row).getByText(/verified/i)).toBeInTheDocument()
+    expect(within(row).getByText('Reported region: cn')).toBeVisible()
+    expect(within(row).getByText('Endpoint: https://api.deepseek.com')).toBeVisible()
+    expect(within(row).getByText(/Model requests may cross borders/)).toBeVisible()
     expect(within(row).queryByDisplayValue(/sk-/)).not.toBeInTheDocument()
   })
 
@@ -193,12 +196,15 @@ describe('SettingsPage · provider management', () => {
     fireEvent.change(within(form).getByLabelText(/display name/i), {
       target: { value: 'DeepSeek prod' },
     })
+    fireEvent.change(within(form).getByLabelText(/^region$/i), { target: { value: 'contract region' } })
+    expect(within(form).getByText('Reported region: contract region')).toBeVisible()
     fireEvent.click(within(form).getByRole('button', { name: /save provider/i }))
 
     await waitFor(() => expect(saveProvider).toHaveBeenCalledTimes(1))
     const [savedId, payload] = vi.mocked(saveProvider).mock.calls[0]
     expect(savedId).toBe('deepseek')
     expect(payload.display_name).toBe('DeepSeek prod')
+    expect(payload.region).toBe('contract region')
     expect('secret' in payload).toBe(false)
   })
 

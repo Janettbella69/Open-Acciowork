@@ -1,0 +1,17 @@
+export const providerDataZh: Record<string, string> = {
+  'Endpoint not recognized': '无法识别端点',
+  'Endpoint: {endpoint}': '端点：{endpoint}',
+  'Reported region: {region}': '管理员填写的区域：{region}',
+  'Not specified': '未注明',
+  'Model data and region': '模型数据与区域',
+  'Auto uses server-side Provider selection. Choose a specific model to review its endpoint and reported region before sending.': '自动模式由服务端选择模型服务。若需在发送前核对端点和管理员填写的区域，请选择具体模型。',
+  'The selected Provider details are unavailable. Refresh or choose another model to review its destination.': '当前无法获取所选模型服务的信息。请刷新或选择其他模型以核对数据发送目标。',
+  'Model requests may cross borders. Check the Provider’s processing locations and data terms before sending sensitive material.': '模型请求可能涉及跨境传输。发送敏感资料前，请核对模型服务的数据处理地点与相关条款。',
+  'What data is shared?': '会发送哪些数据？',
+  'Model requests include your messages and the context used by the Agent, which can include approved memories, file content and tool results.': '模型请求包含你的消息及 Agent 使用的上下文，可能包括已批准的记忆、文件内容和工具结果。',
+  'The reported region is entered by your administrator. TradeMind does not verify processing or storage locations from an endpoint address; a proxy can forward requests elsewhere.': '区域由管理员填写。TradeMind 无法仅凭端点地址核实数据处理或存储地点；代理端点可能继续转发请求。',
+  'Search, browsing and connected tools can also send task data to their own services. Selecting a model does not set a region restriction for those services.': '搜索、浏览和连接工具也可能向各自服务发送任务数据。选择模型不会限制这些服务的数据处理区域。',
+  'Provider regions are administrator-reported. Model requests may cross borders.': '模型区域由管理员填写，模型请求可能涉及跨境传输。',
+  'Region unknown until a Provider is chosen.': '选定模型服务前，区域未知。',
+  'Enter the processing region reported in your Provider agreement, or leave it unspecified. This label does not enforce data residency.': '填写模型服务协议注明的处理区域；尚不清楚时保留“未注明”。此标签不会实施数据驻留限制。',
+}

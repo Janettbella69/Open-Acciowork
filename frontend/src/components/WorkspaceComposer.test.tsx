@@ -584,7 +584,7 @@ describe('Permission safety and provider eligibility', () => {
     expect(screen.queryByRole('button', { name: /allow persistent/i })).not.toBeInTheDocument()
   })
 
-  it('only enables explicitly runnable provider profiles', () => {
+  it('only enables explicitly runnable provider profiles and discloses their reported destinations', () => {
     const baseProvider: ProviderProfile = {
       id: 'ready',
       display_name: 'Ready provider',
@@ -613,13 +613,41 @@ describe('Permission safety and provider eligibility', () => {
 
     expect(screen.getByRole('button', { name: /^send$/i })).toBeDisabled()
     fireEvent.click(screen.getByRole('button', { name: /open model selector/i }))
-    expect(screen.getByRole('button', { name: /ready-model/i })).not.toBeDisabled()
+    const ready = screen.getByRole('button', { name: /ready-model/i })
+    expect(ready).not.toBeDisabled()
+    expect(within(ready).getByText('Reported region: us')).toBeVisible()
+    expect(within(ready).getByText('Endpoint: Anthropic default endpoint')).toBeVisible()
+    expect(screen.getByText('Provider regions are administrator-reported. Model requests may cross borders.')).toBeVisible()
     expect(screen.getByRole('button', { name: /disabled-model/i })).toBeDisabled()
     expect(screen.getByRole('button', { name: /no-secret-model/i })).toBeDisabled()
     expect(screen.getByRole('button', { name: /not-verified-model/i })).toBeDisabled()
     expect(screen.getByRole('button', { name: /not-prod-model/i })).toBeDisabled()
     expect(screen.getByRole('button', { name: /environment-model/i })).toBeDisabled()
     expect(screen.getByRole('button', { name: /failed-model/i })).toBeDisabled()
+  })
+
+  it('keeps the selected data destination visible after closing the model selector', () => {
+    const provider: ProviderProfile = {
+      id: 'reviewed', display_name: 'Configured gateway', model: 'example-model',
+      base_url: 'https://models.example/v1', auth_env_name: 'ANTHROPIC_API_KEY',
+      region: 'Region A', production_eligible: true, enabled: true, secret_configured: true,
+      last_verified_at: '2026-09-22T00:00:00Z', last_error_code: null, last_error_message: null,
+      capabilities: { tool_use: true, streaming: true, images: false, prompt_caching: false, extended_thinking: false, tool_search: false },
+    }
+    function Selection() {
+      const [id, setId] = useState<string | null>(null)
+      return <WorkspaceComposer {...baseProps()} providers={[provider]} providerProfileId={id} onProviderProfileChange={setId} />
+    }
+    render(<Selection />)
+    expect(screen.getByText(/Auto uses server-side Provider selection/)).toBeVisible()
+    fireEvent.click(screen.getByRole('button', { name: /open model selector/i }))
+    fireEvent.click(screen.getByRole('button', { name: /example-model/ }))
+    expect(screen.queryByRole('dialog', { name: /choose a model/i })).not.toBeInTheDocument()
+    const notice = screen.getByRole('complementary', { name: 'Model data and region' })
+    expect(within(notice).getByText('Endpoint: https://models.example')).toBeVisible()
+    expect(within(notice).getByText('Reported region: Region A')).toBeVisible()
+    expect(within(notice).getByText(/Model requests may cross borders/)).toBeVisible()
+    expect(screen.queryByText(/Auto uses server-side Provider selection/)).not.toBeInTheDocument()
   })
 
   it('does not offer run-wide approval when the backend marks a request non-persistable', () => {
