@@ -99,7 +99,7 @@ class RunManager:
         self.settings = settings
         self.channel_delivery = channel_delivery
         self.feedback = feedback
-        self.project_events = project_events or ProjectEventProjector(ledger, events)
+        self.project_events = project_events or ProjectEventProjector(ledger, events, memory=memory)
         self._tasks: dict[str, asyncio.Task[None]] = {}
 
     def _acquire_run_lease(self, run_id: str) -> int | None:
@@ -597,12 +597,7 @@ class RunManager:
             for artifact in artifacts:
                 if artifact.run_id != run.id:
                     continue
-                await self.events.publish(
-                    run_id,
-                    EventType.ARTIFACT_REGISTERED,
-                    artifact.model_dump(mode="json"),
-                    actor=EventActor(type="system", name="artifact-ledger"),
-                )
+                await self.project_events.artifact_registered(run.project_id, artifact.id)
         except Exception:
             # Artifact discovery must not rewrite a completed run as failed.
             return

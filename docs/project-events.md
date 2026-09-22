@@ -1,12 +1,14 @@
 # Committed project observations and Run stream completion
 
-PRD §4.12 now includes `evidence.added` and `decision.recorded` for records with
-verifiable `source_run_id` provenance. The project ledger remains authoritative;
+PRD §4.12 includes `evidence.added`, `decision.recorded`, `artifact.updated`, and
+`memory.proposed` for records with verifiable Run provenance. `artifact.registered`
+also uses recoverable, deduplicated publication. The project ledger remains authoritative;
 these events tell a client when to read its authorized project again.
 
 ## Business record first
 
-`ProjectEventProjector` reads an already committed Evidence or Decision, finds its
+`ProjectEventProjector` reads an already committed Evidence, Decision, Artifact, or
+MemoryItem, finds its
 original Run, and verifies that Run belongs to the same project. Notifications use
 the original Run's envelope, trace, provider and SDK-session metadata. A duplicate
 tool request in a later Run repairs the original observation; it does not reassign
@@ -95,7 +97,7 @@ ignores duplicate replay, and accepts Run status only from Run lifecycle events
 with a status declared by protocol metadata. Historical lifecycle replay cannot
 temporarily turn a terminal Run back into a running one.
 
-Evidence and Decision observations trigger an authorized `GET project`. Reads
+Evidence, Decision, and Artifact observations trigger an authorized `GET project`. Reads
 are coalesced into one request at a time, with a fresh trailing read when another
 observation arrives. Selection generations and abort signals prevent an old
 response from replacing a different project or a newer selection of the same
@@ -137,5 +139,66 @@ not be mixed; upgrade workers and clients together.
 
 This delivery covers additions attributed to Runs. Record edits and unbound
 manual/imported records still need their own project-level event contract.
-`artifact.updated`, `memory.proposed`, and the remaining schedule/preflight
-sub-events are tracked separately in the full PRD inventory.
+The remaining schedule/preflight sub-events are tracked separately in the full PRD
+inventory.
+
+
+## Artifact versions and memory proposals (2026-09-22)
+
+Every registered Artifact version now gets one recoverable `artifact.registered`
+observation, retaining its existing serialized Artifact fields plus `schema_version`,
+`resource_id`, `artifact_id`, and `recorded_at`. Versions greater than one additionally
+get `artifact.updated` with only those identifiers, the version, and creation time.
+Both events refer to the Run that actually registered that version. Retrying an
+unchanged file in another Run repairs the original observation without taking ownership.
+The native registration and media MCP handlers publish immediately after commit;
+browser capture, terminal workspace discovery, startup and SSE repair share this path.
+A failed Skill submission following successful Artifact registration does not erase
+the saved Artifact or its observation.
+
+Artifact version allocation and duplicate detection now share the cross-process
+project lock. Only the latest version can be an unchanged duplicate: A → B → A
+produces v1, v2, v3. The registry remains metadata about workspace versions; this
+does not add historical binary storage or Bash snapshot rollback. Native file edits
+are observed when explicitly registered or discovered during terminal cleanup.
+
+Existing legacy `artifact.registered` rows had no `resource_id` and could repeat.
+Recovery validates their Artifact id, project, Run, checksum and version against
+the committed record, treats matching rows as an existing observation, and leaves
+the original log intact. Inconsistent legacy identity fails reconciliation. This
+exception does not allow duplicate modern resource observations.
+
+The existing native `propose_memory` tool now records its server-bound `source_run_id`.
+Its schema is unchanged; the model cannot select that source Run. Both these proposals
+and end-of-run distillation can emit `memory.proposed`, carrying only the memory id,
+resource id, schema version and original creation time. Projection checks the source
+Run's project/Agent scope and principal binding. It never copies proposal text,
+approves memory, injects memory into an Agent, or mirrors it into `MEMORY.md`.
+Approved/corrected proposals retain their original observation identity. Deleted
+records are not restored; an already published event retains only its identifier.
+Historical tool proposals with no source Run are not assigned guessed provenance.
+
+The workspace has a lazily opened **Run memories** panel. Its API query,
+`GET /api/memory?source_run_id=...`, checks the source project's memory-read permission
+and applies existing per-item authorization (including private Agent memories).
+Events request a fresh authorized read; they do not supply displayed proposal text
+or current status. Refreshes are aborted on Run changes and cannot overwrite newer
+selections or decisions. New proposals arriving during review are read after the
+mutation settles. An unsaved correction survives refresh, failures remain visible,
+and the user can refresh again. Existing approval/correction endpoints still enforce
+memory-write permission independently.
+
+Backend offline acceptance exercises native MCP dispatch, post-commit notification
+failure, exact SSE tails, old-log migration, private-memory authorization, a process
+exiting immediately after commits, and competing recovery/registration processes.
+Frontend acceptance covers observed updates, task selection races, review/refresh
+races, retained edits, failure recovery and Chinese copy. These tests do not prove
+real Provider proposal quality, a real browser session, or production durability.
+
+Frozen local verification: backend **1563 passed / 8 live-only skipped**; frontend
+**281 passed**, lint and build passed; eval tools **59 passed**, Snapshot **61/61**,
+Ruff and diff checks passed. The authenticated-memory cases also fixed an existing
+identity mapping defect: persisted Runs provide `principal_role/principal_session_id`,
+whereas request principals provide `role/session_id`. Both direct native proposals
+and end-of-run distillation now retain the correct identity. Browser discovery
+returned no available browser, so visual acceptance is still open.

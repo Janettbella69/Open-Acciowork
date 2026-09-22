@@ -28,6 +28,7 @@ import { permissionLifecycleState } from '../permissionLifecycle'
 import PresentationCards, { extractPresentationFrames } from './PresentationCards'
 import ProjectMetricsPanel from './ProjectMetricsPanel'
 import ProjectKnowledgePanel from './ProjectKnowledgePanel'
+import RunMemoryPanel from './RunMemoryPanel'
 import WorkspaceNav from './WorkspaceNav'
 import './workspace-composer.css'
 
@@ -867,6 +868,7 @@ export default function WorkspaceComposer({
                 )}
                 {project && <ProjectKnowledgePanel projectId={project.id} revision={project.artifacts.map((item) => item.id).join(':')} />}
                 {project && <ProjectMetricsPanel key={`metrics:${project.id}`} projectId={project.id} />}
+                {run && <RunMemoryPanel key={`memory:${run.id}`} runId={run.id} revision={events.filter((event) => event.run_id === run.id && event.type === 'memory.proposed').at(-1)?.sequence ?? 0} />}
                 {project && <FeedbackReviewPanel key={project.id} projectId={project.id} />}
 
                 {permissions.map((permission) => {

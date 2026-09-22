@@ -29,27 +29,51 @@ type MemoryDraft = {
   sensitivity: MemorySensitivity
 }
 
-export default function MemoryReview() {
+type MemoryReviewProps = { sourceRunId?: string; revision?: number }
+
+export default function MemoryReview(props: MemoryReviewProps) {
+  return <MemoryReviewContent key={props.sourceRunId ?? 'all'} {...props} />
+}
+
+function MemoryReviewContent({ sourceRunId, revision = 0 }: MemoryReviewProps) {
   const t = useT()
   const language = useLanguage()
   const [items, setItems] = useState<MemoryItem[]>([])
   const [busy, setBusy] = useState('')
   const [error, setError] = useState('')
+  const [loadError, setLoadError] = useState('')
   const [editingId, setEditingId] = useState('')
   const [draft, setDraft] = useState<MemoryDraft | null>(null)
   const actionInFlightRef = useRef('')
+  const requestRef = useRef(0)
+  const [reloadVersion, setReloadVersion] = useState(0)
+  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
+    if (actionInFlightRef.current) return
     let active = true
-    void listMemory()
-      .then((memories) => { if (active) setItems(memories) })
-      .catch((loadError) => { if (active) setError(errorMessage(loadError)) })
-    return () => { active = false }
-  }, [])
+    const request = ++requestRef.current
+    const controller = new AbortController()
+    const current = () => active && request === requestRef.current
+    setLoading(true)
+    void listMemory(sourceRunId, controller.signal)
+      .then((memories) => {
+        if (!current()) return
+        if (sourceRunId && memories.some((item) => item.source_run_id !== sourceRunId)) {
+          throw new Error('Memory response did not match this run.')
+        }
+        setItems(memories)
+        setLoadError('')
+      })
+      .catch((cause) => { if (current()) setLoadError(errorMessage(cause)) })
+      .finally(() => { if (current()) setLoading(false) })
+    return () => { active = false; controller.abort() }
+  }, [sourceRunId, revision, reloadVersion])
 
   const decide = async (memoryId: string, decision: 'approve' | 'reject') => {
     if (actionInFlightRef.current) return
     actionInFlightRef.current = memoryId
+    requestRef.current += 1
     setBusy(memoryId)
     setError('')
     try {
@@ -60,6 +84,7 @@ export default function MemoryReview() {
     } finally {
       actionInFlightRef.current = ''
       setBusy('')
+      setReloadVersion((value) => value + 1)
     }
   }
 
@@ -79,6 +104,7 @@ export default function MemoryReview() {
   const saveEdit = async (item: MemoryItem) => {
     if (!draft || !draft.text.trim() || actionInFlightRef.current) return
     actionInFlightRef.current = item.id
+    requestRef.current += 1
     setBusy(item.id)
     setError('')
     try {
@@ -95,6 +121,7 @@ export default function MemoryReview() {
     } finally {
       actionInFlightRef.current = ''
       setBusy('')
+      setReloadVersion((value) => value + 1)
     }
   }
 
@@ -140,6 +167,9 @@ export default function MemoryReview() {
   return (
     <div className="settings-card memory-review">
       {error && <p className="conversation-error" role="alert">{t(error)}</p>}
+      {loadError && <p className="conversation-error" role="alert">{t(loadError)}</p>}
+      {loading && <p role="status">{t('Refreshing memories…')}</p>}
+      <button type="button" disabled={Boolean(busy) || loading} onClick={() => setReloadVersion((value) => value + 1)}>{t('Refresh')}</button>
 
       {proposed.length ? proposed.map((item) => (
         <article key={item.id} className="memory-review-item">
@@ -161,7 +191,7 @@ export default function MemoryReview() {
             </>
           )}
         </article>
-      )) : (
+      )) : !loading && !error && !loadError && (
         <p className="settings-integration-note">
           {t('No memory proposals are waiting for review. Agent proposals appear here and only take effect after you approve them.')}
         </p>

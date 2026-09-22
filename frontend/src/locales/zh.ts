@@ -13,6 +13,10 @@ export const zh: Record<string, string> = {
   ...approvalZh,
   ...metricsZh,
   ...knowledgeZh,
+  'Run memories': '本次任务的记忆',
+  'Review memories proposed during this run. They take effect only after approval.': '审阅本次任务产生的记忆提案，批准后才会生效。',
+  'Refreshing memories…': '正在刷新记忆…',
+  'Memory response did not match this run.': '返回的记忆不属于本次任务。',
   // ---- 营销页：导航与页脚 ----
   'Product': '产品',
   'How it works': '工作方式',

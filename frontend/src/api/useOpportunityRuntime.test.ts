@@ -20,7 +20,7 @@ const protocol = {
   event_types: [
     'run.created', 'run.started', 'run.status', 'run.completed', 'run.failed', 'run.cancelled',
     'assistant.text.delta', 'tool.completed', 'permission.requested', 'permission.resolved',
-    'evidence.added', 'decision.recorded', 'task.completed', 'provider.preflight',
+    'evidence.added', 'decision.recorded', 'artifact.registered', 'artifact.updated', 'memory.proposed', 'task.completed', 'provider.preflight',
   ],
   stream_end_event: 'stream.completed',
   run_statuses: ['queued', 'running', 'waiting_permission', 'paused', 'cancelling', 'completed', 'failed', 'cancelled'],
@@ -282,7 +282,19 @@ describe('durable approval reconciliation', () => {
 })
 
 describe('project record events and complete durable tails', () => {
-  it.each(['evidence.added', 'decision.recorded', 'task.completed', 'provider.preflight', 'tool.completed'])(
+  it.each(['artifact.registered', 'artifact.updated'])('refreshes saved artifacts for %s after terminal status', async (type) => {
+    const { result } = await setup()
+    const updated = { ...projectA, artifacts: [{ id: 'artifact_latest', version: 3 }] } as OpportunityProject
+    vi.mocked(api.getProject).mockResolvedValue(updated)
+    await act(async () => {
+      MockEventSource.instances[0].emit('run.completed', { status: 'completed' })
+      MockEventSource.instances[0].emit(type, { artifact_id: 'untrusted-id', path: 'untrusted-path' })
+    })
+    await waitFor(() => expect(result.current.project?.artifacts).toEqual(updated.artifacts))
+    expect(result.current.run?.status).toBe('completed')
+    expect(MockEventSource.instances[0].closed).toBe(false)
+  })
+  it.each(['evidence.added', 'decision.recorded', 'artifact.registered', 'artifact.updated', 'memory.proposed', 'task.completed', 'provider.preflight', 'tool.completed'])(
     'does not apply %s status to the Run', async (type) => {
       const { result } = await setup()
       await act(async () => { MockEventSource.instances[0].emit(type, { status: 'failed', resource_id: 'record_1' }) })

@@ -17,6 +17,7 @@ from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
 from .constants import (
+    PROJECT_RESOURCE_EVENTS,
     DecisionStatus,
     EventType,
     EvidenceKind,
@@ -818,7 +819,7 @@ class FileLedger:
         The durable business record remains authoritative. No second index is
         written: a crash after the JSONL append can recover from that same log.
         """
-        if event.type not in {EventType.EVIDENCE_ADDED.value, EventType.DECISION_RECORDED.value}:
+        if event.type not in PROJECT_RESOURCE_EVENTS:
             raise ValueError("only committed project resource notifications can be deduplicated")
         if not isinstance(resource_id, str) or not resource_id:
             raise ValueError("resource_id must be a nonempty string")
@@ -838,8 +839,29 @@ class FileLedger:
                         or stored.run_id != run.id or stored.project_id != run.project_id
                         or stored.trace_id != run.trace_id):
                     raise ValueError("event log integrity check failed; refusing to project")
-                if stored.type == event.type and stored.data.get("resource_id") == resource_id:
+                # Before recoverable projection, artifact.registered carried the
+                # Artifact itself and could be emitted repeatedly by cleanup.
+                # Recognize only a matching legacy envelope without rewriting it.
+                legacy_artifact = (
+                    stored.type == event.type == EventType.ARTIFACT_REGISTERED
+                    and "resource_id" not in stored.data
+                    and stored.data.get("id") == resource_id
+                )
+                if legacy_artifact and any(
+                    stored.data.get(field) != expected
+                    for field, expected in (
+                        ("project_id", run.project_id), ("run_id", run.id),
+                        ("checksum", event.data.get("checksum")),
+                        ("version", event.data.get("version")),
+                    )
+                ):
+                    raise ValueError("legacy artifact observation does not match the record")
+                if stored.type == event.type and (
+                    stored.data.get("resource_id") == resource_id or legacy_artifact
+                ):
                     if found is not None:
+                        if legacy_artifact and "resource_id" not in found.data:
+                            continue
                         raise ValueError("resource notification has conflicting duplicate history")
                     found = stored
             if found is not None:
@@ -1097,36 +1119,33 @@ class FileLedger:
             raise ValueError("artifact must be a regular file inside the project workspace")
         workspace = self.workspace_for_project(project_id).resolve()
         relative = path.relative_to(workspace).as_posix()
-        checksum = hashlib.sha256(path.read_bytes()).hexdigest()
-        project = self.get_project(project_id)
-        duplicate = next(
-            (
-                item
-                for item in project.artifacts
-                if item.path == relative and item.checksum == checksum
-            ),
-            None,
-        )
-        if duplicate:
-            return duplicate
-        previous_versions = [item.version for item in project.artifacts if item.path == relative]
-        artifact = Artifact(
-            project_id=project_id,
-            path=relative,
-            name=path.name,
-            mime=mime or mimetypes.guess_type(path.name)[0] or "application/octet-stream",
-            version=max(previous_versions, default=0) + 1,
-            run_id=run_id,
-            source_ids=source_ids or [],
-            checksum=checksum,
-            size_bytes=path.stat().st_size,
-            download_url="pending",
-        )
-        artifact.download_url = (
-            f"/api/projects/{project_id}/artifacts/{artifact.id}/download"
-        )
-        self.update_project(project_id, lambda item: item.artifacts.append(artifact))
-        return artifact
+        with self._lock_for(project_id):
+            checksum = hashlib.sha256(path.read_bytes()).hexdigest()
+            project = self.get_project(project_id)
+            versions = [item for item in project.artifacts if item.path == relative]
+            latest = max(versions, key=lambda item: item.version, default=None)
+            # Restoring older bytes is a new edit with its own Run/version.
+            if latest is not None and latest.checksum == checksum:
+                return latest
+            artifact = Artifact(
+                project_id=project_id,
+                path=relative,
+                name=path.name,
+                mime=mime or mimetypes.guess_type(path.name)[0] or "application/octet-stream",
+                version=latest.version + 1 if latest is not None else 1,
+                run_id=run_id,
+                source_ids=source_ids or [],
+                checksum=checksum,
+                size_bytes=path.stat().st_size,
+                download_url="pending",
+            )
+            artifact.download_url = (
+                f"/api/projects/{project_id}/artifacts/{artifact.id}/download"
+            )
+            # Allocation and duplicate detection remain inside the process-safe
+            # project lock across this reentrant write transaction.
+            self.update_project(project_id, lambda item: item.artifacts.append(artifact))
+            return artifact
 
     def scan_workspace(self, project_id: str, *, run_id: str | None = None) -> list[Artifact]:
         workspace = self.workspace_for_project(project_id).resolve()

@@ -48,7 +48,7 @@
 | §3.7 P2 知识库 | delivered：项目登记文本/OCR伴随文件索引、来源行列/版本、权限复验API、只读MCP与中英文工作区检索、校验和一致的下载；deferred：Office原件索引、真实检索质量/容量与浏览器目视验收 |
 | §3.7 P2 团队 | deferred：团队评论、模板和私有 Skill 管理 |
 | §4.16 任务经验 | delivered：专属工具与版本/来源账本、创建时配置指纹、低信任检索注入、容量/事务恢复与人工停用UI；deferred：真实Provider自主调用及长期判断质量 |
-| §4.12 事件 | delivered：有真实Run归属的evidence.added/decision.recorded、持久幂等补发与完整SSE尾部消费；deferred：产物更新、记忆、无Run项目变更和 schedule/preflight 细分事件 |
+| §4.12 事件 | delivered：有真实Run归属的evidence.added/decision.recorded/artifact.registered/artifact.updated/memory.proposed、持久幂等补发与完整SSE尾部消费；任务记忆审阅面板与按Run授权查询；deferred：浏览器目视验收、无Run项目变更和 schedule/preflight 细分事件 |
 | §3.9 / §4.10 | delivered：自动调度跨进程抢占与事件汇总恢复；deferred：其余事件故障矩阵、Bash 修改恢复、CPU/内存/进程/输出限制 |
 | §3.9 数据主权 | delivered：操作者CLI完整数据目录冷备份与新目录恢复，覆盖项目账本/提案/Registry一致性；deferred：项目/会话/凭据的完整授权导出与删除（记忆已交付）、恢复UI及生产灾备 |
 | §3.9 性能 | delivered：本地ASGI单/4并发各100样本，创建/首事件持久化/离线task取消P95基线；deferred：真实SDK进程、网络/SSE运输、多worker与生产负载验收 |
@@ -447,3 +447,39 @@ id/版本/hash/时间/Run/来源关联。PDF/图片使用已有 Markdown 伴随�
 Browser运行时已成功加载，但选择浏览器返回`No browser is available`，按文档排查后
 列表为空，未声称页面目视验收通过。本批未调用真实Provider或外部数据服务。
 Office原件索引、真实检索质量/容量、页面目视验收和全PRD其余deferred继续开放。
+
+
+## 2026-09-22：产物与记忆观察事件
+
+本批基于当前工作树 `eff2289` 继续实现 §4.12，合同见
+[项目事件](project-events.md#artifact-versions-and-memory-proposals-2026-09-22)。
+
+- 新增产物版本更新与记忆提案的持久、幂等事件；原生产构造、原生 MCP、媒体、
+  浏览器和 Run 收尾/启动恢复/SSE 尾部共用 projector。没有新增模型 runtime。
+- 原生记忆提案由服务器绑定来源 Run；事件只携带记忆标识，审阅内容另走授权查询。
+  按 Run 打开的审阅面板支持观察后刷新、审批、修改、错误重试和中文文案；
+  不自动批准，也不从事件正文伪造记忆。
+- Artifact 版本分配移入项目跨进程锁；重复最新内容不写新版本，A→B→A 保留三个版本。
+  旧 artifact.registered 日志保持原样，匹配的旧通知被识别，不一致日志拒绝完成。
+- 新增离线验收用例覆盖提交后退出、双进程补发/登记、来源范围、撤销、旧日志、
+  原生 MCP、蒸馏、SSE 尾部、页面切换与审批/刷新竞争。
+
+验证状态：
+
+- 前端最终完整测试 **281 passed**（27文件）；lint、TypeScript/构建通过。
+  主 JS 为653.86kB，既有大于500kB构建提示保留。
+- `uvx --offline ruff check backend/src backend/tests`：通过；Python 编译与
+  `git diff --check`：通过。
+- 后端 `OPHIRA_CONTRACT_PROVIDER= PYTHONPATH=backend/src .venv/bin/python -m pytest backend/tests -q`：
+  **1563 passed / 8 live-only skipped**（83.73s），含新增24项验收。
+- 新增授权用例发现并修复既有 Run 身份映射错误：记忆提案/蒸馏现在读取持久的
+  `principal_role/principal_session_id`，不再读取只存在于请求身份对象上的字段。
+  同时覆盖匿名/登录、项目/Agent 记忆与成员撤销。
+- eval tools **59 passed**；Snapshot **61/61**；本轮没有调用真实 Provider 或外发服务。
+- Python 3.11 环境及固定版本 SDK 0.2.143 依赖已安装完成；首次安装元数据超时，
+  随后按 `backend/pyproject.toml` 的 dev 依赖完成安装，测试使用仓库 `PYTHONPATH`。
+- Browser 连接返回 `No browser is available`，按技能故障发现流程确认可用列表
+  为 `[]`；没有页面目视验收证据。
+
+上述自动化验证不涵盖真实 Provider 提案质量、生产隔离、Bash 历史文件快照、
+无 Run 项目事件或 schedule/preflight 细分事件；全量 PRD 目标保持开放。

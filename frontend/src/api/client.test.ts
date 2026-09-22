@@ -8,6 +8,7 @@ import {
   getProjectKnowledge,
   getProject,
   getRunTelemetry,
+  listMemory,
   retryRun,
   resumePermissionRun,
   reviewCommercialAction,
@@ -19,6 +20,15 @@ afterEach(() => {
 })
 
 describe('API client', () => {
+  it('encodes the memory source Run and reads without browser caching', async () => {
+    const controller = new AbortController()
+    const fetchMock = vi.fn(async () => new Response('[]', { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+    await expect(listMemory('run/a b', controller.signal)).resolves.toEqual([])
+    expect(fetchMock).toHaveBeenCalledWith('/api/memory?source_run_id=run%2Fa%20b', expect.objectContaining({
+      signal: controller.signal, cache: 'no-store',
+    }))
+  })
   it('encodes reference search input and disables cached project results', async () => {
     const payload = { project_id: 'project/one', matches: [] }
     const controller = new AbortController()

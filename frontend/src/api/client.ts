@@ -373,8 +373,9 @@ export function runSchedule(scheduleId: string): Promise<RunRecord> {
   return request<RunRecord>(`/api/schedules/${scheduleId}/run`, { method: 'POST' })
 }
 
-export function listMemory(): Promise<MemoryItem[]> {
-  return request<MemoryItem[]>('/api/memory')
+export function listMemory(sourceRunId?: string, signal?: AbortSignal): Promise<MemoryItem[]> {
+  const query = sourceRunId ? `?source_run_id=${encodeURIComponent(sourceRunId)}` : ''
+  return request<MemoryItem[]>(`/api/memory${query}`, { signal, cache: 'no-store' })
 }
 
 export function decideMemory(

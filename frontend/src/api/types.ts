@@ -424,6 +424,7 @@ export type MemoryItem = {
   id: string
   scope: 'user' | 'project' | 'agent'
   scope_id: string
+  source_run_id?: string | null
   text: string
   kind: MemoryKind
   sensitivity: MemorySensitivity

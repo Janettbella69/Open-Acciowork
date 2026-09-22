@@ -708,6 +708,8 @@ def build_ledger_tools(
             source_ids=args["source_ids"],
             mime=args.get("mime") or None,
         )
+        if project_events is not None:
+            await project_events.artifact_registered(project_id, artifact.id)
         if (
             skill_proposals is not None
             and is_skill_proposal_manifest(args["path"])
@@ -777,7 +779,10 @@ def build_ledger_tools(
                 confidence=args.get("confidence", 1.0),
                 created_by=agent_id or "agent",
                 principal=bound_run,
+                source_run_id=run_id,
             )
+            if project_events is not None:
+                await project_events.memory_proposed(project_id, item.id)
             return _tool_result(item)
 
         @tool(
@@ -1403,5 +1408,6 @@ def build_mcp_servers(
             project_id,
             settings,
             run_id=run_id,
+            project_events=project_events,
         )
     return servers

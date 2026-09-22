@@ -130,18 +130,16 @@ beforeEach(() => {
   vi.mocked(getOrgPolicy).mockResolvedValue(orgPolicy)
   vi.mocked(saveOrgPolicy).mockImplementation(async (policy) => policy)
   vi.mocked(listPermissionGrants).mockResolvedValue([])
-  vi.mocked(decideMemory).mockImplementation(async (id, decision) => ({
-    ...proposedMemory,
-    id,
-    status: decision === 'approve' ? 'approved' : 'rejected',
-  }))
-  vi.mocked(correctMemory).mockImplementation(async (id, input) => ({
-    ...proposedMemory,
-    id,
-    ...input,
-    status: 'approved',
-    version: proposedMemory.version + 1,
-  }))
+  vi.mocked(decideMemory).mockImplementation(async (id, decision) => {
+    const updated: MemoryItem = { ...proposedMemory, id, status: decision === 'approve' ? 'approved' : 'rejected' }
+    vi.mocked(listMemory).mockResolvedValue([updated])
+    return updated
+  })
+  vi.mocked(correctMemory).mockImplementation(async (id, input) => {
+    const updated: MemoryItem = { ...proposedMemory, id, ...input, status: 'approved', version: proposedMemory.version + 1 }
+    vi.mocked(listMemory).mockResolvedValue([updated])
+    return updated
+  })
   vi.mocked(revokePermissionGrant).mockImplementation(async (id) => ({ ...permissionGrant, id, revoked: true }))
 })
 

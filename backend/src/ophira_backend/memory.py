@@ -50,6 +50,7 @@ class MemoryProvider(Protocol):
         sensitivity: MemorySensitivity | None = None,
         confidence: float = 1.0,
         created_by: str = "system",
+        source_run_id: str | None = None,
         principal: PrincipalContext | RunRecord | None = None,
         expires_at: datetime | None = None,
     ) -> MemoryItem: ...
@@ -493,8 +494,13 @@ class FileMemoryProvider:
             {
                 "tenant_id": principal.tenant_id,
                 "principal_id": principal.principal_id,
-                "principal_role": principal.role,
-                "principal_session_id": principal.session_id,
+                "principal_role": (
+                    principal.principal_role if isinstance(principal, RunRecord) else principal.role
+                ),
+                "principal_session_id": (
+                    principal.principal_session_id
+                    if isinstance(principal, RunRecord) else principal.session_id
+                ),
                 "identity_binding": "authenticated_principal",
             }
             if authenticated_principal

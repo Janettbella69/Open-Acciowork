@@ -302,11 +302,11 @@ def _create_app(
     settings = settings or get_settings()
     ledger = FileLedger(settings.data_dir, ingest_config=IngestConfig.from_settings(settings))
     events = EventPublisher(ledger)
-    project_events = ProjectEventProjector(ledger, events)
     memory = FileMemoryProvider(
         settings.data_dir / "memory",
         agents_root=settings.data_dir / "agents",
     )
+    project_events = ProjectEventProjector(ledger, events, memory=memory)
     grants = PermissionGrantStore(settings.data_dir / "grants")
     policy = OrgPolicyStore(settings.data_dir / "org" / "policy.json")
     feedback = FeedbackStore(settings.data_dir / "feedback")
@@ -1695,13 +1695,26 @@ def _create_app(
     @application.get("/api/memory", response_model=list[MemoryItem])
     async def list_memory(
         request: Request,
+        response: Response,
         scope: MemoryScope | None = None,
         scope_id: str | None = None,
         status_filter: Annotated[MemoryStatus | None, Query(alias="status")] = None,
+        source_run_id: str | None = None,
     ) -> list[MemoryItem]:
+        response.headers["Cache-Control"] = "no-store"
         principal = _request_principal(request)
+        if source_run_id is not None:
+            try:
+                source_run = ledger.get_run(source_run_id)
+            except (LedgerNotFoundError, ValueError) as exc:
+                raise HTTPException(status_code=404, detail="Run not found") from exc
+            require_project_authorization(
+                source_run.project_id, principal, ProjectPermission.MEMORY_READ,
+            )
         visible: list[MemoryItem] = []
         for item in memory.list(scope=scope, scope_id=scope_id, status=status_filter):
+            if source_run_id is not None and item.source_run_id != source_run_id:
+                continue
             try:
                 require_memory_authorization(
                     item,

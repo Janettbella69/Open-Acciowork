@@ -311,11 +311,14 @@ async def test_browser_observes_committed_evidence_even_if_combined_tool_failed(
         monkeypatch.setattr(events, "publish_once", original_publish)
         assert await projector.reconcile_run(run.id) is True
     observations = ledger.list_events(run.id)
-    assert len(observations) == 1
+    assert len(observations) == (1 if outcome == "failed_artifact" else 2)
     assert observations[0].type == EventType.EVIDENCE_ADDED
     assert observations[0].data["resource_id"] == evidence[0].id
     assert "external-secret" not in observations[0].model_dump_json()
     assert "untrusted page instruction" not in observations[0].model_dump_json()
+    if outcome != "failed_artifact":
+        assert observations[1].type == EventType.ARTIFACT_REGISTERED
+        assert observations[1].data["resource_id"] == ledger.get_project(project.id).artifacts[0].id
 
 
 def _notification(run, resource_id="ev_durable", **changes):

@@ -6,7 +6,7 @@ import json
 import os
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from urllib.parse import urlsplit
 from uuid import uuid4
 
@@ -17,6 +17,9 @@ from .config import Settings
 from .constants import MEDIA_MCP_SERVER_NAME
 from .storage import FileLedger
 from .web_tools import check_public_http_url
+
+if TYPE_CHECKING:
+    from .project_events import ProjectEventProjector
 
 _MAX_BYTES = {"image": 25_000_000, "video": 250_000_000}
 _ALLOWED_MEDIA_TYPES: dict[str, dict[str, set[str]]] = {
@@ -279,6 +282,7 @@ def build_media_mcp_server(
     settings: Settings,
     *,
     run_id: str | None = None,
+    project_events: ProjectEventProjector | None = None,
 ):
     @tool(
         "generate_media",
@@ -310,6 +314,8 @@ def build_media_mcp_server(
             args,
             run_id=run_id,
         )
+        if project_events is not None and result.get("ok"):
+            await project_events.artifact_registered(project_id, result["artifact_id"])
         return _result(result, is_error=not bool(result.get("ok")))
 
     return create_sdk_mcp_server(

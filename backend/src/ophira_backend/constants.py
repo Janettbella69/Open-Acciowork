@@ -135,12 +135,20 @@ class EventType(StrEnum):
     RUN_RESULT = "run.result"
 
     ARTIFACT_REGISTERED = "artifact.registered"
+    ARTIFACT_UPDATED = "artifact.updated"
+    MEMORY_PROPOSED = "memory.proposed"
     EVIDENCE_ADDED = "evidence.added"
     DECISION_RECORDED = "decision.recorded"
     UI_PRESENTATION = "ui.presentation"
     PROVIDER_PREFLIGHT = "provider.preflight"
 
     SCHEDULE_FIRED = "schedule.fired"
+
+
+PROJECT_RESOURCE_EVENTS = frozenset({
+    EventType.EVIDENCE_ADDED, EventType.DECISION_RECORDED,
+    EventType.ARTIFACT_REGISTERED, EventType.ARTIFACT_UPDATED, EventType.MEMORY_PROPOSED,
+})
 
 
 class PermissionDecision(StrEnum):
