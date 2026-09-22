@@ -1213,7 +1213,7 @@ Ruff、`git diff --check`、eval工具 **59 passed** 与 Snapshot **61/61**通�
 Temu/AliExpress/Shopee适配器、商业写操作，以及总表其他功能和生产/人工验收项。
 完整 PRD 目标仍未完成。
 
-## 2026-09-22：SDK worker 资源限制与状态展示
+## 2026-09-22：SDK worker 资源限制与状态展示（08cf976 / 6203411）
 
 实施说明：[SDK worker resource limits](sdk-worker-resources.md)。复用公开的 SDK
 `cli_path` / `max_buffer_size`；不改 SDK 内部，不引入第二个模型或工具执行循环。
@@ -1237,7 +1237,13 @@ Temu/AliExpress/Shopee适配器、商业写操作，以及总表其他功能和�
 相关109项及全量重新通过，没有弱化生产启动核验。`6957da9` 修复前一轮 CI 的
 定时任务测试竞态：只等待已保存的 article 行，避免匹配尚未关闭的输入表单。
 
-Linux CI 结果待提交后核验，不以本机跳过替代成功。Browser选择仍返回
-`No browser is available`，故障检查返回 `[]`，页面目视验收未完成。
+Linux真实验收：[6203411 的资源测试](https://github.com/Janettbella69/Open-Acciowork/actions/runs/35797207580/job/106979160537)
+在 Ubuntu 24.04 上 **30 passed / 0 skipped**，11.97秒，明确启用
+`OPHIRA_REQUIRE_SYSTEMD_TESTS=1`。包含23项进程/协议/故障测试和7项Linux验收，
+实际触发CPU节流、64MiB内存OOM、16个进程/线程上限，并确认脱离原进程会话的后代停止。
+首轮29通过/1失败源于故障注入仅断开用户bus，systemd仍可走私有socket；按官方v255
+连接实现同时断开两条测试路径后全部通过，未改动或放宽生产限制。
+
+Browser选择仍返回 `No browser is available`，故障检查返回 `[]`，页面目视验收未完成。
 真实模型与Linux沙箱的联合运行、API宿主MCP资源治理、控制目录保留/容量策略、
 生产长时负载及租户物理隔离仍需交付；总表其他 deferred 保持开放。
