@@ -3,10 +3,8 @@
 from __future__ import annotations
 
 import asyncio
-from enum import StrEnum
 
 from fastapi import HTTPException, Request, Response
-from pydantic import Field, SecretStr, StrictBool, model_validator
 from starlette.concurrency import run_in_threadpool
 
 from .auth import AuthenticationError, AuthorizationError
@@ -14,40 +12,25 @@ from .backup_files import parse_json
 from .connectors import ConnectorNotFoundError
 from .constants import PrincipalRole
 from .credential_archive import encrypt_credential
+from .credential_models import (
+    CredentialDelete,
+    CredentialExport,
+    CredentialKind,
+    CredentialSave,
+)
 from .data_operations import protected_call
-from .models import APIModel, utc_now
+from .models import utc_now
 from .providers import ProviderNotFoundError
 from .secret_vault import CredentialChangedError, VaultError
+from .service_credentials import ServiceCredentialNotFoundError, ServiceCredentialRegistry
 from .skill_proposal_files import directory_fd, read_relative
 
 
-class CredentialKind(StrEnum):
-    PROVIDER = "provider"
-    CONNECTOR = "connector"
-
-
-class CredentialReview(APIModel):
-    expected_revision: str = Field(pattern=r"^[a-f0-9]{64}$")
-
-
-class CredentialExport(CredentialReview):
-    password: SecretStr = Field(min_length=12, max_length=1024)
-
-
-class CredentialDelete(CredentialReview):
-    confirm_delete: StrictBool
-
-    @model_validator(mode="after")
-    def confirmed(self):
-        if not self.confirm_delete:
-            raise ValueError("Explicit deletion confirmation is required")
-        return self
-
-
 class CredentialService:
-    def __init__(self, settings, ledger, providers, connectors):
+    def __init__(self, settings, ledger, providers, connectors, services=None):
         self.settings, self.ledger = settings, ledger
         self.providers, self.connectors = providers, connectors
+        self.services = services or ServiceCredentialRegistry(settings)
         self.root = ledger.root / "credential-management"
         self.root.mkdir(mode=0o700, exist_ok=True)
         self.scope = {
@@ -78,6 +61,9 @@ class CredentialService:
         if kind == CredentialKind.PROVIDER:
             item = self.providers.get(identifier)
             return item, self.providers.vault, None
+        if kind == CredentialKind.SERVICE:
+            item = self.services.get(identifier)
+            return item, self.services.vault, self.services.environment_credential(item)
         item = self.connectors.get(identifier)
         if self.connectors.vault is None:
             raise VaultError("Credential storage is unavailable")
@@ -88,6 +74,8 @@ class CredentialService:
         item, vault, fallback = self.target(kind, identifier)
         value = {"kind": kind, "id": identifier, "display_name": item.display_name,
                  **vault.describe(identifier, fallback=fallback)}
+        if kind == CredentialKind.SERVICE:
+            value["effect"] = item.effect
         self.authorize(principal)
         return value
 
@@ -97,6 +85,7 @@ class CredentialService:
                 for kind, items in (
                     (CredentialKind.PROVIDER, self.providers.list()),
                     (CredentialKind.CONNECTOR, self.connectors.list()),
+                    (CredentialKind.SERVICE, self.services.list()),
                 ) for item in items]
 
     def export(self, kind, identifier, data, principal):
@@ -124,11 +113,24 @@ class CredentialService:
             authorize=lambda: self.authorize(principal),
         )
         self.authorize(principal)
-        return {"kind": kind, "id": identifier, "display_name": item.display_name, **receipt}
+        return {"kind": kind, "id": identifier, "display_name": item.display_name, **receipt,
+                **({"effect": item.effect} if kind == CredentialKind.SERVICE else {})}
+
+    def save_service(self, identifier, data, principal):
+        self.authorize(principal)
+        item = self.services.get(identifier)
+        receipt = self.services.save(
+            identifier, data.secret.get_secret_value(), data.expected_revision,
+            authorize=lambda: self.authorize(principal),
+        )
+        self.authorize(principal)
+        return {"kind": CredentialKind.SERVICE, "id": identifier,
+                "display_name": item.display_name, "effect": item.effect, **receipt}
 
 
-def register_credential_routes(app, settings, ledger, providers, connectors, read_body):
-    service = CredentialService(settings, ledger, providers, connectors)
+def register_credential_routes(app, settings, ledger, providers, connectors, read_body,
+                               *, services=None):
+    service = CredentialService(settings, ledger, providers, connectors, services)
     app.state.credentials = service
     encryption_slots = asyncio.Semaphore(2)
 
@@ -139,7 +141,9 @@ def register_credential_routes(app, settings, ledger, providers, connectors, rea
             raise HTTPException(
                 403, "Credential management requires the current administrator.",
             ) from exc
-        except (ProviderNotFoundError, ConnectorNotFoundError) as exc:
+        except (
+            ProviderNotFoundError, ConnectorNotFoundError, ServiceCredentialNotFoundError,
+        ) as exc:
             raise HTTPException(404, "Credential profile not found.") from exc
         except (VaultError, ValueError, OSError) as exc:
             detail = (str(exc) if isinstance(exc, CredentialChangedError)
@@ -182,4 +186,12 @@ def register_credential_routes(app, settings, ledger, providers, connectors, rea
         response.headers["Cache-Control"] = "no-store"
         return await invoke(lambda: service.delete(
             kind, identifier, data, getattr(request.state, "principal", None),
+        ))
+
+    @app.put("/api/credentials/service/{identifier}")
+    async def save_service(identifier: str, request: Request, response: Response):
+        data = await payload(request, CredentialSave)
+        response.headers["Cache-Control"] = "no-store"
+        return await invoke(lambda: service.save_service(
+            identifier, data, getattr(request.state, "principal", None),
         ))

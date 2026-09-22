@@ -89,8 +89,11 @@ and destination, and requires confirmation before publication. Durable requests 
 interrupted responses and process exits. The operator activates restored data separately;
 see [the maintenance interface](docs/application-backup.md#本机维护界面).
 **Settings → Providers → Credential backups and deletion** exports individual Provider
-or connector credentials in password-encrypted files and requires explicit confirmation
+or connector credentials, plus Feishu signing/application and Web Push private keys,
+in password-encrypted files and requires explicit confirmation
 to delete the reviewed key. Deletion also disables environment fallback across restarts.
+Application service keys can be explicitly replaced from the same panel; running adapters
+observe their current generation and discard revoked caches before new requests.
 See [credential management](docs/credential-management.md) for offline recovery,
 administrator access and the boundary with external revocation and older backups.
 Open **Export project data** in a saved workspace to review and download a project

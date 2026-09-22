@@ -32,6 +32,7 @@ from .constants import EventType, RunStatus
 from .data_operations import data_operation
 from .events import redact
 from .models import RunRecord, utc_now
+from .service_credentials import ServiceCredentialId, ServiceCredentialRegistry
 from .storage import FileLedger, LedgerNotFoundError
 
 logger = logging.getLogger(__name__)
@@ -569,13 +570,10 @@ class FeishuReplyAdapter:
         settings: Settings,
         *,
         transport: httpx.AsyncBaseTransport | None = None,
+        credentials: ServiceCredentialRegistry | None = None,
     ) -> None:
         self._app_id = settings.feishu_app_id or ""
-        self._app_secret = (
-            settings.feishu_app_secret.get_secret_value()
-            if settings.feishu_app_secret is not None
-            else ""
-        )
+        self._credentials = credentials or ServiceCredentialRegistry(settings)
         self._base_url = validate_feishu_api_base_url(settings.feishu_api_base_url)
         self._timeout = settings.feishu_delivery_timeout_seconds
         self._retry_max_seconds = settings.feishu_delivery_retry_max_seconds
@@ -583,10 +581,44 @@ class FeishuReplyAdapter:
         self._token: str | None = None
         self._token_expires_monotonic = 0.0
         self._token_lock = asyncio.Lock()
+        self._credential_revision = None
+
+    def _current_credential(self):
+        try:
+            view, secret = self._credentials.snapshot(ServiceCredentialId.FEISHU_APP)
+        except (OSError, ValueError) as exc:
+            self._token = None
+            self._credential_revision = None
+            raise ChannelDeliveryError(
+                "CREDENTIAL_UNAVAILABLE", "Feishu credentials could not be verified.",
+                retryable=False,
+            ) from exc
+        revision = view["revision"]
+        if revision != self._credential_revision:
+            self._token = None
+            self._token_expires_monotonic = 0.0
+            self._credential_revision = revision
+        if not self._app_id or not secret:
+            raise ChannelDeliveryError(
+                "CHANNEL_NOT_CONFIGURED", "Feishu app credentials are not configured.",
+                retryable=False,
+            )
+        return revision, secret
+
+    def _verify_credential(self, revision):
+        if self._current_credential()[0] != revision:
+            raise ChannelDeliveryError(
+                "CREDENTIAL_CHANGED", "Feishu credentials changed before delivery.",
+                retryable=False,
+            )
 
     @property
     def configured(self) -> bool:
-        return bool(self._app_id and self._app_secret)
+        try:
+            self._current_credential()
+            return True
+        except ChannelDeliveryError:
+            return False
 
     async def _request(
         self,
@@ -595,6 +627,7 @@ class FeishuReplyAdapter:
         *,
         headers: dict[str, str] | None = None,
         json_body: dict[str, Any],
+        credential_revision: str,
     ) -> httpx.Response:
         try:
             async with httpx.AsyncClient(
@@ -602,7 +635,9 @@ class FeishuReplyAdapter:
                 timeout=self._timeout,
                 follow_redirects=False,
                 transport=self._transport,
+                trust_env=False,
             ) as client:
+                self._verify_credential(credential_revision)
                 response = await client.request(method, path, headers=headers, json=json_body)
         except (httpx.TimeoutException, httpx.TransportError) as exc:
             raise ChannelDeliveryError(
@@ -664,25 +699,23 @@ class FeishuReplyAdapter:
             )
         return payload
 
-    async def _tenant_access_token(self) -> str:
-        if not self.configured:
-            raise ChannelDeliveryError(
-                "CHANNEL_NOT_CONFIGURED",
-                "Feishu app credentials are not configured.",
-                retryable=False,
-            )
+    async def _tenant_access_token(self) -> tuple[str, str]:
+        revision, secret = self._current_credential()
         current = time.monotonic()
         if self._token and current < self._token_expires_monotonic:
-            return self._token
+            return self._token, revision
         async with self._token_lock:
+            revision, secret = self._current_credential()
             current = time.monotonic()
             if self._token and current < self._token_expires_monotonic:
-                return self._token
+                return self._token, revision
             response = await self._request(
                 "POST",
                 "/open-apis/auth/v3/tenant_access_token/internal",
-                json_body={"app_id": self._app_id, "app_secret": self._app_secret},
+                json_body={"app_id": self._app_id, "app_secret": secret},
+                credential_revision=revision,
             )
+            self._verify_credential(revision)
             payload = self._json_object(response, operation="tenant-token")
             if payload.get("code") != 0:
                 code = payload.get("code")
@@ -709,7 +742,7 @@ class FeishuReplyAdapter:
             margin = min(300, max(1, expires // 10))
             self._token = token
             self._token_expires_monotonic = current + max(1, expires - margin)
-            return token
+            return token, revision
 
     async def reply(
         self,
@@ -724,7 +757,7 @@ class FeishuReplyAdapter:
                 "Feishu idempotency keys may not exceed 50 characters.",
                 retryable=False,
             )
-        token = await self._tenant_access_token()
+        token, revision = await self._tenant_access_token()
         response = await self._request(
             "POST",
             f"/open-apis/im/v1/messages/{target.message_id}/reply",
@@ -742,6 +775,7 @@ class FeishuReplyAdapter:
                 "reply_in_thread": target.reply_in_thread,
                 "uuid": idempotency_key,
             },
+            credential_revision=revision,
         )
         payload = self._json_object(response, operation="reply")
         if payload.get("code") != 0:

@@ -27,6 +27,7 @@ import {
   listCredentials,
   exportCredential,
   deleteCredential,
+  saveServiceCredential,
   previewProjectExport,
   downloadProjectExport,
 } from './client'
@@ -65,6 +66,7 @@ describe('API client', () => {
     await listCredentials(signal)
     await exportCredential(item, 'private export password', signal)
     await deleteCredential(item, signal)
+    await saveServiceCredential({ ...item, kind: 'service' }, 'private service key', signal)
     expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/credentials', expect.objectContaining({ signal, cache: 'no-store' }))
     expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/credentials/connector/test%2F%3F/export', expect.objectContaining({
       method: 'POST', signal, cache: 'no-store',
@@ -72,6 +74,9 @@ describe('API client', () => {
     }))
     expect(fetchMock).toHaveBeenNthCalledWith(3, '/api/credentials/connector/test%2F%3F', expect.objectContaining({
       method: 'DELETE', signal, cache: 'no-store', body: JSON.stringify({ expected_revision: item.revision, confirm_delete: true }),
+    }))
+    expect(fetchMock).toHaveBeenNthCalledWith(4, '/api/credentials/service/test%2F%3F', expect.objectContaining({
+      method: 'PUT', signal, cache: 'no-store', body: JSON.stringify({ expected_revision: item.revision, secret: 'private service key' }),
     }))
   })
   it('encodes the memory source Run and reads without browser caching', async () => {

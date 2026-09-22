@@ -18,6 +18,7 @@ vi.mock('../api/client', () => ({
   listCredentials: vi.fn(),
   deleteCredential: vi.fn(),
   exportCredential: vi.fn(),
+  saveServiceCredential: vi.fn(),
   errorMessage: (error: unknown) => (error instanceof Error ? error.message : 'unknown error'),
 }))
 

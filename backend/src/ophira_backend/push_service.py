@@ -243,7 +243,11 @@ class PushDeliveryService:
         await asyncio.gather(*(one(device_id) for device_id in self.store.list_ids()))
 
     async def start(self) -> None:
-        if self._task is not None or not self.adapter.enabled:
+        # A removed key may be explicitly restored through credential management.
+        # Keep the configured worker alive; tick never sends without a current key.
+        if self._task is not None or not (
+            self.settings.push_enabled and self.settings.companion_enabled
+        ):
             return
 
         async def loop():

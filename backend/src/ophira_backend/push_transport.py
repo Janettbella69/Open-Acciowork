@@ -17,12 +17,12 @@ from urllib.parse import urlsplit
 import httpx
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec
-from py_vapid import Vapid
 from pydantic import Field, field_validator
 from pywebpush import WebPusher
 
 from .config import Settings, companion_origin
 from .models import APIModel, utc_now
+from .service_credentials import ServiceCredentialId, ServiceCredentialRegistry, parse_vapid_key
 from .web_tools import send_pinned_public_request
 
 WAKE_PAYLOAD = b'{"type":"ophira-companion-update"}'
@@ -138,40 +138,75 @@ class PushOutcome:
 
 
 class WebPushAdapter:
-    def __init__(self, settings: Settings, *, transport: httpx.AsyncBaseTransport | None = None):
+    def __init__(self, settings: Settings, *, transport: httpx.AsyncBaseTransport | None = None,
+                 credentials: ServiceCredentialRegistry | None = None):
         _install_private_log_filters()
         self.settings = settings
         self.transport = transport
-        self.vapid = None
-        self.public_key: str | None = None
-        self.reason = "not_configured"
+        self.credentials = credentials or ServiceCredentialRegistry(settings)
+        self._vapid = None
+        self._public_key: str | None = None
+        self._reason = "not_configured"
+        self._credential_revision = None
+        self._configuration = None
+        self._refresh()
+
+    def _clear(self, reason):
+        self._vapid = None
+        self._public_key = None
+        self._reason = reason
+        self._configuration = None
+
+    def _refresh(self):
+        settings = self.settings
         if not (
             settings.push_enabled and settings.companion_enabled
-            and settings.push_vapid_private_key and settings.push_vapid_subject
-            and settings.push_allowed_origins
+            and settings.push_vapid_subject and settings.push_allowed_origins
         ):
+            self._clear("not_configured")
             return
         try:
-            key = settings.push_vapid_private_key.get_secret_value()
-            if not re.fullmatch(r"[A-Za-z0-9_+/=-]+", key):
-                raise ValueError("base64 key required; key filenames are not accepted")
-            self.vapid = Vapid.from_string(key)
-            if not isinstance(self.vapid.private_key.curve, ec.SECP256R1):
-                raise ValueError("P-256 key required")
+            view, key = self.credentials.snapshot(ServiceCredentialId.WEB_PUSH)
+        except (OSError, ValueError):
+            self._clear("credential_unavailable")
+            self._credential_revision = None
+            return
+        self._credential_revision = view["revision"]
+        if not key:
+            self._clear("not_configured")
+            return
+        configuration = (view["revision"], settings.push_vapid_subject)
+        if configuration == self._configuration:
+            return
+        self._clear("invalid_configuration")
+        try:
+            vapid = parse_vapid_key(key)
             # Validate subject without a request or logging the private key.
-            self.vapid.sign({"aud": "https://push.example", "sub": settings.push_vapid_subject})
-            self.public_key = base64.urlsafe_b64encode(self.vapid.public_key.public_bytes(
+            vapid.sign({"aud": "https://push.example", "sub": settings.push_vapid_subject})
+            self._public_key = base64.urlsafe_b64encode(vapid.public_key.public_bytes(
                 serialization.Encoding.X962, serialization.PublicFormat.UncompressedPoint,
             )).decode().rstrip("=")
-            self.reason = ""
+            self._vapid = vapid
+            self._reason = ""
+            self._configuration = configuration
         except Exception:
             # Third-party config exceptions can include secrets; no exception text escapes.
-            self.vapid = None
-            self.reason = "invalid_configuration"
+            self._clear("invalid_configuration")
+
+    @property
+    def public_key(self):
+        self._refresh()
+        return self._public_key
+
+    @property
+    def reason(self):
+        self._refresh()
+        return self._reason
 
     @property
     def enabled(self) -> bool:
-        return self.public_key is not None and self.vapid is not None
+        self._refresh()
+        return self._public_key is not None and self._vapid is not None
 
     def validate(self, subscription: PushSubscription) -> None:
         parsed = urlsplit(subscription.endpoint)
@@ -186,8 +221,9 @@ class WebPushAdapter:
             self.validate(subscription)
         except ValueError:
             return PushOutcome("disabled", "subscription_unavailable")
+        vapid, revision = self._vapid, self._credential_revision
         parsed = urlsplit(subscription.endpoint)
-        headers = self.vapid.sign({
+        headers = vapid.sign({
             "aud": companion_origin(f"https://{parsed.netloc}"),
             "sub": self.settings.push_vapid_subject,
             "exp": int(utc_now().timestamp()) + 12 * 60 * 60,
@@ -203,6 +239,9 @@ class WebPushAdapter:
                 transport=self.transport, timeout=10, trust_env=False, follow_redirects=False,
                 limits=httpx.Limits(max_keepalive_connections=0),
             ) as client:
+                self._refresh()
+                if self._vapid is None or self._credential_revision != revision:
+                    return PushOutcome("disabled", "application_key_changed")
                 async with asyncio.timeout(15):
                     response, _reason = await send_pinned_public_request(
                         client, "POST", subscription.endpoint, headers=headers,

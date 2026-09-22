@@ -1,5 +1,5 @@
 export interface CredentialView {
-  kind: 'provider' | 'connector'
+  kind: 'provider' | 'connector' | 'service'
   id: string
   display_name: string
   revision: string
@@ -7,6 +7,7 @@ export interface CredentialView {
   source: 'stored' | 'environment' | 'missing' | 'deleted'
   deleted_at: string | null
   deleted_by: string | null
+  effect?: string
 }
 
 export interface CredentialArchive {

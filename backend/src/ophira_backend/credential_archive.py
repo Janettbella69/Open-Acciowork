@@ -17,6 +17,7 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
 
 from .backup_files import parse_json
+from .credential_models import CredentialKind
 from .skill_proposal_files import directory_fd, read_relative
 
 FORMAT = "ophira-encrypted-credential"
@@ -64,7 +65,7 @@ def decrypt_credential(raw: bytes, password: str) -> dict:
         if len(salt) != 16 or len(nonce) != 12 or len(encrypted) < 16:
             raise ValueError
         payload = parse_json(AESGCM(_key(password, salt)).decrypt(nonce, encrypted, _AAD))
-        if (not isinstance(payload, dict) or payload.get("kind") not in {"provider", "connector"}
+        if (not isinstance(payload, dict) or payload.get("kind") not in set(CredentialKind)
                 or not isinstance(payload.get("credential"), str)
                 or not isinstance(payload.get("id"), str)):
             raise ValueError

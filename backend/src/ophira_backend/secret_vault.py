@@ -191,9 +191,13 @@ class FileSecretVault:
             return secret
 
     def resolve(self, identifier: str, *, fallback=None) -> str | None:
+        return self.resolve_versioned(identifier, fallback=fallback)[1]
+
+    def resolve_versioned(self, identifier: str, *, fallback=None) -> tuple[dict, str | None]:
+        """Read a private value and its generation together for adapter cache invalidation."""
         self._id(identifier)
         with self._transaction() as fd:
-            return self._view(self._load(fd), identifier, fallback)[1]
+            return self._view(self._load(fd), identifier, fallback)
 
     def get(self, identifier: str) -> str | None:
         return self.resolve(identifier)
@@ -204,18 +208,26 @@ class FileSecretVault:
     def was_deleted(self, identifier: str) -> bool:
         return self.describe(identifier)["source"] == "deleted"
 
-    def set(self, identifier: str, secret: str, *, only_if_absent=False) -> None:
+    def set(self, identifier: str, secret: str, *, only_if_absent=False,
+            expected_revision=None, fallback=None, authorize=lambda: None) -> dict:
         self._id(identifier)
         if not isinstance(secret, str) or len(secret.encode()) > MAX_SECRET_BYTES:
             raise VaultError("Credential exceeds its storage limit")
         with self._transaction() as fd:
             state = self._load(fd)
+            view, _ = self._view(state, identifier, fallback)
+            if expected_revision is not None and not hmac.compare_digest(
+                view["revision"], expected_revision,
+            ):
+                raise CredentialChangedError("Credential changed. Refresh and review it again.")
+            authorize()
             if only_if_absent and identifier in state["records"]:
-                return
+                return view
             if identifier not in state["records"] and len(state["records"]) >= 5000:
                 raise VaultError("Credential storage limit exceeded")
             state["records"][identifier] = {"secret": secret, "generation": uuid.uuid4().hex}
             self._write(fd, state)
+            return self._view(state, identifier, fallback)[0]
 
     def delete(self, identifier: str, *, expected_revision=None, fallback=None,
                deleted_by="local-operator", authorize=lambda: None) -> dict:

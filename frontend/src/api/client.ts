@@ -76,6 +76,11 @@ export function deleteCredential(item: CredentialView, signal?: AbortSignal): Pr
     method: 'DELETE', signal, cache: 'no-store', body: JSON.stringify({ expected_revision: item.revision, confirm_delete: true }),
   })
 }
+export function saveServiceCredential(item: CredentialView, secret: string, signal?: AbortSignal): Promise<CredentialView> {
+  return request(`/api/credentials/service/${encodeURIComponent(item.id)}`, {
+    method: 'PUT', signal, cache: 'no-store', body: JSON.stringify({ expected_revision: item.revision, secret }),
+  })
+}
 
 function templatePath(projectId: string, templateId?: string): string {
   return `/api/projects/${encodeURIComponent(projectId)}/templates${templateId ? `/${encodeURIComponent(templateId)}` : ''}`

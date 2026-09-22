@@ -232,6 +232,7 @@ from .scheduler import (
     new_schedule,
 )
 from .sdk_adapter import ClaudeAgentRuntime
+from .service_credentials import ServiceCredentialId, ServiceCredentialRegistry
 from .shop_browser import ShopBrowserService
 from .shop_browser_api import register_shop_browser_routes
 from .skill_proposal_routes import register_skill_proposal_routes
@@ -302,6 +303,7 @@ def _create_app(
 ) -> FastAPI:
     settings = settings or get_settings()
     ledger = FileLedger(settings.data_dir, ingest_config=IngestConfig.from_settings(settings))
+    service_credentials = ServiceCredentialRegistry(settings)
     events = EventPublisher(ledger)
     memory = FileMemoryProvider(
         settings.data_dir / "memory",
@@ -326,7 +328,7 @@ def _create_app(
     channel_delivery = ChannelDeliveryService(
         ledger,
         ChannelDeliveryStore(settings.data_dir / "channel-deliveries"),
-        channel_reply_adapter or FeishuReplyAdapter(settings),
+        channel_reply_adapter or FeishuReplyAdapter(settings, credentials=service_credentials),
         enabled=lambda: policy.get().channel_delivery_enabled,
         max_attempts=settings.feishu_delivery_max_attempts,
         retry_base_seconds=settings.feishu_delivery_retry_base_seconds,
@@ -347,7 +349,8 @@ def _create_app(
     notifications = NotificationStore(settings.data_dir / "notifications")
     companion_push = PushDeliveryService(
         settings, PushStore(settings.data_dir / "companion-push"),
-        push_adapter or WebPushAdapter(settings), companions, ledger, project_access,
+        push_adapter or WebPushAdapter(settings, credentials=service_credentials),
+        companions, ledger, project_access,
         permissions, notifications,
     )
     intents = IntentStore(settings.data_dir / "intents")
@@ -471,6 +474,7 @@ def _create_app(
     application.state.scheduler = scheduler
     application.state.intent_watcher = intent_watcher
     application.state.connectors = connectors
+    application.state.service_credentials = service_credentials
     application.state.notifications = notifications
     application.state.intents = intents
     application.state.grants = grants
@@ -587,6 +591,7 @@ def _create_app(
     )
     register_credential_routes(
         application, settings, ledger, providers, connectors, _read_bounded_body,
+        services=service_credentials,
     )
     register_project_export_routes(
         application, ledger, project_access, settings, runs, memory, _read_bounded_body,
@@ -2547,9 +2552,12 @@ def _create_app(
             raise HTTPException(status_code=400, detail="invalid JSON") from exc
         if not isinstance(payload, dict):
             raise HTTPException(status_code=400, detail="channel payload must be an object")
-        encrypt_key = (
-            settings.feishu_encrypt_key.get_secret_value() if settings.feishu_encrypt_key else ""
-        )
+        try:
+            encrypt_key = await run_in_threadpool(
+                service_credentials.resolve, ServiceCredentialId.FEISHU_EVENTS,
+            )
+        except (OSError, ValueError) as exc:
+            raise HTTPException(503, "Feishu credentials could not be verified") from exc
         if not encrypt_key:
             raise HTTPException(status_code=503, detail="Feishu webhook is not configured")
         timestamp = request.headers.get("x-lark-request-timestamp", "")

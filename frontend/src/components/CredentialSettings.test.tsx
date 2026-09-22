@@ -1,12 +1,13 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { deleteCredential, exportCredential, listCredentials } from '../api/client'
+import { deleteCredential, exportCredential, listCredentials, saveServiceCredential } from '../api/client'
 import type { CredentialArchive, CredentialView } from '../api/credentials'
 import { I18nContext } from '../i18n'
 import CredentialSettings from './CredentialSettings'
 
 vi.mock('../api/client', () => ({
   listCredentials: vi.fn(), exportCredential: vi.fn(), deleteCredential: vi.fn(),
+  saveServiceCredential: vi.fn(),
   errorMessage: (error: unknown) => error instanceof Error ? error.message : 'unknown error',
 }))
 
@@ -181,5 +182,60 @@ describe('CredentialSettings', () => {
     fireEvent.click(screen.getByRole('button', { name: '删除 Test provider' }))
     expect(screen.getByRole('button', { name: '确认删除凭据' })).toBeDisabled()
     expect(screen.getByText(/此操作不会撤销服务商端的密钥/)).toBeInTheDocument()
+  })
+
+  it('allows reviewed service recovery without revealing or persisting the replacement', async () => {
+    const service: CredentialView = { ...deleted, kind: 'service', id: 'feishu_app', display_name: 'Feishu application secret', effect: 'Deleting this secret blocks new Feishu API requests and invalidates cached tenant tokens. Requests already sent cannot be recalled.' }
+    vi.mocked(listCredentials).mockResolvedValue([credential, service])
+    const restored: CredentialView = { ...service, source: 'stored', configured: true, revision: 'd'.repeat(64), deleted_at: null, deleted_by: null }
+    let finish!: (value: CredentialView) => void
+    vi.mocked(saveServiceCredential).mockImplementationOnce(() => new Promise((resolve) => { finish = resolve }))
+    const changed = vi.fn()
+    await openPanel(changed)
+    expect(screen.getByRole('button', { name: 'Delete Feishu application secret' })).toBeDisabled()
+    fireEvent.click(screen.getByRole('button', { name: 'Configure Feishu application secret' }))
+    expect(screen.getByText(/invalidates cached tenant tokens/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Save service credential' })).toBeDisabled()
+    const input = screen.getByLabelText('New service credential')
+    expect(input).toHaveAttribute('type', 'password')
+    fireEvent.change(input, { target: { value: 'new-private-service-key' } })
+    fireEvent.submit(screen.getByRole('form'))
+    fireEvent.submit(screen.getByRole('form'))
+    expect(saveServiceCredential).toHaveBeenCalledTimes(1)
+    expect(saveServiceCredential).toHaveBeenCalledWith(service, 'new-private-service-key', expect.any(AbortSignal))
+    await act(async () => { finish(restored) })
+    expect(await screen.findByRole('status')).toHaveTextContent('Service credential saved')
+    expect(screen.queryByDisplayValue('new-private-service-key')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Delete Feishu application secret' })).toBeEnabled()
+    expect(changed).toHaveBeenCalledOnce()
+  })
+
+  it('refreshes an ambiguous service save and requires a new review', async () => {
+    const service: CredentialView = { ...credential, kind: 'service', id: 'web_push', display_name: 'Web Push application private key' }
+    vi.mocked(listCredentials).mockResolvedValue([credential, service])
+    vi.mocked(saveServiceCredential).mockRejectedValueOnce(new Error('Response lost'))
+    await openPanel()
+    fireEvent.click(screen.getByRole('button', { name: 'Configure Web Push application private key' }))
+    fireEvent.change(screen.getByLabelText('New service credential'), { target: { value: 'private-draft' } })
+    vi.mocked(listCredentials).mockResolvedValueOnce([{ ...service, revision: 'e'.repeat(64) }])
+    fireEvent.submit(screen.getByRole('form'))
+    expect(await screen.findByRole('alert')).toHaveTextContent('Response lost')
+    await waitFor(() => expect(listCredentials).toHaveBeenCalledTimes(2))
+    expect(screen.queryByDisplayValue('private-draft')).not.toBeInTheDocument()
+    expect(saveServiceCredential).toHaveBeenCalledOnce()
+  })
+
+  it('localizes service effects and does not accept a mismatched save response', async () => {
+    const service: CredentialView = { ...deleted, kind: 'service', id: 'web_push', display_name: 'Web Push application private key', effect: 'Deleting this key blocks new Web Push requests. Saving a different key requires devices to subscribe again.' }
+    vi.mocked(listCredentials).mockResolvedValue([service])
+    vi.mocked(saveServiceCredential).mockResolvedValue({ ...credential, source: 'stored' })
+    render(<I18nContext.Provider value="zh-CN"><CredentialSettings onChanged={vi.fn()} /></I18nContext.Provider>)
+    fireEvent.click(screen.getByRole('button', { name: '凭据备份与删除' }))
+    fireEvent.click(await screen.findByRole('button', { name: '配置 Web Push 应用私钥' }))
+    expect(screen.getByText(/设备需要重新订阅/)).toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText('新的服务凭据'), { target: { value: 'private-input' } })
+    fireEvent.submit(screen.getByRole('form'))
+    expect(await screen.findByRole('alert')).toHaveTextContent('凭据响应与已核对的操作不匹配')
+    expect(screen.queryByDisplayValue('private-input')).not.toBeInTheDocument()
   })
 })
