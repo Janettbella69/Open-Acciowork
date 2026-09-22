@@ -1,0 +1,31 @@
+.maintenance-page { width: min(1024px, 100% - 40px); margin: 48px auto 80px; color: #1d2922; }
+.maintenance-page header { max-width: 780px; margin-bottom: 36px; }
+.maintenance-page .ophira-brand { display: inline-flex; align-items: center; gap: 9px; font-size: 20px; font-weight: 600; }
+.maintenance-page h1 { font-size: clamp(28px, 4vw, 44px); font-weight: 550; letter-spacing: -.035em; margin: 16px 0; }
+.maintenance-page h2 { font-size: 21px; font-weight: 550; margin: 8px 0 16px; }
+.maintenance-page p { line-height: 1.7; color: #526058; }
+.maintenance-step { font-size: 12px; letter-spacing: .08em; text-transform: uppercase; }
+.maintenance-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+.maintenance-card { padding: 28px; margin: 20px 0; border: 1px solid #dce3dc; border-radius: 16px; background: #fff; min-width: 0; }
+.maintenance-grid .maintenance-card { margin: 0; }
+.maintenance-page code { display: block; padding: 10px 12px; border-radius: 6px; background: #f1f5ef; font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; margin: 8px 0 16px; }
+.maintenance-page dt { font-size: 12px; color: #647067; }
+.maintenance-page dd { margin: 0; }
+.maintenance-page label { display: grid; gap: 8px; margin: 18px 0; line-height: 1.5; }
+.maintenance-page input, .maintenance-page select, .maintenance-language select { min-width: 0; width: 100%; min-height: 44px; padding: 9px 12px; border: 1px solid #c5cec4; border-radius: 8px; background: #fff; font: inherit; }
+.maintenance-page button { min-height: 44px; padding: 10px 16px; border-radius: 8px; border: 1px solid #415b47; background: #f0f5ec; margin: 5px 12px 5px 0; font-size: 14px; }
+.maintenance-page button:disabled { opacity: .45; cursor: default; }
+.maintenance-page button:focus-visible, .maintenance-page input:focus-visible, .maintenance-page select:focus-visible { outline: 2px solid #346b45; outline-offset: 3px; }
+.maintenance-review { border-color: #839779; }
+.maintenance-counts { display: flex; gap: 36px; flex-wrap: wrap; margin: 26px 0; }
+.maintenance-counts dd { font-size: 30px; margin-top: 6px; }
+.maintenance-page .maintenance-confirm { display: flex; gap: 12px; align-items: flex-start; }
+.maintenance-confirm input { width: 20px; height: 20px; min-height: 0; flex-shrink: 0; }
+.maintenance-page .maintenance-error { padding: 16px; border-left: 3px solid #ae512e; background: #fff4e9; color: #873718; overflow-wrap: anywhere; }
+.maintenance-toolbar { display: flex; gap: 20px; align-items: center; }
+.maintenance-toolbar p { flex: 1; }
+.maintenance-history { list-style: none; padding: 0; max-height: 320px; overflow: auto; }
+.maintenance-history button { width: 100%; text-align: left; border-color: #e1e6dc; }
+.maintenance-language { max-width: 1024px; margin: 20px auto; padding: 0 20px; display: flex; justify-content: flex-end; }
+.maintenance-language select { width: auto; margin-left: 10px; }
+@media (max-width: 680px) { .maintenance-grid { grid-template-columns: 1fr; } .maintenance-card { padding: 20px; } .maintenance-toolbar { align-items: flex-start; flex-direction: column; gap: 0; } }

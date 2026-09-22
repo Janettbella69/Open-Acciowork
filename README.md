@@ -83,6 +83,11 @@ The operator [application cold backup](docs/application-backup.md) captures the 
 data directory with its Plugin, verifies project/Run/proposal/receipt links, and restores
 into a new directory with reviewed publication recovery. Stop the application before
 backup; restoration does not start jobs or model sessions.
+**Settings → Backup and recovery** explains how to open the separate local maintenance
+interface after shutdown. It reviews a complete backup or restored copy, shows its contents
+and destination, and requires confirmation before publication. Durable requests survive
+interrupted responses and process exits. The operator activates restored data separately;
+see [the maintenance interface](docs/application-backup.md#本机维护界面).
 **Settings → Providers → Credential backups and deletion** exports individual Provider
 or connector credentials in password-encrypted files and requires explicit confirmation
 to delete the reviewed key. Deletion also disables environment fallback across restarts.

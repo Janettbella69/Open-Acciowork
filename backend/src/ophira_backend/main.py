@@ -215,6 +215,7 @@ from .providers import FileSecretVault, ProviderNotFoundError, ProviderRegistry
 from .push_service import PushDeliveryService
 from .push_store import PushStore
 from .push_transport import WebPushAdapter
+from .request_bodies import read_bounded_body as _read_bounded_body
 from .run_resources import RunResources, read_run_resources
 from .runs import (
     AgentRuntime,
@@ -291,32 +292,6 @@ def _project_route_permission(method: str, path: str) -> ProjectPermission:
         if method in {"GET", "HEAD"}
         else ProjectPermission.PROJECT_WRITE
     )
-
-
-async def _read_bounded_body(
-    request: Request,
-    *,
-    max_bytes: int,
-    too_large_detail: str,
-) -> bytes:
-    """Read an HTTP body without trusting Content-Length or buffering past the cap."""
-    declared_length = request.headers.get("content-length")
-    if declared_length:
-        try:
-            declared_bytes = int(declared_length)
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail="invalid Content-Length") from exc
-        if declared_bytes < 0:
-            raise HTTPException(status_code=400, detail="invalid Content-Length")
-        if declared_bytes > max_bytes:
-            raise HTTPException(status_code=413, detail=too_large_detail)
-
-    body = bytearray()
-    async for chunk in request.stream():
-        if len(body) + len(chunk) > max_bytes:
-            raise HTTPException(status_code=413, detail=too_large_detail)
-        body.extend(chunk)
-    return bytes(body)
 
 
 def _create_app(

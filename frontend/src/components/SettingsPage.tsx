@@ -3,6 +3,7 @@ import Brand from './Brand'
 import MemoryReview from './MemoryReview'
 import ProviderSettings from './ProviderSettings'
 import CredentialSettings from './CredentialSettings'
+import ApplicationRecoveryHelp from './ApplicationRecoveryHelp'
 import './settings-page.css'
 import { languageChangedEvent, useT } from '../i18n'
 import { loadLocalSettings, saveLocalSettings, type LocalSettings } from '../localSettings'
@@ -202,6 +203,7 @@ export default function SettingsPage() {
           <a href="#plugins" aria-current={activeSection === 'plugins' ? 'page' : undefined} onClick={() => setActiveSection('plugins')}><span>08</span>{t('Plugins')}</a>
           <a href="#browser" aria-current={activeSection === 'browser' ? 'page' : undefined} onClick={() => setActiveSection('browser')}><span>09</span>{t('Browser')}</a>
           <a href="#computer-control" aria-current={activeSection === 'computer-control' ? 'page' : undefined} onClick={() => setActiveSection('computer-control')}><span>10</span>{t('Computer control')}</a>
+          <a href="#application-recovery" aria-current={activeSection === 'application-recovery' ? 'page' : undefined} onClick={() => setActiveSection('application-recovery')}><span>11</span>{t('Backup and recovery')}</a>
         </nav>
         <div className="settings-sidebar-note">
           <span>{t('Saved locally')}</span>
@@ -385,6 +387,7 @@ export default function SettingsPage() {
             </div>
           </div>
         </section>
+        <ApplicationRecoveryHelp />
       </main>
     </div>
   )

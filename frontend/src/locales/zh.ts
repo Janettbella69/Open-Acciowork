@@ -16,10 +16,12 @@ import { credentialsZh } from './credentials-zh'
 import { projectExportsZh } from './project-exports-zh'
 import { conversationErasureZh } from './conversation-erasure-zh'
 import { projectErasureZh } from './project-erasure-zh'
+import { maintenanceZh } from './maintenance-zh'
 
 /** 中文字典：key = 英文原文。缺条目时界面回落英文（可见即可补）。 */
 export const zh: Record<string, string> = {
   ...projectErasureZh,
+  ...maintenanceZh,
   ...conversationErasureZh,
   ...credentialsZh,
   ...projectExportsZh,

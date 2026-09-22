@@ -122,3 +122,4 @@
 .memory-review-editor > small { grid-column: 1 / -1; color: #6f7376; }
 .memory-review-editor .memory-review-actions { grid-column: 1 / -1; justify-content: flex-end; }
 @media (max-width: 760px) { .memory-review-editor { grid-template-columns: 1fr; } .memory-review-editor > small, .memory-review-editor .memory-review-actions { grid-column: 1; } }
+.settings-maintenance-command { white-space: pre-wrap; overflow-wrap: anywhere; padding: 16px; background: #f1f5ef; border-radius: 8px; font-size: 12px; line-height: 1.7; }
