@@ -13,6 +13,7 @@ from .automation import NotificationStore
 from .companion import CompanionError, CompanionStore
 from .companion_authorization import authorize_companion_project
 from .config import Settings
+from .data_operations import data_operation
 from .models import utc_now
 from .permissions import PermissionBroker
 from .push_store import PushRecord, PushStore, PushWake
@@ -96,6 +97,7 @@ class PushDeliveryService:
                 sources[_anchor("permission", item.id)] = item.created_at
         return sources
 
+    @data_operation()
     async def _deliver(self, device_id: str, now: datetime) -> None:
         async with self._slots:
             with self.store.delivery_lease(device_id) as owned:
@@ -225,6 +227,7 @@ class PushDeliveryService:
         record.known = {key: entries[key] for key in ordered[:1_000]
                         if entries[key] >= record.known_floor}
 
+    @data_operation()
     async def tick(self, *, now: datetime | None = None) -> None:
         if not self.adapter.enabled:
             return

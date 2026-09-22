@@ -64,6 +64,10 @@ def _new_target(target: Path, *sources: Path) -> Path:
 
 def inspect_application(data: Path, plugin: Path) -> dict:
     """Validate a private copy without repairing it or consulting current grants."""
+    from .erasure_files import JOURNAL
+
+    if (data / JOURNAL / "pending").exists() or (data / JOURNAL / "pending").is_symlink():
+        raise BackupError("pending_data_erasure")
     if not (data / "skills/registry-state.json").is_file():
         raise BackupError("canonical_state_missing")
     for name in ("projects", "runs", "skill-proposals"):
@@ -294,6 +298,10 @@ def create_backup(
     target = _new_target(target, data, plugin)
     before_code = implementation()
     with data_directory_lease(data, exclusive=True):
+        from .erasure_files import JOURNAL
+
+        if (data / JOURNAL / "pending").exists() or (data / JOURNAL / "pending").is_symlink():
+            raise BackupError("pending_data_erasure")
         initial_data = tree_inventory(data, limits, omit_root=frozenset({MAINTENANCE_LOCK}))
         initial_plugin = tree_inventory(plugin, limits)
         all_files = initial_data["files"] + initial_plugin["files"]

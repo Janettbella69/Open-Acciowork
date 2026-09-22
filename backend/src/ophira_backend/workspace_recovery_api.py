@@ -5,6 +5,7 @@ from starlette.concurrency import run_in_threadpool
 
 from .auth import ProjectPermission
 from .constants import TERMINAL_RUN_STATUSES
+from .data_operations import protected_call
 from .storage import LedgerNotFoundError
 from .workspace_checkpoints import (
     CheckpointSummary,
@@ -43,7 +44,7 @@ def register_workspace_recovery_routes(
     async def result(response, authorize, operation):
         response.headers["Cache-Control"] = "no-store"
         try:
-            value = await run_in_threadpool(operation)
+            value = await run_in_threadpool(protected_call, ledger.root, operation)
             authorize()
             return value
         except (LedgerNotFoundError, FileNotFoundError) as exc:

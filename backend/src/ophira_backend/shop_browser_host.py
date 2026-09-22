@@ -26,6 +26,7 @@ from .browser_tools import (
     _remove_cdp_request_guard,
     domain_allowed,
 )
+from .erasure_files import operation_lease
 from .maintenance import data_directory_lease
 from .marketplace_access import authorize_marketplace_run
 from .models import OrgPolicy, new_id, utc_now
@@ -420,7 +421,12 @@ class ShopBrowserPage:
         return await self.snapshot()
 
 
-async def serve(
+async def serve(root: Path, shop_id: str, **kwargs):
+    with data_directory_lease(root), operation_lease(root):
+        return await _serve(root, shop_id, **kwargs)
+
+
+async def _serve(
     root: Path,
     shop_id: str,
     *,
@@ -443,7 +449,7 @@ async def serve(
     }
     path = store.directory(shop_id) / "session.json"
     socket = store.socket_path(shop_id)
-    with data_directory_lease(root, exclusive=False), session_lease(store, shop_id):
+    with session_lease(store, shop_id):
         ledger._atomic_write(path, session)
         policy = ShopBrowserPolicy(shop, OrgPolicyStore(root / "org" / "policy.json"))
         driver = ShopBrowserPage(store, shop_id, session["id"], policy)

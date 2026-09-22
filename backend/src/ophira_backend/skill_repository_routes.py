@@ -8,6 +8,7 @@ from fastapi import FastAPI, HTTPException, Query, Request, Response
 from starlette.concurrency import run_in_threadpool
 
 from .auth import AuthenticationError, AuthorizationError
+from .data_operations import protected_call
 from .skill_import_models import (
     IMPORT_REQUEST_ID,
     SkillImportReviewRequest,
@@ -35,7 +36,7 @@ def register_skill_repository_routes(app: FastAPI, ledger, registry, settings, r
     async def result(request, response, operation):
         response.headers.update(headers)
         try:
-            value = await run_in_threadpool(operation)
+            value = await run_in_threadpool(protected_call, ledger.root, operation)
             repository.authorize(principal(request))
             return value
         except (AuthenticationError, AuthorizationError) as exc:

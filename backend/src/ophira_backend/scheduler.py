@@ -15,6 +15,7 @@ from croniter import croniter
 from .auth import AuthorizationError, ProjectAccessStore, ProjectPermission
 from .automation import NotificationStore
 from .constants import HEARTBEAT_OK, TERMINAL_RUN_STATUSES, EventType, MissedRunPolicy, ScheduleKind
+from .data_operations import data_operation
 from .events import EventPublisher, redact
 from .models import (
     EventActor,
@@ -172,6 +173,7 @@ class ScheduleService:
         finally:
             os.close(descriptor)
 
+    @data_operation()
     async def _scan(self, *, missed: bool) -> None:
         now = utc_now()
         for snapshot in self.ledger.list_schedules():

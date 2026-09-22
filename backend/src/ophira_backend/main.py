@@ -119,7 +119,9 @@ from .constants import (
     ScheduleKind,
 )
 from .credential_api import register_credential_routes
+from .data_operations import DataOperationMiddleware, protected_call
 from .durable_permissions import DurablePermissionConflict
+from .erasure_files import DataOperationBusy, FileErasure, operation_lease
 from .events import EventPublisher
 from .feedback import FeedbackStore
 from .feedback_routes import register_feedback_routes
@@ -449,8 +451,8 @@ def _create_app(
     @asynccontextmanager
     async def running_lifespan(_app: FastAPI) -> AsyncIterator[None]:
         await runs.recover_interrupted()
-        skill_proposals.recover()
-        feedback.reconcile_terminal(ledger)
+        protected_call(ledger.root, skill_proposals.recover)
+        protected_call(ledger.root, feedback.reconcile_terminal, ledger)
         await channel_delivery.start()
         try:
             await scheduler.start()
@@ -1244,6 +1246,7 @@ def _create_app(
             raise HTTPException(status_code=400, detail="File is empty")
         try:
             return await asyncio.to_thread(
+                protected_call, ledger.root,
                 ledger.save_upload, project_id, filename, content, mime=mime,
             )
         except (LedgerNotFoundError, ValueError) as exc:
@@ -1405,6 +1408,7 @@ def _create_app(
         response.headers["Cache-Control"] = "no-store"
         try:
             return await run_in_threadpool(
+                protected_call, ledger.root,
                 save_artifact_text, ledger, project_id, artifact_id, payload,
                 created_by=principal.principal_id if principal else LOCAL_OPERATOR_ID,
                 authorize=authorize, is_executing=runs.is_executing,
@@ -2675,6 +2679,11 @@ def _create_app(
             "delivery_status": delivery.status,
         }
 
+    # Wrap authentication so the gate also covers nonce writes and the
+    # full body of streaming responses, not merely the route's initial return.
+    application.add_middleware(
+        DataOperationMiddleware, root=ledger.root, cors_origins=settings.cors_origins,
+    )
     return application
 
 
@@ -2692,7 +2701,15 @@ def create_app(
     # Construction also creates/migrates stores and therefore participates in
     # the same lease as the entire serving/startup/shutdown lifespan.
     with data_directory_lease(root):
-        return _create_app(settings, runtime, channel_reply_adapter, push_adapter)
+        try:
+            with operation_lease(root):
+                return _create_app(settings, runtime, channel_reply_adapter, push_adapter)
+        except DataOperationBusy:
+            # A live eraser retains its exclusive descriptor, so recovery cannot
+            # race it. A dead owner releases that descriptor automatically.
+            FileErasure(root).recover()
+            with operation_lease(root):
+                return _create_app(settings, runtime, channel_reply_adapter, push_adapter)
 
 
 def _parse_last_event_id(value: str | None, run_id: str) -> int:

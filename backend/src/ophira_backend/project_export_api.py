@@ -8,6 +8,7 @@ from starlette.concurrency import run_in_threadpool
 from starlette.responses import StreamingResponse
 
 from .auth import AuthenticationError, AuthorizationError
+from .data_operations import protected_call
 from .models import APIModel
 from .project_exports import ProjectExportError, ProjectExports
 from .storage import LedgerNotFoundError
@@ -56,7 +57,7 @@ def register_project_export_routes(app, ledger, access, settings, runs, memory, 
 
     async def invoke(operation):
         try:
-            return await run_in_threadpool(operation)
+            return await run_in_threadpool(protected_call, ledger.root, operation)
         except (AuthenticationError, AuthorizationError) as exc:
             raise HTTPException(
                 403, "Project export requires the current project owner or admin."

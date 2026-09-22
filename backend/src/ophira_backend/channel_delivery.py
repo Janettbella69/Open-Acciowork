@@ -29,6 +29,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .config import Settings
 from .constants import EventType, RunStatus
+from .data_operations import data_operation
 from .events import redact
 from .models import RunRecord, utc_now
 from .storage import FileLedger, LedgerNotFoundError
@@ -812,6 +813,7 @@ class ChannelDeliveryService:
     def bind_run(self, run: RunRecord, target: FeishuReplyTarget) -> ChannelDeliveryRecord:
         return self.store.bind_run(run, target, max_attempts=self.max_attempts)
 
+    @data_operation()
     async def start(self) -> None:
         if self._worker is not None and not self._worker.done():
             return
@@ -834,6 +836,7 @@ class ChannelDeliveryService:
                 logger.error("channel delivery reconciliation failed: %s", _safe_detail(str(exc)))
             await asyncio.sleep(self.worker_interval_seconds)
 
+    @data_operation()
     async def finalize_run(
         self,
         run_id: str,
@@ -850,6 +853,7 @@ class ChannelDeliveryService:
         record = self.store.attach_result(record.id, content, now=now)
         return await self._attempt(record.id, now=now)
 
+    @data_operation()
     async def reconcile(
         self,
         *,
@@ -891,6 +895,7 @@ class ChannelDeliveryService:
             return f"任务执行失败（{code}）：{detail}\n运行 ID：{run.id}"
         return None
 
+    @data_operation()
     async def _attempt(
         self,
         delivery_id: str,

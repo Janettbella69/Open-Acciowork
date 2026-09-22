@@ -14,6 +14,7 @@ from .backup_files import parse_json
 from .connectors import ConnectorNotFoundError
 from .constants import PrincipalRole
 from .credential_archive import encrypt_credential
+from .data_operations import protected_call
 from .models import APIModel, utc_now
 from .providers import ProviderNotFoundError
 from .secret_vault import CredentialChangedError, VaultError
@@ -133,7 +134,7 @@ def register_credential_routes(app, settings, ledger, providers, connectors, rea
 
     async def invoke(operation):
         try:
-            return await run_in_threadpool(operation)
+            return await run_in_threadpool(protected_call, ledger.root, operation)
         except (AuthenticationError, AuthorizationError) as exc:
             raise HTTPException(
                 403, "Credential management requires the current administrator.",

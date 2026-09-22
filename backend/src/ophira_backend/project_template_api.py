@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict
 from starlette.concurrency import run_in_threadpool
 
 from .auth import AuthenticationError, AuthorizationError
+from .data_operations import protected_call
 from .project_template_apply import TemplateApplications
 from .project_template_models import TemplateApply, TemplateArchive, TemplateSave
 from .project_templates import ProjectTemplates, TemplateConflict, TemplateUnavailable
@@ -32,7 +33,7 @@ def register_project_template_routes(app: FastAPI, ledger, access, settings, rea
     async def result(response, operation):
         response.headers.update(headers)
         try:
-            return await run_in_threadpool(operation)
+            return await run_in_threadpool(protected_call, ledger.root, operation)
         except (AuthenticationError, AuthorizationError) as exc:
             raise HTTPException(403, "Project template access is unavailable", headers) from exc
         except LedgerNotFoundError as exc:

@@ -20,6 +20,7 @@ from .constants import (
     RunStatus,
     ScheduleKind,
 )
+from .data_operations import data_operation
 from .distill import distill_run
 from .durable_permissions import DurablePermissionConflict
 from .events import EventPublisher, redact
@@ -130,6 +131,7 @@ class RunManager:
         os.close(lease)
         return False
 
+    @data_operation()
     async def recover_interrupted(self) -> None:
         """Make ownerless runs retryable without replaying any model or external action."""
 
@@ -273,6 +275,7 @@ class RunManager:
             os.close(lease)
             raise
 
+    @data_operation()
     async def resume_permission(self, run_id: str) -> RunRecord:
         if not getattr(self.runtime, "durable_resume_supported", False):
             raise DurablePermissionConflict("This SDK runtime has no verified durable resume gate.")
@@ -300,6 +303,7 @@ class RunManager:
         task.add_done_callback(release_run)
         return run
 
+    @data_operation()
     async def create_and_start(
         self,
         project_id: str,
@@ -501,6 +505,7 @@ class RunManager:
             )
         return source
 
+    @data_operation(wait=True)
     async def _execute(self, run_id: str) -> None:
         workspace_lease = None
         try:
@@ -735,6 +740,7 @@ class RunManager:
         except Exception:
             return
 
+    @data_operation()
     async def _deliver_channel(self, notification) -> None:
         if self.policy is None or self.settings is None:
             return
@@ -814,6 +820,7 @@ class RunManager:
             principal=principal,
         )
 
+    @data_operation()
     async def cancel(self, run_id: str, *, actor: EventActor | None = None) -> RunRecord:
         run = self.ledger.get_run(run_id)
         if run.status in TERMINAL_RUN_STATUSES:
@@ -867,6 +874,7 @@ class RunManager:
             if lease is not None:
                 os.close(lease)
 
+    @data_operation()
     async def _finalize_cancel(self, run_id: str) -> None:
         run = self.ledger.get_run(run_id)
         if run.status in TERMINAL_RUN_STATUSES:

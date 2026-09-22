@@ -6,6 +6,7 @@ from fastapi import FastAPI, HTTPException, Query, Request, Response
 from starlette.concurrency import run_in_threadpool
 
 from .auth import AuthenticationError, AuthorizationError
+from .data_operations import protected_call
 from .project_comments import (
     CollaborationConflict,
     CollaborationUnavailable,
@@ -27,7 +28,7 @@ def register_collaboration_routes(app: FastAPI, ledger, access, settings, read_b
     async def result(response, operation):
         response.headers.update(headers)
         try:
-            return await run_in_threadpool(operation)
+            return await run_in_threadpool(protected_call, ledger.root, operation)
         except (AuthenticationError, AuthorizationError) as exc:
             raise HTTPException(
                 403, "Project collaboration access is unavailable", headers

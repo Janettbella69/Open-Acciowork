@@ -20,6 +20,7 @@ from uuid import uuid4
 from .auth import AuthorizationError, ProjectAccessStore, ProjectPermission
 from .automation import IntentStore, NotificationStore
 from .constants import HEARTBEAT_OK, TERMINAL_RUN_STATUSES, ProviderErrorCode, RunMode, RunStatus
+from .data_operations import data_operation
 from .events import redact
 from .models import RunRecord, StandingIntent, utc_now
 from .providers import ProviderConfigurationError
@@ -156,6 +157,7 @@ class StandingIntentWatcher:
                 # One transient filesystem failure cannot permanently kill proactive service.
                 logger.error("standing-intent watcher tick failed: %s", redact(str(exc)))
 
+    @data_operation()
     async def tick(self, *, now: datetime | None = None) -> list[IntentCheckDispatch]:
         moment = (now or utc_now()).astimezone(UTC)
         outcomes: list[IntentCheckDispatch] = []
