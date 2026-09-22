@@ -1,6 +1,6 @@
 import { useEffect, useId, useState } from 'react'
 import { apiBaseUrl, errorMessage, getProjectKnowledge } from '../api/client'
-import type { KnowledgeSearch, ReferenceDocument, ReferenceStatus } from '../api/knowledge'
+import type { KnowledgeSearch, ReferenceDocument, ReferenceMatch, ReferenceStatus } from '../api/knowledge'
 import { useT } from '../i18n'
 import './project-knowledge.css'
 
@@ -8,6 +8,18 @@ const statusLabels: Record<ReferenceStatus, string> = {
   indexed: 'Searchable', unsupported: 'Format not indexed', unavailable: 'File unavailable',
   changed: 'File differs from registered version', too_large: 'File exceeds search size limit',
   invalid_text: 'Text could not be decoded', budget_exceeded: 'Outside this search reading limit',
+  invalid_document: 'Office file could not be read safely',
+}
+
+function Location({ match }: { match: ReferenceMatch }) {
+  const t = useT()
+  const location = match.source_location
+  let label = ''
+  if (location?.kind === 'paragraph') label = t('Body text paragraph {n}', { n: location.paragraph ?? '' })
+  if (location?.kind === 'cell') label = t('Sheet {sheet} · cell {cell}', { sheet: location.sheet ?? '', cell: location.cell ?? '' })
+  if (location?.kind === 'slide') label = t('Slide {n}', { n: location.slide ?? '' })
+  if (location?.kind === 'slide_notes') label = t('Speaker notes · slide {n}', { n: location.slide ?? '' })
+  return <small>{label && <>{label}<br /></>}{t(location ? 'Extracted text lines {start}–{end} · column {column}' : 'Lines {start}–{end} · column {column}', { start: match.start_line, end: match.end_line, column: match.start_column })}</small>
 }
 
 function Source({ document, projectId }: { document: ReferenceDocument; projectId: string }) {
@@ -50,8 +62,8 @@ function SearchResult({ projectId, query }: { projectId: string; query: string }
       if (!document) return null
       return <article className="project-knowledge-match" key={match.artifact_id}>
         <Source document={document} projectId={projectId} />
-        {document.extraction_notice && <div className="project-knowledge-notice"><strong>{t('Extraction notes — check before citing')}</strong><pre>{document.extraction_notice}</pre></div>}
-        <small>{t('Lines {start}–{end} · column {column}', { start: match.start_line, end: match.end_line, column: match.start_column })}</small>
+        {document.extraction_notice && <div className="project-knowledge-notice"><strong>{t('Extraction notes — check before citing')}</strong><pre>{t(document.extraction_notice)}</pre></div>}
+        <Location match={match} />
         <pre>{match.excerpt}</pre>
         {match.excerpt_truncated && <small>{t('Excerpt only. Download the source for full context.')}</small>}
         <details><summary>{t('Reference provenance')}</summary>
@@ -69,6 +81,7 @@ function SearchResult({ projectId, query }: { projectId: string; query: string }
       <ul className="project-knowledge-files">{data.documents.map((document) => <li key={document.artifact_id}>
         <Source document={document} projectId={projectId} />
         <small>{t(statusLabels[document.status])}</small>
+        {document.extraction_notice && !data.matches.some((match) => match.artifact_id === document.artifact_id) && <small>{t(document.extraction_notice)}</small>}
       </li>)}</ul>
     </details>
   </div>

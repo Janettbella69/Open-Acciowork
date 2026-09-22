@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { KnowledgeSearch } from '../api/knowledge'
+import type { KnowledgeSearch, ReferenceMatch } from '../api/knowledge'
 import { I18nContext } from '../i18n'
 import ProjectKnowledgePanel from './ProjectKnowledgePanel'
 
@@ -117,5 +117,34 @@ describe('Project knowledge', () => {
     fireEvent.click(screen.getByRole('button', { name: '项目知识库' }))
     await screen.findByText('在项目消息中添加参考文件，即可在此检索。')
     expect(within(screen.getByRole('button', { name: '检索' })).queryByText('Search')).toBeNull()
+  })
+
+  it.each<[NonNullable<ReferenceMatch['source_location']>, string]>([
+    [{ kind: 'paragraph', paragraph: 4 }, 'Body text paragraph 4'],
+    [{ kind: 'cell', sheet: '供应商', cell: 'B12' }, 'Sheet 供应商 · cell B12'],
+    [{ kind: 'slide', slide: 3 }, 'Slide 3'],
+    [{ kind: 'slide_notes', slide: 3 }, 'Speaker notes · slide 3'],
+  ])('shows Office source coordinates without claiming file line numbers', async (location, label) => {
+    const data = fixture(); data.matches[0].source_location = location
+    vi.mocked(getProjectKnowledge).mockResolvedValue(data)
+    render(<ProjectKnowledgePanel projectId="project_1" />)
+    open()
+    await screen.findByText(label, { exact: false })
+    expect(screen.getByText('Extracted text lines 2–3 · column 1', { exact: false })).toBeInTheDocument()
+    expect(screen.queryByText('Lines 2–3 · column 1')).not.toBeInTheDocument()
+  })
+
+  it('discloses extraction limitations before a search and unreadable Office coverage in Chinese', async () => {
+    const data = fixture()
+    data.matches = []; data.matching_documents = 0
+    data.documents[0].extraction_notice = 'Stored worksheet text and raw cell values, including hidden sheets/cells. Number/date formatting is not applied. Formulas are not executed; cached values may be stale. Charts, images, comments and external data are not indexed.'
+    data.documents.push({ ...data.documents[0], artifact_id: 'bad', name: 'invalid.docx', status: 'invalid_document', extraction_notice: null })
+    data.total_documents = 2
+    vi.mocked(getProjectKnowledge).mockResolvedValue(data)
+    render(<I18nContext.Provider value="zh-CN"><ProjectKnowledgePanel projectId="project_1" /></I18nContext.Provider>)
+    fireEvent.click(screen.getByRole('button', { name: '项目知识库' }))
+    await screen.findByText('无法安全读取此 Office 文件')
+    expect(screen.getByText(/公式不会执行，缓存值可能过期/)).toBeInTheDocument()
+    expect(screen.getAllByRole('link', { name: '下载' })).toHaveLength(1)
   })
 })

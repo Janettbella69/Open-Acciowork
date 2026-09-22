@@ -146,3 +146,38 @@ async def test_reference_download_rechecks_permission_after_read(tmp_path, monke
         )
     assert response.status_code == 403
     assert "private download" not in response.text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("suffix", [".docx", ".xlsx", ".pptx"])
+async def test_office_reference_api_keeps_version_and_project_authorization(tmp_path, suffix):
+    from test_office_knowledge import office_bytes
+
+    app = create_app(trusted_settings(tmp_path), runtime=FakeRuntime())
+    owner = principal("owner", PrincipalRole.OWNER)
+    project = app.state.ledger.create_project(
+        ProjectCreate(name="Office", objective="Review"), principal=owner,
+    )
+    app.state.project_access.bind_project(project.id, owner)
+    raw = office_bytes(tmp_path, suffix)
+    artifact = app.state.ledger.save_upload(project.id, "quote" + suffix, raw)
+    base = f"/api/projects/{project.id}/knowledge"
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="https://gateway.test",
+    ) as client:
+        response = await request_as(client, "GET", base + "?q=Acme", owner.principal_id,
+                                    owner.role)
+        assert response.status_code == 200
+        data = response.json()
+        assert data["matches"][0]["source_location"]["kind"]
+        assert data["documents"][0]["checksum"] == artifact.checksum
+        assert data["documents"][0]["extraction_notice"]
+        download = f"{base}/{artifact.id}/download"
+        result = await request_as(client, "GET", download, owner.principal_id, owner.role)
+        assert result.status_code == 200 and result.content == raw
+        assert result.headers["etag"] == f'"{artifact.checksum}"'
+        assert result.headers["x-content-type-options"] == "nosniff"
+        assert result.headers["cache-control"] == "no-store"
+        for path in (base + "?q=Acme", download):
+            denied = await request_as(client, "GET", path, "outsider", PrincipalRole.OWNER)
+            assert denied.status_code == 403 and "Acme" not in denied.text

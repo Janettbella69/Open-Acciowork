@@ -16,8 +16,9 @@ artifacts enter this view automatically.
   Unregistered files, hidden paths, symlinks, hard links and special files are not
   read. Every path component is opened through the existing descriptor-based
   capture helper; files changing during capture are rejected.
-- Supported sources are UTF-8 text, Markdown, CSV/TSV, JSON/JSONL, YAML, XML, HTML
-  and RST. PDF/image originals remain available in the existing artifact area;
+- Supported sources are UTF-8 text, Markdown, CSV/TSV, JSON/JSONL, YAML, XML, HTML,
+  RST and bounded DOCX/XLSX/PPTX text views (see below). PDF/image originals remain
+  available in the existing artifact area;
   their registered OCR Markdown companions are searchable, with original artifact
   ids and a bounded copy of the ingestion preamble alongside matching passages.
   OCR notices remain source text, not an assurance of extraction quality.
@@ -28,7 +29,7 @@ artifacts enter this view automatically.
   This is lexical retrieval; it does not infer synonyms or semantic relevance.
 - Every result identifies the artifact id, path, version, SHA-256, registration
   time, originating Run and source record ids. Line/column coordinates are
-  one-based Unicode text positions, after removing a UTF-8 BOM and normalizing
+  one-based Unicode text positions for text sources, after removing a UTF-8 BOM and normalizing
   CRLF/CR to LF. Long-line excerpts include a starting column. Displayed excerpts
   are redacted and bounded, so downloads are the authority for exact original text.
 - A file whose current bytes disagree with its registered checksum is excluded.
@@ -41,8 +42,63 @@ Limits: latest 250 paths, 2 MiB per file, 16 MiB total read allowance, 200 query
 characters, 16 terms and 1,400 characters per excerpt. Failed read attempts consume
 their reserved allowance too. HTTP returns up to 30 matches; MCP up to 10 to retain
 space for provenance and OCR notices. Matching-file totals and omitted-file counts
-are separate from returned-result counts. Larger corpora and non-text Office
-originals remain explicit gaps; no file is silently advertised as fully indexed.
+are separate from returned-result counts. Larger corpora and legacy Office formats
+remain explicit gaps; no file is silently advertised as fully indexed.
+
+## Office references (2026-09-22)
+
+Office originals use the same latest-version, checksum, descriptor capture and
+project authorization boundary. Exact originals remain downloadable; extraction
+does not overwrite files, create OCR companions or publish verified Evidence.
+
+- DOCX: body paragraphs and table cells in document order. Merged cells are read
+  once. The locator is the one-based body paragraph in extraction order, including
+  paragraphs inside tables, not a rendered page or a Word paragraph number.
+  Headers, footers, tracked changes, comments, text boxes and images are omitted.
+- XLSX: actual stored cells, including shared/inline rich strings, booleans and
+  raw values, with exact worksheet name and A1 cell reference. Empty grid areas
+  are never expanded, even if a sheet declares a million-row dimension. Hidden
+  sheets/cells are included. Number/date display formats are not applied. Formula
+  expressions are displayed as text; any stored result is labelled **Cached value**
+  and may be stale. No formula, external reference or macro is executed or fetched.
+  Shared strings follow the [Microsoft Open XML format](https://learn.microsoft.com/en-us/office/open-xml/spreadsheet/working-with-the-shared-string-table).
+- PPTX: text, tables, grouped shapes and speaker notes, located by actual
+  presentation order rather than the slide part filename. Hidden slides are
+  included. Notes have a separate locator. Images, chart content, embedded objects,
+  master/layout text and visual reading order are omitted. Presentation ordering
+  follows its [slide list](https://learn.microsoft.com/en-us/office/open-xml/presentation/working-with-presentations).
+
+The optional `source_location` on each match identifies `paragraph`, `cell`,
+`slide` or `slide_notes`. Line/column numbers then refer to the extracted block,
+not to Office file bytes or page layout. Each excerpt stays inside its own block;
+short blocks retain their full context (including formula/cache labels). All query
+terms still match at document level, so some terms can occur outside the excerpt.
+Source names and excerpts are redacted at the same output boundary as text files.
+Both coverage and matching results display extraction limitations, including in
+Chinese. Empty-query coverage also shows these notices.
+
+Before native Word/PowerPoint readers run, every ZIP member is bounded and checked.
+XML uses explicit `resolve_entities=False`, `load_dtd=False`, `no_network=True` and
+`huge_tree=False`, per the [lxml parser contract](https://lxml.de/parsing.html).
+DTD declarations (including UTF-16), duplicate/traversal entry names and encrypted
+ZIP entries are rejected. Package parts are never extracted to disk. The XLSX
+reader resolves only internal worksheet/shared-string XML relationships and never
+iterates a declared rectangular grid. Ambiguous cell references fail closed.
+
+Additional limits: 512 archive parts, 16 MiB expanded per package, 4 MiB per XML
+part, 100,000 XML nodes, 20,000 text blocks/Word table grid cells and 2 Mi characters
+of extracted text. A search reserves at most 64 MiB of archive expansion before
+decoding; failed parses retain their reservation. `office_bytes_reserved` reports
+this charged allowance, independently of compressed `bytes_read`. These limits
+supplement the original 2 MiB file and 16 MiB read limits. Malformed/unsupported
+Office internals report `invalid_document`; per-file expansion/extraction limits
+report `too_large`; the aggregate allowance reports `budget_exceeded`. None returns
+partial text disguised as a fully searchable file.
+
+Legacy DOC/XLS/PPT, password-protected files, Strict OOXML variants, chartsheets,
+rendering/OCR of embedded images, chart semantics and layout fidelity remain outside
+this extractor. These limits are bounded local parsing, not OS process isolation or
+a certification of arbitrary hostile document decoding in production.
 
 ## Interfaces and authorization
 
@@ -83,7 +139,13 @@ gateway access and revocation during reads/downloads. UI tests cover searching,
 coverage gaps, provenance, scoped downloads, stale responses, project changes,
 refresh/error recovery, untrusted HTML and Chinese labels.
 
-These checks do not certify real-model retrieval quality, Office document parsing,
+Office tests additionally cover real application-generated packages, hyperlinks,
+tables, presentation reordering, grouped shapes, notes, shared strings, sparse cells,
+inert formulas/cache labels, archive/XML attacks, budgets, version replacement and
+exact authenticated downloads; native MCP returns the same untrusted locators.
+UI tests cover Office locations, extraction coordinates and Chinese coverage notices.
+
+These checks do not certify real-model retrieval quality, Office visual fidelity,
 large-corpus performance, production isolation or visual browser acceptance. Browser
 setup on 2026-09-09 returned `No browser is available`; the documented discovery
 check returned an empty list. No visual acceptance is claimed.

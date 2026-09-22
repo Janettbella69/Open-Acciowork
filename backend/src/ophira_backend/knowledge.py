@@ -17,6 +17,15 @@ from pydantic import Field
 
 from .events import redact
 from .models import APIModel, Artifact, utc_now
+from .office_reference import (
+    OFFICE_SUFFIXES,
+    OfficeBudget,
+    OfficeBudgetError,
+    OfficeInvalidError,
+    OfficeLimitError,
+    OfficeLocation,
+    extract_office,
+)
 from .skill_proposal_files import read_relative, relative_parts
 from .storage import FileLedger, LedgerNotFoundError
 
@@ -30,6 +39,7 @@ TEXT_SUFFIXES = frozenset({
     ".txt", ".md", ".markdown", ".csv", ".tsv", ".json", ".jsonl",
     ".yaml", ".yml", ".xml", ".html", ".htm", ".rst",
 })
+REFERENCE_SUFFIXES = TEXT_SUFFIXES | OFFICE_SUFFIXES
 
 
 class ReferenceStatus(StrEnum):
@@ -39,6 +49,7 @@ class ReferenceStatus(StrEnum):
     CHANGED = "changed"
     TOO_LARGE = "too_large"
     INVALID_TEXT = "invalid_text"
+    INVALID_DOCUMENT = "invalid_document"
     BUDGET_EXCEEDED = "budget_exceeded"
 
 
@@ -63,6 +74,7 @@ class ReferenceMatch(APIModel):
     end_line: int
     start_column: int
     excerpt_truncated: bool
+    source_location: OfficeLocation | None = None
 
 
 class KnowledgeSearch(APIModel):
@@ -76,6 +88,7 @@ class KnowledgeSearch(APIModel):
     omitted_documents: int
     matching_documents: int
     bytes_read: int
+    office_bytes_reserved: int = 0
     reference_only: bool = True
 
 
@@ -100,7 +113,7 @@ def capture_reference(
     parts = relative_parts(artifact.path)
     if (
         any(part.startswith(".") for part in parts)
-        or Path(artifact.path).suffix.lower() not in TEXT_SUFFIXES
+        or Path(artifact.path).suffix.lower() not in REFERENCE_SUFFIXES
         or artifact.size_bytes > MAX_KNOWLEDGE_FILE_BYTES
     ):
         raise ValueError("reference is outside the supported capture limits")
@@ -165,6 +178,7 @@ def search_project_knowledge(
     bytes_read = 0
     # Charge attempted reads up front, even when a source grows or fails capture.
     charged_bytes = 0
+    office_budget = OfficeBudget()
     for order, artifact in enumerate(selected):
         state = ReferenceStatus.INDEXED
         try:
@@ -174,7 +188,7 @@ def search_project_knowledge(
         except ValueError:
             state = ReferenceStatus.UNAVAILABLE
         if state == ReferenceStatus.INDEXED:
-            if Path(artifact.path).suffix.lower() not in TEXT_SUFFIXES:
+            if Path(artifact.path).suffix.lower() not in REFERENCE_SUFFIXES:
                 state = ReferenceStatus.UNSUPPORTED
             elif artifact.size_bytes > MAX_KNOWLEDGE_FILE_BYTES:
                 state = ReferenceStatus.TOO_LARGE
@@ -194,15 +208,31 @@ def search_project_knowledge(
         if hashlib.sha256(raw).hexdigest() != artifact.checksum:
             documents.append(_document(artifact, ReferenceStatus.CHANGED))
             continue
+        office = None
         try:
-            text = raw.decode("utf-8-sig").replace("\r\n", "\n").replace("\r", "\n")
-            if "\x00" in text:
-                raise ValueError("binary data")
+            suffix = Path(artifact.path).suffix.lower()
+            if suffix in OFFICE_SUFFIXES:
+                office = extract_office(raw, suffix, office_budget)
+                text = office.text
+            else:
+                text = raw.decode("utf-8-sig").replace("\r\n", "\n").replace("\r", "\n")
+                if "\x00" in text:
+                    raise ValueError("binary data")
+        except (OfficeInvalidError, OfficeLimitError, OfficeBudgetError) as exc:
+            status = (
+                ReferenceStatus.TOO_LARGE if isinstance(exc, OfficeLimitError)
+                else ReferenceStatus.BUDGET_EXCEEDED if isinstance(exc, OfficeBudgetError)
+                else ReferenceStatus.INVALID_DOCUMENT
+            )
+            documents.append(_document(artifact, status))
+            continue
         except (UnicodeError, ValueError):
             documents.append(_document(artifact, ReferenceStatus.INVALID_TEXT))
             continue
         document = _document(artifact, ReferenceStatus.INDEXED)
-        if any(
+        if office is not None:
+            document.extraction_notice = office.notice
+        elif any(
             source_id in artifacts_by_id
             and artifacts_by_id[source_id].path + ".md" == artifact.path
             for source_id in artifact.source_ids
@@ -224,9 +254,22 @@ def search_project_knowledge(
             if body_hit:
                 positions.append(body_hit.start())
         else:
-            ranked.append((
-                -title_hits, order, _excerpt(text, min(positions, default=0), artifact.id),
-            ))
+            position = min(positions, default=0)
+            match = _excerpt(text, position, artifact.id)
+            if office is not None and office.blocks:
+                block = next(item for item in office.blocks
+                             if item.start <= position < item.start + len(item.text))
+                # Never label a multi-cell/slide excerpt with one cell/slide locator.
+                local_position = position - block.start
+                match = _excerpt(
+                    block.text, local_position if len(block.text) > MAX_EXCERPT_CHARS else 0,
+                    artifact.id,
+                )
+                match.source_location = OfficeLocation.model_validate(
+                    redact(block.location.model_dump())
+                )
+                match.excerpt_truncated |= len(office.blocks) > 1
+            ranked.append((-title_hits, order, match))
     ranked.sort(key=lambda item: item[:2])
     return KnowledgeSearch(
         project_id=project_id, query=str(redact(query)), observed_at=utc_now(),
@@ -235,4 +278,5 @@ def search_project_knowledge(
             item.status == ReferenceStatus.INDEXED for item in documents
         ), omitted_documents=len(latest) - len(selected),
         matching_documents=len(ranked), bytes_read=bytes_read,
+        office_bytes_reserved=office_budget.reserved_bytes,
     )

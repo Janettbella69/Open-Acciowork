@@ -1,4 +1,4 @@
-export type ReferenceStatus = 'indexed' | 'unsupported' | 'unavailable' | 'changed' | 'too_large' | 'invalid_text' | 'budget_exceeded'
+export type ReferenceStatus = 'indexed' | 'unsupported' | 'unavailable' | 'changed' | 'too_large' | 'invalid_text' | 'invalid_document' | 'budget_exceeded'
 
 export interface ReferenceDocument {
   artifact_id: string
@@ -21,6 +21,13 @@ export interface ReferenceMatch {
   end_line: number
   start_column: number
   excerpt_truncated: boolean
+  source_location?: {
+    kind: 'paragraph' | 'cell' | 'slide' | 'slide_notes'
+    paragraph?: number | null
+    sheet?: string | null
+    cell?: string | null
+    slide?: number | null
+  } | null
 }
 
 export interface KnowledgeSearch {
@@ -34,5 +41,6 @@ export interface KnowledgeSearch {
   omitted_documents: number
   matching_documents: number
   bytes_read: number
+  office_bytes_reserved?: number
   reference_only: boolean
 }

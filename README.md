@@ -106,9 +106,10 @@ Deep Research runs also show frozen budget/deadline limits, native research-unit
 activity and reported task usage. See [`docs/deep-research-resources.md`](docs/deep-research-resources.md)
 for the source-merge contract and the distinction between SDK estimates and billing.
 
-Open **Project knowledge** in a saved workspace to search registered text files and
-OCR Markdown, inspect source lines and version provenance, and download a freshly
-hash-checked source. Coverage gaps stay visible; matches are reference material and
+Open **Project knowledge** in a saved workspace to search registered text files,
+OCR Markdown and DOCX/XLSX/PPTX text, inspect paragraph/cell/slide locations and
+version provenance, and download a freshly hash-checked source. Office extraction
+limits and coverage gaps stay visible; matches are reference material and
 do not automatically become verified evidence. See
 [`docs/project-knowledge.md`](docs/project-knowledge.md).
 
