@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 from claude_agent_sdk import AssistantMessage, ResultMessage, SystemMessage, ToolUseBlock
+from worker_report_fixture import synthetic_worker_finish, synthetic_worker_start
 
 from ophira_backend.config import Settings
 from ophira_backend.constants import ProviderErrorCode
@@ -32,14 +33,16 @@ class FakeSDKClient:
 
     def __init__(self, options=None) -> None:
         type(self).captured_options = options
+        self.options = options
 
     async def __aenter__(self):
         if type(self).enter_error is not None:
             raise type(self).enter_error
+        synthetic_worker_start(self.options)
         return self
 
     async def __aexit__(self, *exc_info) -> None:
-        return None
+        synthetic_worker_finish(self.options)
 
     async def query(self, _prompt: str) -> None:
         return None

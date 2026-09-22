@@ -1,5 +1,15 @@
 import type { RunMode, RunStatus, RunTelemetry } from './types'
 
+export type WorkerLimits = {
+  mode: 'native' | 'systemd'
+  cpu_percent: number
+  memory_bytes: number
+  tasks_max: number
+  output_bytes: number
+  frame_bytes: number
+  timeout_seconds: number
+}
+
 export type RunResources = {
   schema_version: '1'
   run_id: string
@@ -16,6 +26,11 @@ export type RunResources = {
     sdk_budget_usd: number | null
     turn_limit: number | null
     wall_clock_deadline: string | null
+    worker?: WorkerLimits | null
+    worker_output_bytes?: number
+    worker_output_exhausted?: boolean
+    worker_last_outcome?: string | null
+    worker_kernel_limits_verified?: boolean
   }
   elapsed_seconds: number | null
   remaining_seconds: number | null

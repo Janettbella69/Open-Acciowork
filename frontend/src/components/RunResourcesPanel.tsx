@@ -21,6 +21,45 @@ function duration(seconds: number | null) {
 }
 function number(value: number | null) { return value === null ? '—' : value.toLocaleString() }
 function cost(value: number | null) { return value === null ? '—' : `$${value.toFixed(4)}` }
+function bytes(value: number | undefined) {
+  if (value === undefined) return '—'
+  if (value < 1024) return `${value} B`
+  if (value < 1024 ** 2) return `${(value / 1024).toFixed(1)} KiB`
+  return `${(value / 1024 ** 2).toFixed(1)} MiB`
+}
+
+function WorkerResources({ limits }: { limits: RunResources['limits'] }) {
+  const t = useT()
+  const worker = limits.worker
+  if (!worker) return <p>{t('Worker limits have not been recorded for this run.')}</p>
+  const outcomes: Record<string, string> = {
+    completed: 'Worker finished', terminated: 'Worker stopped', disconnected: 'Worker disconnected',
+    descendants_remaining: 'Worker exited with background processes',
+    output_limit: 'Output limit reached', wall_clock_limit: 'Original deadline reached',
+    worker_failed: 'Worker failed', launch_failed: 'Worker could not start',
+    cleanup_failed: 'Worker cleanup could not be confirmed', parent_exited: 'Host exited',
+    unconfirmed: 'Worker result could not be confirmed',
+  }
+  return <div className="worker-resources">
+    <p>{t(worker.mode === 'native'
+      ? 'Time and output limits are enforced. CPU, memory and process limits require Linux isolation.'
+      : limits.worker_kernel_limits_verified
+        ? 'Linux CPU, memory and process limits verified at startup.'
+        : 'Linux resource limits are configured; enforcement has not been verified for this worker.')}</p>
+    <dl className="run-resource-metrics">
+      <div><dt>{t('Output limit')}</dt><dd>{bytes(worker.output_bytes)}</dd></div>
+      <div><dt>{t('Recorded worker output')}</dt><dd>{bytes(limits.worker_output_bytes)}</dd></div>
+      {worker.mode === 'systemd' && <>
+        <div><dt>{t('Configured CPU limit')}</dt><dd>{worker.cpu_percent}%</dd></div>
+        <div><dt>{t('Configured memory limit')}</dt><dd>{bytes(worker.memory_bytes)}</dd></div>
+        <div><dt>{t('Configured process and thread limit')}</dt><dd>{number(worker.tasks_max)}</dd></div>
+      </>}
+    </dl>
+    <small>{t('Output is counted when each worker finishes; the current worker’s usage is not shown yet.')}</small>
+    {limits.worker_output_exhausted && <p role="status">{t('The previous output total is unconfirmed. This run cannot resume; start a new run.')}</p>}
+    {limits.worker_last_outcome && <small>{t(outcomes[limits.worker_last_outcome] ?? 'Worker result could not be confirmed')}</small>}
+  </div>
+}
 
 type Props = { run: RunRecord; onCancel: () => void }
 
@@ -67,11 +106,12 @@ function Resources({ run, onCancel }: Props) {
   const elapsed = data?.elapsed_seconds === null || !data ? null : data.elapsed_seconds + delta
   const remaining = data?.remaining_seconds === null || !data ? null : Math.max(0, data.remaining_seconds - delta)
   const active = !terminal.has(run.status) && (!data || !terminal.has(data.status))
-  return <section className="run-resources" aria-label={t('Deep Research resources')}>
-    <header><strong>{t('Deep Research resources')}</strong>
-      {active && <button type="button" onClick={onCancel} disabled={run.status === 'cancelling'}>{t('Cancel research')}</button>}
+  const research = run.mode === 'deep_research'
+  return <section className="run-resources" aria-label={t(research ? 'Deep Research resources' : 'Run resources')}>
+    <header><strong>{t(research ? 'Deep Research resources' : 'Run resources')}</strong>
+      {active && <button type="button" onClick={onCancel} disabled={run.status === 'cancelling'}>{t(research ? 'Cancel research' : 'Cancel run')}</button>}
     </header>
-    <p>{t('Three read-only research units share this run’s budget. The main agent verifies and merges their sources. Cancel stops the whole research run.')}</p>
+    {research && <p>{t('Three read-only research units share this run’s budget. The main agent verifies and merges their sources. Cancel stops the whole research run.')}</p>}
     {error && <div role="alert"><p>{t('Resource updates are unavailable. Previous values have been cleared.')}</p>
       <small>{t(error)}</small><button type="button" onClick={() => setRefresh((value) => value + 1)}>{t('Refresh resources')}</button>
     </div>}
@@ -88,6 +128,7 @@ function Resources({ run, onCancel }: Props) {
       </dl>
       <small>{t('Costs use SDK estimates, not billing data. Unreported spend is unknown; reported budget remaining may be out of date.')}</small>
       {data.limits.wall_clock_deadline && <small>{t('Original deadline: {time}', { time: new Date(data.limits.wall_clock_deadline).toLocaleString() })}</small>}
+      <WorkerResources limits={data.limits} />
       {!data.observations_available ? <p role="status">{t('The event history is incomplete or exceeds the replay limit. Task and usage observations are unavailable.')}</p> : <>
         <dl className="run-resource-metrics">
           <div><dt>{t('Reported input tokens')}</dt><dd>{number(data.tokens.input_tokens.value)}</dd></div>
@@ -96,12 +137,12 @@ function Resources({ run, onCancel }: Props) {
         <small>{t(data.tokens.input_tokens.scope === 'main_agent_only'
           ? 'These token counters cover the main agent only.'
           : 'Run token totals use reported model usage when available. Task snapshots below are not added to them.')}</small>
-        <ul className="research-unit-observations">{data.research_units.map((unit) => {
+        {research && <ul className="research-unit-observations">{data.research_units.map((unit) => {
           const observed = data.agents.filter((agent) => agent.agent_type === unit.id)
           return <li key={unit.id}><strong>{t(unitLabels[unit.id] ?? unit.id)}</strong><small>{observed.length
             ? t('{count} native invocations observed', { count: observed.length })
             : t('No invocation reported')}</small></li>
-        })}</ul>
+        })}</ul>}
         <details className="research-task-observations"><summary>{t('Reported subtasks · {count}', { count: data.tasks.length })}</summary>
           {data.tasks.length === 0 && <p>{t('No native task progress has been reported yet.')}</p>}
           <ul>{data.tasks.map((task) => <li key={task.task_id}>
@@ -126,6 +167,16 @@ function Resources({ run, onCancel }: Props) {
   </section>
 }
 
+function Disclosure(props: Props) {
+  const t = useT()
+  const [open, setOpen] = useState(false)
+  if (props.run.mode === 'deep_research') return <Resources {...props} />
+  return <details className="run-resources-disclosure" onToggle={(event) => setOpen(event.currentTarget.open)}>
+    <summary>{t('Run resources')}</summary>
+    {open && <Resources {...props} />}
+  </details>
+}
+
 export default function RunResourcesPanel(props: Props) {
-  return <Resources key={`${props.run.project_id}:${props.run.id}`} {...props} />
+  return <Disclosure key={`${props.run.project_id}:${props.run.id}`} {...props} />
 }

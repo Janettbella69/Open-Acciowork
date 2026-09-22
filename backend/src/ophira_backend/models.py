@@ -47,6 +47,7 @@ from .constants import (
     ValidationStatus,
 )
 from .project_template_models import ProjectTemplateOrigin
+from .worker_contract import WorkerLimits, WorkerOutcome
 
 
 def utc_now() -> datetime:
@@ -511,6 +512,14 @@ class RunRecord(APIModel):
     sdk_budget_usd: float | None = Field(default=None, gt=0)
     sdk_turn_limit: int | None = Field(default=None, ge=1)
     sdk_wall_clock_deadline: datetime | None = None
+    worker_limits: WorkerLimits | None = None
+    worker_limits_initialized_at: datetime | None = None
+    # Durable launch claim: a host crash must not renew an unaccounted segment.
+    worker_segment_id: str | None = Field(default=None, max_length=80)
+    worker_output_bytes: int = Field(default=0, ge=0)
+    worker_output_exhausted: bool = False
+    worker_last_outcome: WorkerOutcome | None = None
+    worker_kernel_limits_verified: bool = False
     sdk_permission_mode: str | None = None
     context_refresh: ContextRefreshRecord | None = None
     # Count only confirmed SDK compact_boundary messages. The manifest records

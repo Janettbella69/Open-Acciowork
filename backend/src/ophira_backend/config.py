@@ -10,6 +10,7 @@ from pydantic import AliasChoices, Field, SecretStr, field_validator, model_vali
 from pydantic_settings import NoDecode, SettingsConfigDict
 
 from .deployment_credentials import DeploymentCredentialSettings
+from .worker_contract import WorkerLimits
 
 BACKEND_DIR = Path(__file__).resolve().parents[2]
 
@@ -51,6 +52,9 @@ class Settings(DeploymentCredentialSettings):
         "http://localhost:5173",
     ]
     host: str = "127.0.0.1"
+    # Native mode bounds stream volume and time. Linux systemd mode additionally
+    # requires verified cgroup v2 CPU/memory/task limits, with no native fallback.
+    worker_limits: WorkerLimits = Field(default_factory=WorkerLimits)
     port: int = Field(default=8000, ge=1, le=65_535)
     claude_model: str | None = Field(
         default=None,

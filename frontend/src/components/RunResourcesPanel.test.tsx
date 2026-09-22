@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { RunResources } from '../api/runResources'
 import type { RunRecord, TelemetryMetric } from '../api/types'
@@ -125,4 +125,55 @@ it('provides Chinese resource copy and keeps limits visible when observations ar
   expect(value('共用 SDK 估算额度')).toHaveTextContent('$2.0000')
   expect(screen.getByText('事件记录不完整或超过回放上限，暂时无法展示任务与用量观测。')).toBeInTheDocument()
   expect(screen.queryByText('Reported subtasks · 0')).not.toBeInTheDocument()
+})
+
+const workerLimits = {
+  mode: 'systemd' as const, cpu_percent: 200, memory_bytes: 2 * 1024 ** 3,
+  tasks_max: 128, output_bytes: 32 * 1024 ** 2, frame_bytes: 4 * 1024 ** 2,
+  timeout_seconds: 14400,
+}
+
+it('loads standard run resources only when opened and aborts polling when closed', async () => {
+  vi.mocked(getRunResources).mockResolvedValue({ ...resources, mode: 'standard', research_units: [] })
+  render(<RunResourcesPanel run={{ ...run, mode: 'standard' }} onCancel={vi.fn()} />)
+  expect(getRunResources).not.toHaveBeenCalled()
+  const summary = screen.getByText('Run resources', { selector: 'summary' })
+  fireEvent.click(summary)
+  await screen.findByText('Unlimited turns')
+  expect(getRunResources).toHaveBeenCalledOnce()
+  expect(screen.queryByText('Deep Research resources')).not.toBeInTheDocument()
+  expect(screen.queryByText(/Three read-only research units/)).not.toBeInTheDocument()
+  const signal = vi.mocked(getRunResources).mock.calls[0][1]
+  fireEvent.click(summary)
+  await waitFor(() => expect(signal?.aborted).toBe(true))
+  expect(screen.queryByText('Unlimited turns')).not.toBeInTheDocument()
+})
+
+it.each([false, true])('distinguishes configured Linux limits from verified enforcement (%s)', async (verified) => {
+  vi.mocked(getRunResources).mockResolvedValue({ ...resources, limits: {
+    ...resources.limits, worker: workerLimits, worker_kernel_limits_verified: verified,
+    worker_output_bytes: 1024, worker_last_outcome: 'output_limit',
+  } })
+  render(<RunResourcesPanel run={run} onCancel={vi.fn()} />)
+  await screen.findByText(verified
+    ? 'Linux CPU, memory and process limits verified at startup.'
+    : 'Linux resource limits are configured; enforcement has not been verified for this worker.')
+  expect(value('Configured CPU limit')).toHaveTextContent('200%')
+  expect(value('Configured memory limit')).toHaveTextContent('2048.0 MiB')
+  expect(value('Configured process and thread limit')).toHaveTextContent('128')
+  expect(value('Output limit')).toHaveTextContent('32.0 MiB')
+  expect(value('Recorded worker output')).toHaveTextContent('1.0 KiB')
+  expect(screen.getByText('Output limit reached')).toBeInTheDocument()
+})
+
+it('shows only native limits and preserves unknown output totals in Chinese', async () => {
+  vi.mocked(getRunResources).mockResolvedValue({ ...resources, limits: {
+    ...resources.limits, worker: { ...workerLimits, mode: 'native' },
+    worker_output_bytes: 800, worker_output_exhausted: true, worker_last_outcome: 'unconfirmed',
+  } })
+  render(<I18nContext.Provider value="zh-CN"><RunResourcesPanel run={run} onCancel={vi.fn()} /></I18nContext.Provider>)
+  await screen.findByText('已启用时长和输出限制；CPU、内存与进程数限制需要 Linux 隔离环境。')
+  expect(screen.queryByText('配置的 CPU 上限')).not.toBeInTheDocument()
+  expect(value('已记录进程输出')).toHaveTextContent('800 B')
+  expect(screen.getByText('上次输出总量无法确认，本次运行不能续接，请新建运行。')).toBeInTheDocument()
 })

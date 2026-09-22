@@ -17,7 +17,7 @@
 | FR-05 Provider | delivered：Registry/Vault/快照/UI | deferred：其他上架组合的真实合约、条款与区域复核；需要合法账号 |
 | FR-06 预检 | delivered：SDK 预检、模型身份与错误分类 | deferred：其他 Provider 合约；DeepSeek vision/无效凭据快速失败仍明确降级 |
 | FR-07 Run/会话 | delivered：SSE、取消、恢复、重试、重启孤儿修复、并发事件序号与汇总恢复 | deferred：其余恢复故障矩阵、性能基线 |
-| FR-08 隔离 | delivered：项目路径、符号链接、独立 worker 配置 | deferred：生产 worker 资源包络与租户物理隔离演练 |
+| FR-08 隔离 | delivered：项目路径、符号链接、独立 worker 配置；原生进程时长/输出监督、Linux systemd CPU/内存/任务数门禁及配置/已验证状态区分（Linux验收见下方记录） | deferred：真实模型与原生沙箱的Linux联合验收、API宿主MCP资源限制、生产负载与租户物理隔离演练 |
 | FR-09 来源账本 | delivered：同 Run/session 的服务器 source receipt | 保持来源、失效、回放和内容完整性回归 |
 | FR-10 决策 | delivered：证据关联与失效联动 | 开放任务质量另行验收 |
 | FR-11 领域 MCP | delivered：确定性商业计算、用户记录加工、显式结算计划的现金流/日末与保守日内资金缺口；TikTok Shop/Shopify/SHEIN项目指定店铺的主Agent只读MCP与来源凭证；Shopify近期订单、SHEIN SPU/SKC分层商品与分页/上架状态 | deferred：真实供应商/客户/市场/法规/物流/汇率授权数据适配及已实现商家接口的真实验收 |
@@ -49,7 +49,7 @@
 | §3.7 P2 团队 | delivered：共享项目成员角色管理、关联项目/Run/消息/证据/决策/文件版本的团队讨论、项目模板保存/版本/参考文件下载/新建/归档/中断恢复、组织私有Skill审核发布与成员只读版本库及中英文UI；deferred：真实组织与浏览器目视验收、长期容量及生产隔离 |
 | §4.16 任务经验 | delivered：专属工具与版本/来源账本、创建时配置指纹、低信任检索注入、容量/事务恢复与人工停用UI；deferred：真实Provider自主调用及长期判断质量 |
 | §4.12 事件 | delivered：有真实Run归属的evidence.added/decision.recorded/artifact.registered/artifact.updated/memory.proposed、持久幂等补发与完整SSE尾部消费；任务记忆审阅面板与按Run授权查询；deferred：浏览器目视验收、无Run项目变更和 schedule/preflight 细分事件 |
-| §3.9 / §4.10 | delivered：自动调度跨进程抢占与事件汇总恢复；Bash 工作区快照与人审恢复、跨进程目录切换修复；deferred：其余事件故障矩阵、生产恢复/容量与性能、CPU/内存/进程/输出限制 |
+| §3.9 / §4.10 | delivered：自动调度跨进程抢占与事件汇总恢复；Bash 工作区快照与人审恢复、跨进程目录切换修复；Run固定时限与跨段输出额度、崩溃后未核对额度禁止续接、Linux worker资源限制与普通/研究运行资源UI；deferred：Linux真实模型/沙箱联合验收、其余事件故障矩阵、生产恢复/容量与性能 |
 | §3.9 数据主权 | delivered：操作者CLI完整数据目录冷备份与新目录恢复，覆盖项目账本/提案/Registry/工作区检查点一致性；独立本机中英文维护UI、完整副本核对/确认发布/丢弃及进程中断重试；项目工作文件恢复UI；Provider/Connector/飞书与Push服务凭据的人审版本绑定加密导出、离线解密、确认删除与持久环境回退禁用，服务凭据显式重配、缓存撤销与后台恢复；部署根签名凭据的独立本机加密导出/确认删除/重配/恢复、停机独占锁、租户与版本核对、仅Vault启动和每次鉴权实时解析；项目业务数据与应用可见会话的人审授权ZIP导出、文件版本/记忆历史及一致性核验；文件删除事务/中断恢复与应用数据访问互斥；保留保存成果的会话删除、双向续接/原生SDK与可归属上下文清理、人审指纹确认API/中英文UI、内容为空的来源与冷备兼容；完整项目删除、工作区/版本/自动化/店铺登录与项目授权清理、模板独立副本/冷备兼容、名称确认与导航/重试防重建；deferred：删除/恢复的浏览器与生产验收、原生SDK完整会话可迁移性、部署自动切换及生产灾备 |
 | §3.9 性能 | delivered：本地ASGI单/4并发各100样本，创建/首事件持久化/离线task取消P95基线；deferred：真实SDK进程、网络/SSE运输、多worker与生产负载验收 |
 | §3.9 / §3.10 | delivered：项目范围按Provider/model/Skill/tool/错误的有界指标汇总；模型选择与设置中的端点/管理员填写区域、跨境及工具数据流提示，未知与Auto路由单独说明；deferred：业务成功指标、真实区域/条款认证与驻留强制、浏览器目视验收 |
@@ -1212,3 +1212,32 @@ Ruff、`git diff --check`、eval工具 **59 passed** 与 Snapshot **61/61**通�
 仍需交付：SHEIN真实卖家计划/账号与限流认证、授权交换/解密、SKU库存价格及订单，
 Temu/AliExpress/Shopee适配器、商业写操作，以及总表其他功能和生产/人工验收项。
 完整 PRD 目标仍未完成。
+
+## 2026-09-22：SDK worker 资源限制与状态展示
+
+实施说明：[SDK worker resource limits](sdk-worker-resources.md)。复用公开的 SDK
+`cli_path` / `max_buffer_size`；不改 SDK 内部，不引入第二个模型或工具执行循环。
+
+- 普通运行、Deep Research 和 Provider 预检均经字节透明的原生 CLI 监督进程；
+  固定时长、总输出与帧限制，清理自身进程组，检测宿主退出，过滤无关环境凭据。
+- Linux 必选模式通过 systemd user scope 限制 CPU、内存、交换与进程/线程数；
+  执行 CLI 前核对实际内核限值，缺少环境或控制器即拒绝启动，不降级到 native。
+  本机 macOS native 模式只证明时长/输出及自身进程组清理，不宣称 CPU/内存硬限制。
+- Run 账本冻结原始限值/截止时间；跨审批续接累积输出。持久启动标记、丢失或损坏
+  报告阻止额度重置；不把未知输出伪造成已观测消耗。启动配置与已核验状态分别展示。
+- 普通运行新增可展开资源面板，中英文显示输出、Linux配置值、实际核验和异常状态；
+  关闭即停止查询，Deep Research 保留共享预算与原生子任务展示。
+- CI 增加 Ubuntu 24.04 专用资源验收 job，要求真实 CPU 限流、内存 OOM、进程数拒绝、
+  脱离原会话的后代清理、管理器缺失拒绝，以及已钉版本的原生 CLI 启动测试。
+
+本地验证：后端 **2220 passed / 20 skipped**，135.71秒；20项为8个真实 Provider、
+5个可选 Chromium、7个仅Linux资源验收。前端 **445 passed / 45 files**，lint/build
+通过；Ruff、diff检查、eval工具 **59 passed**、Snapshot **61/61**通过。
+首次后端全量有8个旧 SDK 消息映射替身缺少新进程报告；补齐显式合成报告后，
+相关109项及全量重新通过，没有弱化生产启动核验。`6957da9` 修复前一轮 CI 的
+定时任务测试竞态：只等待已保存的 article 行，避免匹配尚未关闭的输入表单。
+
+Linux CI 结果待提交后核验，不以本机跳过替代成功。Browser选择仍返回
+`No browser is available`，故障检查返回 `[]`，页面目视验收未完成。
+真实模型与Linux沙箱的联合运行、API宿主MCP资源治理、控制目录保留/容量策略、
+生产长时负载及租户物理隔离仍需交付；总表其他 deferred 保持开放。
