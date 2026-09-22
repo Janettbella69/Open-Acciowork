@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   errorMessage,
-  installSkill,
+  getSkillRepositoryCapabilities,
   listSkills,
   listSkillVersions,
   rollbackSkill,
@@ -9,8 +9,11 @@ import {
   testSkill,
 } from '../api/client'
 import type { SkillTestResult, SkillVersion } from '../api/types'
+import type { SkillRepositoryCapabilities } from '../api/skillRepository'
+import { collaborationAccessLost } from '../api/collaboration'
 import { useT } from '../i18n'
 import SkillProposalsPanel from './SkillProposalsPanel'
+import SkillRepositoryPanel from './SkillRepositoryPanel'
 import './skills-page.css'
 
 function initials(name: string): string {
@@ -29,22 +32,45 @@ export default function SkillsPage() {
   const [historyLoading, setHistoryLoading] = useState('')
   const [versions, setVersions] = useState<Record<string, SkillVersion[]>>({})
   const [rollingBack, setRollingBack] = useState('')
-  const [view, setView] = useState<'installed' | 'proposals'>('installed')
+  const [view, setView] = useState<'installed' | 'proposals' | 'repository'>('installed')
+  const [capabilities, setCapabilities] = useState<SkillRepositoryCapabilities | null>(null)
+  const [unavailable, setUnavailable] = useState(false)
   const [proposalsOpened, setProposalsOpened] = useState(false)
   const active = useRef(false)
   const listRevision = useRef(0)
   const registryEpoch = useRef(0)
+  const scopeKey = useRef('')
+  const blocked = useRef(false)
+
+  const accessLost = useCallback(() => {
+    blocked.current = true
+    listRevision.current += 1
+    registryEpoch.current += 1
+    setCapabilities(null); setSkills([]); setVersions({}); setTestResults({})
+    setProposalsOpened(false); setUnavailable(true)
+  }, [])
 
   const refreshSkills = useCallback(async () => {
     const revision = ++listRevision.current
     try {
-      const items = await listSkills()
-      if (active.current && revision === listRevision.current) { setSkills(items); setError('') }
+      const [items, scope] = await Promise.all([listSkills(), getSkillRepositoryCapabilities()])
+      if (active.current && !blocked.current && revision === listRevision.current) {
+        const key = JSON.stringify(scope)
+        if (scopeKey.current && scopeKey.current !== key) {
+          registryEpoch.current += 1
+          setVersions({}); setTestResults({}); setHistoryOpen(''); setProposalsOpened(false)
+        }
+        scopeKey.current = key
+        setCapabilities(scope); setSkills(items); setError(''); setUnavailable(false)
+      }
     } catch (cause) {
-      if (active.current && revision === listRevision.current) setError(errorMessage(cause))
+      if (active.current && revision === listRevision.current) {
+        if (collaborationAccessLost(cause)) accessLost()
+        else setError(errorMessage(cause))
+      }
       throw cause
     }
-  }, [])
+  }, [accessLost])
 
   const published = useCallback(async () => {
     if (!active.current) return
@@ -62,7 +88,10 @@ export default function SkillsPage() {
   useEffect(() => {
     active.current = true
     void refreshSkills().catch(() => undefined)
-    return () => { active.current = false; listRevision.current += 1 }
+    const refresh = () => { if (!blocked.current && document.visibilityState !== 'hidden') void refreshSkills().catch(() => undefined) }
+    const timer = window.setInterval(refresh, 15_000)
+    window.addEventListener('focus', refresh)
+    return () => { active.current = false; listRevision.current += 1; window.clearInterval(timer); window.removeEventListener('focus', refresh) }
   }, [refreshSkills])
 
   const visibleSkills = useMemo(() => {
@@ -74,21 +103,23 @@ export default function SkillsPage() {
   }, [query, skills])
 
   const toggleSkill = async (skill: SkillVersion) => {
+    if (!capabilities?.can_manage) return
     const epoch = registryEpoch.current
     const current = () => active.current && epoch === registryEpoch.current
     setUpdating(skill.id)
     setError('')
     try {
-      const updated = await setSkillEnabled(skill.id, !skill.enabled)
+      const updated = await setSkillEnabled(skill.id, !skill.enabled, skill)
       if (current()) setSkills((items) => items.map((item) => item.id === updated.id ? updated : item))
     } catch (toggleError) {
-      if (current()) setError(errorMessage(toggleError))
+      if (current()) { if (collaborationAccessLost(toggleError)) accessLost(); else setError(errorMessage(toggleError)) }
     } finally {
       if (current()) setUpdating('')
     }
   }
 
   const runSkillTest = async (skill: SkillVersion) => {
+    if (!capabilities?.can_manage) return
     const epoch = registryEpoch.current
     const current = () => active.current && epoch === registryEpoch.current
     setTesting(skill.id)
@@ -97,7 +128,7 @@ export default function SkillsPage() {
       const result = await testSkill(skill.id)
       if (current()) setTestResults((items) => ({ ...items, [skill.id]: result }))
     } catch (testError) {
-      if (current()) setError(errorMessage(testError))
+      if (current()) { if (collaborationAccessLost(testError)) accessLost(); else setError(errorMessage(testError)) }
     } finally {
       if (current()) setTesting('')
     }
@@ -117,25 +148,26 @@ export default function SkillsPage() {
       const items = await listSkillVersions(skill.id)
       if (current()) setVersions((previous) => ({ ...previous, [skill.id]: items }))
     } catch (historyError) {
-      if (current()) { setError(errorMessage(historyError)); setHistoryOpen('') }
+      if (current()) { if (collaborationAccessLost(historyError)) accessLost(); else setError(errorMessage(historyError)); setHistoryOpen('') }
     } finally {
       if (current()) setHistoryLoading('')
     }
   }
 
   const restoreVersion = async (skill: SkillVersion, contentHash: string) => {
+    if (!capabilities?.can_manage) return
     const epoch = registryEpoch.current
     const current = () => active.current && epoch === registryEpoch.current
     setRollingBack(contentHash)
     setError('')
     try {
-      const updated = await rollbackSkill(skill.id, { content_hash: contentHash })
+      const updated = await rollbackSkill(skill.id, { content_hash: contentHash }, skill)
       if (!current()) return
       setSkills((items) => items.map((item) => item.id === updated.id ? updated : item))
       const items = await listSkillVersions(skill.id)
       if (current()) setVersions((previous) => ({ ...previous, [skill.id]: items }))
     } catch (rollbackError) {
-      if (current()) setError(errorMessage(rollbackError))
+      if (current()) { if (collaborationAccessLost(rollbackError)) accessLost(); else setError(errorMessage(rollbackError)) }
     } finally {
       if (current()) setRollingBack('')
     }
@@ -154,46 +186,23 @@ export default function SkillsPage() {
             <button type="button" data-active={view === 'proposals'} aria-pressed={view === 'proposals'} onClick={() => {
               setProposalsOpened(true); setView('proposals')
             }}>{t('Proposals')}</button>
+            <button type="button" data-active={view === 'repository'} aria-pressed={view === 'repository'} onClick={() => setView('repository')}>{t('Private repository')}</button>
           </div>
           {view === 'installed' && <div className="skills-actions">
             <label className="skills-search">
               <span aria-hidden="true">⌕</span>
               <input type="search" aria-label={t('Search skills')} value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t('Search skills')} />
             </label>
-            <label className="skills-upload">
-              <span>{t('Upload skill zip')}</span>
-              <input
-                type="file"
-                accept=".zip,application/zip"
-                aria-label={t('Upload skill zip')}
-                onChange={(event) => {
-                  const file = event.target.files?.[0]
-                  event.target.value = ''
-                  if (!file) return
-                  const epoch = registryEpoch.current
-                  const current = () => active.current && epoch === registryEpoch.current
-                  setError('')
-                  void installSkill(file)
-                    .then((uploaded) => {
-                      if (!current()) return
-                      setSkills((current) => [uploaded, ...current.filter((item) => item.id !== uploaded.id)])
-                      setVersions((current) => {
-                        const next = { ...current }
-                        delete next[uploaded.id]
-                        return next
-                      })
-                    })
-                    .catch((uploadError) => { if (current()) setError(errorMessage(uploadError)) })
-                }}
-              />
-            </label>
+            {capabilities?.can_manage && <button type="button" className="skills-upload" onClick={() => setView('repository')}>{t('Manage private packages')}</button>}
           </div>}
         </header>
 
         {error && <p className="conversation-error" role="alert">{t(error)}</p>}
+        {unavailable && <div role="alert"><p>{t('Private Skill repository access is unavailable')}</p><button type="button" onClick={() => { blocked.current = false; void refreshSkills().catch(() => undefined) }}>{t('Retry')}</button></div>}
 
-        {proposalsOpened && <div hidden={view !== 'proposals'}><SkillProposalsPanel onPublished={published} /></div>}
-        {view === 'installed' && <>
+        {capabilities && proposalsOpened && <div key={scopeKey.current} hidden={view !== 'proposals'}><SkillProposalsPanel onPublished={published} /></div>}
+        {capabilities && view === 'repository' && <SkillRepositoryPanel key={scopeKey.current} skills={skills} capabilities={capabilities} onUnavailable={accessLost} onChanged={() => { void published().catch(() => undefined) }} />}
+        {capabilities && view === 'installed' && <>
 
         {featured && !query && (
           <section className="skills-feature" aria-labelledby="featured-skill-heading">
@@ -241,12 +250,12 @@ export default function SkillsPage() {
                             {historyLoading === skill.id ? t('Loading…') : t('Versions')}
                           </button>
                         )}
-                        <button type="button" disabled={testing === skill.id} onClick={() => void runSkillTest(skill)}>
+                        {capabilities.can_manage && <button type="button" disabled={testing === skill.id} onClick={() => void runSkillTest(skill)}>
                           {testing === skill.id ? t('Testing…') : t('Test')}
-                        </button>
-                        <button type="button" disabled={updating === skill.id} onClick={() => void toggleSkill(skill)}>
+                        </button>}
+                        {capabilities.can_manage && <button type="button" disabled={updating === skill.id} onClick={() => void toggleSkill(skill)}>
                           {updating === skill.id ? t('Saving…') : skill.enabled ? t('Disable') : t('Enable')}
-                        </button>
+                        </button>}
                       </span>
                     </footer>
                     {testResults[skill.id] && (
@@ -283,7 +292,7 @@ export default function SkillsPage() {
                                 </span>
                                 {current ? (
                                   <em>{t('Current version')}</em>
-                                ) : (
+                                ) : capabilities.can_manage ? (
                                   <button
                                     type="button"
                                     disabled={Boolean(rollingBack)}
@@ -291,7 +300,7 @@ export default function SkillsPage() {
                                   >
                                     {rollingBack === item.content_hash ? t('Restoring…') : t('Restore')}
                                   </button>
-                                )}
+                                ) : null}
                               </li>
                             )
                           })}

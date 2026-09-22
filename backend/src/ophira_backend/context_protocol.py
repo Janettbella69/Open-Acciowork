@@ -20,7 +20,7 @@ from .agent_core import (
     assemble_system_prompt,
     read_core_file,
 )
-from .constants import USER_SCOPE_ID, MemoryScope, RunMode
+from .constants import RESEARCH_UNITS, USER_SCOPE_ID, MemoryScope, RunMode
 from .memory import MemoryProvider, gather_approved
 from .models import (
     ContextRefreshRecord,
@@ -83,8 +83,18 @@ def mode_rules(mode: RunMode, *, standing_intent: bool = False) -> str:
         )
     if mode == RunMode.DEEP_RESEARCH:
         return (
-            "Deep Research 已由用户显式开启。临时子 Agent 只能做只读来源研究；"
-            "你负责汇总、去重、处理冲突，并且只有你能写最终项目真相。"
+            f"Deep Research 已由用户显式开启。分别调用 {'、'.join(RESEARCH_UNITS)} "
+            "三个只读研究单元，每个只新建一次；"
+            "进一步核对时 resume 原单元，不新建第四个实例，不使用其他子代理类型。"
+            "它们返回来源包协议 v1（claim/evidence_kind/source_locator/observed_at/"
+            "excerpt/language/conflicts/limitations，已有证据附 evidence_id）。"
+            "三个单元都返回后，你负责合并；若单元失败或未返回，明确列出覆盖缺口。"
+            "按原始来源+位置+观察时间去重，译文/转载不是独立来源；相互冲突的说法保留"
+            "各自出处、口径和时效，不静默平均或选边。子代理来源包不构成验证凭证。"
+            "新网页/工具来源由你亲自读取取得本 Run 的 source_receipt；项目文件逐项"
+            "核对原件或已有证据，再用 record_evidence_batch/record_evidence 落账。"
+            "未知或无法核验的发现继续标明 unknown，不升级为事实。最终报告关联去重后的"
+            "证据 ID、冲突、覆盖缺口与判断依据；只有你能写最终项目真相。"
         )
     return (
         "主线由你一以贯之地干完，不把主线工作交给别人。"

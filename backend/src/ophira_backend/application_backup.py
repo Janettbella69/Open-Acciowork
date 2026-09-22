@@ -23,10 +23,19 @@ from .backup_files import (
 )
 from .constants import TERMINAL_RUN_STATUSES
 from .maintenance import MAINTENANCE_LOCK, DataDirectoryBusyError, data_directory_lease
+from .project_comments import MAX_COMMENT_BYTES, CommentLedger
+from .project_template_backup import inspect_project_templates
 from .skill_proposal_files import directory_fd, read_relative
 from .skill_proposals import SkillProposalService
+from .skill_repository_backup import inspect_skill_imports
 from .skills import CONTENT_HASH_PATTERN, TENANT_PLUGIN_NAMESPACE, SkillRegistry
-from .storage import FileLedger
+from .storage import FileLedger, LedgerNotFoundError
+from .workspace_checkpoints import (
+    MAX_CHECKPOINTS,
+    MAX_RESTORES,
+    PENDING_RESTORE,
+    WorkspaceCheckpoints,
+)
 
 FORMAT = "ophira-application-cold-backup"
 DEFAULT_LIMITS = BackupLimits()
@@ -66,13 +75,62 @@ def inspect_application(data: Path, plugin: Path) -> dict:
     # list_projects/list_runs deliberately hide malformed UI records. A backup
     # must instead read every directory strictly so missing truth cannot vanish.
     projects, runs = {}, {}
+    checkpoints = WorkspaceCheckpoints(ledger)
     for directory in sorted(ledger.projects_dir.iterdir()):
         if not directory.is_dir():
             raise BackupError("invalid_project_store")
         project = ledger.get_project(directory.name)
         if project.id != directory.name:
             raise BackupError("project_identity_mismatch")
+        if (directory / PENDING_RESTORE).exists() or list(directory.glob("workspace-stage-*")):
+            # Pending swaps bind actual directory inodes. Finish them on the
+            # original host before copying; never replay them in a cold restore.
+            raise BackupError("pending_workspace_restore")
+        try:
+            from .artifact_files import read_snapshot
+
+            for identifier in checkpoints._ids(
+                project.id, "workspace-checkpoints", MAX_CHECKPOINTS,
+            ):
+                item = checkpoints.load(project.id, identifier)
+                for row in item.files:
+                    if len(read_snapshot(directory, row.sha256)) != row.size:
+                        raise ValueError("snapshot size mismatch")
+            for identifier in checkpoints._ids(project.id, "workspace-restores", MAX_RESTORES):
+                item = checkpoints.get_restore(project.id, identifier)
+                target = checkpoints.load(project.id, item.checkpoint_id)
+                if target.fingerprint != item.target_fingerprint or item.state == "applying":
+                    raise ValueError("invalid recovery target")
+                if item.state == "applied":
+                    safety = checkpoints.load(project.id, item.safety_checkpoint_id or "")
+                    if safety.fingerprint != item.current_fingerprint:
+                        raise ValueError("invalid recovery safety copy")
+        except (LedgerNotFoundError, OSError, ValueError) as exc:
+            raise BackupError("workspace_checkpoint_invalid") from exc
+        for artifact in project.artifacts:
+            if artifact.content_storage == "snapshot":
+                try:
+                    ledger.capture_artifact(project.id, artifact.id)
+                except (OSError, ValueError) as exc:
+                    raise BackupError("artifact_snapshot_invalid") from exc
         projects[project.id] = project
+    inspect_project_templates(data, projects)
+    comment_store = data / "collaboration" / "comments"
+    if comment_store.exists():
+        for path in sorted(comment_store.iterdir()):
+            if path.name.startswith(".") and path.name.endswith(".tmp"):
+                continue  # Uncommitted atomic-write staging is not discussion history.
+            try:
+                record = CommentLedger.model_validate_json(read_relative(
+                    data, f"collaboration/comments/{path.name}", MAX_COMMENT_BYTES,
+                ))
+                project = projects[record.project_id]
+                if (path.name != f"{project.id}.json"
+                        or record.tenant_id != project.tenant_id
+                        or record.identity_binding != project.identity_binding):
+                    raise ValueError("comment scope mismatch")
+            except (OSError, ValueError, KeyError) as exc:
+                raise BackupError("project_comments_invalid") from exc
     for directory in sorted(ledger.runs_dir.iterdir()):
         if not directory.is_dir():
             raise BackupError("invalid_run_store")
@@ -153,8 +211,9 @@ def inspect_application(data: Path, plugin: Path) -> dict:
             or not proposals._receipt_matches(item, receipt)
         ):
             raise BackupError("proposal_publication_receipt_mismatch")
+    imports = inspect_skill_imports(ledger, registry)
     for proposal_id, receipt in canonical.get("publication_receipts", {}).items():
-        if proposal_id not in by_id:
+        if proposal_id not in by_id and proposal_id not in imports:
             raise BackupError("publication_proposal_missing")
         namespace, name = receipt["skill_id"].split(":", 1)
         registry._skill_from_history_unlocked(
@@ -173,6 +232,14 @@ def inspect_application(data: Path, plugin: Path) -> dict:
             for item in items
         },
         "canonical_state": canonical,
+        "skill_imports": {
+            item.id: {
+                "state": item.state,
+                "revision": item.revision,
+                "content_hash": item.skill.content_hash,
+            }
+            for item in imports.values()
+        },
     }
 
 

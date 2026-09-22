@@ -20,7 +20,7 @@ from typing import Any
 
 import httpx
 
-from .constants import STREAM_END_EVENT, EventType, EvidenceSourceType
+from .constants import STREAM_END_EVENT, EventType, EvidenceSourceType, RunMode
 from .events import redact
 from .models import EventEnvelope, OpportunityProject
 
@@ -312,6 +312,7 @@ async def drive_run(
     provider_id: str,
     policy: PermissionPolicy,
     resume_session_id: str | None = None,
+    mode: RunMode | None = None,
     timeout_s: float = 900,
     poll_s: float = 0.5,
 ) -> dict[str, Any]:
@@ -320,6 +321,8 @@ async def drive_run(
     from .models import PendingPermissionView
 
     payload: dict[str, Any] = {"prompt": prompt, "provider_profile_id": provider_id}
+    if mode is not None:
+        payload["mode"] = mode
     if resume_session_id:
         payload["resume_session_id"] = resume_session_id
     response = await client.post(f"/api/projects/{project_id}/runs", json=payload)

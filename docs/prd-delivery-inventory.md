@@ -20,18 +20,18 @@
 | FR-08 隔离 | delivered：项目路径、符号链接、独立 worker 配置 | deferred：生产 worker 资源包络与租户物理隔离演练 |
 | FR-09 来源账本 | delivered：同 Run/session 的服务器 source receipt | 保持来源、失效、回放和内容完整性回归 |
 | FR-10 决策 | delivered：证据关联与失效联动 | 开放任务质量另行验收 |
-| FR-11 领域 MCP | delivered：确定性商业计算、用户记录加工、显式结算计划的现金流/日末与保守日内资金缺口 | deferred：真实供应商/客户/市场/法规/物流/汇率授权数据适配 |
+| FR-11 领域 MCP | delivered：确定性商业计算、用户记录加工、显式结算计划的现金流/日末与保守日内资金缺口；TikTok Shop项目指定店铺的主Agent只读MCP与来源凭证 | deferred：真实供应商/客户/市场/法规/物流/汇率授权数据适配及已实现商家接口的真实验收 |
 | FR-12 Skill 生命周期 | delivered：发现/启停/扫描/不可变版本/配额/租约/回滚；13个内置Skill的证据参考与输出模板、固定包原生只读访问；Agent候选冻结、人审发布默认关闭、凭证恢复与独立审阅UI；独立Skill备份及含项目账本/候选库的应用冷备份、新进程恢复 | deferred：真实模型提案质量、真端点回滚重跑、跨宿主/生产恢复及其余子系统的恢复认证 |
-| FR-13 权限 | delivered：范围/有效期/审计、删除确认、沙箱拒绝逃逸；可信设备单次审批；原生SDK持久等待、原Run恢复、跨进程决议竞争、消费前撤销复验 | deferred：真实远程审批与生产故障矩阵；原生多工具批次须拆为单次审批 |
+| FR-13 权限 | delivered：范围/有效期/审计、删除确认、沙箱拒绝逃逸；可信设备单次审批；原生SDK持久等待、原Run恢复、跨进程决议竞争、消费前撤销复验；工作台内切换组织授权模式，仅 SDK 原生 default/auto 两档 | deferred：真实远程审批与生产故障矩阵；原生多工具批次须拆为单次审批 |
 | FR-14 记忆 | delivered：提案人审、TTL/过期/检索/导出/删除恢复 | deferred：真实蒸馏质量、生产备份删除边界与恢复演练 |
 | FR-15 自动化 | delivered：计划/心跳/收件箱本地链路；跨进程自动调度租约和崩溃幂等；手动/自动触发共用租约与持久Run重叠检查、页面并发操作治理 | deferred：真实长期运行与渠道投递 |
-| FR-16 产物 | delivered：版本化台账/下载、Office 文件结构 | deferred：真实编辑流程、Office 渲染目视 QA、布局回归 |
+| FR-16 产物 | delivered：不可变文件版本/准确历史下载、同内容回退的新版本、并发登记去重；文本预览/修改对比/冲突保护/幂等保存/人类编辑溯源、编辑中断恢复与冷备恢复；Office 文件结构 | deferred：真实模型连续编辑与浏览器目视、Office 渲染 QA、布局回归；旧记录已丢失的原始字节无法补造 |
 | FR-17 可观测性 | delivered：trace、三层日志、脱敏、类型化卡片；项目范围Provider/模型/Skill/MCP/错误分组指标与工作区面板 | deferred：细分事件与生产指标/性能验收 |
-| FR-18 恢复 | delivered：保存产物、错误分类、重试与重启恢复 | deferred：Bash 文件修改快照恢复与真实进程崩溃演练 |
-| FR-19 Deep Research | delivered：恰好三个只读研究子代理、预算/取消/墙钟限制；恢复沿用原起始时间、金额/turn预算及墙钟截止时间 | deferred：真实 SDK Deep Research 执行、完整资源 UI 与合并证据验收 |
-| FR-20 GUI | delivered：L1/L2 真实浏览器 smoke | deferred：真实攻击/恢复矩阵；L3 桌面桥与 OS 权限治理未实现 |
-| FR-21 Connector | delivered：Catalog/Vault/health/revoke、HTTPS JSON send_message | deferred：邮箱/店铺/CRM/社媒垂直 adapter，真实授权 test-account 外发全链 |
-| FR-22 组织治理 | delivered：单部署租户 principal/membership/策略 | deferred：租户分区、隔离 runner、共享项目/评论/模板、组织私有 Skill 仓库 |
+| FR-18 恢复 | delivered：保存产物、错误分类、重试与重启恢复；Run 起点的完整可支持工作区快照、Bash 修改恢复、人工变更预览/确认/结果重试、中断目录切换修复、真实进程退出与冷备往返；同项目执行与产物收尾租约 | deferred：真实 SDK 故障注入、生产/跨宿主恢复、容量保留管理、性能与浏览器目视验收 |
+| FR-19 Deep Research | delivered：输入框内显式开关发起（默认关闭、运行中锁定）；三种原生只读研究单元的一次新建/同 Run 续接约束；共享预算/取消/原始截止时间；运行中资源 UI、来源包与主 Agent 去重落账；真实 DeepSeek 合成来源上的三单元并行/来源复核/证据合并与报告验收 | deferred：开放互联网研究质量、真实取消/耗尽/长时墙钟故障矩阵、其他 Provider 与浏览器目视验收 |
+| FR-20 GUI | delivered：L1/L2 真实浏览器 smoke；项目独立店铺 profile、用户登录确认、当前页观察引用、主Agent页面动作/报表下载与来源/产物落账、真实Chromium离线链路 | deferred：真实卖家后台/验证码/风控兼容性和模型联调；真实攻击/恢复矩阵；L3 桌面桥与 OS 权限治理未实现 |
+| FR-21 Connector | delivered：Catalog/Vault/health/revoke、HTTPS JSON send_message；五平台官方文档入口，TikTok Shop授权店铺/商品分页只读adapter、项目店铺授权/到期/撤销、主Agent来源凭证接入与中英文管理员UI；项目店铺身份可关联平台Connector、独立浏览器授权及数据展示 | deferred：其余邮箱/店铺/CRM/社媒垂直adapter；TikTok Shop OAuth/refresh、真实授权test-account及模型调用验收/外发全链；API与浏览器数据自动合并 |
+| FR-22 组织治理 | delivered：单部署租户 principal/membership/策略；共享项目成员管理UI与版本冲突保护；持久团队讨论/回复/对象关联/编辑历史/解决状态；可复用项目模板、固定参考版本与来源、核对后创建和中断恢复；组织私有Skill导入人审、固定版本查看/导出、独立启停/恢复、跨进程凭证与冷备恢复 | deferred：真实身份网关联调、租户分区与隔离 runner、长期容量与浏览器目视验收 |
 | FR-23 Web 兜底 | delivered：Serper/Tavily 适配与 SSRF 防护 | deferred：真实配置搜索服务和 Provider 降级 E2E |
 | FR-24 IM | delivered：飞书签名入站/身份绑定/同 Agent/持久回复重试 | deferred：真实飞书/Lark 租户 E2E；微信适配未实现 |
 | FR-25 移动 | delivered：项目范围配对、双端验证码批准、私有 cookie 与设备撤销/过期；单次持久审批、可选任务发起；Web Push订阅/加密VAPID/授权复验/持久重试与状态UI | deferred：native push、真实手机 HTTPS/外部Push/长期运行验收；OS 防休眠未实现 |
@@ -43,14 +43,14 @@
 
 | PRD 落点 | 状态及剩余工作 |
 |---|---|
-| §3.5 A–G / §6.5 | deferred：需求/供给/客户多起点真实基准、可编辑产物和连续对话验收 |
+| §3.5 A–G / §6.5 | delivered：文本产物原位编辑、不可变历史、修改后知识库检索的本地闭环；deferred：需求/供给/客户多起点真实基准、真实模型连续编辑/对话与产物质量验收 |
 | §3.7 / §4.7 | delivered：原生文件工具 + 显式Artifact提交候选，独立pending冻结包、人审revision/hash/当前目标CAS、静态扫描强制检查、不可变发布默认关闭和独立审阅UI；deferred：真实Provider自主提案质量、人工使用效果与生产隔离验收 |
 | §3.7 P2 知识库 | delivered：项目登记文本/OCR伴随文件索引、来源行列/版本、权限复验API、只读MCP与中英文工作区检索、校验和一致的下载；deferred：Office原件索引、真实检索质量/容量与浏览器目视验收 |
-| §3.7 P2 团队 | deferred：团队评论、模板和私有 Skill 管理 |
+| §3.7 P2 团队 | delivered：共享项目成员角色管理、关联项目/Run/消息/证据/决策/文件版本的团队讨论、项目模板保存/版本/参考文件下载/新建/归档/中断恢复、组织私有Skill审核发布与成员只读版本库及中英文UI；deferred：真实组织与浏览器目视验收、长期容量及生产隔离 |
 | §4.16 任务经验 | delivered：专属工具与版本/来源账本、创建时配置指纹、低信任检索注入、容量/事务恢复与人工停用UI；deferred：真实Provider自主调用及长期判断质量 |
 | §4.12 事件 | delivered：有真实Run归属的evidence.added/decision.recorded/artifact.registered/artifact.updated/memory.proposed、持久幂等补发与完整SSE尾部消费；任务记忆审阅面板与按Run授权查询；deferred：浏览器目视验收、无Run项目变更和 schedule/preflight 细分事件 |
-| §3.9 / §4.10 | delivered：自动调度跨进程抢占与事件汇总恢复；deferred：其余事件故障矩阵、Bash 修改恢复、CPU/内存/进程/输出限制 |
-| §3.9 数据主权 | delivered：操作者CLI完整数据目录冷备份与新目录恢复，覆盖项目账本/提案/Registry一致性；deferred：项目/会话/凭据的完整授权导出与删除（记忆已交付）、恢复UI及生产灾备 |
+| §3.9 / §4.10 | delivered：自动调度跨进程抢占与事件汇总恢复；Bash 工作区快照与人审恢复、跨进程目录切换修复；deferred：其余事件故障矩阵、生产恢复/容量与性能、CPU/内存/进程/输出限制 |
+| §3.9 数据主权 | delivered：操作者CLI完整数据目录冷备份与新目录恢复，覆盖项目账本/提案/Registry/工作区检查点一致性；项目工作文件恢复UI；deferred：项目/会话/凭据的完整授权导出与删除（记忆已交付）、全应用恢复UI及生产灾备 |
 | §3.9 性能 | delivered：本地ASGI单/4并发各100样本，创建/首事件持久化/离线task取消P95基线；deferred：真实SDK进程、网络/SSE运输、多worker与生产负载验收 |
 | §3.9 / §3.10 | delivered：项目范围按Provider/model/Skill/tool/错误的有界指标汇总；deferred：业务成功指标、区域与数据流披露 |
 | §3.11 / §6.6 | deferred：当前 L2 基线、人亲自标注的 gold、judge 校准与 TPR/TNR 门槛；不能由 AI 伪造标注 |
@@ -448,10 +448,384 @@ Browser运行时已成功加载，但选择浏览器返回`No browser is availab
 列表为空，未声称页面目视验收通过。本批未调用真实Provider或外部数据服务。
 Office原件索引、真实检索质量/容量、页面目视验收和全PRD其余deferred继续开放。
 
+## 2026-09-09：五平台接入依据与 TikTok Shop 管理员只读流程
+
+[接入合同与边界](marketplace-connectors.md)记录用户提供的 SHEIN、Temu、TikTok Shop、
+AliExpress 和 Shopee 官方文档。Alibaba 托管的链接归属速卖通；既有 `alibaba` 与
+TikTok 社媒凭据不迁移、不混用。其余四个平台在页面明确显示“适配器待实现”。
+
+本批 delivered：TikTok Shop 独立 Catalog 记录、结构化 seller 凭据存储、到期时间
+校验、两项固定官方只读接口、每次商品查询重新核实 shop 授权并在服务端解析 cipher、
+分页游标、来源路径/读取时间/request ID、中英文配置与读取/撤销/重连页面。
+控制面只允许管理员手动读取，不自动创建证据或项目真值。传输使用固定官方主机、
+公网 DNS 固定地址、TLS/Host/SNI、30秒总期限及2MiB响应上限；撤权/轮换/过期复验，
+拒绝重定向，签名URL及上游错误正文不进入应用响应。
+
+新增53项后端测试与5项前端测试，覆盖签名向量、实际发送正文/头、游标、私网拒绝、
+店铺授权、读取中撤销/轮换/过期、限长与响应关闭、凭据反射、真实FastAPI管理员边界、
+凭据表单与分页交互。全量后端 **1592 passed / 8 live skipped（74.93秒）**，前端
+**274 passed**；Ruff、ESLint、生产构建通过。评测工具 **59 passed**，Snapshot
+**61/61**。构建仍提示主JS超过500kB（本批660.93kB）。
+
+本批没有使用真实商家凭据或发送真实平台API请求；官方文档核查不等于平台认证。
+Browser重新检查仍返回空可用列表，未声称视觉验收。TikTok Shop OAuth/refresh、
+Agent项目授权绑定、来源凭证入库、真实test-shop与商家授权联调、写操作，以及其余
+四个平台适配器继续 deferred；完整PRD目标保持开放。
+
+## 2026-09-09：项目指定店铺授权、主 Agent 读取与来源凭证
+
+交付前基线：`383ceb2`。本批补齐上节的 Agent 项目授权绑定和来源凭证接入；
+使用方式、API 和边界见 [电商平台接入合同](marketplace-connectors.md)。
+
+管理员在连接器页面选择项目、已核验店铺和 1/7/30 天有效期，创建或续期只读授权。
+授权存于项目工作区之外，保留创建/撤销人和时间；revision CAS 与跨进程锁保护更新，
+续期生成新绑定并停用旧绑定。创建前重新核实 seller token 的店铺列表和配置的商品
+权限，网络返回后再次核验管理员资格。同 app 更新 token 可沿用有效授权，换 app
+须重新授权；连接器停用时仍可撤销项目授权。历史最多保留 1,000 条，撤销不删除来源。
+
+既有 ledger MCP 增加主 Agent 的 `read_marketplace`：只列本项目已授权店铺，按绑定
+读取每页最多10个商品。项目/Run/session/principal由宿主绑定；每次读取复验当前身份、
+Run状态、SDK session、店铺授权及连接器状态。原生SDK权限与PreToolUse均拒绝研究支线
+自行调用；主Agent可向支线提供已读取的观察。SDK preset、严格MCP配置和单主Agent架构保留。
+
+来源凭证由服务端签发，绑定同项目/Run/session/principal及清洗后的实际商品页，
+有效期不超过15分钟且不超出店铺授权剩余时间；既有 `record_evidence` 可引用、核验
+和回放。固定结构数据保留每字段4,000字与总计32,000字上限，超量整页拒绝；保留
+JSON形式的字面商品标题，移除伪造指令边界。原生MCP分发与PostToolUse替换后的内容
+逐项匹配凭证，覆盖空页、10条长标题和JSON文本，避免先签发再改变Agent所见内容。
+
+验证命令与结果：
+
+- `OPHIRA_CONTRACT_PROVIDER= PYTHONPATH=backend/src .venv/bin/python -m pytest backend/tests -q`：**1620 passed / 8 live-only skipped**（73.68秒）。新增28项后端测试，含生产FastAPI权限、读取中撤销/过期/取消/session及app变化、跨项目拒绝、同app令牌更新、并发授权、真实双进程撤销CAS与来源入证据链路。
+- 前端 `npm run test:run`：**278 passed / 28 files**，新增4项项目授权交互测试；全量字典覆盖检查发现并补齐“操作”表头。
+- Ruff、ESLint、TypeScript、Vite生产构建及diff-check通过；主JS包666.76kB，既有大于500kB提示保留。
+- `.venv/bin/python -m pytest evals/tools/tests -q`：**59 passed**；Snapshot **61/61**，既有验收门槛未改变。
+
+本批未使用真实商家凭据，未调用真实平台API或Provider。Browser可用列表仍为空，
+未声称界面目视验收。真实模型使用此工具、真实test-shop/商家权限与区域/限流验收、
+OAuth交换和自动refresh、商业写操作以及其余四个平台adapter仍deferred。
+商品列表仅代表授权商家的自有数据，不支持全市场需求或竞争对手销量结论；
+全量PRD目标保持开放。
+
+## 2026-09-09：店铺身份、独立登录浏览器、任务采集与数据展示
+
+交付前基线：`0b1b9c4`。用户明确的两层结构已落到实现：平台 Connector 管应用凭据与
+API；项目店铺保存身份及可选 Connector 关联，独立浏览器保存登录会话。完整使用说明、
+接口及限制见 [店铺浏览器](shop-browsers.md)。API 与浏览器授权分别管理，尚未自动合并两路数据。
+
+本批 delivered：每项目最多100个店铺、独立持久profile及窗口进程、用户本人登录/确认、
+按当前会话到期/撤销的授权；现有SDK浏览器MCP支持按shop_id读取、基于观察引用操作、
+逐次审批报表下载。页面截图、文本和原始报告通过真实Run保存为来源凭证、Evidence与Artifact，
+前端列出来源和可下载文件，页面文本进入项目知识检索。没有另造模型循环或固定子Agent。
+
+私有socket和进程租约确认窗口所有权；排队执行、运行期间、网络检查和落账前复验Run、
+SDK会话、成员、店铺revision、授权和组织策略。撤销/取消/断线中止进行中的操作，已发出
+的远端副作用不承诺回滚。登录文件处于工作区之外，并加入SDK沙箱禁止读写范围。
+活动浏览器持有维护租约，阻止冷备份复制变化中的profile。真实浏览器测试复现了截图临时
+修改input样式导致观察引用误判，修正为截图完成后绑定元素，保留真实DOM变更拒绝。
+
+最终验证：
+
+- 后端全量：`OPHIRA_CONTRACT_PROVIDER= PYTHONPATH=backend/src .venv/bin/pytest backend/tests -q`，
+  **1630 passed / 13 skipped**，70.80秒；其中8项真实Provider测试、5项独立Chromium测试由环境门控。
+  此后新增4项文件篡改拒绝用例，所在权限测试模块独立运行 **13 passed**。
+- 真实Chromium离线验收：`OPHIRA_SHOP_BROWSER_E2E=1 PYTHONPATH=backend/src .venv/bin/pytest backend/tests/test_shop_browser.py -q`，
+  **6 passed**，3.33秒，包含一个不依赖Chromium的范围测试。使用合成HTTPS页面、真实DOM、
+  下载事件、独立profile、socket及完整来源/文件回放；原生MCP和PostToolUse内容逐项一致。
+- 前端全量 **283 passed / 29 files**；新增5项身份确认、编辑CAS、操作互斥、数据下载展示及项目切换测试。
+- Ruff、ESLint、TypeScript、Vite构建及diff-check通过；评测工具 **59 passed**，Snapshot **61/61**。
+  主JS包678.50kB，既有大于500kB提示保留。
+
+真实Chromium保留自身沙箱；本机执行沙箱阻止启动时，在获准的执行环境重跑离线测试。
+Browser工具重新选择和发现均无可用浏览器，未宣称前端目视验收。未使用真实卖家凭据、
+未调用真实平台或Provider。OAuth/Token交换与刷新、其他平台API、真实登录/验证码/风控
+及平台报表适配、实际模型任务与生产资源/隔离认证继续deferred；完整PRD目标尚未完成。
+
+## 2026-09-09：不可变产物版本与文本编辑
+
+交付前基线：`5435cb0`。新增合同：[产物版本与编辑](artifact-versions.md)。
+
+复核发现历史记录仅保存元数据，旧版下载仍指向可覆盖的工作文件；A→B→A 内容回退
+返回旧版编号，跨进程登记可能重复分配版本。新登记通过描述符捕获、SHA-256 及文件
+大小校验，将不可变副本先持久化再发布记录。项目锁覆盖版本分配，修改/删除工作文件
+后仍能准确下载历史版本；无法验证的旧数据明确不可用，不用当前文件冒充原件。
+
+工作区新增中英文 Project files，支持完整路径列表、搜索、逐版本下载和来源审查。
+512 KiB 内 UTF-8 文本可原位编辑、比较修改并保存新版本；校验基准版本/工作文件/目录
+身份，保留旧字节、编辑者和前版来源。运行中的任务（包括暂停和终态清理）阻止人工
+覆盖；新任务创建与编辑共用项目锁。HTTP 有界读取并在 I/O 和替换前复验权限，失败
+保留草稿，同请求重试幂等，跨项目导航丢弃迟到读写响应。新版本进入现有项目知识库。
+
+编辑意图先落盘；进程退出后只根据当前字节补记原版本，不重放文件修改。覆盖交换前、
+交换后和账本提交后的中断；另有真实 spawn 进程交换后直接退出、2/4 个进程同时登记
+以及新目录冷备恢复测试。备份验证新增副本完整性检查，损坏历史不能通过验收。
+
+代码冻结后的验证：
+
+- 后端 `OPHIRA_CONTRACT_PROVIDER= PYTHONPATH=backend/src .venv/bin/python -m pytest backend/tests -q`：
+  **1670 passed / 13 skipped**，72.74 秒；跳过8项真实Provider及5项独立Chromium环境门控测试。
+- 产物/编辑/API/进程/应用备份专项 **71 passed**，包含真实 OS 进程竞争与退出。
+- 前端 `npm run test:run`：**292 passed / 30 files**；新增9项文件管理交互回归。
+- Ruff、ESLint、TypeScript、Vite构建和diff-check通过；评测工具 **59 passed**，Snapshot **61/61**。
+  主JS包688.74 kB；既有大于500 kB提示保留。
+
+本轮未调用真实Provider、平台账号或外发服务。Browser连接返回无可用浏览器，按文档
+发现列表也为空，未宣称目视验收。真实模型连续编辑、Office渲染/布局、Bash修改的完整
+工作区恢复、生产隔离，以及上表其他deferred均继续纳入全量目标；完整PRD尚未完成。
+
+## 2026-09-09：运行前工作区快照与人工确认恢复
+
+交付前基线：`a170c22`。合同与容量边界见 [工作区检查点与恢复](workspace-recovery.md)。
+
+每个新 Run 在进入 SDK 之前冻结完整的可支持文件树，包含未登记文件、隐藏文件、
+空目录、二进制内容与所有者权限；因此覆盖 Bash 写入后的文件恢复。原生 SDK 文件
+检查点继续启用。同项目执行和终态产物收尾共用跨进程租约，其他项目可同时执行；
+排队取消不会冒领另一 Run 的文件。检查点线程取消后完成清理才释放租约。
+
+中英文工作区新增恢复点列表、全部变更分页预览、替换/移除数量、明确确认、结果查询
+及同请求重试。恢复绑定项目/审阅者/session、十分钟有效期与两棵树指纹，权限在最终
+读盘后再次复验。先冻结并保留当前文件，再按已持久化授权进行两次不覆盖目标的目录
+切换；重启修复不创建假的空工作区，不覆盖不明新目录。产物版本、项目真相、对话和
+商业收据保持历史，恢复不会重放 SDK 或商业动作。
+
+实际 `/bin/sh` 改写/删除/新建文件后可恢复原树。真实 spawn 进程在授权发布、两次
+目录切换、产物登记和 applied 发布后直接退出，重启均恢复同一次已授权操作；另外
+验证未知替代目录拒绝、后续人工编辑保留、跨进程运行争用、过期/撤销/过时预览、
+损坏/链接/特殊文件、取消快照线程、文本编辑意图与工作区恢复衔接、完整冷备往返。
+冷备验证检查点引用和 blob；待恢复目录切换须先在原宿主完成，不跨目录重放 inode。
+
+本批不包含真实 Provider/SDK 故障注入、Linux 实机与网络文件系统、生产灾备、历史
+保留管理和大容量性能认证。Browser 发现列表仍为空，未新增浏览器目视验收；不借此
+缩减其余 FR/章节范围，完整 PRD 目标继续开放。
+
+代码冻结后的验证：
+
+- 后端完整回归 **1715 passed / 13 skipped**，76.15 秒；相对基线新增45项测试。
+  跳过8项真实Provider及5项独立Chromium环境门控测试。
+- 前端 **300 passed / 31 files**；新增8项恢复预览/确认/迟到响应/网络结果查询与分页测试。
+- 评测工具 **59 passed**；离线 Snapshot 门禁 **61/61**。
+- Ruff、ESLint、TypeScript、Vite build 与 diff-check 通过。
+  主 JS 697.32 kB，既有大于500 kB提示继续保留。
+
+## 2026-09-09：Deep Research 资源面板与真实原生研究验收
+
+交付前基线：`ce91687`。合同见 [Deep Research 运行资源](deep-research-resources.md)。
+本批代码、测试、真实验收归档与本节同步交付。
+
+中英文工作区展示已固定的共享 SDK 额度、已报告费用、剩余时间、原始截止时间、
+轮数政策、实际原生研究单元与任务累计快照。没有报告的用量为空，进度快照不重复
+相加；Run 结束不补造任务成功。API 有界回放、身份/序号检查、读前后权限复验、
+no-store；前端串行刷新、单调时钟倒计时、取消整次研究、旧请求作废与失败清空。
+
+研究单元只允许三种已配置类型，每种每个逻辑 Run 新建一次；续接必须是本 Run 已
+观测到的原生 agent_id。三份来源包由主 Agent 按原始来源去重、保留冲突、复核原件，
+经既有 receipt/文件验证与 record_evidence_batch 落账。来源包是输出约定，不能
+自行升级为可信凭证。任何模式下子代理再派生也在钩子和回调中明确拒绝。
+
+真实 SDK 首次执行发现 `dontAsk` 与启动配置给只读工具添加的 ask 规则冲突，导致
+三个单元均启动却无法读取来源。失败归档保留在
+[`research-e2e-20260910T022515988906Z`](../evals/reports/research-e2e-20260910T022515988906Z/report.md)，
+未将主 Agent 独自完成报告当成研究验收通过。修复仅移除 Deep Research 明确只读
+工具的重复 ask，保持统一启动钩子、身份/路径验证和主 Agent 写入权限。
+
+修复后的真实运行见
+[`research-e2e-20260910T023412298562Z`](../evals/reports/research-e2e-20260910T023412298562Z/report.md)：
+
+- 固定 SDK 0.2.143，主消息服务模型 `deepseek-v4-pro`；原生子任务返回的 resolvedModel
+  为 `deepseek-v4-flash`，不将该配置/解析字段冒充独立计费认证。
+- 三种研究单元全部实际启动、执行时间重叠、分别完成三次原件 Read，返回非空
+  来源包；无子代理写入、Bash、外部搜索或业务外发。
+- 主 Agent 再次读取三份原件，两份报价日期/价格/MOQ差异保留；法语转载不另建
+  证据。批量提交的重复项返回同一 ID；决策/不可变报告关联真实证据与决策 ID。
+- 16,520 条实际事件完整回放；运行中资源采样和最终三个任务快照与原生最终通知
+  的 token/工具数/时长逐项相符；报告字节校验和与不可变产物一致。
+- Run 正常完成，SDK 累计估算 **1.920009 USD**，固定上限2 USD，约180秒内结束，
+  原始墙钟600秒、轮数不限。首次失败运行估算1.849989 USD；均不是厂商实际账单。
+
+复验原始 `summary.json` 唯一误报来自验收器漏列原生只读 Glob 文件定位，原判定
+保持不变。补齐 Glob/Grep 并保留外部工具拒绝的回归后，对同一份不可变归档重算，
+[`reverification.json`](../evals/reports/research-e2e-20260910T023412298562Z/reverification.json)
+全部通过，没有第三次模型调用。旧失败归档在同样规则下仍失败。事件以无损 gzip
+保存，压缩前后字节数及 SHA-256 均可复核。
+
+冻结代码后的验证：后端 **1771 passed / 13 skipped**（77.08秒），前端
+**308 passed / 32 files**；Ruff、ESLint、TypeScript、Vite build、diff-check通过；
+评估工具 **59 passed**、Snapshot **61/61**。主 JS 706.99 kB，既有体积警告保留。
+Browser 连接仍返回无可用浏览器，发现列表为空，未声称目视验收通过。
+
+本批证据只覆盖合成上传材料上的真实原生执行与来源合并；开放互联网研究质量、
+生产资源/故障矩阵、组织治理、其余 FR/章节 deferred 均保留，完整 PRD 目标继续开放。
+
+## 2026-09-09：共享项目成员界面与持久团队讨论
+
+交付前基线：`d801e89`。合同见 [项目协作](project-collaboration.md)。
+
+- 中英文“团队与评论”面板显示当前账号和项目能力；所有者/管理员可以核对账号、
+  角色和当前 revision 后添加、改角色或移除成员。保留现有唯一所有者、租户与
+  签名角色一致性约束；本地模式明确说明仅本机评论，不模拟组织账号或发送邀请。
+- 评论可绑定整个项目、当前 Run、主 Agent 完整可见消息、证据、决策或准确文件
+  版本。回复继承原关联；作者可编辑，作者/管理员可移除或解决/重开，查看者只读。
+  原文及所有修改保持历史，移除后的原文仅作者/管理员可查看。
+- 项目外独立存储保留合法连续历史、序号、身份与标签快照；原子落盘、精确字节
+  容量、请求幂等、revision 冲突保护、跨进程成员租约、提交前后权限复验。
+  真实双进程提交/编辑/撤销竞争及保存后进程退出重试均已通过；冷备往返保留讨论。
+- 界面每15秒刷新，旧回复草稿保持挂载；请求失败保留草稿，冲突时先核对最新内容。
+  切换项目、撤销/过期和关闭面板使旧请求作废；权限拒绝后迟到的能力响应不能恢复
+  私有内容。协作所有响应禁止缓存；账号中的 @/+/冒号保持网关要求的规范路径。
+- 修复回归中确认的首次点击早于 effect 初始化而不发起历史读取的问题；凭据在
+  请求等待期间失效也返回访问拒绝，不泄露诊断文本或留下可继续操作的私有界面。
+
+最终验证：后端完整 **1790 passed / 13 skipped**（81.82秒）；增强规范账号路径的
+同批18项协作测试再通过。前端完整 **323 passed / 33 files**；评测工具 **59 passed**，
+离线 Snapshot **61/61**。Ruff、ESLint、TypeScript、Vite build、diff-check通过。
+主 JS 732.88 kB，既有大于500 kB的体积提示保留。
+
+Browser 发现列表仍为空，未声称真实浏览器目视通过。项目模板与组织私有 Skill
+仓库尚未实现；真实组织身份联调、大容量/长期运行及生产隔离仍需验收。此次只更新
+成员协作和评论的已交付边界，其余 FR/章节 deferred 与完整 PRD 目标继续开放。
+
+## 2026-09-09：可复用项目模板与创建恢复
+
+交付前基线：`e68481f`。合同见 [项目模板](project-templates.md)。
+
+- 中英文工作台可核对并保存项目名称、目标、简介、市场、约束及选定文件版本，
+  查看不可变版本和 SHA-256、下载准确参考副本、保存新版本、归档与恢复。
+- 所有者可修改模板起始内容、明确选择参考文件并核对后创建独立项目；保留模板
+  来源和文件版本映射，创建新的项目内文件 ID，PDF/图片沿用 Markdown 摄取。
+  新项目独立建立证据、决策、成员及定时任务，模板创建不启动 Run 或模型调用。
+- 作者/管理员管理模板，成员可整理、查看者只读；新建项目保持现有所有者门槛。
+  模板与创建记录独立于 Agent 工作区，持有跨进程权限租约，发布前复验身份。
+  结构化文本先脱敏；只复制核对过的原文件字节；请求、文件与历史均有容量限制。
+- 创建记录先落盘，私有暂存目录形成完整项目后排他原子发布。相同请求只创建一次，
+  响应丢失后的重试保留新项目后续编辑。重开浏览器可查看持久创建记录，核对后恢复，
+  无须原浏览器草稿或旧会话。真实双进程竞争及发布前/后进程突然退出均已验证。
+- 冷备份验证模板、固定文件、已完成创建与目标来源并可恢复到新目录；未完成创建
+  或暂存目录必须先在原安装中完成恢复。修改或软链接参考文件不会发布半成品。
+- 独立服务进程的 [HTTP 演练](../backend/scripts/check_project_templates.py) 已通过：
+  临时目录中上传、两个不可变版本、参考下载、创建与重试、归档限制，最终两个项目、
+  一个复制参考、零 Run；该结果不作为模型或真实组织身份联调的证明。
+
+完整回归：后端 **1809 passed / 13 skipped**（86.77秒）；抽取共享协作身份常量后，
+20项评论与模板 API 复验通过。前端 **331 passed / 34 files**；评测工具 **59 passed**，
+离线 Snapshot **61/61**。Ruff、ESLint、TypeScript、Vite build、diff-check通过。
+主 JS 754.37 kB，既有大于500 kB的体积提示保留。
+
+Browser 发现列表仍为空，浏览器目视验收保持开放。组织私有 Skill 仓库、真实组织
+身份联调、大容量/长期运行、生产隔离以及其余 FR/章节 deferred 尚未完成；完整 PRD
+目标继续开放。
+
+## 2026-09-09：组织私有 Skill 仓库
+
+交付前基线：`f4e5102`。合同见 [私有 Skill 仓库](private-skill-repository.md)。
+
+- 中英文 Skills 页面提供组织私有包检索、固定版本文件预览、原始 ZIP 导出和管理员
+  导入审核。ZIP 上传只形成待审副本；审核确认后发布并保持禁用，启用及恢复独立操作。
+  人类上传不创建 Run，也不伪造 Agent 提案的项目/运行来源。
+- 扫描失败不能强制发布。审核绑定原始包哈希、导入修订、操作者和当前版本选择代数；
+  相同请求幂等重试，并发修改要求重新核对。Installed 页也校验显示的私有包状态后
+  提交版本比较请求，避免旧卡片修改新版本。
+- 使用现有 Registry 不可变历史与原子发布凭证。真实双进程重复审核仅留一个决议；
+  发布前、保存历史包后、提交凭证后的中断均保持可核对结果。新导入尚无提交凭证的
+  历史包不向成员展示/下载，不能经旧 rollback 接口选中。原有已发布历史继续可读。
+- 单部署组织范围持久绑定；管理员写入、成员只读已发布包，提交前再次检查断言有效期。
+  私有管理草稿在身份或角色变化后卸载，迟到响应不恢复旧状态。保留原始下载字节，
+  文本预览脱敏且有长度限制；包、导入记录与审核历史均有上限。
+- 冷备份验证导入身份、冻结文件、元数据、审核连续性及共享发布凭证，并能恢复
+  pending/rejected/published。未核对的 publishing 和上传暂存先阻止备份，须在
+  原安装由管理员刷新审核记录完成核对，再停机制作快照。
+- 独立服务进程的 [本地 HTTP 演练](../backend/scripts/check_skill_repository.py) 通过：
+  两个审核导入、两个固定版本、上传/发布重复请求、独立启用、历史恢复、过期选择拒绝
+  和准确原包下载；临时数据退出后删除，零模型 Run。
+
+完整回归：后端 **1835 passed / 13 skipped**（104.19秒）；前端 **345 passed / 35 files**；
+评测工具 **59 passed**、离线 Snapshot **61/61**。Ruff、ESLint、TypeScript、Vite build、
+diff-check 通过。主 JS 775.32 kB，既有大于 500 kB 的体积提示保留。
+
+Browser 发现列表仍为空，浏览器目视验收保持开放。真实组织身份联调、跨组织物理隔离、
+长期容量/生产恢复、真实模型使用质量及其余 FR/章节 deferred 尚未完成；完整 PRD
+目标继续开放。
+
+## 2026-09-10：Shopify 店铺只读连接器与店铺体检 Skill
+
+交付前基线：`469b3e1`。合同见 [电商平台接入合同](marketplace-connectors.md)。
+
+- 用户要求接入 Shopify 店铺，并确认参照 Accio Work 插件分层：宿主 Connector 持有凭据
+  并执行读取，Plugin 只放 Skill。Accio `shopify-plugin` 仅核对清单与 Skill frontmatter
+  （`mcpServers` 为空、宿主 OAuth 连接器、捆绑 Shopify CLI、4 个固定角色子代理），未复制
+  Skill 正文；固定角色子代理与沙箱内 CLI 持有令牌不符合红线，未采用。
+- 2026-01-01 起 Shopify 后台不能再新建自定义应用。连接器保存店铺地址与 Dev Dashboard
+  应用 Client ID/secret，服务端经 client credentials grant 换取 24 小时令牌，只存进程内存，
+  到期前 60 秒刷新、HTTP 401 后丢弃，不落盘、不返回。
+- 固定 GraphQL Admin `2026-07` 文档读取店铺、商品（ACTIVE/DRAFT/ARCHIVED/UNLISTED）
+  与订单；订单不请求顾客姓名、邮箱、电话和地址，未授予 `read_all_orders` 时标注最近
+  60 天窗口。连接器允许与 Shopify 实际授予的权限双重校验；商品/订单查询核对 shop ID，
+  店铺域名不符即拒绝。GraphQL 200 错误与 HTTP 401/402/403/404/423/429 映射固定错误码，
+  任何错误整页拒绝。
+- 与 TikTok Shop 共用固定地址 DNS、TLS/SNI、无重定向、2 MiB 与 30 秒边界（抽出共享
+  传输函数）；`MarketplaceReader` 按连接器类型分派，管理员读取路由、项目店铺授权与主
+  Agent `read_marketplace` 两平台共用。新增 `operation=orders`，订单页签发
+  `marketplace_order_page` 来源凭证；不新增 MCP 工具或 server。
+- 连接器页面新增 Shopify 卡片：店铺地址规范化、凭据保存、读取店铺/商品/近期订单、
+  缺失权限与多余写权限提示、项目授权；中英文文案齐全。
+- 新增 `ophira-core:shopify-store-review` Skill（数据边界参考与体检模板），主 Agent 只经
+  已授权读取做店铺体检；Registry 审核 5 项通过，应用 Skill 由 13 个增至 14 个。
+
+验证命令与结果：
+
+- 后端 `OPHIRA_CONTRACT_PROVIDER= PYTHONPATH=backend/src .venv/bin/python -m pytest backend/tests -q`：
+  **1885 passed / 13 skipped**（99.31秒），其中新增 Shopify 测试 49 项。
+- 前端 `npm run test:run`：**351 passed / 36 files**（新增 Shopify 卡片测试 6 项）；ESLint、
+  Vite build 通过，主 JS 786.26 kB，既有大于 500 kB 提示保留。
+- 本批改动文件 Ruff 通过；全量 Ruff 仍报 9 项，均在非本批的未跟踪 `project_export_*.py`。
+
+本批未使用真实 Shopify 凭据，也未发送真实 Shopify Admin API 请求；目标店铺
+`skateboard-shop-7560.myshopify.com` 仅核对过公开 `meta.json`。真实店铺联调（需运营者
+创建 Dev Dashboard 应用并在界面保存凭据）、组织外店铺授权码流程、旧版后台令牌、商品/
+订单写入、Shop browser 平台列表加入 Shopify 及其余 FR deferred 继续开放；完整 PRD
+目标继续开放。
+
+## 2026-09-11：工作台授权模式与显式 Deep Research 入口
+
+交付前基线：`3a58fc4`。本批只动前端工作台输入框，未改后端契约。
+
+- 输入框工具菜单收敛为「添加文件 / 专家 / Skills / 连接器」，Skills 与连接器直接进入已有管理页。
+  删除只改写提示词的内置 Skill 目录（`skillCatalog.ts`），它与运行时真实的 Plugin Skill 发现重复，
+  且会让用户以为选中的条目参与了装配。
+- 新增授权模式选择器：读写同一份 `/api/org/policy` 的 `permission_mode`，只提供后端
+  `PermissionModePolicy` 实际存在的 `default` 与 `auto`，不提供任何越过沙箱的完全放行档；
+  保存前先取最新策略再写回，失败保留菜单与原因，任务运行或等待授权时禁用。
+- Deep Research 保持 PRD §3.5 场景 G 的「用户显式选择」：改为输入框内的独立开关
+  （`aria-pressed`，默认关闭，运行中锁定），选择随 `mode` 提交到 `POST /api/projects/{id}/runs`。
+  **此前未提交的改动只删掉了模式菜单、没有替代入口，界面上已无法发起 Deep Research；本批补回该入口**，
+  FR-19 的运行时能力本身未变。
+- 授权与 Deep Research 药丸在停靠态和 430px 窄屏收敛为图标并保留无障碍名称；停靠态输入框由四列
+  改为五列，顺序为 工具 / 授权 / Deep Research / 模型 / 发送。
+
+验证命令与结果：
+
+- 前端 `npm run test:run`：**357 passed / 36 files**（新增 Deep Research 开关与授权模式用例）；
+  `npm run lint`、`npm run build`（含 `tsc -b`）通过，主 JS 783.24 kB，既有 >500 kB 提示保留。
+- 后端 `OPHIRA_CONTRACT_PROVIDER= PYTHONPATH=backend/src .venv/bin/python -m pytest backend/tests -q`：
+  **1885 passed / 13 skipped**（93.55秒），与上一批基线一致；本批未改后端。全量 Ruff 仍报 9 项，
+  全部在未跟踪、未纳入本批的 `project_export_*.py`。
+- 真实浏览器复核（仓库 `.venv` 的 Playwright + Chromium，临时 `OPHIRA_DATA_DIR`，真实后端进程）：
+  入口态与停靠态各一轮，**发现列表为空**。校验点：Deep Research 默认关闭且开关往返；run 请求体
+  `mode=deep_research`（该请求被拦截并返回 503，未真正启动 Run、未调用模型）；授权菜单恰好两档，
+  选择后 `/api/org/policy` 变为 `auto`，刷新后仍显示已保存档位；停靠态五个控件同一行且顺序正确、
+  不溢出；400px 窄屏控件仍可见可点。检查结束把组织策略复位为 `default`。
+- 复核中修正：按下态背景被 `:hover` 规则以更高优先级盖掉，选中态看起来与悬停一致，
+  已给 `[aria-pressed='true']` 补 hover 变体。
+
+边界：未调用真实模型、未启动 Run、未使用真实 Provider 凭据；Deep Research 的真实研究质量、
+真实取消/耗尽与长时墙钟故障矩阵仍 deferred。观察到一个既有问题、本批未改：400px 窄屏下固定输入框
+与页面文字重叠，属于原有停靠层布局，未纳入本批范围。完整 PRD 目标继续开放。
+
+
 
 ## 2026-09-22：产物与记忆观察事件
 
-本批基于当前工作树 `eff2289` 继续实现 §4.12，合同见
+本批最初基于本地 `eff2289` 实现 §4.12（提交 `ad00de7`）；核对远端后合入
+`d7a5f9a` 及其已有文件历史、恢复、资源面板、协作和模板能力，合同见
 [项目事件](project-events.md#artifact-versions-and-memory-proposals-2026-09-22)。
 
 - 新增产物版本更新与记忆提案的持久、幂等事件；原生产构造、原生 MCP、媒体、
@@ -459,12 +833,13 @@ Office原件索引、真实检索质量/容量、页面目视验收和全PRD其�
 - 原生记忆提案由服务器绑定来源 Run；事件只携带记忆标识，审阅内容另走授权查询。
   按 Run 打开的审阅面板支持观察后刷新、审批、修改、错误重试和中文文案；
   不自动批准，也不从事件正文伪造记忆。
-- Artifact 版本分配移入项目跨进程锁；重复最新内容不写新版本，A→B→A 保留三个版本。
+- 合并时保留远端 Artifact 不可变快照、路径捕获和跨进程锁实现；
+  重复最新内容不写新版本，A→B→A 保留三个版本；新增用例继续验证这条不变量。
   旧 artifact.registered 日志保持原样，匹配的旧通知被识别，不一致日志拒绝完成。
 - 新增离线验收用例覆盖提交后退出、双进程补发/登记、来源范围、撤销、旧日志、
   原生 MCP、蒸馏、SSE 尾部、页面切换与审批/刷新竞争。
 
-验证状态：
+合并远端前的验证（仅证明 `ad00de7`，合并后另行复验）：
 
 - 前端最终完整测试 **281 passed**（27文件）；lint、TypeScript/构建通过。
   主 JS 为653.86kB，既有大于500kB构建提示保留。
@@ -481,5 +856,12 @@ Office原件索引、真实检索质量/容量、页面目视验收和全PRD其�
 - Browser 连接返回 `No browser is available`，按技能故障发现流程确认可用列表
   为 `[]`；没有页面目视验收证据。
 
-上述自动化验证不涵盖真实 Provider 提案质量、生产隔离、Bash 历史文件快照、
-无 Run 项目事件或 schedule/preflight 细分事件；全量 PRD 目标保持开放。
+合并 `d7a5f9a` 后的完整复验：后端 **1909 passed / 13 skipped**（101.86s），
+跳过项为 8 个需要真实 Provider 配置的合约用例和 5 个显式启用的 Chromium 用例；
+前端 **369 passed / 37 files**，lint、TypeScript 与 build 通过，主 JS 784.84kB，
+既有体积提示保留。全量 Ruff、eval tools **59 passed**、Snapshot **61/61** 与
+`git diff --check` 通过。合并保留远端已有能力，没有把历史验收冒充本轮执行。
+
+本批不增加真实 Provider 提案质量或生产隔离证明；无 Run 项目事件及
+schedule/preflight 细分事件继续 deferred。已有 Bash 工作区检查点与资源面板
+以其独立合同和证据为准，不因本批历史基线较旧而回退；全量 PRD 目标保持开放。

@@ -87,6 +87,17 @@ PYTHONPATH=backend/src .venv/bin/python -m ophira_backend.application_backup res
 
 ## 验证命令
 
+项目模板也纳入结构校验：不可变版本、固定参考字节、创建记录和新项目来源必须
+一致。未完成模板保存、未完成创建或残留创建暂存目录会阻止冷备份；先在原安装中
+核对并重试完成，再制作备份。已完成模板和项目可恢复到新目录，见
+[项目模板及创建恢复](project-templates.md)。
+
+[私有 Skill 导入](private-skill-repository.md) 也纳入结构校验：部署范围、冻结原文件、
+包元数据、审核修订及 Registry 发布凭证必须一致；pending、rejected 和 published
+记录可以恢复。未核对的 publishing 或残留上传暂存目录会阻止冷备份，先在原安装中
+由管理员刷新导入审核列表，按已有凭证完成核对并清理未提交暂存，再正常停机备份。
+该核对只补记结果，没有凭证时要求重新人审，不自动重新发布。
+
 ```bash
 PYTHONPATH=backend/src .venv/bin/python -m pytest -q backend/tests/test_application_backup.py
 OPHIRA_CONTRACT_PROVIDER= PYTHONPATH=backend/src .venv/bin/python -m pytest -q backend/tests

@@ -46,6 +46,7 @@ from .constants import (
     StandingIntentWatcherStatus,
     ValidationStatus,
 )
+from .project_template_models import ProjectTemplateOrigin
 
 
 def utc_now() -> datetime:
@@ -352,6 +353,10 @@ class Artifact(APIModel):
     checksum: str
     size_bytes: int = Field(ge=0)
     download_url: str
+    content_storage: Literal["workspace", "snapshot"] = "workspace"
+    parent_artifact_id: str | None = None
+    created_by: str | None = None
+    edit_request_id: str | None = None
     created_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=utc_now)
 
@@ -361,6 +366,7 @@ class OpportunityProject(APIModel):
     name: str
     objective: str
     product_brief: str = ""
+    template_origin: ProjectTemplateOrigin | None = None
     target_markets: list[str] = Field(default_factory=list)
     constraints: list[str] = Field(default_factory=list)
     tenant_id: str | None = Field(default=None, min_length=1, max_length=160)

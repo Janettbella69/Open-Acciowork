@@ -29,6 +29,7 @@ EXPECTED_SKILLS = {
     "ophira-core:content-marketing",
     "ophira-core:office-documents",
     "ophira-core:logistics-customs",
+    "ophira-core:shopify-store-review",
 }
 
 

@@ -103,12 +103,268 @@ def make_backup(source, tmp_path):
     return target
 
 
+def test_cold_restore_preserves_private_imports_and_publication_receipts(source, tmp_path):
+    from test_skill_repository import review_request, upload
+
+    from ophira_backend.config import Settings
+    from ophira_backend.skill_repository import SkillRepository
+
+    data, plugin, ledger, registry, *_ = source
+    store = SkillRepository(ledger, registry, Settings(_env_file=None, data_dir=data))
+    items = []
+    for state in ("pending", "published", "rejected"):
+        item = upload(store, name=f"private-{state}")
+        if state != "pending":
+            request = review_request(item)
+            if state == "rejected":
+                request = request.model_copy(update={
+                    "decision": "reject", "expected_target": None, "note": "Needs more evidence",
+                })
+            item = store.review(item["import"]["id"], request, None)
+        items.append(item)
+    archive = make_backup(source, tmp_path)
+    target = tmp_path / "restored"
+    backup.restore_backup(archive, target)
+    restored_ledger = FileLedger(target / "data")
+    restored_registry = SkillRegistry(target / "application-plugin", target / "data/skills")
+    restored = SkillRepository(restored_ledger, restored_registry, scope=store.scope)
+    for item in items:
+        identifier = item["import"]["id"]
+        assert restored.detail(identifier, None) == item
+        assert restored.read_file(identifier, "SKILL.md", None) == store.read_file(
+            identifier, "SKILL.md", None,
+        )
+    published = items[1]["import"]["skill"]
+    assert restored.export(published["name"], published["content_hash"], None)[1]
+    corrupted = store.path(items[0]["import"]["id"]) / "import.json"
+    damaged = json.loads(corrupted.read_text())
+    damaged["skill"]["description"] = "Metadata tampered after upload"
+    corrupted.write_text(json.dumps(damaged))
+    with pytest.raises(BackupError, match="private_skill_import_invalid"):
+        backup.inspect_application(data, plugin)
+
+
+@pytest.mark.parametrize("committed", [False, True])
+def test_private_publication_requires_receipt_reconciliation_before_cold_backup(
+    source, tmp_path, monkeypatch, committed,
+):
+    from test_skill_repository import review_request, upload
+
+    from ophira_backend.config import Settings
+    from ophira_backend.skill_repository import SkillRepository
+
+    data, plugin, ledger, registry, *_ = source
+    store = SkillRepository(ledger, registry, Settings(_env_file=None, data_dir=data))
+    detail = upload(store)
+    identifier = detail["import"]["id"]
+
+    def crash(*args, **kwargs):
+        raise SimulatedCrash()
+
+    with monkeypatch.context() as patch:
+        patch.setattr(store if committed else registry,
+                      "finish" if committed else "publish_reviewed_candidate", crash)
+        with pytest.raises(SimulatedCrash):
+            store.review(identifier, review_request(detail), None)
+    with pytest.raises(BackupError, match="pending_skill_import_publication"):
+        backup.create_backup(data, plugin, tmp_path / "incomplete-copy")
+    assert not (tmp_path / "incomplete-copy").exists()
+    restored = store.detail(identifier, None)
+    assert restored["import"]["state"] == ("published" if committed else "pending")
+    make_backup(source, tmp_path)
+
+
 def rehash(archive):
     manifest_path = archive / "manifest.json"
     manifest = json.loads(manifest_path.read_text())
     manifest["tree"] = tree_inventory(archive / "payload", backup.DEFAULT_LIMITS)
     manifest_path.write_text(json.dumps(manifest))
     return manifest
+
+
+def test_cold_restore_retains_history_without_workspace_file(source, tmp_path):
+    _, _, ledger, _, _, project, *_ = source
+    first = ledger.save_upload(project.id, "report.txt", b"Original version")
+    path = ledger.workspace_for_project(project.id) / first.path
+    path.write_bytes(b"Revised version")
+    second = ledger.register_artifact(project.id, first.path)
+    path.unlink()
+    archive = make_backup(source, tmp_path)
+    target = tmp_path / "restored"
+    backup.restore_backup(archive, target)
+    restored = FileLedger(target / "data")
+    assert restored.capture_artifact(project.id, first.id)[1] == b"Original version"
+    assert restored.capture_artifact(project.id, second.id)[1] == b"Revised version"
+
+
+def test_cold_backup_rejects_corrupt_artifact_history(source, tmp_path):
+    from ophira_backend.artifact_files import snapshot_relative
+
+    _, _, ledger, _, _, project, *_ = source
+    artifact = ledger.save_upload(project.id, "report.txt", b"Original version")
+    snapshot = ledger._project_path(project.id).parent / snapshot_relative(artifact.checksum)
+    snapshot.chmod(0o600)
+    snapshot.write_bytes(b"Corrupt version")
+    with pytest.raises(BackupError, match="artifact_snapshot_invalid"):
+        make_backup(source, tmp_path)
+    assert not (tmp_path / "backup").exists()
+
+
+def test_cold_restore_preserves_discussions_and_rejects_corrupt_history(source, tmp_path):
+    from test_project_comments import add, change, make_store
+
+    data, plugin, _, _, _, project, *_ = source
+    comments = make_store(data)
+    root = add(comments, project.id, "Original team comment")
+    reply = add(comments, project.id, "Reply", parent_id=root["id"])
+    change(comments, project.id, root, "edit", text="Updated team comment")
+    change(comments, project.id, reply, "remove")
+    archive = make_backup(source, tmp_path)
+    target = tmp_path / "restored"
+    backup.restore_backup(archive, target)
+    restored = make_store(target / "data")
+    assert restored.thread(project.id, root["id"], None)["root"]["text"] == "Updated team comment"
+    assert restored.thread(project.id, root["id"], None)["replies"][0]["text"] is None
+    assert restored.history(project.id, root["id"], None) == comments.history(
+        project.id, root["id"], None
+    )
+    damaged = json.loads(comments._path(project.id).read_text())
+    damaged["comments"][0]["history"][1]["action"] = "create"
+    comments._path(project.id).write_text(json.dumps(damaged))
+    with pytest.raises(BackupError, match="project_comments_invalid"):
+        backup.inspect_application(data, plugin)
+
+
+def test_cold_restore_preserves_project_templates_and_created_project_lineage(source, tmp_path):
+    from test_project_templates import saved, services, use_request
+
+    data, plugin, ledger, _, _, project, *_ = source
+    store, applications = services(data)
+    artifact = ledger.save_upload(project.id, "template.txt", b"Frozen template file")
+    template, _ = saved(store, project, artifact_ids=[artifact.id])
+    (ledger.workspace_for_project(project.id) / artifact.path).unlink()
+    request = use_request(template).model_copy(update={"artifact_ids": [artifact.id]})
+    created = applications.apply(project.id, template["id"], request, None)["project"]
+    archive = make_backup(source, tmp_path)
+    target = tmp_path / "restored"
+    backup.restore_backup(archive, target)
+    restored, restored_applications = services(target / "data")
+    assert (
+        restored.reference(project.id, template["id"], 1, artifact.id, None)[1]
+        == b"Frozen template file"
+    )
+    assert restored.ledger.get_project(created.id).template_origin == created.template_origin
+    assert (
+        restored_applications.apply(project.id, template["id"], request, None)["project"].id
+        == created.id
+    )
+    reference = store.folder(project.id, template["id"]) / "artifact-versions" / artifact.checksum
+    reference.chmod(0o600)
+    reference.write_bytes(b"Corrupt template file")
+    with pytest.raises(BackupError, match="project_templates_invalid"):
+        backup.inspect_application(data, plugin)
+
+
+def test_cold_backup_requires_pending_template_creation_to_finish(source, monkeypatch):
+    from test_project_templates import saved, services, use_request
+
+    data, plugin, _, _, _, project, *_ = source
+    store, applications = services(data)
+    template, _ = saved(store, project)
+
+    def interrupted(*_args):
+        raise OSError("Synthetic interrupted creation")
+
+    with monkeypatch.context() as patch:
+        patch.setattr("ophira_backend.project_template_apply.publish_exclusive", interrupted)
+        with pytest.raises(OSError):
+            applications.apply(project.id, template["id"], use_request(template), None)
+    with pytest.raises(BackupError, match="pending_template_creation"):
+        backup.inspect_application(data, plugin)
+    pending = applications.list(project.id, template["id"], None)["items"][0]
+    applications.resume(project.id, template["id"], pending["id"], None)
+    backup.inspect_application(data, plugin)
+
+
+def checkpoint(source):
+    from ophira_backend.workspace_checkpoints import WorkspaceCheckpoints
+
+    _, _, ledger, _, _, project, *_ = source
+    service = WorkspaceCheckpoints(ledger)
+    run = ledger.create_run(project.id, "A checkpoint before this run")
+    service.prepare_run(run.id)
+    ledger.update_run(run.id, status=RunStatus.COMPLETED, finished_at=utc_now())
+    return service, service.load(project.id, f"before-{run.id}")
+
+
+def test_cold_backup_preserves_recoverable_workspaces_and_applied_history(source, tmp_path):
+    from test_workspace_checkpoints import options
+
+    from ophira_backend.workspace_checkpoints import LIMITS, WorkspaceCheckpoints
+
+    _, _, ledger, _, _, project, *_ = source
+    service, point = checkpoint(source)
+    workspace = ledger.workspace_for_project(project.id)
+    (workspace / "later.txt").write_bytes(b"Keep after cold restore")
+    preview = service.preview(project.id, point.id, **options())
+    applied = service.apply(project.id, preview.id, **options())
+    archive = make_backup(source, tmp_path)
+    destination = tmp_path / "restored"
+    backup.restore_backup(archive, destination)
+    restored = FileLedger(destination / "data")
+    recovery = WorkspaceCheckpoints(restored)
+    assert recovery.get_restore(project.id, applied.id) == applied
+    assert recovery.load(project.id, point.id) == point
+    assert tree_inventory(restored.workspace_for_project(project.id), LIMITS) == point.inventory()
+    undo = recovery.preview(project.id, applied.safety_checkpoint_id, **options())
+    recovery.apply(project.id, undo.id, **options())
+    assert (restored.workspace_for_project(project.id) / "later.txt").read_bytes() == (
+        b"Keep after cold restore"
+    )
+
+
+def test_cold_backup_rejects_damaged_checkpoint_only_blob(source, tmp_path):
+    from ophira_backend.artifact_files import snapshot_relative
+
+    _, _, ledger, _, _, project, *_ = source
+    _, point = checkpoint(source)
+    row = next(item for item in point.files if item.path == "tool.sh")
+    blob = ledger._project_path(project.id).parent / snapshot_relative(row.sha256)
+    blob.chmod(0o600)
+    blob.write_bytes(b"damaged snapshot")
+    with pytest.raises(BackupError, match="workspace_checkpoint_invalid"):
+        make_backup(source, tmp_path)
+    assert not (tmp_path / "backup").exists()
+
+
+def test_cold_backup_rejects_pending_directory_swap_until_original_host_recovers(
+    source,
+    tmp_path,
+    monkeypatch,
+):
+    from test_workspace_checkpoints import options
+
+    from ophira_backend import workspace_checkpoints
+
+    _, _, ledger, _, _, project, *_ = source
+    service, point = checkpoint(source)
+    (ledger.workspace_for_project(project.id) / "later.txt").write_bytes(b"Keep")
+    preview = service.preview(project.id, point.id, **options())
+    original = workspace_checkpoints.publish_exclusive
+
+    def stop(src, dst):
+        original(src, dst)
+        raise OSError("interrupted directory swap")
+
+    monkeypatch.setattr(workspace_checkpoints, "publish_exclusive", stop)
+    with pytest.raises(OSError):
+        service.apply(project.id, preview.id, **options())
+    monkeypatch.undo()
+    with pytest.raises(BackupError, match="pending_workspace_restore"):
+        make_backup(source, tmp_path)
+    assert not (tmp_path / "backup").exists()
+    ledger.workspace_for_project(project.id)
+    make_backup(source, tmp_path)
 
 
 def test_complete_snapshot_preserves_source_and_recovers_only_proposal_intents(source, tmp_path):

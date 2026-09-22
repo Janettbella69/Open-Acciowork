@@ -89,6 +89,7 @@ beforeEach(() => {
   vi.mocked(api.skillProposalDownloadUrl).mockImplementation((id, path, hash) => `/api/skill-proposals/${id}/download?${new URLSearchParams({ path, content_hash: hash })}`)
   vi.mocked(api.reviewSkillProposal).mockImplementation(async (id, review) => decided(id === a.id ? a : b, review.decision))
   vi.mocked(api.listSkills).mockResolvedValue([])
+  vi.mocked(api.getSkillRepositoryCapabilities).mockResolvedValue({ identity_mode: 'local_only', tenant_id: null, actor_id: 'local-operator', can_manage: true })
 })
 
 async function openCandidate(detail = a) {
@@ -145,7 +146,7 @@ describe('SkillProposalsPanel', () => {
     expect(screen.getByText(/owner@example.invalid/)).toBeInTheDocument()
     expect(onPublished).toHaveBeenCalledTimes(1)
     expect(api.setSkillEnabled).not.toHaveBeenCalled()
-    expect(api.installSkill).not.toHaveBeenCalled()
+    expect(api.submitSkillImport).not.toHaveBeenCalled()
     expect(api.startRun).not.toHaveBeenCalled()
     expect(screen.queryByRole('button', { name: 'Approve and publish disabled' })).not.toBeInTheDocument()
   })
@@ -366,9 +367,11 @@ describe('SkillProposalsPanel', () => {
     const installed = { id: a.skill_id, namespace: 'ophira-tenant', name: a.manifest.name,
       version: '0.9.0', description: 'Previously published method', content_hash: 'e'.repeat(64), source: 'tenant' as const, enabled: false }
     const initial = deferred<Awaited<ReturnType<typeof api.listSkills>>>()
-    vi.mocked(api.listSkills).mockReturnValueOnce(initial.promise).mockResolvedValue([{ ...installed, version: '1.0.0', content_hash: a.content_hash }])
+    vi.mocked(api.listSkills).mockResolvedValueOnce([installed]).mockReturnValueOnce(initial.promise).mockResolvedValue([{ ...installed, version: '1.0.0', content_hash: a.content_hash }])
     render(<SkillsPage />)
     expect(api.listSkillProposals).not.toHaveBeenCalled()
+    await screen.findByRole('heading', { name: /supplier review a/ })
+    fireEvent.click(screen.getByRole('button', { name: /Installed/ }))
     fireEvent.click(screen.getByRole('button', { name: 'Proposals' }))
     await openCandidate()
     approve()
@@ -391,7 +394,7 @@ describe('SkillProposalsPanel', () => {
     expect(screen.getByText('我已审阅此冻结包、扫描结果和发布目标。发布后保持禁用。')).toBeInTheDocument()
   })
 
-  it.each(['toggle', 'upload', 'rollback'])('ignores a late Installed %s response after publishing a new disabled version', async (operation) => {
+  it.each(['toggle', 'rollback'])('ignores a late Installed %s response after publishing a new disabled version', async (operation) => {
     const old = { id: a.skill_id, namespace: 'ophira-tenant', name: a.manifest.name,
       version: '0.9.0', description: 'Old installed method', content_hash: 'e'.repeat(64), source: 'tenant' as const, enabled: false }
     const older = { ...old, version: '0.8.0', content_hash: 'd'.repeat(64) }
@@ -399,15 +402,11 @@ describe('SkillProposalsPanel', () => {
     const response = deferred<typeof old>()
     vi.mocked(api.listSkills).mockResolvedValueOnce([old]).mockResolvedValue([installed])
     vi.mocked(api.setSkillEnabled).mockReturnValueOnce(response.promise)
-    vi.mocked(api.installSkill).mockReturnValueOnce(response.promise)
     vi.mocked(api.rollbackSkill).mockReturnValueOnce(response.promise)
     vi.mocked(api.listSkillVersions).mockResolvedValue([older, old])
     render(<SkillsPage />)
     const card = (await screen.findByRole('heading', { name: /supplier review a/ })).closest('article')!
     if (operation === 'toggle') fireEvent.click(within(card).getByRole('button', { name: 'Enable' }))
-    if (operation === 'upload') fireEvent.change(screen.getByLabelText('Upload skill zip'), {
-      target: { files: [new File(['frozen archive'], 'method.zip', { type: 'application/zip' })] },
-    })
     if (operation === 'rollback') {
       fireEvent.click(within(card).getByRole('button', { name: 'Versions' }))
       fireEvent.click(await screen.findByRole('button', { name: 'Restore' }))

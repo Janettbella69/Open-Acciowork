@@ -5,6 +5,7 @@ import fcntl
 import hashlib
 import logging
 import os
+import threading
 from collections.abc import Callable
 from typing import Protocol
 
@@ -44,6 +45,7 @@ from .providers import (
 )
 from .skills import SkillRegistry
 from .storage import FileLedger
+from .workspace_checkpoints import WorkspaceCheckpoints, try_workspace_lease
 
 INTERRUPTED_RUN_MESSAGE = (
     "The backend stopped before this run finished. Saved evidence, artifacts "
@@ -101,6 +103,7 @@ class RunManager:
         self.feedback = feedback
         self.project_events = project_events or ProjectEventProjector(ledger, events, memory=memory)
         self._tasks: dict[str, asyncio.Task[None]] = {}
+        self._workspace_owners: set[str] = set()
 
     def _acquire_run_lease(self, run_id: str) -> int | None:
         # The lease exists before run.json is published and is held until the
@@ -499,61 +502,73 @@ class RunManager:
         return source
 
     async def _execute(self, run_id: str) -> None:
+        workspace_lease = None
         try:
+            project_id = self.ledger.get_run(run_id).project_id
+            while workspace_lease is None:
+                workspace_lease = try_workspace_lease(self.ledger, project_id)
+                if workspace_lease is None:
+                    await asyncio.sleep(0.05)
+            self._workspace_owners.add(run_id)
             await self._execute_runtime(run_id)
+        except asyncio.CancelledError:
+            await self._finalize_cancel(run_id)
+        except Exception as exc:
+            if self.ledger.get_run(run_id).status not in TERMINAL_RUN_STATUSES:
+                await self._fail_run(run_id, exc)
+            else:
+                raise
         finally:
             # A committed record may outlive a failed notification or tool
             # response. Repair observations without repeating business writes.
-            await self.project_events.reconcile_run(run_id)
+            try:
+                await self.project_events.reconcile_run(run_id)
+            finally:
+                if workspace_lease is not None:
+                    self._workspace_owners.discard(run_id)
+                    os.close(workspace_lease)
+
+    async def _checkpoint_workspace(self, run_id: str) -> None:
+        cancelled = threading.Event()
+        capture = asyncio.create_task(asyncio.to_thread(
+            WorkspaceCheckpoints(self.ledger).prepare_run, run_id, cancelled.is_set,
+        ))
+        interrupted = False
+        # The worker owns filesystem descriptors until it finishes. Cancellation
+        # requests cooperative stop and retains the lease through actual cleanup.
+        while not capture.done():
+            try:
+                await asyncio.shield(capture)
+            except asyncio.CancelledError:
+                interrupted = True
+                cancelled.set()
+            except Exception:
+                break
+        if interrupted:
+            try:
+                capture.result()
+            except BaseException:
+                pass
+            raise asyncio.CancelledError
+        capture.result()
 
     async def _execute_runtime(self, run_id: str) -> None:
-        run = self.ledger.update_run(
-            run_id,
-            status=RunStatus.RUNNING,
-            started_at=self.ledger.get_run(run_id).started_at or utc_now(),
-        )
-        await self.events.publish(
-            run_id,
-            EventType.RUN_STARTED,
-            {"status": RunStatus.RUNNING},
-            actor=EventActor(type="system", name="run-manager"),
-        )
         try:
+            await self._checkpoint_workspace(run_id)
+            run = self.ledger.update_run(
+                run_id, status=RunStatus.RUNNING,
+                started_at=self.ledger.get_run(run_id).started_at or utc_now(),
+            )
+            await self.events.publish(
+                run_id, EventType.RUN_STARTED, {"status": RunStatus.RUNNING},
+                actor=EventActor(type="system", name="run-manager"),
+            )
             await self.runtime.run(run)
         except asyncio.CancelledError:
             await self._finalize_cancel(run_id)
             return
         except Exception as exc:
-            if self.ledger.get_run(run_id).permission_waits:
-                self.permissions.durable.invalidate(run_id)
-            safe_error = str(redact(str(exc)))
-            error_code = (
-                exc.code
-                if isinstance(exc, ProviderConfigurationError)
-                else classify_provider_error(exc)
-            )
-            self.ledger.update_run(
-                run_id,
-                status=RunStatus.FAILED,
-                error=safe_error,
-                error_code=error_code,
-                finished_at=utc_now(),
-            )
-            await self.events.publish(
-                run_id,
-                EventType.RUN_FAILED,
-                {
-                    "status": RunStatus.FAILED,
-                    "error": safe_error,
-                    "error_code": error_code,
-                },
-                actor=EventActor(type="system", name="run-manager"),
-            )
-            await self._capture_artifacts(run_id)
-            self._write_diary(run_id, RunStatus.FAILED, safe_error)
-            self._notify_schedule_failure(run_id, safe_error, error_code)
-            self._capture_terminal_feedback(run_id)
-            await self._finalize_channel_reply(run_id)
+            await self._fail_run(run_id, exc)
             return
         current = self.ledger.get_run(run_id)
         wait = self.permissions.durable.active(current)
@@ -579,6 +594,38 @@ class RunManager:
         await self._notify_heartbeat_if_changed(run_id)
         await self._finalize_channel_reply(run_id)
 
+    async def _fail_run(self, run_id: str, exc: Exception) -> None:
+        if self.ledger.get_run(run_id).permission_waits:
+            self.permissions.durable.invalidate(run_id)
+        safe_error = str(redact(str(exc)))
+        error_code = (
+            exc.code
+            if isinstance(exc, ProviderConfigurationError)
+            else classify_provider_error(exc)
+        )
+        self.ledger.update_run(
+            run_id,
+            status=RunStatus.FAILED,
+            error=safe_error,
+            error_code=error_code,
+            finished_at=utc_now(),
+        )
+        await self.events.publish(
+            run_id,
+            EventType.RUN_FAILED,
+            {
+                "status": RunStatus.FAILED,
+                "error": safe_error,
+                "error_code": error_code,
+            },
+            actor=EventActor(type="system", name="run-manager"),
+        )
+        await self._capture_artifacts(run_id)
+        self._write_diary(run_id, RunStatus.FAILED, safe_error)
+        self._notify_schedule_failure(run_id, safe_error, error_code)
+        self._capture_terminal_feedback(run_id)
+        await self._finalize_channel_reply(run_id)
+
     async def _finalize_channel_reply(self, run_id: str) -> None:
         """Best-effort delivery never changes the already durable Run outcome."""
 
@@ -591,8 +638,15 @@ class RunManager:
             return
 
     async def _capture_artifacts(self, run_id: str) -> None:
+        lease = None
         try:
             run = self.ledger.get_run(run_id)
+            if run_id not in self._workspace_owners:
+                # Queued cancellation and orphan recovery have no runtime lease.
+                # Never claim files being written by another Run as their output.
+                lease = try_workspace_lease(self.ledger, run.project_id)
+                if lease is None:
+                    return
             artifacts = self.ledger.scan_workspace(run.project_id, run_id=run.id)
             for artifact in artifacts:
                 if artifact.run_id != run.id:
@@ -601,6 +655,9 @@ class RunManager:
         except Exception:
             # Artifact discovery must not rewrite a completed run as failed.
             return
+        finally:
+            if lease is not None:
+                os.close(lease)
 
     def _write_diary(self, run_id: str, status: RunStatus, note: str) -> None:
         """Append a work-journal entry for the finished run (PRD diary layer)."""

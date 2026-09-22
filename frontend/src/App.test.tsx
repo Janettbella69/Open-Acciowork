@@ -158,9 +158,11 @@ describe('TradeMind frontend', () => {
       }
       if (url.endsWith('/api/agents') && !init?.method) return jsonResponse([])
       if (url.endsWith('/api/providers') && !init?.method) return jsonResponse([])
+      if (url.endsWith('/api/org/policy') && !init?.method) return jsonResponse({ permission_mode: 'default' })
       if (url.endsWith('/api/permissions/pending') && !init?.method) return jsonResponse([])
       if (url.endsWith('/api/connectors') && !init?.method) return jsonResponse([])
       if (url.endsWith('/api/skills') && !init?.method) return jsonResponse([])
+      if (url.endsWith('/api/skills/repository')) return jsonResponse({ identity_mode: 'local_only', tenant_id: null, actor_id: 'local-operator', can_manage: true })
       if (url.endsWith('/api/projects') && !init?.method) return jsonResponse(storedProjects)
       if (url.endsWith('/api/projects') && init?.method === 'POST') return jsonResponse(project, 201)
       if (url.endsWith(`/api/projects/${project.id}/runs`) && init?.method === 'POST') return jsonResponse(run, 202)
@@ -293,13 +295,13 @@ describe('TradeMind frontend', () => {
     })
   })
 
-  it('sends the mode selected from the composer tools menu to the backend run', async () => {
+  it('sends the Deep Research choice made in the composer to the backend run', async () => {
     render(<Workspace />)
     await screen.findByRole('heading', { name: /what can i do for you/i })
 
     fireEvent.click(screen.getByRole('button', { name: /open tools menu/i }))
-    fireEvent.click(screen.getByRole('button', { name: /^mode$/i }))
-    fireEvent.click(screen.getByRole('button', { name: /^deep research/i }))
+    expect(screen.queryByRole('button', { name: /^mode$/i })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /deep research/i }))
     fireEvent.change(screen.getByRole('textbox', { name: /ask trademind/i }), {
       target: { value: project.objective },
     })

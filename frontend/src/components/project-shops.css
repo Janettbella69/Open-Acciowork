@@ -1,0 +1,20 @@
+.project-shops { margin-top: 14px; border: 1px solid var(--border-color, #e5e7eb); border-radius: 12px; background: var(--panel-bg, #fff); }
+.project-shops-toggle { display: flex; width: 100%; justify-content: space-between; padding: 14px; font-weight: 600; text-align: left; border: 0; border-radius: 12px; background: transparent; cursor: pointer; }
+.project-shops-content { padding: 0 14px 14px; }
+.project-shops p { font-size: 12px; line-height: 1.6; color: var(--text-secondary, #666); overflow-wrap: anywhere; }
+.project-shops fieldset { margin: 12px 0; padding: 12px; border: 1px solid var(--border-color, #e5e7eb); border-radius: 8px; }
+.project-shops-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.project-shops label { display: grid; gap: 5px; font-size: 12px; }
+.project-shops input:not([type=checkbox]), .project-shops select { min-width: 0; width: 100%; box-sizing: border-box; padding: 8px; border: 1px solid var(--border-color, #d9dce2); border-radius: 6px; background: var(--panel-bg, #fff); color: inherit; }
+.project-shops button:not(.project-shops-toggle), .project-shops-actions a { padding: 7px 10px; border: 1px solid var(--border-color, #d9dce2); border-radius: 6px; background: transparent; color: inherit; font-size: 12px; cursor: pointer; text-decoration: none; }
+.project-shops button:disabled { opacity: .45; cursor: default; }
+.project-shops-list { display: grid; gap: 10px; margin-top: 12px; }
+.project-shops article { padding: 12px; border: 1px solid var(--border-color, #e5e7eb); border-radius: 8px; margin-top: 10px; }
+.project-shops header { display: flex; flex-wrap: wrap; gap: 8px; font-size: 13px; }
+.project-shops header span, .project-shops small { font-size: 11px; color: var(--text-secondary, #666); }
+.project-shops-actions { display: flex; gap: 7px; flex-wrap: wrap; margin-top: 10px; }
+.project-shops-actions a { overflow-wrap: anywhere; }
+.project-shops-confirm { margin-top: 10px; padding: 10px; background: var(--surface-muted, #f6f7f9); border-radius: 6px; }
+.project-shops-confirm label { display: flex; align-items: flex-start; margin-bottom: 8px; }
+.project-shops [role=alert] { color: #b42318; }
+@media (max-width: 620px) { .project-shops-fields { grid-template-columns: 1fr; } }

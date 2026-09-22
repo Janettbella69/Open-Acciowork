@@ -4,9 +4,19 @@ import { pushZh } from './push-zh'
 import { approvalZh } from './approval-zh'
 import { metricsZh } from './metrics-zh'
 import { knowledgeZh } from './knowledge-zh'
+import { marketplacesZh } from './marketplaces-zh'
+import { shopsZh } from './shops-zh'
+import { artifactsZh } from './artifacts-zh'
+import { recoveryZh } from './recovery-zh'
+import { resourcesZh } from './resources-zh'
+import { collaborationZh } from './collaboration-zh'
+import { templatesZh } from './templates-zh'
+import { repositoryZh } from './repository-zh'
 
 /** 中文字典：key = 英文原文。缺条目时界面回落英文（可见即可补）。 */
 export const zh: Record<string, string> = {
+  ...repositoryZh,
+  ...templatesZh,
   ...feedbackZh,
   ...mobileZh,
   ...pushZh,
@@ -17,6 +27,12 @@ export const zh: Record<string, string> = {
   'Review memories proposed during this run. They take effect only after approval.': '审阅本次任务产生的记忆提案，批准后才会生效。',
   'Refreshing memories…': '正在刷新记忆…',
   'Memory response did not match this run.': '返回的记忆不属于本次任务。',
+  ...marketplacesZh,
+  ...shopsZh,
+  ...artifactsZh,
+  ...recoveryZh,
+  ...resourcesZh,
+  ...collaborationZh,
   // ---- 营销页：导航与页脚 ----
   'Product': '产品',
   'How it works': '工作方式',
@@ -32,10 +48,9 @@ export const zh: Record<string, string> = {
   'Principles': '理念',
   'Open workspace': '打开工作台',
   'Primary navigation': '主导航',
-  'AI global commerce intelligence for cross-border teams.': '为跨境团队打造的 AI 全球商业智能。',
+  'Go global boldly. TradeMind does the work.': '大胆出海，TradeMind 把活干完。',
 
   // ---- 营销页：Hero ----
-  'AI global commerce system': 'AI 全球商业系统',
   'For small teams that trade across borders': '为做跨境生意的小团队而生',
   'Discover what the': '发现世界',
   'world': '真正的',
@@ -120,7 +135,7 @@ export const zh: Record<string, string> = {
   'Research becomes useful when it changes what you do next. TradeMind turns the shared record into a buyer brief, outreach experiment, and stop condition your team can review and run.': '只有当研究改变下一步行动时，它才真正有用。TradeMind 把共享记录转成买家简报、触达实验与止损条件，让团队可以评审并执行。',
   'Turn research into a buyer brief, an outreach test, and a next move your team can actually review and run.': '把研究变成买家简报、触达实验，以及团队真正能评审和执行的下一步。',
   'Introduction to TradeMind': 'TradeMind 介绍',
-  'Your AI commerce team': '你的 AI 商业团队',
+  'Your go-global buddy': '你的出海搭子',
   'Find what sells': '找到真正卖得动的商品',
   'TradeMind reads search trends, bestseller movement, reviews, creator posts, and competitor gaps together—so your next product starts with evidence instead of a guess.': 'TradeMind 综合搜索趋势、畅销榜变化、评论、达人内容与竞争缺口，让下一款产品从证据出发，而不是靠猜。',
   'Source with confidence': '更有把握地采购',
@@ -815,17 +830,20 @@ export const zh: Record<string, string> = {
   'Open tools menu': '打开工具菜单',
   'Composer tools': '输入框工具',
   'Add Files': '添加文件',
-  'Mode': '模式',
-  'Choose a mode': '选择模式',
-  'Back to tools': '返回工具菜单',
   'Remove {file}': '移除 {file}',
-  'Choose a TradeMind skill': '选择一个 TradeMind 技能',
-  'Built-in capabilities': '内置能力',
-  'Use a skill': '使用技能',
-  'Installed Plugin Skills are discovered by the Agent at runtime; this menu only helps frame intent.': '已安装的 Plugin Skills 会由 Agent 在运行时发现；此菜单只帮助你组织任务意图。',
-  'Run mode': '运行模式',
-  'Standard · one Agent': '标准 · 单 Agent',
-  'Deep Research · explicit beta': '深度研究 · 显式测试版',
+  'Open approval mode selector': '打开授权模式选择器',
+  'Approval': '授权',
+  'Choose an approval mode': '选择授权模式',
+  'How should TradeMind actions be approved?': 'TradeMind 的操作应如何授权？',
+  'Ask for approval': '请求授权',
+  'Ask before consequential actions': '执行有后果的操作前先询问',
+  'Approve for me': '替我授权',
+  'SDK auto mode reviews each action; deleting files still asks': 'SDK 自动模式逐项审查操作；删除文件仍会询问',
+  'Applies to new tasks across this workspace.': '对此工作区的新任务生效。',
+  'Deep Research runs 3 read-only research subagents on this task budget.': '深度研究在本任务预算内启动 3 个只读研究子代理。',
+  'Deep Research can only be chosen before a task starts.': '只能在任务开始前选择深度研究。',
+  'Loading approval mode…': '正在加载授权模式……',
+  'Approval level cannot change while a task is running or waiting for approval.': '任务运行或等待授权时无法更改授权级别。',
   '⌘ Enter to send': '⌘ Enter 发送',
   'Working': '工作中',
   'Working…': '工作中……',
@@ -889,24 +907,6 @@ export const zh: Record<string, string> = {
   'Assess which global market best fits our current product and supply capability.': '评估哪个全球市场最匹配我们现有的产品与供给能力。',
   'Identify the best-fit customer profiles, channels, and smallest credible contact test for this offer.': '找出最匹配的客户画像、渠道，以及这项供给最小可信的触达测试。',
   'Review my materials and produce a sourced Go, Test, or No-go decision with assumptions and next actions.': '审阅我的材料，基于来源给出推进、验证或停止决策，并列明假设与下一步。',
-  'Market Signal Radar': '市场信号雷达',
-  'Track material shifts in buyer needs, policy, category behavior, and demand evidence.': '追踪买家需求、政策、品类行为与需求证据中的重大变化。',
-  'Use Market Signal Radar to identify material shifts in buyer needs, policy, category behavior, and demand evidence for this opportunity.': '使用市场信号雷达，识别这个机会在买家需求、政策、品类行为与需求证据上的重大变化。',
-  'Supplier Capability Map': '供应商能力图谱',
-  'Compare supplier constraints, production readiness, quality risk, and market fit.': '比较供应商约束、生产就绪度、质量风险与市场匹配度。',
-  'Use Supplier Capability Map to compare supplier constraints, production readiness, quality risk, and market fit for this opportunity.': '使用供应商能力图谱，比较这个机会的供应商约束、生产就绪度、质量风险与市场匹配度。',
-  'Downside Boundary': '下行边界',
-  'Identify cash exposure, stop conditions, and assumptions that require validation.': '识别资金敞口、止损条件与需要验证的假设。',
-  'Use Downside Boundary to identify cash exposure, stop conditions, and assumptions that require validation before we proceed.': '使用下行边界，识别继续推进前必须验证的资金敞口、止损条件与关键假设。',
-  'Buyer Test Designer': '买家测试设计器',
-  'Turn sales assumptions into the smallest credible and falsifiable buyer test.': '把销售假设转成最小、可信且可证伪的买家测试。',
-  'Use Buyer Test Designer to turn our sales assumptions into the smallest credible and falsifiable buyer test.': '使用买家测试设计器，把我们的销售假设转成最小、可信且可证伪的买家测试。',
-  'Evidence Quality Review': '证据质量审查',
-  'Separate facts, user statements, community signals, and inference before decisions.': '在决策前区分事实、用户陈述、社区信号与推断。',
-  'Use Evidence Quality Review to separate observed facts, user statements, community signals, and inference before making a recommendation.': '使用证据质量审查，在提出建议前区分观测事实、用户陈述、社区信号与推断。',
-  'Competitor Change Watch': '竞品变化监测',
-  'Review material product, pricing, positioning, and channel changes over time.': '持续审视产品、定价、定位与渠道的重大变化。',
-  'Use Competitor Change Watch to review material product, pricing, positioning, and channel changes that affect this opportunity.': '使用竞品变化监测，审视会影响这个机会的重大产品、定价、定位与渠道变化。',
 
   // ---- 工作台与定时任务反馈 ----
   'Brief imported from the website.': '已从官网导入需求。',

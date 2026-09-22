@@ -62,8 +62,9 @@ describe('i18n', () => {
 
     expect(screen.getByText('从产品构想到全球销售。')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /在爆发前发现潜力商品/ })).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: '你的 AI 商业团队' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '你的出海搭子' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: '让商业环节彼此连接' })).toBeInTheDocument()
+    expect(screen.getByText('大胆出海，TradeMind 把活干完。')).toBeInTheDocument()
   })
 
   it('defines Chinese copy for every literal translation key used by a component', () => {

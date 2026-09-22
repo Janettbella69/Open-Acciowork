@@ -96,6 +96,7 @@ class ProjectPermission(StrEnum):
     PROJECT_READ = "project.read"
     PROJECT_WRITE = "project.write"
     PROJECT_ACCESS_MANAGE = "project.access.manage"
+    COMMENT_WRITE = "comment.write"
     RUN_CREATE = "run.create"
     RUN_READ = "run.read"
     TOOL_USE = "tool.use"
@@ -117,6 +118,7 @@ ROLE_PERMISSIONS: Final[dict[PrincipalRole, frozenset[ProjectPermission]]] = {
         {
             ProjectPermission.PROJECT_READ,
             ProjectPermission.PROJECT_WRITE,
+            ProjectPermission.COMMENT_WRITE,
             ProjectPermission.RUN_CREATE,
             ProjectPermission.RUN_READ,
             ProjectPermission.TOOL_USE,
@@ -131,6 +133,7 @@ ROLE_PERMISSIONS: Final[dict[PrincipalRole, frozenset[ProjectPermission]]] = {
     PrincipalRole.REVIEWER: frozenset(
         {
             ProjectPermission.PROJECT_READ,
+            ProjectPermission.COMMENT_WRITE,
             ProjectPermission.RUN_READ,
             ProjectPermission.MEMORY_READ,
             ProjectPermission.COMMERCIAL_READ,
@@ -587,6 +590,7 @@ class ProjectAccessGrantRequest(BaseModel):
 
     principal_id: str = Field(pattern=_SAFE_ID.pattern)
     role: PrincipalRole
+    expected_revision: int | None = Field(default=None, ge=1, strict=True)
 
 
 class ProjectAccessRecord(BaseModel):
@@ -804,12 +808,15 @@ class ProjectAccessStore:
         *,
         principal_id: str,
         role: PrincipalRole,
+        expected_revision: int | None = None,
     ) -> ProjectAccessRecord:
         if not _SAFE_ID.fullmatch(principal_id) or role == PrincipalRole.OWNER:
             raise AuthorizationError("project membership grant is invalid")
         with self._transaction(project_id):
             self.authorize(project_id, actor, ProjectPermission.PROJECT_ACCESS_MANAGE)
             current = self.get(project_id)
+            if expected_revision is not None and current.revision != expected_revision:
+                raise ProjectAccessConflictError("Project membership changed; reload before saving")
             if principal_id == current.owner_principal_id:
                 raise AuthorizationError("the project owner role cannot be changed")
             if actor.role == PrincipalRole.ADMIN and role == PrincipalRole.ADMIN:
@@ -838,10 +845,13 @@ class ProjectAccessStore:
         actor: PrincipalContext,
         *,
         principal_id: str,
+        expected_revision: int | None = None,
     ) -> ProjectAccessRecord:
         with self._transaction(project_id):
             self.authorize(project_id, actor, ProjectPermission.PROJECT_ACCESS_MANAGE)
             current = self.get(project_id)
+            if expected_revision is not None and current.revision != expected_revision:
+                raise ProjectAccessConflictError("Project membership changed; reload before saving")
             if principal_id == current.owner_principal_id:
                 raise AuthorizationError("the project owner cannot be revoked")
             memberships = dict(current.memberships)

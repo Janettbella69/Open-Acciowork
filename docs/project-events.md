@@ -156,11 +156,14 @@ browser capture, terminal workspace discovery, startup and SSE repair share this
 A failed Skill submission following successful Artifact registration does not erase
 the saved Artifact or its observation.
 
-Artifact version allocation and duplicate detection now share the cross-process
-project lock. Only the latest version can be an unchanged duplicate: A → B → A
-produces v1, v2, v3. The registry remains metadata about workspace versions; this
-does not add historical binary storage or Bash snapshot rollback. Native file edits
-are observed when explicitly registered or discovered during terminal cleanup.
+Artifact version allocation and duplicate detection use the existing cross-process
+project lock and immutable snapshots described in [Artifact history](artifact-versions.md).
+Only the latest version can be an unchanged duplicate: A → B → A produces v1, v2, v3.
+This event delivery preserves the existing binary history and reviewed
+[workspace recovery](workspace-recovery.md); it does not replay a filesystem edit.
+Native file edits are observed when explicitly registered or discovered during
+terminal cleanup. Manual edits without a source Run still need a project-level
+event contract and are not assigned an invented Run.
 
 Existing legacy `artifact.registered` rows had no `resource_id` and could repeat.
 Recovery validates their Artifact id, project, Run, checksum and version against

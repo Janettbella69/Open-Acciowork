@@ -11,10 +11,19 @@ from typing import Annotated
 import uvicorn
 from fastapi import FastAPI, Header, HTTPException, Query, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import JSONResponse
 from sse_starlette.sse import EventSourceResponse
+from starlette.concurrency import run_in_threadpool
 
 from .agent_core import create_agent_core
+from .artifact_edits import (
+    MAX_EDIT_BYTES,
+    ArtifactEditConflict,
+    ArtifactTextUpdate,
+    ArtifactTextView,
+    read_artifact_text,
+    save_artifact_text,
+)
 from .auth import (
     ROLE_PERMISSIONS,
     AuthAssertionExpiredError,
@@ -24,6 +33,7 @@ from .auth import (
     AuthorizationError,
     InvalidAuthAssertionError,
     PrincipalAuthenticator,
+    ProjectAccessConflictError,
     ProjectAccessGrantRequest,
     ProjectAccessNotFoundError,
     ProjectAccessRecord,
@@ -67,6 +77,7 @@ from .channels import (
     to_inbound,
     verify_feishu_signature,
 )
+from .collaboration_api import register_collaboration_routes
 from .commercial_actions import (
     CommercialActionConflictError,
     CommercialActionIntegrityError,
@@ -122,6 +133,8 @@ from .knowledge import (
     search_project_knowledge,
 )
 from .maintenance import data_directory_lease
+from .marketplace_access import MarketplaceAccessService
+from .marketplace_api import register_marketplace_routes
 from .memory import FileMemoryProvider, MemoryNotFoundError, public_memory_item
 from .models import (
     AgentCreate,
@@ -190,10 +203,13 @@ from .project_metrics import (
     ProjectMetrics,
     read_project_metrics,
 )
+from .project_scope import LOCAL_OPERATOR_ID
+from .project_template_api import register_project_template_routes
 from .providers import FileSecretVault, ProviderNotFoundError, ProviderRegistry
 from .push_service import PushDeliveryService
 from .push_store import PushStore
 from .push_transport import WebPushAdapter
+from .run_resources import RunResources, read_run_resources
 from .runs import (
     AgentRuntime,
     RunCancelConflictError,
@@ -209,10 +225,12 @@ from .scheduler import (
     new_schedule,
 )
 from .sdk_adapter import ClaudeAgentRuntime
+from .shop_browser import ShopBrowserService
+from .shop_browser_api import register_shop_browser_routes
 from .skill_proposal_routes import register_skill_proposal_routes
 from .skill_proposals import SkillProposalService
+from .skill_repository_routes import register_skill_repository_routes
 from .skills import (
-    MAX_SKILL_ARCHIVE_BYTES,
     SkillConflictError,
     SkillIdentifierError,
     SkillIntegrityError,
@@ -230,9 +248,9 @@ from .task_experience import TaskExperienceStore
 from .task_experience_routes import register_task_experience_routes
 from .telemetry import RunTelemetry, build_run_telemetry
 from .templates import TEMPLATE_SPECS
+from .workspace_recovery_api import register_workspace_recovery_routes
 
 MAX_PROJECT_UPLOAD_BYTES = 50 * 1024 * 1024
-LOCAL_OPERATOR_ID = "local-operator"
 
 
 def _request_principal(request: Request) -> PrincipalContext | None:
@@ -244,6 +262,8 @@ def _request_principal(request: Request) -> PrincipalContext | None:
 def _project_route_permission(method: str, path: str) -> ProjectPermission:
     if "/access" in path:
         return ProjectPermission.PROJECT_ACCESS_MANAGE
+    if path.split("/")[4:5] == ["comments"] and method not in {"GET", "HEAD"}:
+        return ProjectPermission.COMMENT_WRITE
     if "/commercial-actions" in path:
         if path.endswith("/review"):
             return ProjectPermission.COMMERCIAL_REVIEW
@@ -355,6 +375,10 @@ def _create_app(
         vault=FileSecretVault(settings.data_dir / "secrets", filename="connector-secrets.json"),
     )
     connectors.ensure_catalog()
+    marketplace_access = MarketplaceAccessService(
+        ledger, connectors, settings=settings, access=project_access,
+    )
+    shop_browsers = ShopBrowserService(marketplace_access, policy)
     commercial_action_adapter = HttpsJsonMessageAdapter(connectors)
     commercial_actions = CommercialActionService(
         settings.data_dir / "commercial-actions",
@@ -375,6 +399,8 @@ def _create_app(
         intents=intents,
         notifications=notifications,
         connectors=connectors,
+        marketplace_access=marketplace_access,
+        shop_browsers=shop_browsers,
         policy=policy,
         commercial_actions=commercial_actions,
         task_experiences=task_experiences,
@@ -569,6 +595,15 @@ def _create_app(
             PrincipalRole.ADMIN,
         }
 
+    register_collaboration_routes(
+        application, ledger, project_access, settings, _read_bounded_body,
+    )
+    register_project_template_routes(
+        application, ledger, project_access, settings, _read_bounded_body,
+    )
+    register_skill_repository_routes(
+        application, ledger, skills, settings, _read_bounded_body,
+    )
     register_skill_proposal_routes(
         application, proposals=skill_proposals, ledger=ledger, skills=skills,
         require_project_authorization=require_project_authorization,
@@ -681,6 +716,20 @@ def _create_app(
             )
         request.state.principal = principal
 
+        if path == "/api/skills" or path.startswith("/api/skills/"):
+            try:
+                application.state.skill_repository.authorize(principal)
+            except (AuthenticationError, AuthorizationError):
+                return JSONResponse(
+                    status_code=403,
+                    content={"detail": "Private Skill repository access is unavailable"},
+                )
+            except (ValueError, OSError):
+                return JSONResponse(
+                    status_code=409,
+                    content={"detail": "Private Skill storage could not be verified"},
+                )
+
         admin_prefixes = (
             "/api/agents",
             "/api/channels/feishu/bindings",
@@ -726,12 +775,25 @@ def _create_app(
         except (LedgerNotFoundError, ValueError):
             # Preserve each route's existing not-found contract.
             pass
-        except AuthorizationError:
+        except (AuthenticationError, AuthorizationError):
             return JSONResponse(
                 status_code=status.HTTP_403_FORBIDDEN,
                 content={"detail": "principal is not authorized for this resource"},
             )
         return await call_next(request)
+
+    @application.middleware("http")
+    async def private_collaboration_responses(request: Request, call_next):
+        response = await call_next(request)
+        parts = request.url.path.split("/")
+        if parts[1:3] == ["api", "skills"] or (
+            parts[1:3] == ["api", "projects"] and parts[4:5] in (
+                ["comments"], ["collaboration"], ["access"], ["templates"],
+            )
+        ):
+            response.headers["Cache-Control"] = "no-store"
+            response.headers["X-Content-Type-Options"] = "nosniff"
+        return response
 
     @application.get("/health")
     async def health() -> dict[str, str]:
@@ -840,6 +902,7 @@ def _create_app(
     async def get_project_access(
         request: Request,
         project_id: str,
+        response: Response,
     ) -> ProjectAccessRecord:
         if _request_principal(request) is None:
             raise HTTPException(
@@ -847,13 +910,20 @@ def _create_app(
                 detail="Project membership is unavailable in local-only mode",
             )
         try:
-            return project_access.get(project_id)
+            with project_access._transaction(project_id):
+                project_access.authorize(
+                    project_id, _request_principal(request),
+                    ProjectPermission.PROJECT_ACCESS_MANAGE,
+                )
+                result = project_access.get(project_id)
+                response.headers["Cache-Control"] = "no-store"
+                return result
         except ProjectAccessNotFoundError as exc:
             raise HTTPException(status_code=404, detail="Project access not found") from exc
-        except AuthorizationError as exc:
+        except (AuthenticationError, AuthorizationError) as exc:
             raise HTTPException(
-                status_code=500,
-                detail="Project access integrity validation failed",
+                status_code=403,
+                detail="Project membership access is unavailable",
             ) from exc
 
     @application.post(
@@ -877,10 +947,13 @@ def _create_app(
                 principal,
                 principal_id=payload.principal_id,
                 role=payload.role,
+                expected_revision=payload.expected_revision,
             )
+        except ProjectAccessConflictError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
         except ProjectAccessNotFoundError as exc:
             raise HTTPException(status_code=404, detail="Project access not found") from exc
-        except AuthorizationError as exc:
+        except (AuthenticationError, AuthorizationError) as exc:
             raise HTTPException(
                 status_code=403,
                 detail="principal is not authorized to grant project access",
@@ -894,6 +967,7 @@ def _create_app(
         request: Request,
         project_id: str,
         principal_id: str,
+        expected_revision: Annotated[int | None, Query(ge=1)] = None,
     ) -> ProjectAccessRecord:
         principal = _request_principal(request)
         if principal is None:
@@ -906,10 +980,13 @@ def _create_app(
                 project_id,
                 principal,
                 principal_id=principal_id,
+                expected_revision=expected_revision,
             )
+        except ProjectAccessConflictError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
         except ProjectAccessNotFoundError as exc:
             raise HTTPException(status_code=404, detail="Project access not found") from exc
-        except AuthorizationError as exc:
+        except (AuthenticationError, AuthorizationError) as exc:
             raise HTTPException(
                 status_code=403,
                 detail="principal is not authorized to revoke project access",
@@ -1238,12 +1315,99 @@ def _create_app(
             raise HTTPException(status_code=404, detail="Project not found") from exc
 
     @application.get("/api/projects/{project_id}/artifacts/{artifact_id}/download")
-    async def download_project_artifact(project_id: str, artifact_id: str) -> FileResponse:
+    def download_project_artifact(
+        request: Request, project_id: str, artifact_id: str,
+    ) -> Response:
+        from urllib.parse import quote
+
+        require_project_authorization(
+            project_id, _request_principal(request), ProjectPermission.PROJECT_READ,
+        )
         try:
-            artifact, path = ledger.get_artifact(project_id, artifact_id)
-        except (LedgerNotFoundError, ValueError) as exc:
+            artifact, content = ledger.capture_artifact(project_id, artifact_id)
+        except LedgerNotFoundError as exc:
             raise HTTPException(status_code=404, detail="Artifact not found") from exc
-        return FileResponse(path, media_type=artifact.mime, filename=artifact.name)
+        except (OSError, ValueError) as exc:
+            raise HTTPException(
+                status_code=409,
+                detail="This artifact version is unavailable or failed verification.",
+            ) from exc
+        require_project_authorization(
+            project_id, _request_principal(request), ProjectPermission.PROJECT_READ,
+        )
+        return Response(content, media_type="application/octet-stream", headers={
+            "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff",
+            "ETag": f'"{artifact.checksum}"',
+            "Content-Disposition": "attachment; filename*=UTF-8''" + quote(artifact.name, safe=""),
+        })
+
+    @application.get(
+        "/api/projects/{project_id}/artifacts/{artifact_id}/text", response_model=ArtifactTextView,
+    )
+    def get_artifact_text(
+        request: Request, response: Response, project_id: str, artifact_id: str,
+    ) -> ArtifactTextView:
+        principal = _request_principal(request)
+        response.headers["Cache-Control"] = "no-store"
+        try:
+            result = read_artifact_text(
+                ledger, project_id, artifact_id,
+                authorize=lambda: require_project_authorization(
+                    project_id, principal, ProjectPermission.PROJECT_READ,
+                ), is_executing=runs.is_executing,
+            )
+        except LedgerNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="Artifact not found") from exc
+        except (OSError, ValueError) as exc:
+            raise HTTPException(
+                status_code=409,
+                detail="Text preview is unavailable. Download the saved file for external editing.",
+            ) from exc
+        if not project_is_visible(project_id, principal, ProjectPermission.PROJECT_WRITE):
+            result.editable = False
+            result.edit_notice = "You have read-only access to this project."
+        return result
+
+    @application.put(
+        "/api/projects/{project_id}/artifacts/{artifact_id}/text", response_model=Artifact,
+    )
+    async def update_artifact_text(
+        request: Request, response: Response, project_id: str, artifact_id: str,
+    ) -> Artifact:
+        principal = _request_principal(request)
+
+        def authorize():
+            require_project_authorization(project_id, principal, ProjectPermission.PROJECT_WRITE)
+
+        authorize()
+        raw = await _read_bounded_body(
+            request, max_bytes=MAX_EDIT_BYTES * 6 + 1024,
+            too_large_detail="Artifact edit request is too large.",
+        )
+        try:
+            payload = ArtifactTextUpdate.model_validate_json(raw)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail="Invalid artifact edit request.") from exc
+        response.headers["Cache-Control"] = "no-store"
+        try:
+            return await run_in_threadpool(
+                save_artifact_text, ledger, project_id, artifact_id, payload,
+                created_by=principal.principal_id if principal else LOCAL_OPERATOR_ID,
+                authorize=authorize, is_executing=runs.is_executing,
+            )
+        except LedgerNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="Artifact not found") from exc
+        except ArtifactEditConflict as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=422, detail="This file cannot be edited as UTF-8 text within 512 KiB.",
+            ) from exc
+        except OSError as exc:
+            raise HTTPException(
+                status_code=409,
+                detail="The edit could not be confirmed. Retry the same draft to check its result.",
+            ) from exc
 
     @application.post(
         "/api/projects/{project_id}/runs",
@@ -1326,9 +1490,16 @@ def _create_app(
     @application.post(
         "/api/skills/{skill_id:path}/enable", response_model=SkillVersionResponse
     )
-    async def enable_skill(skill_id: str, enabled: bool = True) -> SkillVersion:
+    async def enable_skill(skill_id: str, request: Request, enabled: bool = True) -> SkillVersion:
         try:
-            return skills.set_enabled(skill_id, enabled)
+            return skills.set_enabled(
+                skill_id, enabled,
+                before_commit=lambda: application.state.skill_repository.authorize(
+                    _request_principal(request), manage=True,
+                ),
+            )
+        except (AuthenticationError, AuthorizationError) as exc:
+            raise HTTPException(403, "Private Skill repository access is unavailable") from exc
         except SkillIdentifierError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except SkillNotFoundError as exc:
@@ -1359,9 +1530,13 @@ def _create_app(
         "/api/skills/{skill_id:path}/versions",
         response_model=list[SkillVersionResponse],
     )
-    async def list_skill_versions(skill_id: str) -> list[SkillVersion]:
+    async def list_skill_versions(skill_id: str, request: Request) -> list[SkillVersion]:
         try:
-            return skills.versions(skill_id)
+            return application.state.skill_repository.versions(
+                skill_id, _request_principal(request),
+            )
+        except (AuthenticationError, AuthorizationError) as exc:
+            raise HTTPException(403, "Private Skill repository access is unavailable") from exc
         except SkillIdentifierError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except SkillNotFoundError as exc:
@@ -1379,13 +1554,17 @@ def _create_app(
     async def rollback_skill(
         skill_id: str,
         payload: SkillRollbackRequest,
+        request: Request,
     ) -> SkillVersion:
         try:
-            return skills.rollback(
+            return application.state.skill_repository.rollback(
                 skill_id,
                 version=payload.version,
                 content_hash=payload.content_hash,
+                principal=_request_principal(request),
             )
+        except (AuthenticationError, AuthorizationError) as exc:
+            raise HTTPException(403, "Private Skill repository access is unavailable") from exc
         except SkillIdentifierError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         except SkillNotFoundError as exc:
@@ -1398,28 +1577,15 @@ def _create_app(
                 detail="Skill registry integrity validation failed",
             ) from exc
 
-    @application.post(
-        "/api/skills/install",
-        response_model=SkillVersionResponse,
-        status_code=status.HTTP_201_CREATED,
+    register_marketplace_routes(
+        application, marketplace_access=marketplace_access,
+        require_project_authorization=require_project_authorization,
     )
-    async def install_skill(request: Request) -> SkillVersion:
-        content = await _read_bounded_body(
-            request,
-            max_bytes=MAX_SKILL_ARCHIVE_BYTES,
-            too_large_detail="Skill archive exceeds the upload limit",
-        )
-        try:
-            return skills.install_zip(content)
-        except SkillConflictError as exc:
-            raise HTTPException(status_code=409, detail=str(exc)) from exc
-        except SkillIntegrityError as exc:
-            raise HTTPException(
-                status_code=500,
-                detail="Skill registry integrity validation failed",
-            ) from exc
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
+    register_shop_browser_routes(application, shop_browsers, require_project_authorization)
+    register_workspace_recovery_routes(
+        application, ledger, runs, require_project_authorization,
+        _read_bounded_body, LOCAL_OPERATOR_ID,
+    )
 
     @application.get("/api/connectors", response_model=list[Connector])
     async def list_connectors() -> list[Connector]:
@@ -1473,6 +1639,21 @@ def _create_app(
                 status_code=500,
                 detail="Run telemetry source is inconsistent",
             ) from exc
+
+    @application.get("/api/runs/{run_id}/resources", response_model=RunResources)
+    def get_run_resources(request: Request, response: Response, run_id: str) -> RunResources:
+        principal = _request_principal(request)
+        response.headers["Cache-Control"] = "no-store"
+        try:
+            return read_run_resources(
+                ledger, run_id, authorize=lambda project_id: require_project_authorization(
+                    project_id, principal, ProjectPermission.RUN_READ,
+                ),
+            )
+        except LedgerNotFoundError as exc:
+            raise HTTPException(404, "Run not found") from exc
+        except (OSError, ValueError) as exc:
+            raise HTTPException(409, "Run resource observations are unavailable") from exc
 
     @application.post(
         "/api/runs/{run_id}/retry",

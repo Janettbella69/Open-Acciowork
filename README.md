@@ -1,6 +1,6 @@
 # TradeMind
 
-**面向跨境团队的 AI 全球商业系统**
+**跨境电商版的 Codex，对标阿里的 Accio Work**
 
 > 发现世界所需，连接能够供应的人。  
 > *Discover what the world needs. Connect who can supply it.*
@@ -53,10 +53,27 @@ ledger observations; open **Run memories** in a workspace to review proposals fr
 workspace drains the complete Run event tail before closing its stream.
 See [`docs/project-events.md`](docs/project-events.md).
 
+Shared projects now include member management and durable discussions with replies,
+source/version anchors, edit history, and conflict checks. See
+[`docs/project-collaboration.md`](docs/project-collaboration.md) for role boundaries
+and local versus organization sign-in behavior.
+
+Open **Project templates** to save a reviewed project brief and fixed reference-file
+versions, inspect history, and create a separate project with customized settings.
+Interrupted creations retain reviewable recovery records. See
+[`docs/project-templates.md`](docs/project-templates.md) for ownership, copied material
+and cold-backup boundaries.
+
 Tenant Skills keep immutable, content-addressed package history with per-run snapshots,
 version inspection, reviewed rollback, bounded storage, and active-session-safe runtime
 leases. Workspace results can also render typed evidence, decision, and artifact cards
 whose factual fields are joined from the server ledger rather than authored by the model.
+
+**Skills → Private repository** adds administrator ZIP import review, frozen file
+inspection, disabled publication with durable receipts, and separately confirmed
+enablement or version restoration. Organization members can inspect and download
+published packages. See [private Skill repository](docs/private-skill-repository.md)
+for API changes, single-deployment scope and recovery limits.
 
 All 13 built-in Skills include evidence guides and editable artifact templates that
 travel with the immutable package snapshot; see [`docs/skill-resources.md`](docs/skill-resources.md).
@@ -70,15 +87,42 @@ The commerce MCP also calculates cash balances and peak funding gaps from explic
 settlement schedules, distinguishing daily closing balances from a conservative
 intraday bound; see [`docs/cashflow.md`](docs/cashflow.md).
 
+**Plugins → Connectors** now includes official onboarding links for SHEIN, Temu,
+TikTok Shop, AliExpress, Shopee and Shopify. TikTok Shop has a seller-authorized shop and
+product reader with pagination, scoped credentials and revoke/reconnect controls.
+Shopify reads one store in the app's Dev Dashboard organization through the client
+credentials grant (24-hour tokens kept in memory): shop details, products and recent
+orders without customer identity, guided by the `shopify-store-review` Plugin Skill.
+Project administrators can grant one shop for a fixed duration; the main Agent
+can then read that shop and cite server-issued source receipts when recording evidence.
+The other four adapters and live seller certification remain open; see
+[`docs/marketplace-connectors.md`](docs/marketplace-connectors.md).
+
 Open **Project run metrics** in a saved workspace to inspect recent execution,
 latency, observed cost estimates, and Provider/Skill/tool groups. Missing data stays
 explicit; see [`docs/project-metrics.md`](docs/project-metrics.md).
+
+Deep Research runs also show frozen budget/deadline limits, native research-unit
+activity and reported task usage. See [`docs/deep-research-resources.md`](docs/deep-research-resources.md)
+for the source-merge contract and the distinction between SDK estimates and billing.
 
 Open **Project knowledge** in a saved workspace to search registered text files and
 OCR Markdown, inspect source lines and version provenance, and download a freshly
 hash-checked source. Coverage gaps stay visible; matches are reference material and
 do not automatically become verified evidence. See
 [`docs/project-knowledge.md`](docs/project-knowledge.md).
+
+Open **Project files** to download exact saved versions, inspect their history,
+and preview/edit text with conflict checks. New registrations preserve immutable
+bytes; user edits retain the prior version and become searchable project files.
+See [`docs/artifact-versions.md`](docs/artifact-versions.md) for supported formats,
+interrupted-edit recovery and the availability boundary for legacy versions.
+
+Open **Workspace recovery** to review and restore a complete supported file tree
+saved before a Run, including files changed by Bash. Recovery preserves the current
+workspace as another recovery point and retains project truth and version history.
+See [`docs/workspace-recovery.md`](docs/workspace-recovery.md) for the review flow,
+interrupted directory swaps, concurrent-run protection and capacity limits.
 
 PDF/image uploads produce bounded Markdown companions with honest extraction
 diagnostics; optional local PaddleOCR-VL setup and remaining quality checks are in
@@ -137,6 +181,11 @@ npm run build
 
 The full PRD delivery inventory, including unimplemented and externally unverified
 requirements, is tracked in [`docs/prd-delivery-inventory.md`](docs/prd-delivery-inventory.md).
+
+Saved projects also provide **Project shops**: configure a shop identity and optional
+platform Connector, open its independent login browser, confirm the signed-in shop,
+then let the main Agent collect source-linked page captures and reports. The window
+runs on the backend computer. See [setup, grants and verification](docs/shop-browsers.md).
 
 - The native durable-approval path passed three consecutive real DeepSeek Green Path
   rounds on 2026-09-05 (local time), archived at

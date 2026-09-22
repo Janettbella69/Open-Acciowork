@@ -1,0 +1,383 @@
+{
+  "id": "run_c2df278aac414b20a6e5d742e56c946c",
+  "trace_id": "trace_af27f44cb0994562a5a3896cbf985dd6",
+  "project_id": "project_d9532795e9684844b53314bc3060f8c6",
+  "prompt": "执行 Deep Research 验收：以下均是合成 fixture、未验证的用户材料，不能当作真实商业报价。\n仅使用 uploads/quote_en.md、uploads/quote_zh.md、uploads/repost_fr.md。不要搜索互联网、\n使用 Bash、发消息、创建自动化、调用其他外部工具或修改输入文件。\n\n在同一条调用消息中并行发起且仅发起一次三个原生 Agent：source-mapper, multilingual-researcher, conflict-verifier。\n每次传 run_in_background=false，主 Agent 必须等三个返回后再综合。每个研究单元都要实际\nRead 三个文件，分别着重映射原始来源、多语言重复来源、日期/价格/MOQ 冲突。\n每次委派的 prompt 简述该单元重点即可，限160字；不要复制材料数值或重复整段来源包协议。\n要求各单元遵循来源包协议：只返回 JSON，protocol=\"ophira-research-v1\"、claims 数组、\nunknowns 数组；每条 claim 有 claim/evidence_kind/source_locator/observed_at/excerpt/\nlanguage/conflicts/limitations。不写任何文件或账本，也不创建其他 Agent。\n\n等三份结果返回后，主 Agent 亲自用 Read 重新核对三个原文件，然后：\n1. 用 `mcp__ophira_ledger__record_evidence_batch` 一次提交两条原始报价的证据，各自包含价格、MOQ、\n日期、短摘录、行定位，kind=user_statement，source_type=file，source_path 为对应 uploads\n路径，source_title 自拟，confidence=0.5，supports_hypothesis_ids=[]，recorded_by=research-main。\n在同一个 entries 数组末尾原样重复第一条，验证现有接口幂等返回相同 id。法语转载不得另建证据。\n2. 用 `mcp__ophira_ledger__record_decision` 记录一个 plan：先澄清报价差异与缺失条件，暂不选择报价。\n引用以上真实返回的两个不同 evidence_ids，说明价格/MOQ/日期差异，保留未知条件与后续动作。\n3. Write deep-research-report.md，中文说明合成 fixture、未验证、两份报价数据、日期、冲突、去重依据、\n三个研究单元的工作、未知条件，以及两个实际 evidence IDs 和决策 ID。\n4. `mcp__ophira_ledger__register_artifact` 注册此文件，mime=text/markdown，source_ids 引用两个证据 ID。\n不要伪造 source_receipt，不要把子 Agent 总结当成已经入账的事实。完成后简短确认。\n",
+  "tenant_id": null,
+  "principal_id": null,
+  "principal_role": null,
+  "principal_session_id": null,
+  "identity_binding": "local_only",
+  "agent_id": null,
+  "schedule_id": null,
+  "task_experience_config_hash": null,
+  "standing_intent_id": null,
+  "automation_claim_id": null,
+  "companion_device_id": null,
+  "resume_session_id": null,
+  "resume_source_run_id": null,
+  "mode": "deep_research",
+  "provider_profile_id": "deepseek",
+  "provider_snapshot": {
+    "id": "deepseek",
+    "display_name": "DeepSeek (api.deepseek.com)",
+    "base_url": "https://api.deepseek.com/anthropic",
+    "auth_env_name": "ANTHROPIC_AUTH_TOKEN",
+    "model": "deepseek-v4-pro",
+    "default_haiku_model": "deepseek-v4-flash",
+    "default_sonnet_model": null,
+    "default_opus_model": null,
+    "subagent_model": "deepseek-v4-flash",
+    "region": "cn",
+    "production_eligible": true,
+    "terms_checked_at": "2026-09-04T07:39:37.901064Z",
+    "capabilities": {
+      "tool_use": true,
+      "streaming": true,
+      "images": false,
+      "prompt_caching": false,
+      "extended_thinking": false,
+      "tool_search": false,
+      "native_web_search": true,
+      "native_web_fetch": false,
+      "context_window_tokens": 1000000
+    },
+    "budget_scale": 1.0,
+    "compatibility_suite_version": "1.0",
+    "enabled": true,
+    "last_verified_at": "2026-09-04T06:36:03.038068Z",
+    "last_error_code": null
+  },
+  "skill_snapshot": [
+    {
+      "id": "ophira-core:compliance-claims",
+      "version": "1.2.0",
+      "content_hash": "26b766be66b108f0e41fa467dfefa4d783b5cf3301713d96cdca3a71d4691710",
+      "enabled": true
+    },
+    {
+      "id": "ophira-core:content-marketing",
+      "version": "1.2.0",
+      "content_hash": "146d0e07d2341d5399257430f0cdf60cb39801a2be05c52d724e99715d4f262a",
+      "enabled": true
+    },
+    {
+      "id": "ophira-core:customer-development",
+      "version": "1.1.0",
+      "content_hash": "c42eeab8a25a5552df7daa532d21754a952872913e4b031fb4fb209fa0fdc11d",
+      "enabled": true
+    },
+    {
+      "id": "ophira-core:customer-path",
+      "version": "1.1.0",
+      "content_hash": "aaab32727a92b4f94a47a403ec145c3463378cc386422f8bc02a5c94de9b529e",
+      "enabled": true
+    },
+    {
+      "id": "ophira-core:global-opportunity-execution",
+      "version": "1.1.0",
+      "content_hash": "319c1a2b59f4eb1cc05531a6aad20ece74b8023e36329934f1f39fca4ed95718",
+      "enabled": true
+    },
+    {
+      "id": "ophira-core:inquiry-negotiation",
+      "version": "1.2.0",
+      "content_hash": "2db992563e7e87c064e85488b3eb7fd0c1717e451473d0ba2b2dd5a7c8a97007",
+      "enabled": true
+    },
+    {
+      "id": "ophira-core:landed-cost-analysis",
+      "version": "1.2.0",
+      "content_hash": "7149a7a3fd37ec5ec0a853fe5fef0870ae75a53ccc048854a033f4e25d411153",
+      "enabled": true
+    },
+    {
+      "id": "ophira-core:listing-experiment",
+      "version": "1.2.0",
+      "content_hash": "c413093fafbfed3c6835345bc4e1187db320105c2bd1138264110baea38c9d10",
+      "enabled": true
+    },
+    {
+      "id": "ophira-core:logistics-customs",
+      "version": "1.1.0",
+      "content_hash": "fd0327f0f79a1cedf3eca745e0cfeb8f97fec01b67e88fa8380524c747d28224",
+      "enabled": true
+    },
+    {
+      "id": "ophira-core:market-research",
+      "version": "1.2.0",
+      "content_hash": "cbe52a46e99cf5c760c4707f0f84b25000de0ccb400f0a73e3a56487589c7061",
+      "enabled": true
+    },
+    {
+      "id": "ophira-core:monitoring-patrol",
+      "version": "1.1.0",
+      "content_hash": "c086b67e492cdc90a172f71a910c11c77bbedd9bacd4716e2eeb8398b566a455",
+      "enabled": true
+    },
+    {
+      "id": "ophira-core:office-documents",
+      "version": "1.2.0",
+      "content_hash": "66c45e24ee88be3b280b702bf3220be45aa3de5510467bc56b0374db5a900fbc",
+      "enabled": true
+    },
+    {
+      "id": "ophira-core:supplier-due-diligence",
+      "version": "1.1.0",
+      "content_hash": "a778a2364c1b2347afba14398add52e52ff3b25fe27c11bed58b840028d2e372",
+      "enabled": true
+    }
+  ],
+  "max_budget_usd": null,
+  "status": "completed",
+  "sdk_session_id": "1ec27ff5-c68f-45d7-98e9-cd4a69cb040d",
+  "permission_waits": [
+    {
+      "id": "permission_277e7ae837314254858fafae3a0a3fbc",
+      "session_id": "1ec27ff5-c68f-45d7-98e9-cd4a69cb040d",
+      "tool_use_id": "call_00_fsklBJvXCF8giBVwIdfH4410",
+      "tool_name": "mcp__ophira_ledger__record_evidence_batch",
+      "input_digest": "868aef7420d5c4368f95110dcc6d461c5090f331ac12cd1777ccd64b133c0e09",
+      "identity_digest": "39d2fb79d7b7e94eb67d538d13818a2ed9c445e96eb25048e2ec29739a847536",
+      "tool_input": {
+        "entries": [
+          {
+            "kind": "user_statement",
+            "claim": "Fixture Supplier（SKU TRACE-CUP）报价 A：报价日期 2026-09-01，单价 USD 6.80，最低起订量 500 units（合成/未验证用户材料，非真实报价）",
+            "source_title": "quote_en.md — Synthetic supplier quote A",
+            "source_type": "file",
+            "source_path": "uploads/quote_en.md",
+            "excerpt": "Quote date: 2026-09-01. Unit price: USD 6.80. Minimum order quantity: 500 units.",
+            "location": "L1-L4",
+            "confidence": 0.5,
+            "supports_hypothesis_ids": [],
+            "recorded_by": "research-main"
+          },
+          {
+            "kind": "user_statement",
+            "claim": "Fixture Supplier（SKU TRACE-CUP）报价 B：报价日期 2026-09-03，单价 USD 7.20，最低起订量 300 件（合成/未验证用户材料，非真实报价）",
+            "source_title": "quote_zh.md — 合成供应商报价 B",
+            "source_type": "file",
+            "source_path": "uploads/quote_zh.md",
+            "excerpt": "报价日期：2026-09-03。单价：USD 7.20。最低起订量：300 件。",
+            "location": "L1-L4",
+            "confidence": 0.5,
+            "supports_hypothesis_ids": [],
+            "recorded_by": "research-main"
+          },
+          {
+            "kind": "user_statement",
+            "claim": "Fixture Supplier（SKU TRACE-CUP）报价 A：报价日期 2026-09-01，单价 USD 6.80，最低起订量 500 units（合成/未验证用户材料，非真实报价）",
+            "source_title": "quote_en.md — Synthetic supplier quote A",
+            "source_type": "file",
+            "source_path": "uploads/quote_en.md",
+            "excerpt": "Quote date: 2026-09-01. Unit price: USD 6.80. Minimum order quantity: 500 units.",
+            "location": "L1-L4",
+            "confidence": 0.5,
+            "supports_hypothesis_ids": [],
+            "recorded_by": "research-main"
+          }
+        ]
+      },
+      "agent_id": null,
+      "scope": "",
+      "destructive": false,
+      "persistable": false,
+      "state": "consumed",
+      "resolution": {
+        "decision": "allow_once",
+        "reason": "",
+        "answers": null,
+        "expires_at": null
+      },
+      "actor": {
+        "type": "user",
+        "name": "frontend-user",
+        "agent_id": null
+      },
+      "created_at": "2026-09-10T02:36:03.390906Z",
+      "expires_at": "2026-09-10T10:36:03.390857Z",
+      "confirmed_at": "2026-09-10T02:36:03.534003Z",
+      "consumed_at": "2026-09-10T02:36:04.580149Z"
+    },
+    {
+      "id": "permission_ebcea1eb6554474c80f14c7f87652d33",
+      "session_id": "1ec27ff5-c68f-45d7-98e9-cd4a69cb040d",
+      "tool_use_id": "call_00_nloElP2P9hNJvOdGoW2C7266",
+      "tool_name": "mcp__ophira_ledger__record_decision",
+      "input_digest": "2ef312f9546b623327c1d5b4ead9f92995c652166ae23b613f79eb89ad460aad",
+      "identity_digest": "39d2fb79d7b7e94eb67d538d13818a2ed9c445e96eb25048e2ec29739a847536",
+      "tool_input": {
+        "question": "同一 SKU（TRACE-CUP）存在两份差异报价（EN: 2026-09-01 / USD 6.80 / MOQ 500；ZH: 2026-09-03 / USD 7.20 / MOQ 300），且均为合成/未验证材料，如何推进？",
+        "outcome": "先澄清报价差异与缺失条件，暂不选择任何报价",
+        "decision_type": "plan",
+        "rationale": "两份报价在日期（2026-09-01 vs 2026-09-03）、价格（USD 6.80 vs 7.20）、MOQ（500 vs 300）上均不一致，且均为合成/未验证的 fixture 材料；法语转载 repost_fr.md 源自 quote_en.md，不构成独立佐证。运费、认证、有效期等交易条件全部缺失，ZH 是否取代 EN 亦未说明，故无法判定孰优，暂不做选择。",
+        "evidence_ids": [
+          "ev_6818fdb25c4041e5bbf3e9b2fe41e0da",
+          "ev_af8769e65e4a47459130587633e5f689"
+        ],
+        "hypothesis_ids": [],
+        "assumptions": [
+          "两份材料均为用户提供的合成 fixture，非真实商业报价",
+          "法语 repost_fr.md 是 quote_en.md 的译作/转载，不构成独立来源"
+        ],
+        "conditions": [
+          "需向出具方澄清 ZH 是否取代 EN、真实报价日期与有效期",
+          "需补齐运费、认证、币种口径（FOB/EXW 等）与 MOQ 适用条件"
+        ],
+        "next_actions": [
+          "向 Fixture Supplier 确认哪份报价有效及是否存在替代关系",
+          "获取真实报价单或原始来源以核验价格与 MOQ",
+          "补全运费、认证、有效期等交易条款后再做比较"
+        ],
+        "made_by": "research-main"
+      },
+      "agent_id": null,
+      "scope": "",
+      "destructive": false,
+      "persistable": false,
+      "state": "consumed",
+      "resolution": {
+        "decision": "allow_once",
+        "reason": "",
+        "answers": null,
+        "expires_at": null
+      },
+      "actor": {
+        "type": "user",
+        "name": "frontend-user",
+        "agent_id": null
+      },
+      "created_at": "2026-09-10T02:36:21.837200Z",
+      "expires_at": "2026-09-10T10:36:21.837157Z",
+      "confirmed_at": "2026-09-10T02:36:21.994269Z",
+      "consumed_at": "2026-09-10T02:36:23.028450Z"
+    },
+    {
+      "id": "permission_ff671984caf5413297b7393ffec0cd9f",
+      "session_id": "1ec27ff5-c68f-45d7-98e9-cd4a69cb040d",
+      "tool_use_id": "call_00_809CDGVteD8XXEsDyD4E7041",
+      "tool_name": "Write",
+      "input_digest": "849d32594296726d42552e83d80805df292511532a480f7c9d5010cbf66aa097",
+      "identity_digest": "39d2fb79d7b7e94eb67d538d13818a2ed9c445e96eb25048e2ec29739a847536",
+      "tool_input": {
+        "file_path": "/private/var/folders/8d/hv8z0_x11gg1t1hjybmg2h5h0000gn/T/ophira-research-jtz086dg/projects/project_d9532795e9684844b53314bc3060f8c6/workspace/deep-research-report.md",
+        "content": "# Deep Research 验收报告（合成 fixture / 双语报价冲突与来源去重）\n\n## 1. 材料性质声明\n\n本任务涉及的三份文件均为**合成 fixture、未经验证的用户材料**，不是真实商业报价，\n不得作为可成交价格、真实起订量或真实供应商条款的依据：\n\n- `uploads/quote_en.md` — 自称 “Synthetic supplier quote A — unverified user-supplied material”，\n  并明确 “This is not a real quotation”。\n- `uploads/quote_zh.md` — 自称 “合成供应商报价 B — 未验证的用户材料”，明确 “本材料不是真实报价”。\n- `uploads/repost_fr.md` — 自称 “document synthétique, non vérifié”，且自我声明是\n  `quote_en.md` 的法语翻译与再发布（“PAS une source indépendante”）。\n\n## 2. 两份原始报价数据\n\n| 来源文件 | 出具方 | SKU | 报价日期 | 单价 | 最低起订量 (MOQ) | 备注 |\n| --- | --- | --- | --- | --- | --- | --- |\n| `uploads/quote_en.md` | Fixture Supplier | TRACE-CUP | 2026-09-01 | USD 6.80 | 500 units | 合成/未验证 |\n| `uploads/quote_zh.md` | Fixture Supplier | TRACE-CUP | 2026-09-03 | USD 7.20 | 300 件 | 合成/未验证，未说明是否替代旧报价 |\n\n运费、认证、有效期在英文与中文版本中均未说明。\n\n## 3. 冲突\n\n- **价格**：USD 6.80 vs USD 7.20（差 0.40，约 +5.9%）。\n- **MOQ**：500 units vs 300 件（差 200，约 -40%）。\n- **日期**：2026-09-01 vs 2026-09-03（差 2 天）。\n- **替代关系**：中文版本明确“未说明是否替代旧报价”，因此两份报价的先后/优先关系无法判定。\n\n## 4. 去重依据\n\n- `repost_fr.md` 自我声明是 `quote_en.md` 的翻译与再发布，数值完全一致\n  （2026-09-01 / USD 6.80 / 500 件），**不是独立来源**，不得另建证据。\n- 去重后同一底层出处只对应一套数值：\n  - {2026-09-01, USD 6.80, MOQ 500} 仅 1 个底层来源（`quote_en.md`）；\n  - {2026-09-03, USD 7.20, MOQ 300} 仅 1 个底层来源（`quote_zh.md`）。\n- 若把 `repost_fr.md` 误计为独立来源，会人为放大 6.80/500 的表观佐证强度（伪三方一致），\n  本次明确拒绝该口径。\n\n## 5. 三个研究单元的工作\n\n- **source-mapper（映射原始来源）**：确认 `quote_en.md` 与 `quote_zh.md` 是两个独立原始报价，\n  `repost_fr.md` 为转载；标注日期与行定位，并指出三项文件均自述为合成/非真实报价。\n- **multilingual-researcher（多语言重复来源）**：识别英/中/法多语言重复关系，\n  判定 `quote_en.md` 与 `quote_zh.md` 为两份相互独立且冲突的用户陈述，\n  `repost_fr.md` 为 `quote_en.md` 的译作/转载，不增加独立证据。\n- **conflict-verifier（冲突核验）**：逐项核对日期/价格/MOQ 三项冲突，\n  指出去重后两组数值构成 1 对 1 平局，文件内无独立第三方可裁决；\n  并指出服务端 artifact 上传时间（2026-09-10T02:34:12Z 同一批次）只代表上传批次，\n  不能作为报价时效或版本先后依据。\n\n三个单元均返回来源包协议 v1（protocol=ophira-research-v1，含 claims 与 unknowns）。\n其返回内容仅作为分析参考，不构成已入账事实；本报告中的正式证据与决策以主 Agent 落账为准。\n\n## 6. 未知条件\n\n- `quote_zh.md`（2026-09-03 / USD 7.20 / MOQ 300）是否取代 `quote_en.md`（2026-09-01 / USD 6.80 / MOQ 500）：未说明。\n- 两组冲突数值中哪组更接近真实供应商条款：三份文件均无外部可核验出处，无法裁决。\n- 是否存在独立第三方来源可佐证任一报价：未检索到。\n- “Fixture Supplier” 是否为真实主体、SKU TRACE-CUP 是否为真实料号：未知。\n- 运费、认证、有效期、币种口径（FOB/EXW 等贸易条款）：三份文件均声明未说明。\n\n## 7. 已落账记录\n\n- **证据 ID**：\n  - `ev_6818fdb25c4041e5bbf3e9b2fe41e0da`（`uploads/quote_en.md`，2026-09-01 / USD 6.80 / MOQ 500）\n  - `ev_af8769e65e4a47459130587633e5f689`（`uploads/quote_zh.md`，2026-09-03 / USD 7.20 / MOQ 300）\n- 幂等性验证：`record_evidence_batch` 末尾重复的第一条返回与首条相同的 ID\n  `ev_6818fdb25c4041e5bbf3e9b2fe41e0da`，确认接口幂等。\n- **决策 ID**：`decision_b9d0b2683c0348fc98776b8c49d955bf`\n  （plan：先澄清报价差异与缺失条件，暂不选择报价）。\n- 法语转载 `uploads/repost_fr.md` 未另建证据（去重）。\n\n## 8. 结论\n\n两份报价均为合成/未验证 fixture，日期、价格、MOQ 三项均冲突，且缺失运费、认证、有效期与\n替代关系等关键条件，因此**暂不选择任何报价**。下一步应先向 Fixture Supplier 澄清\n哪份报价有效、是否取代旧报价，并补全交易条款后再行比较。\n"
+      },
+      "agent_id": null,
+      "scope": "path:/private/var/folders/8d/hv8z0_x11gg1t1hjybmg2h5h0000gn/T/ophira-research-jtz086dg/projects/project_d9532795e9684844b53314bc3060f8c6/workspace/deep-research-report.md",
+      "destructive": false,
+      "persistable": true,
+      "state": "consumed",
+      "resolution": {
+        "decision": "allow_once",
+        "reason": "",
+        "answers": null,
+        "expires_at": null
+      },
+      "actor": {
+        "type": "user",
+        "name": "frontend-user",
+        "agent_id": null
+      },
+      "created_at": "2026-09-10T02:36:50.190372Z",
+      "expires_at": "2026-09-10T10:36:50.190340Z",
+      "confirmed_at": "2026-09-10T02:36:50.358064Z",
+      "consumed_at": "2026-09-10T02:36:51.746858Z"
+    },
+    {
+      "id": "permission_2f8a173f71544ee2a2dd38f0cdd8fd20",
+      "session_id": "1ec27ff5-c68f-45d7-98e9-cd4a69cb040d",
+      "tool_use_id": "call_00_Vizka34orBZVvGaEwtk44719",
+      "tool_name": "mcp__ophira_ledger__register_artifact",
+      "input_digest": "d896b03738d5d36cd25779a157c54e0c6313c233efa1b6a9067ac130f03352c5",
+      "identity_digest": "39d2fb79d7b7e94eb67d538d13818a2ed9c445e96eb25048e2ec29739a847536",
+      "tool_input": {
+        "path": "deep-research-report.md",
+        "mime": "text/markdown",
+        "source_ids": [
+          "ev_6818fdb25c4041e5bbf3e9b2fe41e0da",
+          "ev_af8769e65e4a47459130587633e5f689"
+        ]
+      },
+      "agent_id": null,
+      "scope": "path:deep-research-report.md",
+      "destructive": false,
+      "persistable": true,
+      "state": "consumed",
+      "resolution": {
+        "decision": "allow_once",
+        "reason": "",
+        "answers": null,
+        "expires_at": null
+      },
+      "actor": {
+        "type": "user",
+        "name": "frontend-user",
+        "agent_id": null
+      },
+      "created_at": "2026-09-10T02:36:58.345204Z",
+      "expires_at": "2026-09-10T10:36:58.345167Z",
+      "confirmed_at": "2026-09-10T02:36:58.513185Z",
+      "consumed_at": "2026-09-10T02:37:00.046620Z"
+    }
+  ],
+  "suspended_permission_id": null,
+  "sdk_budget_usd": 2.0,
+  "sdk_turn_limit": null,
+  "sdk_wall_clock_deadline": "2026-09-10T02:44:12.669101Z",
+  "sdk_permission_mode": "default",
+  "context_refresh": {
+    "mode": "full",
+    "base_run_id": null,
+    "fallback_reason": "new_session",
+    "changed_domains": [
+      "project",
+      "agent_core",
+      "memory",
+      "skills"
+    ],
+    "changed_project_sections": [
+      "brief",
+      "constraints",
+      "stage",
+      "hypotheses",
+      "evidence",
+      "assessments",
+      "stage_decisions",
+      "decisions",
+      "artifacts"
+    ],
+    "manifest": {
+      "schema_version": 1,
+      "project_id": "project_d9532795e9684844b53314bc3060f8c6",
+      "project_revision": 8,
+      "project_section_hashes": {
+        "brief": "555b8e8607a8441127251e3b2be786a71ad653614490ddeee5f10f6687890a47",
+        "constraints": "7e0e6e985c2699719ce3c8c37afc24df66256f26f1da969fc9f48bed694ff339",
+        "stage": "9fab17a82b43eb275e5befa04e5bbaa90066ad229fb93b2c78d506375366afc8",
+        "hypotheses": "4d36a681eeb7250d75275316a630a3c635825cf72865736927ef5ec7f41abcd0",
+        "evidence": "67b291f6830385815767120c1522972125cd61a9d9d9723bdd3c341b2aaa7be0",
+        "assessments": "15d6bd8763d110350ecd1b738a4e52165ac1b666890030cfcd0cc958f0813998",
+        "stage_decisions": "fbe61be4235c5232e4ea01c59d4fa49f32a1021abf5bb99c36af6359b015530a",
+        "decisions": "fd84b45d445e997e29b6ab74d8ba58b5f3d9353e69beb83cd23ec8b6d30b3d73",
+        "artifacts": "79d8c1d7c2fd99b449586316d90f37a9a943e5433f2a29f6f2268088aed7423b"
+      },
+      "agent_id": null,
+      "agent_revision": null,
+      "agent_core_hash": "0b70bf009132c393809519a077a6e41c78fa1549a4e07246e8c7c77174d62a0c",
+      "memory_revision": "52c711ef687d3ed0e21c552e6aa8355c953400a2540d3d7183bbf998738305c3",
+      "skill_snapshot_hash": "779a9bd68b0ee398675a5ec66798892c46b836030199c809d7c3ab16e538bff5",
+      "compact_epoch": 0,
+      "manifest_hash": "987540957f82ebf2bc75ef4c8bbdc95e7fdaa2c8ab58225256e1b9573695e219"
+    },
+    "payload_hash": "a27e79f1a4e4b0fb50166d9e3e8bee56e067da373d85a667b0be03721ceb6fc8",
+    "prompt_prefix_hash": "9275cb5d8f22862907b2191e4cfb3de2d7d57c2dd6fa377407e1a1b7ec297839"
+  },
+  "session_compaction_epoch": 0,
+  "error": null,
+  "error_code": null,
+  "created_at": "2026-09-10T02:34:12.664412Z",
+  "started_at": "2026-09-10T02:34:12.669101Z",
+  "finished_at": "2026-09-10T02:37:09.468904Z"
+}

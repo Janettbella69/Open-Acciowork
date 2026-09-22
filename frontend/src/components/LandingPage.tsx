@@ -180,7 +180,7 @@ export default function LandingPage() {
         </section>
 
         <section className="studio-story" id="workflow">
-          <h2>{t('Your AI commerce team')}</h2>
+          <h2>{t('Your go-global buddy')}</h2>
           <div className="story-grid">
             {storyChapters.map((chapter) => (
               <article key={chapter.title}>
@@ -277,7 +277,7 @@ export default function LandingPage() {
       </main>
 
       <footer className="site-footer">
-        <div><Brand /><p>{t('AI global commerce intelligence for cross-border teams.')}</p></div>
+        <div><Brand /><p>{t('Go global boldly. TradeMind does the work.')}</p></div>
         <div><strong>{t('Product')}</strong><a href="#overview">{t('Overview')}</a><a href="#workflow">{t('How it works')}</a><a href="/app">{t('Open workspace')}</a></div>
         <div><strong>{t('Company')}</strong><a href="#manifesto">{t('Principles')}</a><a href="https://github.com/Janettbella69/Open-Acciowork" target="_blank" rel="noreferrer">GitHub ↗</a></div>
         <small>© 2026 TradeMind</small>

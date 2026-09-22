@@ -13,6 +13,17 @@ import {
   resumePermissionRun,
   reviewCommercialAction,
   startRun,
+  getCollaborationCapabilities,
+  getProjectAccess,
+  grantProjectAccess,
+  revokeProjectAccess,
+  listProjectComments,
+  getCommentThread,
+  createProjectComment,
+  changeProjectComment,
+  getCommentHistory,
+  setSkillEnabled,
+  rollbackSkill,
 } from './client'
 
 afterEach(() => {
@@ -28,6 +39,64 @@ describe('API client', () => {
     expect(fetchMock).toHaveBeenCalledWith('/api/memory?source_run_id=run%2Fa%20b', expect.objectContaining({
       signal: controller.signal, cache: 'no-store',
     }))
+  })
+  it.each(['version', 'enablement'])('rejects stale Installed Skill %s before making a selection write', async (change) => {
+    const hash = 'a'.repeat(64)
+    const skill = { id: 'ophira-tenant:private-research', name: 'private-research', content_hash: hash }
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      skill, current_target: { current_hash: change === 'version' ? 'b'.repeat(64) : hash, enabled: change === 'enablement', generation: 5 },
+    }), { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+    await expect(setSkillEnabled(skill.id, true, { content_hash: hash, enabled: false })).rejects.toThrow('Skill selection changed since review')
+    await expect(rollbackSkill(skill.id, { content_hash: 'c'.repeat(64) }, { content_hash: hash, enabled: false })).rejects.toThrow('Skill selection changed since review')
+    for (const call of fetchMock.mock.calls) expect((call as unknown as [string, RequestInit])[1].method).not.toBe('POST')
+  })
+
+  it('binds Installed tenant enablement to the displayed package and current generation', async () => {
+    const hash = 'a'.repeat(64)
+    const skill = { id: 'ophira-tenant:private-research', name: 'private-research', content_hash: hash, enabled: false }
+    const target = { current_hash: hash, enabled: false, generation: 5 }
+    const fetchMock = vi.fn(async (_input, init?: RequestInit) => new Response(JSON.stringify(init?.method === 'POST'
+      ? { skill: { ...skill, enabled: true }, current_target: { ...target, enabled: true, generation: 6 } }
+      : { skill, current_target: target }), { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+    expect(await setSkillEnabled(skill.id, true, skill)).toEqual({ ...skill, enabled: true })
+    expect(fetchMock).toHaveBeenLastCalledWith('/api/skills/repository/private-research/selection', expect.objectContaining({
+      method: 'POST', body: JSON.stringify({ operation: 'enable', content_hash: hash, expected_target: target }),
+    }))
+  })
+
+  it('scopes collaboration reads and forwards cursors, cancellation, and no-store caching', async () => {
+    const fetchMock = vi.fn(async () => new Response('{}', { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+    const signal = new AbortController().signal
+    await getCollaborationCapabilities('project/one', signal)
+    await getProjectAccess('project/one', signal)
+    await listProjectComments('project/one', 24, signal)
+    await getCommentThread('project/one', 'comment/#', 56, signal)
+    await getCommentHistory('project/one', 'comment/#', signal)
+    expect(fetchMock.mock.calls.map((args) => (args as unknown as [string])[0])).toEqual([
+      '/api/projects/project%2Fone/collaboration', '/api/projects/project%2Fone/access',
+      '/api/projects/project%2Fone/comments?before=24', '/api/projects/project%2Fone/comments/comment%2F%23/thread?after=56',
+      '/api/projects/project%2Fone/comments/comment%2F%23/history',
+    ])
+    for (const call of fetchMock.mock.calls) expect((call as unknown as [string, RequestInit])[1]).toMatchObject({ signal, cache: 'no-store' })
+  })
+  it('sends revision and replay keys for collaboration mutations without supplying actor identity', async () => {
+    const fetchMock = vi.fn(async () => new Response('{}', { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+    const signal = new AbortController().signal
+    const add = { principal_id: 'user@example.com', role: 'reviewer' as const, expected_revision: 3 }
+    const comment = { text: 'Review this', request_id: 'request_1234567890' }
+    const edit = { text: 'Updated', action: 'edit' as const, expected_revision: 2, request_id: 'request_1234567891' }
+    await grantProjectAccess('project_1', add, signal)
+    await revokeProjectAccess('project_1', 'user+region:01@example.com', 4, signal)
+    await createProjectComment('project_1', comment, signal)
+    await changeProjectComment('project_1', 'comment_1', edit, signal)
+    expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/projects/project_1/access', expect.objectContaining({ method: 'POST', body: JSON.stringify(add), signal }))
+    expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/projects/project_1/access/user+region:01@example.com?expected_revision=4', expect.objectContaining({ method: 'DELETE', signal }))
+    expect(fetchMock).toHaveBeenNthCalledWith(3, '/api/projects/project_1/comments', expect.objectContaining({ method: 'POST', body: JSON.stringify(comment), signal }))
+    expect(fetchMock).toHaveBeenNthCalledWith(4, '/api/projects/project_1/comments/comment_1', expect.objectContaining({ method: 'PATCH', body: JSON.stringify(edit), signal }))
   })
   it('encodes reference search input and disables cached project results', async () => {
     const payload = { project_id: 'project/one', matches: [] }

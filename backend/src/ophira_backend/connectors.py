@@ -15,8 +15,20 @@ from urllib.parse import urlsplit
 from pydantic import SecretStr
 
 from .constants import COMMERCIAL_HTTPS_JSON_CONNECTOR_TYPE
+from .marketplaces import (
+    SHOPIFY_TYPE,
+    TIKTOK_AUTH_SCOPE,
+    TIKTOK_SHOP_ORIGIN,
+    TIKTOK_SHOP_TYPE,
+    parse_tiktok_shop_credentials,
+)
 from .models import Connector, utc_now
 from .providers import FileSecretVault
+from .shopify import (
+    SHOPIFY_DEFAULT_SCOPE,
+    check_shopify_store_endpoint,
+    parse_shopify_credentials,
+)
 
 CONNECTOR_CATALOG: list[dict[str, str | None]] = [
     {
@@ -41,10 +53,10 @@ CONNECTOR_CATALOG: list[dict[str, str | None]] = [
         "secret_env": "OPHIRA_CONNECTOR_AMAZON_KEY",
     },
     {
-        "id": "shopify",
-        "type": "shopify",
+        "id": SHOPIFY_TYPE,
+        "type": SHOPIFY_TYPE,
         "display_name": "Shopify",
-        "scope": "orders:read products:write",
+        "scope": SHOPIFY_DEFAULT_SCOPE,
         "secret_env": "OPHIRA_CONNECTOR_SHOPIFY_KEY",
     },
     {
@@ -67,6 +79,14 @@ CONNECTOR_CATALOG: list[dict[str, str | None]] = [
         "display_name": "TikTok",
         "scope": "video:read comments:read",
         "secret_env": "OPHIRA_CONNECTOR_TIKTOK_KEY",
+    },
+    {
+        "id": TIKTOK_SHOP_TYPE,
+        "type": TIKTOK_SHOP_TYPE,
+        "display_name": "TikTok Shop",
+        "scope": TIKTOK_AUTH_SCOPE,
+        "secret_env": "OPHIRA_CONNECTOR_TIKTOK_SHOP_KEY",
+        "endpoint": TIKTOK_SHOP_ORIGIN,
     },
     {
         "id": "wechat",
@@ -321,6 +341,23 @@ class ConnectorRegistry:
             reason = check_commercial_https_endpoint(endpoint or "")
             if reason:
                 raise ValueError(reason)
+        if type == TIKTOK_SHOP_TYPE:
+            if endpoint != TIKTOK_SHOP_ORIGIN:
+                raise ValueError("TikTok Shop requires its official API origin")
+            if secret is not None:
+                parse_tiktok_shop_credentials(secret)
+                if self.vault is None:
+                    raise ValueError("connector vault is not configured")
+        if type == SHOPIFY_TYPE:
+            # The catalog record starts without a store; credentials always need one.
+            if endpoint is not None or secret is not None:
+                reason = check_shopify_store_endpoint(endpoint)
+                if reason:
+                    raise ValueError(reason)
+            if secret is not None:
+                parse_shopify_credentials(secret)
+                if self.vault is None:
+                    raise ValueError("connector vault is not configured")
         existing = None
         try:
             existing = self.get(connector_id)
@@ -348,6 +385,10 @@ class ConnectorRegistry:
 
     def store_secret(self, connector_id: str, secret: str) -> Connector:
         connector = self.get(connector_id)
+        if connector.type == TIKTOK_SHOP_TYPE:
+            parse_tiktok_shop_credentials(secret)
+        elif connector.type == SHOPIFY_TYPE:
+            parse_shopify_credentials(secret)
         if self.vault is None:
             raise ValueError("connector vault is not configured")
         self.vault.set(connector.id, secret)
@@ -440,6 +481,81 @@ class ConnectorRegistry:
             raise ConnectorUnavailableError("BROWSER_CONNECTOR_INVALID", reason)
         assert connector.endpoint is not None
         return connector.endpoint
+
+    def require_tiktok_shop_runtime(self, connector_id: str) -> CommercialConnectorRuntime:
+        """Resolve server-only seller material; health is never remote verification."""
+        try:
+            connector = self.get(connector_id)
+        except (ConnectorNotFoundError, ValueError):
+            raise ConnectorUnavailableError(
+                "MARKETPLACE_NOT_CONFIGURED", "The marketplace connector is not configured.",
+            ) from None
+        if connector.type != TIKTOK_SHOP_TYPE or connector.endpoint != TIKTOK_SHOP_ORIGIN:
+            raise ConnectorUnavailableError(
+                "MARKETPLACE_UNSUPPORTED", "This connector has no supported marketplace reader.",
+            )
+        if not connector.enabled:
+            raise ConnectorUnavailableError(
+                "MARKETPLACE_DISABLED", "The marketplace connector is revoked.",
+            )
+        secret = self.vault.get(connector.id) if self.vault is not None else None
+        if not secret and connector.secret_env:
+            if check_connector_secret_env(connector.secret_env):
+                raise ConnectorUnavailableError(
+                    "MARKETPLACE_CREDENTIAL_INVALID", "Invalid connector credential reference.",
+                )
+            secret = os.environ.get(connector.secret_env)
+        if not secret:
+            raise ConnectorUnavailableError(
+                "MARKETPLACE_CREDENTIAL_REQUIRED", "Configure a seller access token first.",
+            )
+        try:
+            parse_tiktok_shop_credentials(secret)
+        except ValueError:
+            raise ConnectorUnavailableError(
+                "MARKETPLACE_CREDENTIAL_INVALID", "Replace the invalid seller credential bundle.",
+            ) from None
+        return CommercialConnectorRuntime(connector=connector, credential=SecretStr(secret))
+
+    def require_shopify_runtime(self, connector_id: str) -> CommercialConnectorRuntime:
+        """Resolve a store address and app credentials; health is never remote verification."""
+        try:
+            connector = self.get(connector_id)
+        except (ConnectorNotFoundError, ValueError):
+            raise ConnectorUnavailableError(
+                "MARKETPLACE_NOT_CONFIGURED", "The marketplace connector is not configured.",
+            ) from None
+        if connector.type != SHOPIFY_TYPE:
+            raise ConnectorUnavailableError(
+                "MARKETPLACE_UNSUPPORTED", "This connector has no supported marketplace reader.",
+            )
+        if not connector.enabled:
+            raise ConnectorUnavailableError(
+                "MARKETPLACE_DISABLED", "The marketplace connector is revoked.",
+            )
+        if check_shopify_store_endpoint(connector.endpoint):
+            raise ConnectorUnavailableError(
+                "MARKETPLACE_STORE_REQUIRED", "Enter the store's myshopify.com address first.",
+            )
+        secret = self.vault.get(connector.id) if self.vault is not None else None
+        if not secret and connector.secret_env:
+            if check_connector_secret_env(connector.secret_env):
+                raise ConnectorUnavailableError(
+                    "MARKETPLACE_CREDENTIAL_INVALID", "Invalid connector credential reference.",
+                )
+            secret = os.environ.get(connector.secret_env)
+        if not secret:
+            raise ConnectorUnavailableError(
+                "MARKETPLACE_CREDENTIAL_REQUIRED",
+                "Configure the Shopify app client ID and client secret first.",
+            )
+        try:
+            parse_shopify_credentials(secret)
+        except ValueError:
+            raise ConnectorUnavailableError(
+                "MARKETPLACE_CREDENTIAL_INVALID", "Replace the invalid Shopify app credentials.",
+            ) from None
+        return CommercialConnectorRuntime(connector=connector, credential=SecretStr(secret))
 
     def require_commercial_action_runtime(
         self,

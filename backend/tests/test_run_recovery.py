@@ -17,9 +17,11 @@ from ophira_backend.storage import FileLedger
 class OfflineRuntime:
     def __init__(self):
         self.seen = []
+        self.started = asyncio.Event()
 
     async def run(self, run):
         self.seen.append(run)
+        self.started.set()
 
     async def cancel(self, _run_id):
         return None
@@ -78,10 +80,9 @@ async def test_startup_recovers_orphans_preserves_work_and_allows_resume(tmp_pat
             )
             assert response.status_code == 202
             assert response.json()["resume_session_id"] == "session_before_restart"
-            for _ in range(30):
-                if runtime.seen:
-                    break
-                await asyncio.sleep(0)
+            # Execution now awaits a filesystem checkpoint in a worker thread.
+            # Observe the runtime boundary, not an event-loop scheduling count.
+            await asyncio.wait_for(runtime.started.wait(), 5)
             assert len(runtime.seen) == 1
 
 
@@ -105,6 +106,7 @@ async def test_recovery_finishes_cancellation_but_keeps_terminal_history(tmp_pat
 class BlockingRuntime(OfflineRuntime):
     async def run(self, run):
         self.seen.append(run)
+        self.started.set()
         await asyncio.Event().wait()
 
 
@@ -118,7 +120,7 @@ async def test_recovery_does_not_interrupt_another_workers_live_run(tmp_path):
         # The lease must already protect the queued state before execution begins.
         await other.recover_interrupted()
         assert other.ledger.get_run(run.id).status != RunStatus.FAILED
-        await asyncio.sleep(0)
+        await asyncio.wait_for(runtime.started.wait(), 5)
         await other.recover_interrupted()
         assert other.ledger.get_run(run.id).status == RunStatus.RUNNING
         assert not owner._tasks[run.id].done()

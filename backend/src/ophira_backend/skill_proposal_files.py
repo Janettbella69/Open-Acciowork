@@ -216,11 +216,21 @@ def file_inventory(files: dict[str, bytes]) -> list[SkillProposalFile]:
 
 
 def write_frozen(root: Path, raw_manifest: bytes, files: dict[str, bytes]) -> None:
-    package = root / "package"
+    with (root / "manifest.json").open("xb") as handle:
+        handle.write(raw_manifest)
+        handle.flush()
+        os.fsync(handle.fileno())
+    (root / "manifest.json").chmod(0o444)
+    write_package(root / "package", files)
+    fsync_directory(root)
+
+
+def write_package(package: Path, files: dict[str, bytes]) -> None:
+    """Write one owned, private frozen copy for either human or Agent submission."""
     package.mkdir()
-    payloads = {"manifest.json": raw_manifest, **{f"package/{k}": v for k, v in files.items()}}
-    for relative, content in payloads.items():
-        destination = root / relative
+    for relative, content in files.items():
+        relative_parts(relative)
+        destination = package / relative
         destination.parent.mkdir(parents=True, exist_ok=True)
         with destination.open("xb") as handle:
             handle.write(content)
@@ -233,7 +243,7 @@ def write_frozen(root: Path, raw_manifest: bytes, files: dict[str, bytes]) -> No
             fsync_directory(directory)
     package.chmod(0o555)
     fsync_directory(package)
-    fsync_directory(root)
+    fsync_directory(package.parent)
 
 
 def fsync_directory(path: Path) -> None:

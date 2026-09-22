@@ -1,0 +1,5 @@
+{
+  "quote_en.md": "# Synthetic supplier quote A — unverified user-supplied material\nOriginal issuer: Fixture Supplier. SKU: TRACE-CUP. Quote date: 2026-09-01.\nUnit price: USD 6.80. Minimum order quantity: 500 units.\nFreight, certification and validity are not specified. This is not a real quotation.\n",
+  "quote_zh.md": "# 合成供应商报价 B — 未验证的用户材料\n原始出具方：Fixture Supplier。SKU：TRACE-CUP。报价日期：2026-09-03。\n单价：USD 7.20。最低起订量：300 件。\n运费、认证及有效期未说明。本材料不是真实报价，也未说明是否替代旧报价。\n",
+  "repost_fr.md": "# Reprise française — document synthétique, non vérifié\nTraduction et republication de uploads/quote_en.md, PAS une source indépendante.\nFixture Supplier, TRACE-CUP, devis du 2026-09-01 : USD 6.80, minimum 500 unités.\nLes frais de transport, la certification et la validité ne sont pas précisés.\n"
+}

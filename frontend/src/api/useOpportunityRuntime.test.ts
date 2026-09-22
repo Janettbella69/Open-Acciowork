@@ -79,6 +79,20 @@ async function setup() {
 }
 
 describe('project selection isolation', () => {
+  it('keeps a newly created template project when the initial project list arrives late and starts no run', async () => {
+    const initial = deferred<OpportunityProject[]>()
+    vi.mocked(api.listProjects).mockReturnValueOnce(initial.promise)
+    vi.mocked(api.listProjectRuns).mockResolvedValue([])
+    const created = { ...projectA, id: 'project_from_template' }
+    const { result } = renderHook(() => useOpportunityRuntime())
+    await act(async () => { await result.current.selectProject(created) })
+    await act(async () => { initial.resolve([projectA, projectB]) })
+    expect(result.current.project).toEqual(created)
+    expect(result.current.projects.map((row) => row.id)).toEqual([created.id, projectA.id, projectB.id])
+    expect(result.current.run).toBeNull()
+    expect(api.startRun).not.toHaveBeenCalled()
+    expect(MockEventSource.instances).toHaveLength(0)
+  })
   it('ignores an old project refresh after selecting another project', async () => {
     const { result } = await setup()
     const refresh = deferred<OpportunityProject>()

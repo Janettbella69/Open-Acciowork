@@ -1,0 +1,28 @@
+.project-templates { border: 1px solid #e1e5e0; border-radius: 12px; margin: 12px 0; background: #fff; color: #273b34; }
+.project-templates-toggle { width: 100%; display: flex; justify-content: space-between; gap: 12px; padding: 14px 16px; border: 0; background: transparent; color: inherit; text-align: left; font-weight: 600; cursor: pointer; }
+.project-templates-body { padding: 0 16px 16px; font-size: 14px; }
+.project-templates label { display: block; margin: 10px 0; }
+.project-templates input, .project-templates select, .project-templates textarea { display: block; box-sizing: border-box; width: 100%; max-width: 100%; min-width: 0; margin: 6px 0; border: 1px solid #b9c7bd; border-radius: 6px; padding: 9px; background: #fcfdfb; color: #213e31; font: inherit; }
+.project-templates textarea { resize: vertical; min-height: 80px; }
+.project-templates fieldset { min-width: 0; border: 1px solid #e1e5e0; border-radius: 8px; padding: 12px; margin: 14px 0; }
+.project-templates button:not(.project-templates-toggle) { border: 1px solid #d4ddd7; border-radius: 6px; background: #f5f8f4; color: #254a39; padding: 7px 10px; margin: 4px 0; cursor: pointer; }
+.project-templates button:disabled { opacity: .55; cursor: default; }
+.project-templates button:focus-visible, .project-templates a:focus-visible { outline: 2px solid #397557; outline-offset: 3px; }
+.project-templates small { display: block; font-size: 12px; color: #58685e; margin: 5px 0; overflow-wrap: anywhere; }
+.project-templates p, .project-templates strong, .project-templates span, .project-templates a { overflow-wrap: anywhere; }
+.project-templates a { color: #256344; text-decoration: underline; }
+.template-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+.template-actions label { flex: 1; min-width: 150px; }
+.template-list { list-style: none; padding: 0; margin: 14px 0; }
+.template-list > li { margin: 10px 0; }
+.template-list > li > button { width: 100%; text-align: left; }
+.template-list strong, .template-list span { display: block; }
+.template-list button[aria-expanded=true] { border-color: #397557; background: #e4eee5; }
+.template-detail { border-top: 1px solid #d4ddd7; padding-top: 12px; margin-top: 16px; }
+.project-templates .template-check { display: flex; align-items: flex-start; gap: 10px; }
+.project-templates .template-check input { width: 18px; height: 18px; flex: 0 0 auto; }
+.template-review { border-left: 3px solid #b39248; background: #fffaf0; padding: 10px 12px; margin: 12px 0; }
+.template-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+.template-origin { margin: 0 16px 12px; font-size: 13px; }
+.project-templates [role=alert] { color: #8b3427; overflow-wrap: anywhere; }
+@media (max-width: 480px) { .project-templates-body { padding: 0 12px 12px; } .project-templates fieldset { padding: 8px; } }

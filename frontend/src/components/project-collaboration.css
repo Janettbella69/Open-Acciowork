@@ -1,0 +1,34 @@
+.project-collaboration { border: 1px solid #e1e5e0; border-radius: 12px; margin: 12px 0; background: #fff; color: #273b34; }
+.project-collaboration-toggle { width: 100%; display: flex; justify-content: space-between; gap: 12px; padding: 14px 16px; border: 0; background: transparent; color: inherit; text-align: left; font-weight: 600; cursor: pointer; }
+.project-collaboration-body { padding: 0 16px 16px; font-size: 14px; }
+.project-collaboration label { display: block; margin: 10px 0; }
+.project-collaboration input, .project-collaboration select, .project-collaboration textarea { display: block; box-sizing: border-box; width: 100%; max-width: 100%; min-width: 0; margin: 6px 0; border: 1px solid #b9c7bd; border-radius: 6px; padding: 9px; background: #fcfdfb; color: #213e31; font: inherit; }
+.project-collaboration textarea { resize: vertical; min-height: 90px; }
+.project-collaboration fieldset { min-width: 0; border: 1px solid #e1e5e0; border-radius: 8px; padding: 12px; margin: 14px 0; }
+.project-collaboration button:not(.project-collaboration-toggle) { border: 1px solid #d4ddd7; border-radius: 6px; background: #f5f8f4; color: #254a39; padding: 7px 10px; cursor: pointer; }
+.project-collaboration button:disabled { opacity: .55; cursor: default; }
+.project-collaboration button:focus-visible, .project-collaboration a:focus-visible { outline: 2px solid #397557; outline-offset: 3px; }
+.project-collaboration button[aria-pressed=true] { background: #e4eee5; border-color: #397557; }
+.collaboration-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+.collaboration-actions label { flex: 1; min-width: 150px; }
+.collaboration-discussions, .collaboration-members { list-style: none; padding: 0; margin: 16px 0; }
+.collaboration-discussions li, .collaboration-members li { margin: 10px 0; }
+.collaboration-discussions button { width: 100%; text-align: left; }
+.collaboration-discussions button[aria-expanded=true] { border-color: #397557; background: #e4eee5; }
+.collaboration-discussions span, .collaboration-discussions strong, .collaboration-members span, .project-collaboration small { display: block; }
+.project-collaboration small { color: #58685e; font-size: 12px; margin: 5px 0; }
+.collaboration-members li { padding: 12px; background: #f6f8f5; border-radius: 8px; }
+.project-collaboration p, .project-collaboration strong, .project-collaboration span, .project-collaboration small { overflow-wrap: anywhere; }
+.collaboration-thread { border-top: 1px solid #d4ddd7; margin: 20px 0; padding-top: 12px; }
+.collaboration-comment { padding: 12px 0; border-bottom: 1px solid #e1e5e0; }
+.collaboration-comment header { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 6px; }
+.collaboration-comment time { color: #58685e; font-size: 12px; }
+.collaboration-state { display: inline-block; font-size: 12px; background: #eaf0e8; padding: 3px 7px; border-radius: 10px; margin: 8px 0; }
+.collaboration-target, .collaboration-review { border-left: 3px solid #b39248; background: #fffaf0; padding: 10px 12px; margin: 12px 0; }
+.collaboration-target a { color: #256344; text-decoration: underline; }
+.collaboration-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+.collaboration-history { max-height: 420px; overflow: auto; padding-left: 22px; }
+.collaboration-history li { padding: 8px; margin: 8px 0; background: #f6f8f5; }
+.collaboration-replies { padding-left: 16px; border-left: 2px solid #e1e5e0; margin-left: 4px; }
+.project-collaboration [role=alert] { color: #8b3427; overflow-wrap: anywhere; }
+@media (max-width: 480px) { .project-collaboration-body { padding: 0 12px 12px; } .collaboration-replies { padding-left: 10px; } }

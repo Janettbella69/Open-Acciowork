@@ -534,6 +534,7 @@ export function useOpportunityRuntime() {
     closeStream()
     projectRef.current = selected
     setProject(selected)
+    setProjects((current) => [selected, ...current.filter((item) => item.id !== selected.id)])
     setRun(null)
     runRef.current = null
     setEvents([])
@@ -631,7 +632,7 @@ export function useOpportunityRuntime() {
     let active = true
     void Promise.all([getProtocol(), listProjects()])
       .then(([, storedProjects]) => {
-        if (active) setProjects(storedProjects)
+        if (active) setProjects((current) => [...current, ...storedProjects.filter((item) => !current.some((known) => known.id === item.id))])
       })
       .catch((loadError) => {
         if (active) setError(`Backend unavailable: ${errorMessage(loadError)}`)
