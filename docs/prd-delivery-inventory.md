@@ -20,7 +20,7 @@
 | FR-08 隔离 | delivered：项目路径、符号链接、独立 worker 配置 | deferred：生产 worker 资源包络与租户物理隔离演练 |
 | FR-09 来源账本 | delivered：同 Run/session 的服务器 source receipt | 保持来源、失效、回放和内容完整性回归 |
 | FR-10 决策 | delivered：证据关联与失效联动 | 开放任务质量另行验收 |
-| FR-11 领域 MCP | delivered：确定性商业计算、用户记录加工、显式结算计划的现金流/日末与保守日内资金缺口；TikTok Shop项目指定店铺的主Agent只读MCP与来源凭证 | deferred：真实供应商/客户/市场/法规/物流/汇率授权数据适配及已实现商家接口的真实验收 |
+| FR-11 领域 MCP | delivered：确定性商业计算、用户记录加工、显式结算计划的现金流/日末与保守日内资金缺口；TikTok Shop/Shopify/SHEIN项目指定店铺的主Agent只读MCP与来源凭证；Shopify近期订单、SHEIN SPU/SKC分层商品与分页/上架状态 | deferred：真实供应商/客户/市场/法规/物流/汇率授权数据适配及已实现商家接口的真实验收 |
 | FR-12 Skill 生命周期 | delivered：发现/启停/扫描/不可变版本/配额/租约/回滚；13个内置Skill的证据参考与输出模板、固定包原生只读访问；Agent候选冻结、人审发布默认关闭、凭证恢复与独立审阅UI；独立Skill备份及含项目账本/候选库的应用冷备份、新进程恢复 | deferred：真实模型提案质量、真端点回滚重跑、跨宿主/生产恢复及其余子系统的恢复认证 |
 | FR-13 权限 | delivered：范围/有效期/审计、删除确认、沙箱拒绝逃逸；可信设备单次审批；原生SDK持久等待、原Run恢复、跨进程决议竞争、消费前撤销复验；工作台内切换组织授权模式，仅 SDK 原生 default/auto 两档 | deferred：真实远程审批与生产故障矩阵；原生多工具批次须拆为单次审批 |
 | FR-14 记忆 | delivered：提案人审、TTL/过期/检索/导出/删除恢复 | deferred：真实蒸馏质量、生产备份删除边界与恢复演练 |
@@ -30,7 +30,7 @@
 | FR-18 恢复 | delivered：保存产物、错误分类、重试与重启恢复；Run 起点的完整可支持工作区快照、Bash 修改恢复、人工变更预览/确认/结果重试、中断目录切换修复、真实进程退出与冷备往返；同项目执行与产物收尾租约 | deferred：真实 SDK 故障注入、生产/跨宿主恢复、容量保留管理、性能与浏览器目视验收 |
 | FR-19 Deep Research | delivered：输入框内显式开关发起（默认关闭、运行中锁定）；三种原生只读研究单元的一次新建/同 Run 续接约束；共享预算/取消/原始截止时间；运行中资源 UI、来源包与主 Agent 去重落账；真实 DeepSeek 合成来源上的三单元并行/来源复核/证据合并与报告验收 | deferred：开放互联网研究质量、真实取消/耗尽/长时墙钟故障矩阵、其他 Provider 与浏览器目视验收 |
 | FR-20 GUI | delivered：L1/L2 真实浏览器 smoke；项目独立店铺 profile、用户登录确认、当前页观察引用、主Agent页面动作/报表下载与来源/产物落账、真实Chromium离线链路 | deferred：真实卖家后台/验证码/风控兼容性和模型联调；真实攻击/恢复矩阵；L3 桌面桥与 OS 权限治理未实现 |
-| FR-21 Connector | delivered：Catalog/Vault/health/revoke、HTTPS JSON send_message；五平台官方文档入口，TikTok Shop授权店铺/商品分页只读adapter、项目店铺授权/到期/撤销、主Agent来源凭证接入与中英文管理员UI；项目店铺身份可关联平台Connector、独立浏览器授权及数据展示 | deferred：其余邮箱/店铺/CRM/社媒垂直adapter；TikTok Shop OAuth/refresh、真实授权test-account及模型调用验收/外发全链；API与浏览器数据自动合并 |
+| FR-21 Connector | delivered：Catalog/Vault/health/revoke、HTTPS JSON send_message；六平台官方文档入口，TikTok Shop授权店铺/商品分页、Shopify自有店铺/token/商品/近期订单、SHEIN商家密钥/店铺/SPU与SKC商品读取；项目店铺授权/到期/撤销、主Agent来源凭证与中英文管理员UI；项目店铺身份可关联平台Connector、独立浏览器授权及数据展示 | deferred：Temu/AliExpress/Shopee及其余邮箱/店铺/CRM/社媒adapter；TikTok Shop OAuth/refresh、SHEIN授权交换/解密与SKU库存价格、平台写操作；真实授权账号/模型调用验收与外发全链；API与浏览器数据自动合并 |
 | FR-22 组织治理 | delivered：单部署租户 principal/membership/策略；共享项目成员管理UI与版本冲突保护；持久团队讨论/回复/对象关联/编辑历史/解决状态；可复用项目模板、固定参考版本与来源、核对后创建和中断恢复；组织私有Skill导入人审、固定版本查看/导出、独立启停/恢复、跨进程凭证与冷备恢复 | deferred：真实身份网关联调、租户分区与隔离 runner、长期容量与浏览器目视验收 |
 | FR-23 Web 兜底 | delivered：Serper/Tavily 适配与 SSRF 防护 | deferred：真实配置搜索服务和 Provider 降级 E2E |
 | FR-24 IM | delivered：飞书签名入站/身份绑定/同 Agent/持久回复重试 | deferred：真实飞书/Lark 租户 E2E；微信适配未实现 |
@@ -1178,4 +1178,37 @@ Ruff、`git diff --check`、eval工具 **59 passed** 与 Snapshot **61/61**通�
 
 此批未修改正式密钥或联系真实网关。根密钥生产轮换/网关联调、外部副本删除、
 生产租户与资源隔离、原生会话迁移，以及总表其他 deferred 仍需交付。
+完整 PRD 目标仍未完成。
+
+## 2026-09-22：SHEIN 店铺与 SPU/SKC 商品读取（4ebced0）
+
+实施合同：[SHEIN seller reader](shein-connector.md)。已核验官方签名工具、店铺查询
+3001499 和商品综合查询 3001634；记录公开页面脚本的来源与哈希，不依据第三方实现猜测。
+
+- 凭据配置接受既有授权集成的 openKeyId 和已解密商家 secretKey，仅允许两个官方
+  API origin。应用本地读取权限与平台实际权限分开，保存不等于访问验证成功。
+- 每次商品读取先重新查询店铺并核对 supplierId；签名、固定请求路径、公开 DNS 固定、
+  无重定向/自动重试、30秒截止和2MiB响应限制沿用现有安全边界。
+- 商品按 SPU 分组分页，每页1–10组，保留 SKC 变体及英文标题、上/下架状态、
+  类目、平台报告总组数和下一页；不混用组与变体数量，不虚构 SPU 标题或区域。
+- 连接器配置和 Vault 凭据版本在请求前后复核；撤销、轮换、删后恢复同一密钥、
+  权限缩减或存储损坏均拒绝旧响应。错误、日志和返回值不释放凭据或签名。
+- 复用项目单店铺限时授权、主 Agent 原生 MCP 与完整观察内容绑定的来源凭证，
+  不自动新增 Evidence。中英文界面支持配置、读店、筛选/分页、授权、撤销和重连。
+  保存/撤销断线时先查询服务器现态，阻止重复提交和未核对的后续读取。
+
+验证：
+
+- 新增后端 **48 passed**，含独立 Node 算法签名向量、真实适配器的模拟 HTTP 合同、
+  两次请求期间各类撤销/重配、原生 SDK MCP 调度与来源凭证、正式 FastAPI 权限路由。
+  平台相关回归合计 **177 passed**。
+- 冻结实现后后端全量 **2196 passed / 13 skipped**，128.72秒；跳过仍为8个真实
+  Provider 合约及5个可选 Chromium 验收。前端全量 **441 passed / 45 files**，
+  包含12项新增SHEIN交互用例；lint、build通过。
+- Ruff、`git diff --check`、eval工具 **59 passed**、Snapshot **61/61**通过。
+- Browser连接选择返回 `No browser is available`；按技能故障流程查询仍为 `[]`，
+  未完成页面目视验收。没有使用真实卖家凭据、调用卖家接口或模型服务。
+
+仍需交付：SHEIN真实卖家计划/账号与限流认证、授权交换/解密、SKU库存价格及订单，
+Temu/AliExpress/Shopee适配器、商业写操作，以及总表其他功能和生产/人工验收项。
 完整 PRD 目标仍未完成。
