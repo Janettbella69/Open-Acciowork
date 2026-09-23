@@ -68,7 +68,7 @@ MARKETPLACE_GUIDES = [
         "articleId=120674&docType=1&treeId=727",
     },
     {
-        "type": "shopee", "name": "Shopee", "read_adapter": False,
+        "type": "shopee", "name": "Shopee", "read_adapter": True,
         "documentation_url": "https://open.shopee.cn/developer-guide/12",
     },
     {
@@ -127,6 +127,7 @@ ProductStatus = Literal[
     "ALL", "DRAFT", "PENDING", "FAILED", "ACTIVATE", "SELLER_DEACTIVATED",
     "PLATFORM_DEACTIVATED", "FREEZE", "DELETED", "ACTIVE", "ARCHIVED", "UNLISTED",
     "ON_SHELF", "OFF_SHELF",
+    "NORMAL", "BANNED", "UNLIST", "REVIEWING", "SELLER_DELETE", "SHOPEE_DELETE",
 ]
 # Each platform documents its own status vocabulary; filters never cross platforms.
 TIKTOK_PRODUCT_STATUSES = frozenset({
@@ -139,16 +140,22 @@ SHOPIFY_PRODUCT_STATUSES = frozenset({"ALL", "ACTIVE", "ARCHIVED", "DRAFT", "UNL
 class MarketplaceReadRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 
-    operation: Literal["authorized_shops", "products", "orders"]
+    operation: Literal["authorized_shops", "products", "orders", "product_details"]
     shop_id: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_-]{1,160}$")
     page_size: int = Field(default=20, ge=1, le=100)
     page_token: str | None = Field(default=None, min_length=1, max_length=2048)
     product_status: ProductStatus = "ALL"
+    product_id: str | None = Field(default=None, pattern=r"^[1-9][0-9]{0,18}$")
 
     @model_validator(mode="after")
     def require_shop(self) -> MarketplaceReadRequest:
-        if self.operation in {"products", "orders"} and not self.shop_id:
+        if self.operation in {"products", "orders", "product_details"} and not self.shop_id:
             raise ValueError("Select an authorized shop before reading products or orders")
+        if self.operation == "product_details":
+            if not self.product_id or self.product_status != "ALL":
+                raise ValueError("Product details require an item id and no status filter")
+        elif self.product_id is not None:
+            raise ValueError("Only product details accept an item id")
         if self.operation == "orders" and self.product_status != "ALL":
             raise ValueError("Order reads do not accept product filters")
         if self.operation == "authorized_shops" and (
@@ -261,9 +268,9 @@ class TikTokShopReader:
             secret.get_secret_value()
             for secret in (credentials.app_key, credentials.app_secret, credentials.access_token)
         }
-        if request.operation == "orders":
+        if request.operation not in {"authorized_shops", "products"}:
             raise MarketplaceError(
-                "MARKETPLACE_OPERATION_UNSUPPORTED", "TikTok Shop order reads are not available.",
+                "MARKETPLACE_OPERATION_UNSUPPORTED", "This TikTok Shop read is not available.",
             )
         if request.product_status not in TIKTOK_PRODUCT_STATUSES:
             raise MarketplaceError(

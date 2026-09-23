@@ -20,7 +20,7 @@
 | FR-08 隔离 | delivered：项目路径、符号链接、独立 worker 配置；原生进程时长/输出监督、Linux systemd CPU/内存/任务数门禁及配置/已验证状态区分（Linux验收见下方记录） | deferred：真实模型与原生沙箱的Linux联合验收、API宿主MCP资源限制、生产负载与租户物理隔离演练 |
 | FR-09 来源账本 | delivered：同 Run/session 的服务器 source receipt | 保持来源、失效、回放和内容完整性回归 |
 | FR-10 决策 | delivered：证据关联与失效联动 | 开放任务质量另行验收 |
-| FR-11 领域 MCP | delivered：确定性商业计算、用户记录加工、显式结算计划的现金流/日末与保守日内资金缺口；TikTok Shop/Shopify/SHEIN项目指定店铺的主Agent只读MCP与来源凭证；Shopify近期订单、SHEIN SPU/SKC分层商品与分页/上架状态 | deferred：真实供应商/客户/市场/法规/物流/汇率授权数据适配及已实现商家接口的真实验收 |
+| FR-11 领域 MCP | delivered：确定性商业计算、用户记录加工、显式结算计划的现金流/日末与保守日内资金缺口；TikTok Shop/Shopify/SHEIN/Shopee项目指定店铺的主Agent只读MCP与来源凭证；Shopify近期订单、SHEIN SPU/SKC分层商品与分页/上架状态、Shopee商品与SKU价格库存/分页 | deferred：真实供应商/客户/市场/法规/物流/汇率授权数据适配及已实现商家接口的真实验收 |
 | FR-12 Skill 生命周期 | delivered：发现/启停/扫描/不可变版本/配额/租约/回滚；13个内置Skill的证据参考与输出模板、固定包原生只读访问；Agent候选冻结、人审发布默认关闭、凭证恢复与独立审阅UI；独立Skill备份及含项目账本/候选库的应用冷备份、新进程恢复 | deferred：真实模型提案质量、真端点回滚重跑、跨宿主/生产恢复及其余子系统的恢复认证 |
 | FR-13 权限 | delivered：范围/有效期/审计、删除确认、沙箱拒绝逃逸；可信设备单次审批；原生SDK持久等待、原Run恢复、跨进程决议竞争、消费前撤销复验；工作台内切换组织授权模式，仅 SDK 原生 default/auto 两档 | deferred：真实远程审批与生产故障矩阵；原生多工具批次须拆为单次审批 |
 | FR-14 记忆 | delivered：提案人审、TTL/过期/检索/导出/删除恢复 | deferred：真实蒸馏质量、生产备份删除边界与恢复演练 |
@@ -30,7 +30,7 @@
 | FR-18 恢复 | delivered：保存产物、错误分类、重试与重启恢复；Run 起点的完整可支持工作区快照、Bash 修改恢复、人工变更预览/确认/结果重试、中断目录切换修复、真实进程退出与冷备往返；同项目执行与产物收尾租约 | deferred：真实 SDK 故障注入、生产/跨宿主恢复、容量保留管理、性能与浏览器目视验收 |
 | FR-19 Deep Research | delivered：输入框内显式开关发起（默认关闭、运行中锁定）；三种原生只读研究单元的一次新建/同 Run 续接约束；共享预算/取消/原始截止时间；运行中资源 UI、来源包与主 Agent 去重落账；真实 DeepSeek 合成来源上的三单元并行/来源复核/证据合并与报告验收 | deferred：开放互联网研究质量、真实取消/耗尽/长时墙钟故障矩阵、其他 Provider 与浏览器目视验收 |
 | FR-20 GUI | delivered：L1/L2 真实浏览器 smoke；项目独立店铺 profile、用户登录确认、当前页观察引用、主Agent页面动作/报表下载与来源/产物落账、真实Chromium离线链路 | deferred：真实卖家后台/验证码/风控兼容性和模型联调；真实攻击/恢复矩阵；L3 桌面桥与 OS 权限治理未实现 |
-| FR-21 Connector | delivered：Catalog/Vault/health/revoke、HTTPS JSON send_message；六平台官方文档入口，TikTok Shop授权店铺/商品分页、Shopify自有店铺/token/商品/近期订单、SHEIN商家密钥/店铺/SPU与SKC商品读取；项目店铺授权/到期/撤销、主Agent来源凭证与中英文管理员UI；项目店铺身份可关联平台Connector、独立浏览器授权及数据展示 | deferred：Temu/AliExpress/Shopee及其余邮箱/店铺/CRM/社媒adapter；TikTok Shop OAuth/refresh、SHEIN授权交换/解密与SKU库存价格、平台写操作；真实授权账号/模型调用验收与外发全链；API与浏览器数据自动合并 |
+| FR-21 Connector | delivered：Catalog/Vault/health/revoke、HTTPS JSON send_message；六平台官方文档入口，TikTok Shop授权店铺/商品分页、Shopify自有店铺/token/商品/近期订单、SHEIN商家密钥/店铺/SPU与SKC商品读取，Shopee单店凭据/持久一次性刷新/商品与SKU价格库存/分页；项目店铺授权/到期/撤销、主Agent来源凭证与中英文管理员UI；项目店铺身份可关联平台Connector、独立浏览器授权及数据展示 | deferred：Temu/AliExpress及其余邮箱/店铺/CRM/社媒adapter；Shopee初次OAuth/授权码交换与订单、TikTok Shop OAuth/refresh、SHEIN授权交换/解密与SKU库存价格、平台写操作；真实授权账号/模型调用验收与外发全链；API与浏览器数据自动合并 |
 | FR-22 组织治理 | delivered：单部署租户 principal/membership/策略；共享项目成员管理UI与版本冲突保护；持久团队讨论/回复/对象关联/编辑历史/解决状态；可复用项目模板、固定参考版本与来源、核对后创建和中断恢复；组织私有Skill导入人审、固定版本查看/导出、独立启停/恢复、跨进程凭证与冷备恢复 | deferred：真实身份网关联调、租户分区与隔离 runner、长期容量与浏览器目视验收 |
 | FR-23 Web 兜底 | delivered：Serper/Tavily 适配与 SSRF 防护 | deferred：真实配置搜索服务和 Provider 降级 E2E |
 | FR-24 IM | delivered：飞书签名入站/身份绑定/同 Agent/持久回复重试 | deferred：真实飞书/Lark 租户 E2E；微信适配未实现 |
@@ -1247,3 +1247,31 @@ Linux真实验收：[6203411 的资源测试](https://github.com/Janettbella69/O
 Browser选择仍返回 `No browser is available`，故障检查返回 `[]`，页面目视验收未完成。
 真实模型与Linux沙箱的联合运行、API宿主MCP资源治理、控制目录保留/容量策略、
 生产长时负载及租户物理隔离仍需交付；总表其他 deferred 保持开放。
+
+
+## 2026-09-22：Shopee 单店商品、SKU 与持久令牌刷新
+
+实施合同：[Shopee seller reads and token rotation](shopee-connector.md)。通过官方公开
+页面自身的文档接口核实签名、店铺、商品列表/详情、SKU与刷新合同，保留来源哈希和
+示例字段不一致的说明；未使用第三方实现猜测接口，也未调用真实卖家服务。
+
+- 新增单一店铺凭据配置、中英文页面、商品状态/分页、明确触发的SKU详情/分页，
+  以及项目授权、原生SDK MCP和完整来源凭证。店铺与Partner ID以十进制字符串
+  保存，避免前端int64精度损失；缺失详情不丢掉商品，价格精确到返回的十进制值，
+  缺失库存保持未知，不当作零。SKU分页避免大量变体超出单次来源记录限制。
+- 只访问已核验的固定官方origin与路径；公开DNS固定、无跳转/重试、每响应2MiB、
+  整个操作30秒。多个响应的固定来源路径/请求ID共同保留，签名和凭据不进入来源。
+- 可选刷新令牌在网络交换前持久领取一次性使用权，按vault版本更新新令牌；
+  超时、取消、进程退出或异常响应保留待恢复状态，不自动复用可能已消费的令牌。
+  请求途中撤销、相同密钥重新保存、配置替换均阻止旧结果返回或覆盖新凭据。
+- Shopee专项 **72 passed**，包含真实两个spawn进程争用及进程突然退出；正式HTTP
+  鉴权、原生MCP调用/来源验证和其他平台拒绝新增详情操作均覆盖。
+- 冻结实现后的后端全量 **2292 passed / 20 skipped**，139.18秒；跳过仍为8项真实
+  Provider、5项可选Chromium和7项仅Linux资源验收。前端全量 **458 passed / 46 files**，
+  包含12项Shopee交互和1项页面路由测试。Ruff、diff检查、前端lint/build通过；
+  eval工具 **59 passed**，Snapshot **61/61**。主JS包509.31kB的体积提示保留。
+- Browser选择返回 `No browser is available`，故障检查列表为 `[]`，未完成目视验收。
+
+尚需交付：Shopee初次卖家OAuth/授权码交换、订单和商业写入；已实现接口的真实
+卖家账号/权限/地区/限流与模型验收；Temu/AliExpress、微信/桌面等总表剩余功能及
+生产隔离和人工质量验收。完整PRD目标仍未完成。

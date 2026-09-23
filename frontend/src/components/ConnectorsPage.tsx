@@ -6,6 +6,7 @@ import { useT } from '../i18n'
 import MarketplaceConnector from './MarketplaceConnector'
 import ShopifyConnector from './ShopifyConnector'
 import SheinConnector from './SheinConnector'
+import ShopeeConnector from './ShopeeConnector'
 import './connectors-page.css'
 
 function statusLabel(connector: Connector): string {
@@ -133,6 +134,8 @@ export default function ConnectorsPage() {
                 <MarketplaceConnector key={connector.id} connector={connector} onChange={replaceConnector} />
               ) : connector.type === 'shopify' ? (
                 <ShopifyConnector key={connector.id} connector={connector} onChange={replaceConnector} />
+              ) : connector.type === 'shopee' ? (
+                <ShopeeConnector key={connector.id} connector={connector} onChange={replaceConnector} />
               ) : connector.type === 'shein' ? (
                 <SheinConnector key={connector.id} connector={connector} onChange={replaceConnector} />
               ) : (

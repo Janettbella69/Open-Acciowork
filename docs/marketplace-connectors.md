@@ -12,7 +12,7 @@ access or implement OAuth; current API and browser grants remain independent.
 ## Platform inventory
 
 Reviewed against official documentation on 2026-09-09 (Shopify on 2026-09-10,
-SHEIN on 2026-09-22). Dynamic documentation
+SHEIN and Shopee on 2026-09-22). Dynamic documentation
 was checked using official indexed pages where the supplied page returned only
 its JavaScript shell. These are documentation checks, not authenticated API tests.
 
@@ -22,7 +22,7 @@ its JavaScript shell. These are documentation checks, not authenticated API test
 | Temu | [Developer guide](https://partner.temu.com/documentation?menu_code=52ef88bdef1d4527b15f6d303b173e48) | Documentation entry and authorization/signature references | Runtime adapter: region-specific gateway and specific read API contracts remain to be verified; no authorized account supplied |
 | TikTok Shop | [Developer onboarding](https://partner.tiktokshop.com/docv2/page/developer-onboarding) | Seller credential configuration, authorized-shop reads, product pagination, project-specific expiring shop grants, main-Agent read tool and source receipts, administrator grant/revoke UI; offline adapter/API/SDK/UI verification | Live developer/test-shop and model certification, OAuth callback/token exchange and refresh, commercial writes |
 | AliExpress | [Register an application](https://developer.alibaba.com/docs/doc.htm?articleId=120674&docType=1&treeId=727) | Correct platform identification and documentation entry | Runtime adapter: verify current app category, read endpoints, permissions and seller authorization; supplied registration page is dated 2022 |
-| Shopee | [Developer guide](https://open.shopee.cn/developer-guide/12) | Documentation entry | Runtime adapter: supplied guide was inaccessible in this environment; equivalent global guide returned HTTP 403, so no signature or API contract is assumed |
+| Shopee | [API calls](https://open.shopee.cn/developer-guide/16) and [authorization](https://open.shopee.cn/developer-guide/20) | Single-shop credentials, optional durable one-use refresh, store/product/SKU price and stock reads, product/SKU pagination, project grants and native MCP/source receipts, administrator UI; [contract and offline verification](shopee-connector.md) | Initial seller OAuth/code exchange, orders, platform writes, live account/region/rate-limit/model acceptance |
 | Shopify | [Client credentials grant](https://shopify.dev/docs/apps/build/authentication-authorization/client-credentials-grant) | Store address and Dev Dashboard app credentials, in-memory 24-hour token exchange, shop/product/order reads on GraphQL Admin `2026-07`, project grants, main-Agent reads with source receipts, `shopify-store-review` Plugin Skill; offline adapter/API/UI verification | Live store E2E (needs the operator's app credentials); stores outside the app's Dev Dashboard organization (authorization code grant); legacy admin-created tokens; commercial writes |
 
 The Alibaba-hosted link describes **AliExpress**, not Alibaba.com International
@@ -155,12 +155,21 @@ to 10. Page tokens are positive decimal page numbers, with
 `pagination_unit: SPU`, `page_number` and `total_count` in the response.
 Filters are ALL, ON_SHELF and OFF_SHELF; the latter two filter SKC shelf status.
 
+## Shopee read contract
+
+See [Shopee seller reads and token rotation](shopee-connector.md) for official
+schemas/signatures, exact single-shop identity, product/SKU pagination and the
+persisted one-use refresh claim. Existing seller tokens are configured explicitly;
+initial OAuth/code exchange is not yet provided. Product detail pages carry
+per-SKU prices/stock with unknown-value semantics and full source receipts.
+
 ## Boundaries and verification
 
 - `GET /api/connectors/marketplaces` exposes six official guide entries and
-  implementation availability. Temu, AliExpress and Shopee adapters cannot be invoked.
+  implementation availability. Temu and AliExpress adapters cannot be invoked.
 - `POST /api/connectors/{id}/marketplace-read` accepts only typed read operations
-  (authorized shops, products and Shopify orders). In trusted-gateway mode it requires an owner/admin, independently
+  (authorized shops, products, Shopify orders and Shopee product/SKU details).
+  In trusted-gateway mode it requires an owner/admin, independently
   of the shared connector mutation guard. Local-only mode retains the existing
   loopback/source checks. The Agent uses the separately scoped tool below.
 - Credentials stay in the existing server vault or connector-only environment
@@ -184,7 +193,7 @@ Filters are ALL, ON_SHELF and OFF_SHELF; the latter two filter SKC shelf status.
 ## Grant a shop to a project
 
 After reading authorized shops and selecting one, open **Project access for Agents**
-in the TikTok Shop card, or after **Read store** in the Shopify or SHEIN card. Choose a saved
+in the TikTok Shop card, or after **Read store** in the Shopify, SHEIN or Shopee card. Choose a saved
 project and a duration of 1, 7 or 30 days,
 then select **Allow Agent reads for selected shop**. This permits the project's
 main Agent, including its scheduled runs, to read that shop until expiry. It does
@@ -211,7 +220,7 @@ creation/expiry times and revocation actor/time. Compare-and-swap revisions and
 cross-process locks protect updates. Renewal retires the old grant and issues a
 new immutable binding ID. History is retained, with a limit of 1,000 entries per
 project. The private connector identity includes the platform, fixed endpoint and
-app key (seller openKeyId for SHEIN); refreshing a token for the same app preserves a live grant, while changing
+app key (seller openKeyId for SHEIN, partner ID and shop ID for Shopee); refreshing a token for the same app preserves a live grant, while changing
 apps requires a new grant. Local connector revoke blocks reads; explicit reconnect
 to the same app can reuse an unexpired project grant.
 

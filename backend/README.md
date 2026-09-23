@@ -74,6 +74,12 @@ The archived 2026-09-03 L1 and L2 reports both passed and live at
 path and durable capture linkage; redirect/Service-Worker attack cases remain covered
 by deterministic tests, and L3 OS-level computer use is not implemented.
 
+Authorized [marketplace readers](../docs/marketplace-connectors.md) support TikTok
+Shop, Shopify, SHEIN and [Shopee](../docs/shopee-connector.md). Shopee binds one
+shop, reads product/SKU prices and stock, and optionally rotates existing tokens
+with a durable one-use claim. Project-specific grants control native Agent reads
+and source receipts. Initial Shopee OAuth and live seller acceptance remain open.
+
 Register and verify the local Chrome bridge through the connector API (Chrome
 must already be listening on the chosen loopback port):
 

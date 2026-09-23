@@ -32,6 +32,7 @@ from .marketplaces import (
 )
 from .models import PrincipalContext, new_id, utc_now
 from .shein import SHEIN_TYPE, SheinReader
+from .shopee import SHOPEE_TYPE, ShopeeReader
 from .shopify import ShopifyReader
 from .storage import FileLedger
 from .untrusted import UNTRUSTED_LIMITS, UntrustedSource, sanitize_untrusted_payload
@@ -124,17 +125,25 @@ class MarketplaceAccessRecord(BaseModel):
 class MarketplaceAgentRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 
-    operation: Literal["connections", "products", "orders"]
+    operation: Literal["connections", "products", "orders", "product_details"]
     binding_id: str | None = Field(default=None, pattern=BINDING_PATTERN)
     page_size: int = Field(default=10, ge=1, le=10)
     offset: int = Field(default=0, ge=0, le=MAX_BINDINGS)
     page_token: str | None = Field(default=None, min_length=1, max_length=2048)
     product_status: ProductStatus = "ALL"
+    product_id: str | None = Field(default=None, pattern=r"^[1-9][0-9]{0,18}$")
 
     @model_validator(mode="after")
     def operation_arguments(self):
-        if self.operation in {"products", "orders"} and (not self.binding_id or self.offset):
+        if self.operation in {"products", "orders", "product_details"} and (
+            not self.binding_id or self.offset
+        ):
             raise ValueError("shop reads require a binding and use the upstream cursor")
+        if self.operation == "product_details":
+            if not self.product_id or self.product_status != "ALL":
+                raise ValueError("Product details require an item id and no status filter")
+        elif self.product_id is not None:
+            raise ValueError("Only product details accept an item id")
         if self.operation == "orders" and self.product_status != "ALL":
             raise ValueError("orders do not accept product filters")
         if self.operation == "connections" and (
@@ -160,13 +169,16 @@ class MarketplaceReader:
             "transport_factory": lambda: self.transport_factory(),
             "clock": lambda: self.clock(),
         }
-        self.adapters: dict[str, TikTokShopReader | ShopifyReader | SheinReader] = {
+        self.adapters: dict[str, TikTokShopReader | ShopifyReader | SheinReader | ShopeeReader] = {
             TIKTOK_SHOP_TYPE: TikTokShopReader(connectors, **options),
             SHOPIFY_TYPE: ShopifyReader(connectors, **options),
             SHEIN_TYPE: SheinReader(connectors, **options),
+            SHOPEE_TYPE: ShopeeReader(connectors, **options),
         }
 
-    def adapter(self, connector_id: str) -> TikTokShopReader | ShopifyReader | SheinReader:
+    def adapter(
+        self, connector_id: str,
+    ) -> TikTokShopReader | ShopifyReader | SheinReader | ShopeeReader:
         try:
             connector = self.connectors.get(connector_id)
         except (ConnectorNotFoundError, ValueError):
@@ -405,13 +417,14 @@ class MarketplaceAccessService:
             MarketplaceReadRequest(
                 operation=request.operation, shop_id=binding.shop_id,
                 page_size=request.page_size, page_token=request.page_token,
-                product_status=request.product_status,
+                product_status=request.product_status, product_id=request.product_id,
             ),
             authorize=authorized,
         )
         data = sanitize_untrusted_payload({
             "binding_id": binding.id, "product_status": request.product_status,
             "page_size": request.page_size, "observation": observation,
+            **({"product_id": request.product_id} if request.product_id else {}),
         }, UntrustedSource.MARKETPLACE_PAGE)
         # Reserve space for the fixed notice and source-receipt metadata that the
         # SDK hook will see alongside this same observation. Include JSON framing
@@ -436,6 +449,7 @@ class MarketplaceAccessService:
                 source_type=EvidenceSourceType.TOOL, canonical_source=observation["source_url"],
                 payload=data.value, object_type=(
                     "marketplace_product_page" if request.operation == "products"
+                    else "marketplace_product_details" if request.operation == "product_details"
                     else "marketplace_order_page"
                 ),
                 object_key=f"{binding.id}:{observation['request_id']}",

@@ -5,7 +5,12 @@ export type MarketplaceGuide = {
   documentation_url: string
 }
 
-export type MarketplaceProduct = {
+export type MarketplacePriceStock = {
+  prices?: { currency: string; current: string | null; original: string | null }[]
+  stock?: { total_available_stock: number | null; total_reserved_stock: number | null }
+}
+
+export type MarketplaceProduct = MarketplacePriceStock & {
   id: string
   title: string
   status: string
@@ -13,7 +18,13 @@ export type MarketplaceProduct = {
   product_type?: string
   updated_at?: string
   category_id?: string
-  variants?: { id: string; title: string; status: string }[]
+  sku?: string
+  details_available?: boolean
+  has_variants?: boolean
+  variants_loaded?: boolean
+  variants_offset?: number
+  variants_complete?: boolean
+  variants?: (MarketplacePriceStock & { id: string; title: string; status: string; sku?: string; options?: { name: string; value: string }[] })[]
 }
 
 export type MarketplaceOrder = {
@@ -31,15 +42,17 @@ export type MarketplaceOrder = {
 
 export type MarketplaceRead = {
   connector_id: string
-  operation: 'authorized_shops' | 'products' | 'orders'
+  operation: 'authorized_shops' | 'products' | 'orders' | 'product_details'
   shop_id: string | null
   shops: { id: string; name: string; region: string; seller_type: string; domain?: string; currency?: string }[]
   products: MarketplaceProduct[]
   orders?: MarketplaceOrder[]
+  partial_data?: boolean
+  source_requests?: { source_url: string; request_id: string }[]
   granted_scopes?: string[]
   order_window?: 'last_60_days' | 'all'
   next_page_token: string | null
-  pagination_unit?: 'SPU'
+  pagination_unit?: 'SPU' | 'SKU'
   page_number?: number
   total_count?: number
   source_url: string
@@ -49,11 +62,12 @@ export type MarketplaceRead = {
 }
 
 export type MarketplaceReadInput = {
-  operation: 'authorized_shops' | 'products' | 'orders'
+  operation: 'authorized_shops' | 'products' | 'orders' | 'product_details'
   shop_id?: string
   page_size?: number
   page_token?: string
   product_status?: string
+  product_id?: string
 }
 
 // Configured permission a connector needs before a project can grant Agent shop reads.
@@ -61,6 +75,7 @@ export const PRODUCT_READ_SCOPE: Record<string, string> = {
   tiktok_shop: 'seller.product.basic',
   shopify: 'read_products',
   shein: 'shein:products:read',
+  shopee: 'shopee:products:read',
 }
 
 export type MarketplaceBinding = {

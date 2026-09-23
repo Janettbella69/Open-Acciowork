@@ -63,6 +63,18 @@ describe('ConnectorsPage', () => {
     expect(screen.queryByText('Connected')).not.toBeInTheDocument()
   })
 
+  it('routes Shopee to its seller configuration and typed reader', async () => {
+    vi.mocked(listConnectors).mockResolvedValue([{
+      ...connector, id: 'shopee', type: 'shopee', display_name: 'Shopee',
+      scope: 'shopee:shop:read shopee:products:read', endpoint: 'https://partner.shopeemobile.com',
+    }])
+    render(<ConnectorsPage />)
+    await screen.findByLabelText('Partner key')
+    expect(screen.getByLabelText('Shop ID')).toHaveAttribute('inputmode', 'numeric')
+    expect(screen.getByRole('button', { name: 'Read store' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /save secret/i })).not.toBeInTheDocument()
+  })
+
   it('locks a revoked connector and never leaves it looking connected', async () => {
     vi.mocked(listConnectors).mockResolvedValue([connector])
     render(<ConnectorsPage />)

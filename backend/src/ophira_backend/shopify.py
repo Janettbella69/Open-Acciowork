@@ -208,6 +208,10 @@ class ShopifyReader:
     ) -> dict[str, Any]:
         if authorize is not None:
             authorize()
+        if request.operation not in {"authorized_shops", "products", "orders"}:
+            raise MarketplaceError(
+                "MARKETPLACE_OPERATION_UNSUPPORTED", "This Shopify read is not available.",
+            )
         runtime = self.connectors.require_shopify_runtime(connector_id)
         credentials = parse_shopify_credentials(runtime.credential.get_secret_value())
         if request.product_status not in SHOPIFY_PRODUCT_STATUSES:

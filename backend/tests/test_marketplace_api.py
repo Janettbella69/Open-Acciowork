@@ -52,7 +52,7 @@ async def test_production_routes_read_real_adapter_and_exclude_all_vault_materia
         assert guides.status_code == 200
         assert len(guides.json()) == 6
         assert [g["type"] for g in guides.json() if g["read_adapter"]] == [
-            "shein", "tiktok_shop", "shopify",
+            "shein", "tiktok_shop", "shopee", "shopify",
         ]
         assert next(g for g in guides.json() if g["type"] == "aliexpress")["name"] == "AliExpress"
         result = await client.post("/api/connectors/tiktok_shop/marketplace-read", json={

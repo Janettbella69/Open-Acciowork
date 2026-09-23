@@ -24,12 +24,20 @@ from .marketplaces import (
 )
 from .models import Connector, utc_now
 from .providers import FileSecretVault
+from .secret_vault import CredentialChangedError
 from .shein import (
     SHEIN_DEFAULT_SCOPE,
     SHEIN_ORIGIN,
     SHEIN_ORIGINS,
     SHEIN_TYPE,
     parse_shein_credentials,
+)
+from .shopee import (
+    SHOPEE_DEFAULT_SCOPE,
+    SHOPEE_ORIGIN,
+    SHOPEE_ORIGINS,
+    SHOPEE_TYPE,
+    parse_shopee_credentials,
 )
 from .shopify import (
     SHOPIFY_DEFAULT_SCOPE,
@@ -38,6 +46,11 @@ from .shopify import (
 )
 
 CONNECTOR_CATALOG: list[dict[str, str | None]] = [
+    {
+        "id": SHOPEE_TYPE, "type": SHOPEE_TYPE, "display_name": "Shopee",
+        "scope": SHOPEE_DEFAULT_SCOPE, "secret_env": "OPHIRA_CONNECTOR_SHOPEE_KEY",
+        "endpoint": SHOPEE_ORIGIN,
+    },
     {
         "id": SHEIN_TYPE,
         "type": SHEIN_TYPE,
@@ -376,6 +389,13 @@ class ConnectorRegistry:
                 parse_shopify_credentials(secret)
                 if self.vault is None:
                     raise ValueError("connector vault is not configured")
+        if type == SHOPEE_TYPE:
+            if endpoint not in SHOPEE_ORIGINS:
+                raise ValueError("Shopee requires an official API origin")
+            if secret is not None:
+                parse_shopee_credentials(secret)
+                if self.vault is None:
+                    raise ValueError("connector vault is not configured")
         if type == SHEIN_TYPE:
             if endpoint not in SHEIN_ORIGINS:
                 raise ValueError("SHEIN requires an official API origin")
@@ -416,6 +436,8 @@ class ConnectorRegistry:
             parse_shopify_credentials(secret)
         elif connector.type == SHEIN_TYPE:
             parse_shein_credentials(secret)
+        elif connector.type == SHOPEE_TYPE:
+            parse_shopee_credentials(secret)
         if self.vault is None:
             raise ValueError("connector vault is not configured")
         self.vault.set(connector.id, secret)
@@ -612,6 +634,58 @@ class ConnectorRegistry:
             ) from None
         return CommercialConnectorRuntime(connector=connector, credential=SecretStr(secret),
                                           credential_revision=view["revision"])
+
+    def require_shopee_runtime(self, connector_id: str) -> CommercialConnectorRuntime:
+        try:
+            connector = self.get(connector_id)
+        except (ConnectorNotFoundError, ValueError):
+            raise ConnectorUnavailableError(
+                "MARKETPLACE_NOT_CONFIGURED", "The marketplace connector is not configured.",
+            ) from None
+        if connector.type != SHOPEE_TYPE or connector.endpoint not in SHOPEE_ORIGINS:
+            raise ConnectorUnavailableError(
+                "MARKETPLACE_UNSUPPORTED", "This connector has no supported marketplace reader.",
+            )
+        if not connector.enabled:
+            raise ConnectorUnavailableError(
+                "MARKETPLACE_DISABLED", "The marketplace connector is revoked.",
+            )
+        try:
+            fallback = self.environment_credential(connector)
+            if self.vault is None:
+                raise ValueError
+            view, secret = self.vault.resolve_versioned(connector.id, fallback=fallback)
+            if not secret:
+                raise ValueError
+            parse_shopee_credentials(secret)
+        except (OSError, ValueError):
+            raise ConnectorUnavailableError(
+                "MARKETPLACE_CREDENTIAL_INVALID", "Configure valid Shopee seller credentials.",
+            ) from None
+        return CommercialConnectorRuntime(connector=connector, credential=SecretStr(secret),
+                                          credential_revision=view["revision"])
+
+    def replace_shopee_credentials(self, runtime, raw):
+        """Rotate only the captured vault generation; revoke cannot resurrect credentials."""
+        parse_shopee_credentials(raw)
+        connector = runtime.connector
+
+        def configuration_current():
+            # Do not resolve the vault here: this callback runs under its process lock.
+            if self.get(connector.id) != connector:
+                raise CredentialChangedError("Connector configuration changed")
+
+        if self.require_shopee_runtime(connector.id) != runtime:
+            raise CredentialChangedError("Connector credential changed")
+        assert self.vault is not None and runtime.credential_revision is not None
+        self.vault.set(
+            connector.id, raw, expected_revision=runtime.credential_revision,
+            fallback=self.environment_credential(connector), authorize=configuration_current,
+        )
+        updated = self.require_shopee_runtime(connector.id)
+        if updated.connector != connector or updated.credential.get_secret_value() != raw:
+            raise CredentialChangedError("Connector changed during rotation")
+        return updated
 
     def require_commercial_action_runtime(
         self,

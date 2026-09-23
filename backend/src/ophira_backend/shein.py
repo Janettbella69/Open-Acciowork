@@ -150,9 +150,9 @@ class SheinReader:
             credentials.open_key_id.get_secret_value(),
             credentials.secret_key.get_secret_value(),
         }
-        if request.operation == "orders":
+        if request.operation not in {"authorized_shops", "products"}:
             raise MarketplaceError(
-                "MARKETPLACE_OPERATION_UNSUPPORTED", "SHEIN order reads are not available."
+                "MARKETPLACE_OPERATION_UNSUPPORTED", "This SHEIN read operation is not available."
             )
         if request.product_status not in SHEIN_PRODUCT_STATUSES:
             raise MarketplaceError(
