@@ -28,6 +28,7 @@ from .marketplaces import (
     MarketplaceError,
     MarketplaceReadRequest,
     ProductStatus,
+    SheinInventoryType,
     TikTokShopReader,
     default_marketplace_transport,
 )
@@ -134,9 +135,12 @@ class MarketplaceAgentRequest(BaseModel):
     page_token: str | None = Field(default=None, min_length=1, max_length=2048)
     product_status: ProductStatus = "ALL"
     product_id: str | None = Field(default=None, pattern=ID_PATTERN)
+    inventory_type: SheinInventoryType | None = None
 
     @model_validator(mode="after")
     def operation_arguments(self):
+        if self.inventory_type is not None and self.operation != "product_details":
+            raise ValueError("Inventory type selection requires SHEIN product details")
         if self.operation in {"products", "orders", "product_details"} and (
             not self.binding_id or self.offset
         ):
@@ -204,7 +208,13 @@ class MarketplaceReader:
         self, connector_id: str, request: MarketplaceReadRequest, *,
         authorize: Callable[[], None] | None = None,
     ) -> dict[str, Any]:
-        return await self.adapter(connector_id).read(connector_id, request, authorize=authorize)
+        adapter = self.adapter(connector_id)
+        if request.inventory_type is not None and not isinstance(adapter, SheinReader):
+            raise MarketplaceError(
+                "MARKETPLACE_FILTER_UNSUPPORTED",
+                "Inventory type selection is available for SHEIN product details only.",
+            )
+        return await adapter.read(connector_id, request, authorize=authorize)
 
     def identity_parts(self, connector_id: str) -> list[str | None]:
         return self.adapter(connector_id).identity_parts(connector_id)
@@ -431,6 +441,7 @@ class MarketplaceAccessService:
                 operation=request.operation, shop_id=binding.shop_id,
                 page_size=request.page_size, page_token=request.page_token,
                 product_status=request.product_status, product_id=request.product_id,
+                inventory_type=request.inventory_type,
             ),
             authorize=authorized,
         )
@@ -438,6 +449,7 @@ class MarketplaceAccessService:
             "binding_id": binding.id, "product_status": request.product_status,
             "page_size": request.page_size, "observation": observation,
             **({"product_id": request.product_id} if request.product_id else {}),
+            **({"inventory_type": request.inventory_type} if request.inventory_type else {}),
         }, UntrustedSource.MARKETPLACE_PAGE)
         # Reserve space for the fixed notice and source-receipt metadata that the
         # SDK hook will see alongside this same observation. Include JSON framing

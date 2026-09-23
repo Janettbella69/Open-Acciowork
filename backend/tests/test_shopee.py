@@ -682,8 +682,13 @@ async def test_encoded_tokens_echoed_in_text_are_redacted(registry):
     assert "synthetic" not in result["shops"][0]["name"]
 
 
-@pytest.mark.parametrize("platform", ["shein", "shopify", "tiktok_shop"])
-async def test_existing_platforms_reject_new_operation_before_network(registry, platform):
+@pytest.mark.parametrize(
+    ("platform", "operation"),
+    [("shein", "orders"), ("shopify", "product_details"), ("tiktok_shop", "product_details")],
+)
+async def test_platforms_reject_unsupported_operations_before_network(
+    registry, platform, operation
+):
     from test_marketplaces import CREDENTIALS as tiktok_credentials
     from test_shein import configure as configure_shein
     from test_shopify import CREDENTIALS as shopify_credentials
@@ -711,7 +716,11 @@ async def test_existing_platforms_reject_new_operation_before_network(registry, 
     )
     with pytest.raises(MarketplaceError) as caught:
         await instance.read(
-            platform, product_request(operation="product_details", product_id="34002")
+            platform,
+            product_request(
+                operation=operation,
+                **({"product_id": "34002"} if operation == "product_details" else {}),
+            ),
         )
     assert caught.value.code == "MARKETPLACE_OPERATION_UNSUPPORTED"
 

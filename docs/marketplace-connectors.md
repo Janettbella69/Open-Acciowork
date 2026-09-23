@@ -19,7 +19,7 @@ checks, not authenticated API tests.
 
 | Platform | Official starting point | Delivered | Deferred / reason |
 | --- | --- | --- | --- |
-| SHEIN | [Authorization manual](https://open.sheincorp.com/documents/system/2169474d-1d4a-41a9-b9fd-427f63f54a63) | Seller consent/callback, durable one-attempt exchange, key decryption, verified store binding and interrupted-installation recovery; existing seller-key configuration, store/SPU/SKC reads, project grants, main-Agent source receipts, revoke/reconnect and offline API/SDK/UI/process verification | Live seller-program authorization/model certification; SKU price/inventory, orders and commercial writes |
+| SHEIN | [Authorization manual](https://open.sheincorp.com/documents/system/2169474d-1d4a-41a9-b9fd-427f63f54a63) | Seller consent/callback, durable one-attempt exchange, key decryption, verified store binding and interrupted-installation recovery; store/SPU/SKC reads and seller-bound SKU details with separate site/supply quotes, explicit PI/VI/JI inventory, complete SKU pagination and warehouse rows; project grants, main-Agent source receipts, bilingual UI and offline API/SDK/UI/process verification | Live seller-program authorization/stock-schema/model certification; orders and commercial writes |
 | Temu | [Developer guide](https://partner.temu.com/documentation?menu_code=52ef88bdef1d4527b15f6d303b173e48) | Regional credentials, live token identity/scopes/expiry, local-seller product and SKU pagination, separately authorized supply prices, project grants, native MCP/source receipts and administrator UI; [contract and offline verification](temu-connector.md) | Initial authorization exchange, semi-managed catalog, orders/writes and live seller/region/rate-limit/model acceptance |
 | TikTok Shop | [Developer onboarding](https://partner.tiktokshop.com/docv2/page/developer-onboarding) | Seller credential configuration, authorized-shop reads, product pagination, project-specific expiring shop grants, main-Agent read tool and source receipts, administrator grant/revoke UI; offline adapter/API/SDK/UI verification | Live developer/test-shop and model certification, OAuth callback/token exchange and refresh, commercial writes |
 | AliExpress | [Current authorization guide](https://open.aliexpress.com/doc/doc.htm#/?docId=989) | Verified seller identity, explicit-status product pages, seller-bound POP SKU details, separate quote/stock semantics, complete snapshot-bound SKU pages, project grants and native MCP/source receipts, bilingual administrator UI; [contract and offline verification](aliexpress-connector.md) | Initial consent/code exchange/refresh, managed product programs, orders/writes and real seller/app-category/region/rate-limit/model acceptance |
@@ -160,6 +160,17 @@ the general HTTP request default remains 20). Main-Agent requests already defaul
 to 10. Page tokens are positive decimal page numbers, with
 `pagination_unit: SPU`, `page_number` and `total_count` in the response.
 Filters are ALL, ON_SHELF and OFF_SHELF; the latter two filter SKC shelf status.
+
+`operation: product_details` requires a verified `shop_id` and SPU `product_id`.
+It returns `pagination_unit: SKU`, the number of returned-source SKUs in
+`total_count`, SKU offsets and an optional snapshot-bound cursor. The UI and Agent
+request up to 10 SKUs; wide records can reduce the page length without truncating
+quotes or warehouses. `inventory_type` is optional: omit it for prices only, or
+explicitly select PI (SHEIN physical), VI (merchant virtual) or JI (merchant JIT).
+This selector is rejected for other operations/platforms. Preserve the same SPU
+and inventory type on subsequent pages; a changed product/price/stock observation
+requires restarting from the first page. Each observation retains all three or
+four upstream request sources, including store and seller-catalog verification.
 
 ## Shopee read contract
 

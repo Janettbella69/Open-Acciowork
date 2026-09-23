@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Connector, OpportunityProject } from '../api/types'
-import type { MarketplaceRead } from '../api/marketplaces'
+import { SHEIN_INVENTORY_LABELS, type MarketplaceRead, type SheinInventoryType } from '../api/marketplaces'
 import { I18nContext } from '../i18n'
 import SheinConnector from './SheinConnector'
 
@@ -35,6 +35,37 @@ const products: MarketplaceRead = {
   ] }],
   pagination_unit: 'SPU', page_number: 1, total_count: 21, next_page_token: '2',
 }
+const skuDetails: MarketplaceRead = {
+  ...products, operation: 'product_details', pagination_unit: 'SKU', total_count: 2,
+  inventory_type: null, next_page_token: `1.${'a'.repeat(64)}`,
+  source_url: 'https://openapi.sheincorp.com/open-api/goods/spu-info', request_id: 'sku-request',
+  source_requests: [
+    { source_url: shop.source_url, request_id: 'store-request' },
+    { source_url: products.source_url, request_id: 'catalog-request' },
+    { source_url: 'https://openapi.sheincorp.com/open-api/goods/spu-info', request_id: 'sku-request' },
+  ],
+  products: [{ ...products.products[0], title: 'Kettle collection', variants_offset: 0, variants_complete: false, variants: [{
+    id: 'sku_1', title: '', sku: 'seller-large', skc_id: 'skc_red', skc_title: 'Red kettle',
+    status: 'SELLING', purchase_status: 'STOPPED',
+    attributes: [{ property_id: '87', value_id: '9007199254740993', value: 'Large' }],
+    site_prices: [
+      { site: 'shein-us', currency: 'USD', base_price: '12.35', special_price: '0' },
+      { site: null, currency: null, base_price: null, special_price: null },
+    ],
+    supply_prices: [{ currency: 'CNY', amount: '4.25' }], inventory: null,
+  }] }],
+}
+function withInventory(kind: SheinInventoryType): MarketplaceRead {
+  return {
+    ...skuDetails, inventory_type: kind, partial_data: true,
+    source_url: 'https://openapi.sheincorp.com/open-api/stock/stock-query', request_id: 'stock-request',
+    source_requests: [...skuDetails.source_requests!, { source_url: 'https://openapi.sheincorp.com/open-api/stock/stock-query', request_id: 'stock-request' }],
+    products: [{ ...skuDetails.products[0], variants: [{ ...skuDetails.products[0].variants![0], inventory: {
+      totals: { total: 100, locked: 7, temporary_locked: 3, usable: 90, in_transit: null, stockout_demand: 0 },
+      warehouses: [{ code: 'warehouse-1', warehouse_type: '2', total: 100, locked: 7, temporary_locked: 3, usable: 90, in_transit: null, stockout_demand: 0 }],
+    } }] }],
+  }
+}
 
 function Harness({ initial = connector, onChange = vi.fn() }: { initial?: Connector; onChange?: (value: Connector) => void }) {
   const [value, setValue] = useState(initial)
@@ -54,6 +85,11 @@ async function readProducts() {
   vi.mocked(readMarketplace).mockResolvedValue(products)
   fireEvent.click(screen.getByRole('button', { name: 'Read products' }))
   await screen.findByText('Red kettle')
+}
+async function readSkuDetails(value = skuDetails) {
+  vi.mocked(readMarketplace).mockResolvedValue(value)
+  fireEvent.click(screen.getByRole('button', { name: 'Read SKU details for spu_1' }))
+  return screen.findByRole('region', { name: 'SHEIN SKU details' })
 }
 
 beforeEach(() => {
@@ -153,6 +189,146 @@ describe('SheinConnector', () => {
       operation: 'products', shop_id: '21871704', page_size: 10, product_status: 'OFF_SHELF',
     })
     expect(screen.queryByRole('table')).not.toBeInTheDocument()
+  })
+
+  it('reads SKU quotes without silently selecting inventory or interpreting zero as a sale price', async () => {
+    render(<Harness />)
+    await readProducts()
+    expect(screen.getByLabelText('Inventory to read with SKU details')).toHaveValue('')
+    const region = await readSkuDetails()
+    expect(readMarketplace).toHaveBeenLastCalledWith('shein', {
+      operation: 'product_details', shop_id: '21871704', product_id: 'spu_1', page_size: 10,
+    })
+    expect(within(region).getByText('SKU rows 1–1 of 2')).toBeInTheDocument()
+    expect(within(region).getByText(/Base price: 12.35/)).toHaveTextContent('Special price: 0')
+    expect(within(region).getByText(/Base price: Unknown/)).toHaveTextContent('Special price: Unknown')
+    expect(within(region).getByText('CNY 4.25')).toBeInTheDocument()
+    expect(within(region).getByText('87: Large (9007199254740993)')).toBeInTheDocument()
+    expect(within(region).getByText(/Sales status: Selling/)).toHaveTextContent('Purchase status: Stopped')
+    expect(within(region).getByText('Not requested')).toBeInTheDocument()
+    expect(within(region).getByText(/zero special price does not establish/)).toBeInTheDocument()
+    fireEvent.click(within(region).getByText('Source requests'))
+    for (const source of skuDetails.source_requests!) expect(within(region).getByText(new RegExp(source.request_id))).toHaveTextContent(source.source_url)
+  })
+
+  it.each(['PI', 'VI', 'JI'] as const)('reads explicitly selected %s stock with separate totals and warehouse quantities', async (kind) => {
+    render(<Harness />)
+    await readProducts()
+    fireEvent.change(screen.getByLabelText('Inventory to read with SKU details'), { target: { value: kind } })
+    const region = await readSkuDetails(withInventory(kind))
+    expect(readMarketplace).toHaveBeenLastCalledWith('shein', {
+      operation: 'product_details', shop_id: '21871704', product_id: 'spu_1', page_size: 10, inventory_type: kind,
+    })
+    expect(within(region).getByText(SHEIN_INVENTORY_LABELS[kind])).toBeInTheDocument()
+    expect(within(region).getByRole('status')).toHaveTextContent('Missing values remain unknown.')
+    expect(within(region).getByText('Total stock: 100')).toBeInTheDocument()
+    expect(within(region).getByText('In-transit stock: Unknown')).toBeInTheDocument()
+    expect(within(region).getByText('Stockout demand: 0')).toBeInTheDocument()
+    fireEvent.click(within(region).getByText('Warehouse inventory (1)'))
+    const warehouse = within(region).getByRole('table', { name: 'Reported warehouse inventory' })
+    expect(within(warehouse).getAllByRole('row')).toHaveLength(2)
+    expect(within(warehouse).getAllByRole('cell').map((cell) => cell.textContent)).toEqual(['2', '100', '7', '3', '90', 'Unknown', '0'])
+    fireEvent.click(within(region).getByText('Source requests'))
+    expect(within(region).getByText(/stock-request/)).toHaveTextContent('stock-query')
+  })
+
+  it('clears SKU observations when inventory selection changes and waits for an explicit new read', async () => {
+    render(<Harness />)
+    await readProducts()
+    await readSkuDetails()
+    fireEvent.change(screen.getByLabelText('Inventory to read with SKU details'), { target: { value: 'VI' } })
+    expect(screen.queryByRole('region', { name: 'SHEIN SKU details' })).not.toBeInTheDocument()
+    expect(readMarketplace).toHaveBeenCalledTimes(3)
+    await readSkuDetails(withInventory('VI'))
+    fireEvent.change(screen.getByLabelText('Inventory to read with SKU details'), { target: { value: '' } })
+    expect(screen.queryByRole('region', { name: 'SHEIN SKU details' })).not.toBeInTheDocument()
+    expect(readMarketplace).toHaveBeenCalledTimes(4)
+  })
+
+  it('keeps SKU pagination separate from SPU pagination and preserves the selected inventory', async () => {
+    render(<Harness />)
+    await readProducts()
+    fireEvent.change(screen.getByLabelText('Inventory to read with SKU details'), { target: { value: 'JI' } })
+    const first = withInventory('JI')
+    await readSkuDetails(first)
+    vi.mocked(readMarketplace).mockResolvedValue({ ...first, next_page_token: null, products: [{
+      ...first.products[0], variants_offset: 1, variants: [{ ...first.products[0].variants![0], id: 'sku_2', inventory: null }],
+    }] })
+    fireEvent.click(screen.getByRole('button', { name: 'Next SKU page' }))
+    await screen.findByText('SKU rows 2–2 of 2')
+    expect(readMarketplace).toHaveBeenLastCalledWith('shein', {
+      operation: 'product_details', shop_id: '21871704', product_id: 'spu_1', page_size: 10,
+      inventory_type: 'JI', page_token: first.next_page_token,
+    })
+    const region = screen.getByRole('region', { name: 'SHEIN SKU details' })
+    expect(within(region).getByText('sku_2')).toBeInTheDocument()
+    expect(within(region).queryByText('sku_1')).not.toBeInTheDocument()
+    expect(within(region).getByText('Inventory not supplied')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Next SKU page' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Next page' })).toBeEnabled()
+  })
+
+  it('clears a changed snapshot and starts a fresh SKU read without the old cursor', async () => {
+    render(<Harness />)
+    await readProducts()
+    await readSkuDetails()
+    vi.mocked(readMarketplace).mockRejectedValue(new Error('The SHEIN product, prices or inventory changed. Read SKU details from the first page.'))
+    fireEvent.click(screen.getByRole('button', { name: 'Next SKU page' }))
+    await screen.findByRole('alert')
+    expect(screen.queryByRole('region', { name: 'SHEIN SKU details' })).not.toBeInTheDocument()
+    await readSkuDetails()
+    expect(readMarketplace).toHaveBeenLastCalledWith('shein', {
+      operation: 'product_details', shop_id: '21871704', product_id: 'spu_1', page_size: 10,
+    })
+  })
+
+  it.each(['shop', 'product', 'operation', 'inventory'] as const)('withholds a SKU response with mismatched %s', async (field) => {
+    render(<Harness />)
+    await readProducts()
+    const mismatched: MarketplaceRead = { ...skuDetails }
+    if (field === 'shop') mismatched.shop_id = 'other-shop'
+    if (field === 'product') mismatched.products = [{ ...skuDetails.products[0], id: 'other-product' }]
+    if (field === 'operation') mismatched.operation = 'products'
+    if (field === 'inventory') mismatched.inventory_type = 'VI'
+    vi.mocked(readMarketplace).mockResolvedValue(mismatched)
+    fireEvent.click(screen.getByRole('button', { name: 'Read SKU details for spu_1' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('The SKU response does not match this request.')
+    expect(screen.queryByRole('region', { name: 'SHEIN SKU details' })).not.toBeInTheDocument()
+  })
+
+  it('serializes SKU reads and locks the filters and mutations until the read completes', async () => {
+    render(<Harness />)
+    await readProducts()
+    let complete!: (value: MarketplaceRead) => void
+    vi.mocked(readMarketplace).mockImplementation(() => new Promise((resolve) => { complete = resolve }))
+    const button = screen.getByRole('button', { name: 'Read SKU details for spu_1' })
+    fireEvent.click(button); fireEvent.click(button)
+    expect(readMarketplace).toHaveBeenCalledTimes(3)
+    expect(button).toBeDisabled()
+    expect(screen.getByLabelText('Inventory to read with SKU details')).toBeDisabled()
+    expect(screen.getByLabelText('SKC shelf status')).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Revoke' })).toBeDisabled()
+    await act(async () => complete(skuDetails))
+    expect(await screen.findByRole('region', { name: 'SHEIN SKU details' })).toBeInTheDocument()
+    expect(button).toBeEnabled()
+  })
+
+  it.each(['shelf filter', 'SPU page', 'revoke'])('clears SKU observations after changing %s', async (change) => {
+    render(<Harness />)
+    await readProducts()
+    await readSkuDetails()
+    if (change === 'shelf filter') fireEvent.change(screen.getByLabelText('SKC shelf status'), { target: { value: 'OFF_SHELF' } })
+    if (change === 'SPU page') {
+      vi.mocked(readMarketplace).mockResolvedValue({ ...products, products: [], next_page_token: null })
+      fireEvent.click(screen.getByRole('button', { name: 'Next page' }))
+      await screen.findByText('No products on this page.')
+    }
+    if (change === 'revoke') {
+      fireEvent.click(screen.getByRole('button', { name: 'Revoke' }))
+      await screen.findByText('Reconnect seller access')
+    }
+    expect(screen.queryByRole('region', { name: 'SHEIN SKU details' })).not.toBeInTheDocument()
+    expect(screen.queryByText(/sku-request/)).not.toBeInTheDocument()
   })
 
   it('uses saved permissions, so a draft checkbox cannot enable product reads or grants', async () => {
@@ -270,5 +446,14 @@ describe('SheinConnector', () => {
     await screen.findByText('第 1 页 · 平台报告共 21 个 SPU 分组')
     expect(screen.getByRole('table', { name: 'SHEIN 商品分组 · 当前页' })).toBeInTheDocument()
     expect(screen.getByLabelText('SKC 上架状态')).toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText('读取 SKU 详情时查询的库存'), { target: { value: 'PI' } })
+    vi.mocked(readMarketplace).mockResolvedValue(withInventory('PI'))
+    fireEvent.click(screen.getByRole('button', { name: '读取商品 spu_1 的 SKU 详情' }))
+    const region = await screen.findByRole('region', { name: 'SHEIN SKU 详情' })
+    expect(within(region).getByRole('table', { name: 'SHEIN SKU 报价与库存 · 当前页' })).toBeInTheDocument()
+    expect(within(region).getByText('SHEIN 仓实物库存（PI）')).toBeInTheDocument()
+    expect(within(region).getByText('在途库存: 未知')).toBeInTheDocument()
+    expect(within(region).getByRole('status')).toHaveTextContent('缺失值保留为未知。')
+    expect(within(region).getByText(/销售状态: 在售/)).toHaveTextContent('采购状态: 已停止')
   })
 })

@@ -15,6 +15,7 @@ import re
 import secrets
 import string
 import time
+from decimal import Decimal, InvalidOperation
 from typing import TYPE_CHECKING
 
 import httpx
@@ -29,7 +30,16 @@ from .marketplaces import (
     send_marketplace_request,
 )
 from .models import utc_now
-from .untrusted import UntrustedSource, sanitize_untrusted_text
+from .shein_catalog import (
+    _identifier,
+    _invalid,
+    _status,
+    _text,
+    attach_inventory,
+    normalize_details,
+    page_skus,
+    sku_cursor,
+)
 
 if TYPE_CHECKING:
     from .connectors import ConnectorRegistry
@@ -40,6 +50,8 @@ SHEIN_ORIGINS = frozenset({SHEIN_ORIGIN, "https://openapi.sheincorp.cn"})
 SHEIN_STORE_PATH = "/open-api/openapi-business-backend/query-store-info"
 SHEIN_AUTH_PATH = "/open-api/auth/get-by-token"
 SHEIN_PRODUCTS_PATH = "/open-api/goods/searchProduct"
+SHEIN_DETAILS_PATH = "/open-api/goods/spu-info"
+SHEIN_STOCK_PATH = "/open-api/stock/stock-query"
 # Application permissions; these are not claims about upstream OAuth scopes.
 SHEIN_STORE_SCOPE = "shein:store:read"
 SHEIN_PRODUCT_SCOPE = "shein:products:read"
@@ -97,42 +109,6 @@ def sign_shein_request(open_key_id, secret_key, path, timestamp, random_key):
     return random_key + base64.b64encode(digest.encode("ascii")).decode("ascii")
 
 
-def _invalid():
-    return MarketplaceError(
-        "MARKETPLACE_RESPONSE_INVALID",
-        "SHEIN returned an invalid or oversized product structure.",
-        502,
-    )
-
-
-def _text(value, private_values, limit=2000):
-    if value is None:
-        value = ""
-    if not isinstance(value, str) or len(value) > limit:
-        raise _invalid()
-    for private in private_values:
-        value = value.replace(private, "[redacted]")
-    return sanitize_untrusted_text(value, UntrustedSource.BUSINESS_RECORD).text
-
-
-def _identifier(value, private_values):
-    if (
-        not isinstance(value, str)
-        or not re.fullmatch(r"[A-Za-z0-9_-]{1,160}", value)
-        or any(private in value for private in private_values)
-    ):
-        raise _invalid()
-    return value
-
-
-def _status(value):
-    if value is None:
-        return "UNKNOWN"
-    if type(value) is not int or value not in {0, 1}:
-        raise _invalid()
-    return "ON_SHELF" if value else "OFF_SHELF"
-
-
 class SheinReader:
     def __init__(
         self,
@@ -168,7 +144,7 @@ class SheinReader:
             credentials.open_key_id.get_secret_value(),
             credentials.secret_key.get_secret_value(),
         }
-        if request.operation not in {"authorized_shops", "products"}:
+        if request.operation not in {"authorized_shops", "products", "product_details"}:
             raise MarketplaceError(
                 "MARKETPLACE_OPERATION_UNSUPPORTED", "This SHEIN read operation is not available."
             )
@@ -177,9 +153,9 @@ class SheinReader:
                 "MARKETPLACE_FILTER_UNSUPPORTED", "Use a SHEIN shelf status filter."
             )
         required = {SHEIN_STORE_SCOPE}
-        if request.operation == "products":
+        if request.operation in {"products", "product_details"}:
             required.add(SHEIN_PRODUCT_SCOPE)
-            if request.page_size > MAX_SHEIN_PAGE_SIZE:
+            if request.operation == "products" and request.page_size > MAX_SHEIN_PAGE_SIZE:
                 raise MarketplaceError(
                     "MARKETPLACE_PAGE_SIZE_INVALID",
                     "SHEIN product pages contain at most 10 SPU groups.",
@@ -189,7 +165,10 @@ class SheinReader:
                 "MARKETPLACE_SCOPE_REQUIRED", "Allow the required SHEIN reads first."
             )
         page = 1
-        if request.page_token is not None:
+        offset, expected_digest = 0, None
+        if request.operation == "product_details":
+            offset, expected_digest = sku_cursor(request.page_token)
+        elif request.page_token is not None:
             if not re.fullmatch(r"[1-9][0-9]{0,8}", request.page_token):
                 raise MarketplaceError(
                     "MARKETPLACE_CURSOR_INVALID", "Use the returned SHEIN page token."
@@ -210,9 +189,26 @@ class SheinReader:
             async with asyncio.timeout(30):
                 check_current()
                 origin = runtime.connector.endpoint
-                store = await self._request(
-                    origin, SHEIN_STORE_PATH, {}, credentials, private_values, check_current
-                )
+                sources = []
+
+                async def get(path, body):
+                    payload = await self._request(
+                        origin,
+                        path,
+                        body,
+                        credentials,
+                        private_values,
+                        check_current,
+                    )
+                    sources.append(
+                        {
+                            "source_url": origin + path,
+                            "request_id": _text(payload.get("traceId"), private_values, 160),
+                        }
+                    )
+                    return payload
+
+                store = await get(SHEIN_STORE_PATH, {})
                 info = store["info"].get("storeInfo")
                 if not isinstance(info, dict):
                     raise _invalid()
@@ -235,26 +231,66 @@ class SheinReader:
                     "seller_type": _text(info.get("supplierBusinessMode"), private_values, 80),
                 }
                 result = {"shops": [shop], "products": [], "next_page_token": None}
-                path, payload = SHEIN_STORE_PATH, store
+                partial = False
+                if request.operation != "authorized_shops" and request.shop_id != shop["id"]:
+                    raise MarketplaceError(
+                        "MARKETPLACE_SHOP_NOT_AUTHORIZED",
+                        "The seller key does not authorize this shop.",
+                        403,
+                    )
                 if request.operation == "products":
-                    if request.shop_id != shop["id"]:
-                        raise MarketplaceError(
-                            "MARKETPLACE_SHOP_NOT_AUTHORIZED",
-                            "The seller key does not authorize this shop.",
-                            403,
-                        )
                     body = {"pageNum": page, "pageSize": request.page_size, "languageList": ["en"]}
                     if request.product_status != "ALL":
                         body["skcShelfStatus"] = 1 if request.product_status == "ON_SHELF" else 0
-                    path = SHEIN_PRODUCTS_PATH
-                    payload = await self._request(
-                        origin, path, body, credentials, private_values, check_current
-                    )
+                    payload = await get(SHEIN_PRODUCTS_PATH, body)
                     result = self._products(
                         payload["info"], request.page_size, page, private_values
                     )
+                elif request.operation == "product_details":
+                    listing = await get(
+                        SHEIN_PRODUCTS_PATH,
+                        {
+                            "pageNum": 1,
+                            "pageSize": 1,
+                            "languageList": ["en"],
+                            "spuNameList": [request.product_id],
+                        },
+                    )
+                    owned = self._products(listing["info"], 1, 1, private_values)
+                    if not owned["products"]:
+                        raise MarketplaceError(
+                            "MARKETPLACE_PRODUCT_UNAVAILABLE",
+                            "This SPU is not in the authorized seller's catalog.",
+                            404,
+                        )
+                    if (
+                        owned["total_count"] != 1
+                        or owned["products"][0]["id"] != request.product_id
+                    ):
+                        raise _invalid()
+                    detail = await get(
+                        SHEIN_DETAILS_PATH,
+                        {
+                            "spuName": request.product_id,
+                            "languageList": ["en"],
+                        },
+                    )
+                    product, partial = normalize_details(
+                        detail["info"],
+                        owned["products"][0],
+                        private_values,
+                    )
+                    if request.inventory_type is not None:
+                        inventory = await get(
+                            SHEIN_STOCK_PATH,
+                            {
+                                "spuNameList": [request.product_id],
+                                "invType": request.inventory_type,
+                            },
+                        )
+                        partial |= attach_inventory(inventory["info"], product, private_values)
+                    result = page_skus(product, request, offset, expected_digest)
                 check_current()
-                request_id = _text(payload.get("traceId"), private_values, 160)
         except (TimeoutError, httpx.HTTPError, OSError):
             raise MarketplaceError(
                 "MARKETPLACE_NETWORK_FAILED", "The SHEIN request failed. Try reading again.", 502
@@ -264,9 +300,10 @@ class SheinReader:
             "operation": request.operation,
             "shop_id": request.shop_id,
             **result,
-            "source_url": origin + path,
+            "source_requests": sources,
+            **sources[-1],
+            "partial_data": partial,
             "retrieved_at": utc_now().isoformat(),
-            "request_id": request_id,
             "data_scope": "authorized_seller_data",
         }
 
@@ -383,8 +420,9 @@ class SheinReader:
         )
         check_current()
         try:
-            payload = parse_json(content)
-        except (ValueError, RecursionError):
+            parse_json(content)  # Reject duplicate keys before preserving decimal prices.
+            payload = json.loads(content, parse_float=Decimal)
+        except (ValueError, RecursionError, InvalidOperation):
             raise _invalid() from None
         if (
             not isinstance(payload, dict)
@@ -398,6 +436,7 @@ class SheinReader:
                 "SHEIN rejected the read. Check seller authorization and keys.",
                 502,
             )
-        if not isinstance(payload.get("info"), dict):
+        expected_type = (dict, list) if path == SHEIN_STOCK_PATH else dict
+        if not isinstance(payload.get("info"), expected_type):
             raise _invalid()
         return payload

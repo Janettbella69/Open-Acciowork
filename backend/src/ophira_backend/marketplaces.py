@@ -138,6 +138,9 @@ TIKTOK_PRODUCT_STATUSES = frozenset({
 SHOPIFY_PRODUCT_STATUSES = frozenset({"ALL", "ACTIVE", "ARCHIVED", "DRAFT", "UNLISTED"})
 
 
+SheinInventoryType = Literal["PI", "VI", "JI"]
+
+
 class MarketplaceReadRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 
@@ -147,9 +150,12 @@ class MarketplaceReadRequest(BaseModel):
     page_token: str | None = Field(default=None, min_length=1, max_length=2048)
     product_status: ProductStatus = "ALL"
     product_id: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_-]{1,160}$")
+    inventory_type: SheinInventoryType | None = None
 
     @model_validator(mode="after")
     def require_shop(self) -> MarketplaceReadRequest:
+        if self.inventory_type is not None and self.operation != "product_details":
+            raise ValueError("Inventory type selection requires SHEIN product details")
         if self.operation in {"products", "orders", "product_details"} and not self.shop_id:
             raise ValueError("Select an authorized shop before reading products or orders")
         if self.operation == "product_details":

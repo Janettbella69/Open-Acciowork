@@ -123,8 +123,10 @@ credentials grant (24-hour tokens kept in memory): shop details, products and re
 orders without customer identity, guided by the `shopify-store-review` Plugin Skill.
 SHEIN provides seller consent, one-attempt token exchange, key decryption and
 verified connection saving with interrupted-installation recovery. It reads the
-authorized store and paginated SPU groups with nested SKC variants; existing
-decrypted seller keys are also supported. See [SHEIN setup](docs/shein-connector.md).
+authorized store and paginated SPU groups with nested SKC variants. SKU details
+separate site quotes from supply prices and optionally read explicitly selected
+physical, virtual or JIT inventory, including warehouse rows. Existing decrypted
+seller keys are also supported. See [SHEIN setup](docs/shein-connector.md).
 Project administrators can grant one shop for a fixed duration; the main Agent
 can then read that shop and cite server-issued source receipts when recording evidence.
 Shopee reads single-shop products and SKU prices/stock with optional durable token refresh.

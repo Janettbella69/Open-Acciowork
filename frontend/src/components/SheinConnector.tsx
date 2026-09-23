@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import { beginSheinAuthorization, errorMessage, listConnectors, readMarketplace, revokeConnector, upsertConnector } from '../api/client'
 import type { Connector } from '../api/types'
-import { PRODUCT_READ_SCOPE, type MarketplaceRead } from '../api/marketplaces'
+import { PRODUCT_READ_SCOPE, SHEIN_INVENTORY_LABELS, type MarketplaceRead, type SheinInventoryType } from '../api/marketplaces'
 import { useT } from '../i18n'
 import MarketplaceProjectAccess from './MarketplaceProjectAccess'
+import SheinSkuDetails from './SheinSkuDetails'
 
 type Props = { connector: Connector; onChange: (connector: Connector) => void }
 
@@ -22,6 +23,8 @@ export default function SheinConnector({ connector, onChange }: Props) {
   const [status, setStatus] = useState('ALL')
   const [shop, setShop] = useState<MarketplaceRead | null>(null)
   const [page, setPage] = useState<MarketplaceRead | null>(null)
+  const [detail, setDetail] = useState<MarketplaceRead | null>(null)
+  const [inventoryType, setInventoryType] = useState<SheinInventoryType | ''>('')
   const [busy, setBusy] = useState(false)
   const [needsRefresh, setNeedsRefresh] = useState(false)
   const [error, setError] = useState('')
@@ -47,7 +50,7 @@ export default function SheinConnector({ connector, onChange }: Props) {
       if (mounted.current) setBusy(false)
     }
   }
-  const clearResults = () => { setShop(null); setPage(null); setAuthorizationUrl('') }
+  const clearResults = () => { setShop(null); setPage(null); setDetail(null); setAuthorizationUrl('') }
   const beginAuthorization = () => act(async () => {
     setAuthorizationUrl('')
     if (!/^[A-Za-z0-9_-]{1,160}$/.test(appId.trim())) throw new Error(t('Enter a valid SHEIN app ID.'))
@@ -103,12 +106,25 @@ export default function SheinConnector({ connector, onChange }: Props) {
     const selected = shop?.shops[0]
     if (!selected) return
     const cursor = next ? page?.next_page_token : null
-    setPage(null)
+    setPage(null); setDetail(null)
     const result = await readMarketplace(connector.id, {
       operation: 'products', shop_id: selected.id, page_size: 10, product_status: status,
       ...(cursor ? { page_token: cursor } : {}),
     })
     if (mounted.current) setPage(result)
+  })
+  const loadDetail = (productId: string, next = false) => act(async () => {
+    const selected = shop?.shops[0]
+    if (!selected) return
+    const cursor = next ? detail?.next_page_token : null
+    setDetail(null)
+    const result = await readMarketplace(connector.id, {
+      operation: 'product_details', shop_id: selected.id, product_id: productId, page_size: 10,
+      ...(inventoryType ? { inventory_type: inventoryType } : {}),
+      ...(cursor ? { page_token: cursor } : {}),
+    })
+    if (result.operation !== 'product_details' || result.shop_id !== selected.id || result.products.length !== 1 || result.products[0].id !== productId || (result.inventory_type ?? '') !== inventoryType) throw new Error(t('The SKU response does not match this request. Read the details again.'))
+    if (mounted.current) setDetail(result)
   })
 
   const disabled = busy || needsRefresh
@@ -116,7 +132,7 @@ export default function SheinConnector({ connector, onChange }: Props) {
   const configured = connector.scope.split(/\s+/)
   const canReadStore = connector.enabled && configured.includes(STORE_SCOPE)
   const canReadProducts = canReadStore && configured.includes(PRODUCT_READ_SCOPE.shein)
-  const observation = page ?? shop
+  const observation = detail ?? page ?? shop
   const shelfStatus = (value: string) => t(STATUSES[value] ?? 'Unknown')
 
   return <article className="marketplace-connector" data-enabled={connector.enabled ? 'true' : 'false'}>
@@ -168,10 +184,14 @@ export default function SheinConnector({ connector, onChange }: Props) {
       </div>}
       {selected && <div className="marketplace-shop-picker">
         <p><strong>{selected.name || selected.id}</strong>{selected.name ? ` · ${selected.id}` : ''}{selected.seller_type ? ` · ${selected.seller_type}` : ''}</p>
-        <label>{t('SKC shelf status')}<select disabled={disabled} value={status} onChange={(event) => { setStatus(event.target.value); setPage(null) }}>
+        <label>{t('SKC shelf status')}<select disabled={disabled} value={status} onChange={(event) => { setStatus(event.target.value); setPage(null); setDetail(null) }}>
           <option value="ALL">{t('All shelf statuses')}</option>
           <option value="ON_SHELF">{t('On shelf')}</option>
           <option value="OFF_SHELF">{t('Off shelf')}</option>
+        </select></label>
+        <label>{t('Inventory to read with SKU details')}<select disabled={disabled} value={inventoryType} onChange={(event) => { setInventoryType(event.target.value as SheinInventoryType | ''); setDetail(null) }}>
+          <option value="">{t('Prices only · inventory not requested')}</option>
+          {(Object.entries(SHEIN_INVENTORY_LABELS) as [SheinInventoryType, string][]).map(([value, label]) => <option key={value} value={value}>{t(label)}</option>)}
         </select></label>
         <button type="button" disabled={disabled || !canReadProducts} onClick={() => void loadProducts()}>{t('Read products')}</button>
         {!canReadProducts && <p>{t('Configure product read permission to retrieve listings.')}</p>}
@@ -181,16 +201,18 @@ export default function SheinConnector({ connector, onChange }: Props) {
         <p>{t('Each page contains up to 10 SPU groups. SKC variants belong to those groups; the shelf filter applies to SKCs.')}</p>
         {page.products.length ? <div className="marketplace-table"><table>
           <caption>{t('SHEIN product groups · current page')}</caption>
-          <thead><tr><th>{t('SPU group')}</th><th>{t('Status')}</th><th>{t('Category ID')}</th><th>{t('SKC variants')}</th></tr></thead>
+          <thead><tr><th>{t('SPU group')}</th><th>{t('Status')}</th><th>{t('Category ID')}</th><th>{t('SKC variants')}</th><th>{t('Action')}</th></tr></thead>
           <tbody>{page.products.map((product) => <tr key={product.id}>
             <th scope="row">{product.id}</th><td>{shelfStatus(product.status)}</td><td>{product.category_id || '—'}</td>
             <td>{product.variants?.length ? <ul>{product.variants.map((variant) => <li key={variant.id}>
               {variant.title || t('Title not supplied')}<br /><small>{variant.id} · {shelfStatus(variant.status)}</small>
             </li>)}</ul> : t('No variants supplied')}</td>
+            <td><button type="button" disabled={disabled || !canReadProducts} aria-label={t('Read SKU details for {id}', { id: product.id })} onClick={() => void loadDetail(product.id)}>{t('Read SKU details')}</button></td>
           </tr>)}</tbody>
         </table></div> : <p>{t('No products on this page.')}</p>}
         {page.next_page_token && <button type="button" disabled={disabled || !canReadProducts} onClick={() => void loadProducts(true)}>{t('Next page')}</button>}
       </>}
+      {detail && <SheinSkuDetails detail={detail} disabled={disabled || !canReadProducts} onNext={(id) => void loadDetail(id, true)} />}
       {observation && <p className="marketplace-provenance">
         {t('Retrieved at {time}', { time: new Date(observation.retrieved_at).toLocaleString() })} · {t('Request ID')}: {observation.request_id || t('Not supplied')}<br />
         {observation.source_url}

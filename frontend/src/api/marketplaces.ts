@@ -7,6 +7,23 @@ export type MarketplaceGuide = {
 
 export type MarketplaceQuote = { amount: string; currency: string | null }
 
+export type SheinInventoryType = 'PI' | 'VI' | 'JI'
+export const SHEIN_INVENTORY_LABELS: Record<SheinInventoryType, string> = {
+  PI: 'SHEIN warehouse stock (PI)', VI: 'Merchant virtual stock (VI)', JI: 'Merchant JIT stock (JI)',
+}
+export type SheinInventoryQuantities = {
+  total: number | null
+  locked: number | null
+  temporary_locked: number | null
+  usable: number | null
+  in_transit: number | null
+  stockout_demand: number | null
+}
+export type SheinSkuInventory = {
+  totals: SheinInventoryQuantities
+  warehouses: (SheinInventoryQuantities & { code: string; warehouse_type: string })[]
+}
+
 export type SheinAuthorizationView = {
   app_id: string
   endpoint: string
@@ -25,6 +42,9 @@ export type MarketplacePriceStock = {
   daily_discount_price?: MarketplaceQuote | null
   country_discount_prices?: { country: string; quote: MarketplaceQuote | null }[]
   in_stock?: boolean | null
+  site_prices?: { site: string | null; currency: string | null; base_price: string | null; special_price: string | null }[]
+  supply_prices?: { currency: string | null; amount: string | null }[]
+  inventory?: SheinSkuInventory | null
 }
 
 export type MarketplaceProduct = MarketplacePriceStock & {
@@ -44,7 +64,7 @@ export type MarketplaceProduct = MarketplacePriceStock & {
   reported_sku_count?: number
   price_range?: { currency: string | null; min: string | null; max: string | null }
   has_country_pricing?: boolean
-  variants?: (MarketplacePriceStock & { id: string; title: string; status: string; sku?: string; options?: { name: string; value: string }[]; id_kind?: 'platform' | 'properties'; property_signature?: string; attributes?: { property_id: string; value_id: string | null; value: string }[] })[]
+  variants?: (MarketplacePriceStock & { id: string; title: string; status: string; sku?: string; skc_id?: string; skc_title?: string; purchase_status?: string; options?: { name: string; value: string }[]; id_kind?: 'platform' | 'properties'; property_signature?: string; attributes?: { property_id: string; value_id: string | null; value: string }[] })[]
 }
 
 export type MarketplaceOrder = {
@@ -76,6 +96,7 @@ export type MarketplaceRead = {
   order_window?: 'last_60_days' | 'all'
   next_page_token: string | null
   pagination_unit?: 'SPU' | 'SKU'
+  inventory_type?: SheinInventoryType | null
   page_number?: number
   total_pages?: number
   product_status_filter?: string
@@ -93,6 +114,7 @@ export type MarketplaceReadInput = {
   page_token?: string
   product_status?: string
   product_id?: string
+  inventory_type?: SheinInventoryType
 }
 
 // Configured permission a connector needs before a project can grant Agent shop reads.
