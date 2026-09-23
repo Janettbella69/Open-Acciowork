@@ -238,7 +238,10 @@ class ShopeeReader:
             if not re.fullmatch(r"0|[1-9][0-9]{0,8}", request.page_token):
                 raise MarketplaceError("MARKETPLACE_CURSOR_INVALID", "Use the returned offset.")
             offset = int(request.page_token)
-        if request.product_id and int(request.product_id) >= 2**63:
+        if request.product_id and (
+            not re.fullmatch(r"[1-9][0-9]{0,18}", request.product_id)
+            or int(request.product_id) >= 2**63
+        ):
             raise MarketplaceError("MARKETPLACE_PRODUCT_INVALID", "Use a valid Shopee item id.")
 
         def current():

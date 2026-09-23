@@ -125,7 +125,10 @@ SHEIN reads an authorized store and paginated SPU product groups with nested SKC
 variants, using existing decrypted seller keys; see [SHEIN setup](docs/shein-connector.md).
 Project administrators can grant one shop for a fixed duration; the main Agent
 can then read that shop and cite server-issued source receipts when recording evidence.
-The Temu, AliExpress and Shopee adapters and live seller certification remain open; see
+Shopee reads single-shop products and SKU prices/stock with optional durable token refresh.
+Temu reads local-seller products/SKUs and separately authorized supply prices through
+regional gateways; see [Temu setup](docs/temu-connector.md).
+AliExpress, initial platform authorization flows and live seller certification remain open; see
 [`docs/marketplace-connectors.md`](docs/marketplace-connectors.md).
 
 Open **Project run metrics** in a saved workspace to inspect recent execution,

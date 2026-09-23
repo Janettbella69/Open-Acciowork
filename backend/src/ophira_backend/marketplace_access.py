@@ -35,6 +35,7 @@ from .shein import SHEIN_TYPE, SheinReader
 from .shopee import SHOPEE_TYPE, ShopeeReader
 from .shopify import ShopifyReader
 from .storage import FileLedger
+from .temu import TEMU_TYPE, TemuReader
 from .untrusted import UNTRUSTED_LIMITS, UntrustedSource, sanitize_untrusted_payload
 
 ID_PATTERN = r"^[A-Za-z0-9_-]{1,160}$"
@@ -131,7 +132,7 @@ class MarketplaceAgentRequest(BaseModel):
     offset: int = Field(default=0, ge=0, le=MAX_BINDINGS)
     page_token: str | None = Field(default=None, min_length=1, max_length=2048)
     product_status: ProductStatus = "ALL"
-    product_id: str | None = Field(default=None, pattern=r"^[1-9][0-9]{0,18}$")
+    product_id: str | None = Field(default=None, pattern=ID_PATTERN)
 
     @model_validator(mode="after")
     def operation_arguments(self):
@@ -169,16 +170,19 @@ class MarketplaceReader:
             "transport_factory": lambda: self.transport_factory(),
             "clock": lambda: self.clock(),
         }
-        self.adapters: dict[str, TikTokShopReader | ShopifyReader | SheinReader | ShopeeReader] = {
+        self.adapters: dict[
+            str, TikTokShopReader | ShopifyReader | SheinReader | ShopeeReader | TemuReader
+        ] = {
             TIKTOK_SHOP_TYPE: TikTokShopReader(connectors, **options),
             SHOPIFY_TYPE: ShopifyReader(connectors, **options),
             SHEIN_TYPE: SheinReader(connectors, **options),
             SHOPEE_TYPE: ShopeeReader(connectors, **options),
+            TEMU_TYPE: TemuReader(connectors, **options),
         }
 
     def adapter(
         self, connector_id: str,
-    ) -> TikTokShopReader | ShopifyReader | SheinReader | ShopeeReader:
+    ) -> TikTokShopReader | ShopifyReader | SheinReader | ShopeeReader | TemuReader:
         try:
             connector = self.connectors.get(connector_id)
         except (ConnectorNotFoundError, ValueError):
@@ -324,6 +328,11 @@ class MarketplaceAccessService:
             raise MarketplaceError(
                 "MARKETPLACE_SHOP_NOT_AUTHORIZED", "The seller token does not authorize this shop.",
                 403,
+            )
+        if shop.get("product_reads_available") is False:
+            raise MarketplaceError(
+                "MARKETPLACE_UPSTREAM_SCOPE_REQUIRED",
+                "This shop does not authorize a supported product reader.", 403,
             )
         with (
             self.ledger._lock_for(f"marketplace-access:{project_id}"),

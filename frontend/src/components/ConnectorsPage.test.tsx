@@ -75,6 +75,18 @@ describe('ConnectorsPage', () => {
     expect(screen.queryByRole('button', { name: /save secret/i })).not.toBeInTheDocument()
   })
 
+  it('routes Temu to regional seller setup and supply price permissions', async () => {
+    vi.mocked(listConnectors).mockResolvedValue([{
+      ...connector, id: 'temu', type: 'temu', display_name: 'Temu',
+      scope: 'temu:store:read temu:products:read', endpoint: 'https://openapi-b-global.temu.com',
+    }])
+    render(<ConnectorsPage />)
+    await screen.findByLabelText('Temu API region')
+    expect(screen.getByLabelText('App secret')).toHaveAttribute('type', 'password')
+    expect(screen.getByLabelText('Allow Temu supply price reads')).not.toBeChecked()
+    expect(screen.getByRole('button', { name: 'Read store' })).toBeInTheDocument()
+  })
+
   it('locks a revoked connector and never leaves it looking connected', async () => {
     vi.mocked(listConnectors).mockResolvedValue([connector])
     render(<ConnectorsPage />)

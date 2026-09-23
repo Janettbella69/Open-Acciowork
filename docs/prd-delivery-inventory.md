@@ -20,7 +20,7 @@
 | FR-08 隔离 | delivered：项目路径、符号链接、独立 worker 配置；原生进程时长/输出监督、Linux systemd CPU/内存/任务数门禁及配置/已验证状态区分（Linux验收见下方记录） | deferred：真实模型与原生沙箱的Linux联合验收、API宿主MCP资源限制、生产负载与租户物理隔离演练 |
 | FR-09 来源账本 | delivered：同 Run/session 的服务器 source receipt | 保持来源、失效、回放和内容完整性回归 |
 | FR-10 决策 | delivered：证据关联与失效联动 | 开放任务质量另行验收 |
-| FR-11 领域 MCP | delivered：确定性商业计算、用户记录加工、显式结算计划的现金流/日末与保守日内资金缺口；TikTok Shop/Shopify/SHEIN/Shopee项目指定店铺的主Agent只读MCP与来源凭证；Shopify近期订单、SHEIN SPU/SKC分层商品与分页/上架状态、Shopee商品与SKU价格库存/分页 | deferred：真实供应商/客户/市场/法规/物流/汇率授权数据适配及已实现商家接口的真实验收 |
+| FR-11 领域 MCP | delivered：确定性商业计算、用户记录加工、显式结算计划的现金流/日末与保守日内资金缺口；TikTok Shop/Shopify/SHEIN/Shopee/Temu项目指定店铺的主Agent只读MCP与来源凭证；Shopify近期订单、SHEIN SPU/SKC分层商品与分页/上架状态、Shopee商品与SKU价格库存/分页、Temu本土店铺商品/SKU与独立供货价权限 | deferred：真实供应商/客户/市场/法规/物流/汇率授权数据适配及已实现商家接口的真实验收 |
 | FR-12 Skill 生命周期 | delivered：发现/启停/扫描/不可变版本/配额/租约/回滚；13个内置Skill的证据参考与输出模板、固定包原生只读访问；Agent候选冻结、人审发布默认关闭、凭证恢复与独立审阅UI；独立Skill备份及含项目账本/候选库的应用冷备份、新进程恢复 | deferred：真实模型提案质量、真端点回滚重跑、跨宿主/生产恢复及其余子系统的恢复认证 |
 | FR-13 权限 | delivered：范围/有效期/审计、删除确认、沙箱拒绝逃逸；可信设备单次审批；原生SDK持久等待、原Run恢复、跨进程决议竞争、消费前撤销复验；工作台内切换组织授权模式，仅 SDK 原生 default/auto 两档 | deferred：真实远程审批与生产故障矩阵；原生多工具批次须拆为单次审批 |
 | FR-14 记忆 | delivered：提案人审、TTL/过期/检索/导出/删除恢复 | deferred：真实蒸馏质量、生产备份删除边界与恢复演练 |
@@ -30,7 +30,7 @@
 | FR-18 恢复 | delivered：保存产物、错误分类、重试与重启恢复；Run 起点的完整可支持工作区快照、Bash 修改恢复、人工变更预览/确认/结果重试、中断目录切换修复、真实进程退出与冷备往返；同项目执行与产物收尾租约 | deferred：真实 SDK 故障注入、生产/跨宿主恢复、容量保留管理、性能与浏览器目视验收 |
 | FR-19 Deep Research | delivered：输入框内显式开关发起（默认关闭、运行中锁定）；三种原生只读研究单元的一次新建/同 Run 续接约束；共享预算/取消/原始截止时间；运行中资源 UI、来源包与主 Agent 去重落账；真实 DeepSeek 合成来源上的三单元并行/来源复核/证据合并与报告验收 | deferred：开放互联网研究质量、真实取消/耗尽/长时墙钟故障矩阵、其他 Provider 与浏览器目视验收 |
 | FR-20 GUI | delivered：L1/L2 真实浏览器 smoke；项目独立店铺 profile、用户登录确认、当前页观察引用、主Agent页面动作/报表下载与来源/产物落账、真实Chromium离线链路 | deferred：真实卖家后台/验证码/风控兼容性和模型联调；真实攻击/恢复矩阵；L3 桌面桥与 OS 权限治理未实现 |
-| FR-21 Connector | delivered：Catalog/Vault/health/revoke、HTTPS JSON send_message；六平台官方文档入口，TikTok Shop授权店铺/商品分页、Shopify自有店铺/token/商品/近期订单、SHEIN商家密钥/店铺/SPU与SKC商品读取，Shopee单店凭据/持久一次性刷新/商品与SKU价格库存/分页；项目店铺授权/到期/撤销、主Agent来源凭证与中英文管理员UI；项目店铺身份可关联平台Connector、独立浏览器授权及数据展示 | deferred：Temu/AliExpress及其余邮箱/店铺/CRM/社媒adapter；Shopee初次OAuth/授权码交换与订单、TikTok Shop OAuth/refresh、SHEIN授权交换/解密与SKU库存价格、平台写操作；真实授权账号/模型调用验收与外发全链；API与浏览器数据自动合并 |
+| FR-21 Connector | delivered：Catalog/Vault/health/revoke、HTTPS JSON send_message；六平台官方文档入口，TikTok Shop授权店铺/商品分页、Shopify自有店铺/token/商品/近期订单、SHEIN商家密钥/店铺/SPU与SKC商品读取，Shopee单店凭据/持久一次性刷新/商品与SKU价格库存/分页，Temu区域凭据/实时授权核验/本土商品与SKU/可选供货价；项目店铺授权/到期/撤销、主Agent来源凭证与中英文管理员UI；项目店铺身份可关联平台Connector、独立浏览器授权及数据展示 | deferred：AliExpress及其余邮箱/店铺/CRM/社媒adapter；Temu初次授权交换/半托管商品/订单；Shopee初次OAuth/授权码交换与订单、TikTok Shop OAuth/refresh、SHEIN授权交换/解密与SKU库存价格、平台写操作；真实授权账号/模型调用验收与外发全链；API与浏览器数据自动合并 |
 | FR-22 组织治理 | delivered：单部署租户 principal/membership/策略；共享项目成员管理UI与版本冲突保护；持久团队讨论/回复/对象关联/编辑历史/解决状态；可复用项目模板、固定参考版本与来源、核对后创建和中断恢复；组织私有Skill导入人审、固定版本查看/导出、独立启停/恢复、跨进程凭证与冷备恢复 | deferred：真实身份网关联调、租户分区与隔离 runner、长期容量与浏览器目视验收 |
 | FR-23 Web 兜底 | delivered：Serper/Tavily 适配与 SSRF 防护 | deferred：真实配置搜索服务和 Provider 降级 E2E |
 | FR-24 IM | delivered：飞书签名入站/身份绑定/同 Agent/持久回复重试 | deferred：真实飞书/Lark 租户 E2E；微信适配未实现 |
@@ -1275,3 +1275,31 @@ Browser选择仍返回 `No browser is available`，故障检查返回 `[]`，页
 尚需交付：Shopee初次卖家OAuth/授权码交换、订单和商业写入；已实现接口的真实
 卖家账号/权限/地区/限流与模型验收；Temu/AliExpress、微信/桌面等总表剩余功能及
 生产隔离和人工质量验收。完整PRD目标仍未完成。
+
+
+## 2026-09-22：Temu 本土店铺、SKU 与供货价读取
+
+实施合同：[Temu local-seller reads](temu-connector.md)。核验 Temu 官方页面使用的
+公开文档接口，记录区域网关、签名、token info、商品/SKU和供货价合同及来源哈希。
+签名测试复现官方步骤2向量；文档示例的嵌套顺序、成功码和页大小差异明确记录。
+
+- 新增美国/欧洲/其他区域凭据配置、实时店铺身份/类型/权限/到期核验、本土店铺
+  商品状态和不透明分页、同一商品的SKU分页。ALL仅含在售和非在售，其余状态
+  单独查询。字符串ID不经浮点转换；半托管店铺只能核验身份，不冒充支持商品。
+- 供货价需要本地显式开启及Temu接口授权。供货价与零售价分开、金额保留字符串，
+  库存不推断可用/预留结构；缺失值保持未知。新字符串ID无法进入旧LONG价格接口
+  时跳过价格请求并明示原因；缺行/缺价及分页范围显式返回。
+- 项目授权、主Agent原生SDK MCP和来源凭证复用现有链路；服务端拒绝无有效商品
+  能力的授权。来源记录包含每次请求的固定网关/API名/可选请求ID；读取途中撤销、
+  相同密钥重存、配置变化及到期均丢弃旧结果。无重试/跳转/区域回退/凭据输出。
+- Temu专项 **75项**，另增3项Shopee字符串ID边界回归。冻结实现后的后端全量
+  **2370 passed / 20 skipped**，142.46秒；跳过仍为8项真实Provider、5项可选Chromium
+  和7项Linux资源验收。前端 **475 passed / 47 files**，包含16项Temu交互与1项路由。
+  Ruff、diff检查、lint/build通过；eval工具 **59 passed**，Snapshot **61/61**。
+  主JS包520.00kB的体积提示保留。
+- Browser连接返回 `No browser is available`，故障检查列表 `[]`，未完成页面目视验收。
+  未使用真实卖家凭据，未调用商家业务接口或模型服务。
+
+仍需交付：Temu初次卖家授权/交换、半托管商品接口、订单/商业写入，以及真实卖家、
+区域、权限、限流和模型验收；AliExpress、微信/桌面等总表其余功能与生产隔离、
+人工质量和真实运行验收。完整PRD目标仍未完成。

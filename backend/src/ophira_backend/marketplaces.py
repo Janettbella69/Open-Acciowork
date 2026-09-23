@@ -54,7 +54,7 @@ MARKETPLACE_GUIDES = [
         "dad0d1c7-be76-4b03-a735-4e23f012bdd9",
     },
     {
-        "type": "temu", "name": "Temu", "read_adapter": False,
+        "type": "temu", "name": "Temu", "read_adapter": True,
         "documentation_url": "https://partner.temu.com/documentation?"
         "menu_code=52ef88bdef1d4527b15f6d303b173e48",
     },
@@ -128,6 +128,7 @@ ProductStatus = Literal[
     "PLATFORM_DEACTIVATED", "FREEZE", "DELETED", "ACTIVE", "ARCHIVED", "UNLISTED",
     "ON_SHELF", "OFF_SHELF",
     "NORMAL", "BANNED", "UNLIST", "REVIEWING", "SELLER_DELETE", "SHOPEE_DELETE",
+    "INACTIVE", "INCOMPLETE",
 ]
 # Each platform documents its own status vocabulary; filters never cross platforms.
 TIKTOK_PRODUCT_STATUSES = frozenset({
@@ -145,7 +146,7 @@ class MarketplaceReadRequest(BaseModel):
     page_size: int = Field(default=20, ge=1, le=100)
     page_token: str | None = Field(default=None, min_length=1, max_length=2048)
     product_status: ProductStatus = "ALL"
-    product_id: str | None = Field(default=None, pattern=r"^[1-9][0-9]{0,18}$")
+    product_id: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_-]{1,160}$")
 
     @model_validator(mode="after")
     def require_shop(self) -> MarketplaceReadRequest:

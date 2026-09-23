@@ -44,8 +44,20 @@ from .shopify import (
     check_shopify_store_endpoint,
     parse_shopify_credentials,
 )
+from .temu import (
+    TEMU_DEFAULT_SCOPE,
+    TEMU_ORIGIN,
+    TEMU_ORIGINS,
+    TEMU_TYPE,
+    parse_temu_credentials,
+)
 
 CONNECTOR_CATALOG: list[dict[str, str | None]] = [
+    {
+        "id": TEMU_TYPE, "type": TEMU_TYPE, "display_name": "Temu",
+        "scope": TEMU_DEFAULT_SCOPE, "secret_env": "OPHIRA_CONNECTOR_TEMU_KEY",
+        "endpoint": TEMU_ORIGIN,
+    },
     {
         "id": SHOPEE_TYPE, "type": SHOPEE_TYPE, "display_name": "Shopee",
         "scope": SHOPEE_DEFAULT_SCOPE, "secret_env": "OPHIRA_CONNECTOR_SHOPEE_KEY",
@@ -389,6 +401,13 @@ class ConnectorRegistry:
                 parse_shopify_credentials(secret)
                 if self.vault is None:
                     raise ValueError("connector vault is not configured")
+        if type == TEMU_TYPE:
+            if endpoint not in TEMU_ORIGINS:
+                raise ValueError("Temu requires an official regional API origin")
+            if secret is not None:
+                parse_temu_credentials(secret)
+                if self.vault is None:
+                    raise ValueError("connector vault is not configured")
         if type == SHOPEE_TYPE:
             if endpoint not in SHOPEE_ORIGINS:
                 raise ValueError("Shopee requires an official API origin")
@@ -436,6 +455,8 @@ class ConnectorRegistry:
             parse_shopify_credentials(secret)
         elif connector.type == SHEIN_TYPE:
             parse_shein_credentials(secret)
+        elif connector.type == TEMU_TYPE:
+            parse_temu_credentials(secret)
         elif connector.type == SHOPEE_TYPE:
             parse_shopee_credentials(secret)
         if self.vault is None:
@@ -631,6 +652,36 @@ class ConnectorRegistry:
         except (OSError, ValueError):
             raise ConnectorUnavailableError(
                 "MARKETPLACE_CREDENTIAL_INVALID", "Configure valid SHEIN seller credentials first.",
+            ) from None
+        return CommercialConnectorRuntime(connector=connector, credential=SecretStr(secret),
+                                          credential_revision=view["revision"])
+
+    def require_temu_runtime(self, connector_id: str) -> CommercialConnectorRuntime:
+        try:
+            connector = self.get(connector_id)
+        except (ConnectorNotFoundError, ValueError):
+            raise ConnectorUnavailableError(
+                "MARKETPLACE_NOT_CONFIGURED", "The marketplace connector is not configured.",
+            ) from None
+        if connector.type != TEMU_TYPE or connector.endpoint not in TEMU_ORIGINS:
+            raise ConnectorUnavailableError(
+                "MARKETPLACE_UNSUPPORTED", "This connector has no supported marketplace reader.",
+            )
+        if not connector.enabled:
+            raise ConnectorUnavailableError(
+                "MARKETPLACE_DISABLED", "The marketplace connector is revoked.",
+            )
+        try:
+            fallback = self.environment_credential(connector)
+            if self.vault is None:
+                raise ValueError
+            view, secret = self.vault.resolve_versioned(connector.id, fallback=fallback)
+            if not secret:
+                raise ValueError
+            parse_temu_credentials(secret)
+        except (OSError, ValueError):
+            raise ConnectorUnavailableError(
+                "MARKETPLACE_CREDENTIAL_INVALID", "Configure valid Temu seller credentials.",
             ) from None
         return CommercialConnectorRuntime(connector=connector, credential=SecretStr(secret),
                                           credential_revision=view["revision"])

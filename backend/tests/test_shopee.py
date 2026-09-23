@@ -172,6 +172,15 @@ def test_official_shop_and_public_signature_sequences():
     )
 
 
+@pytest.mark.parametrize("product_id", ["temu_string_id", "0", "9223372036854775808"])
+async def test_shared_string_product_schema_keeps_shopee_int64_validation(registry, product_id):
+    with pytest.raises(MarketplaceError) as caught:
+        await reader(registry, lambda _: pytest.fail("No network for invalid Shopee item")).read(
+            "shopee", product_request(operation="product_details", product_id=product_id),
+        )
+    assert caught.value.code == "MARKETPLACE_PRODUCT_INVALID"
+
+
 async def test_signed_pinned_catalog_statuses_batch_and_provenance(registry):
     paths = []
 

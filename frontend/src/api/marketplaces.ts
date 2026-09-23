@@ -8,6 +8,8 @@ export type MarketplaceGuide = {
 export type MarketplacePriceStock = {
   prices?: { currency: string; current: string | null; original: string | null }[]
   stock?: { total_available_stock: number | null; total_reserved_stock: number | null }
+  reported_stock?: number | null
+  supplier_price?: { amount: string; currency: string } | null
 }
 
 export type MarketplaceProduct = MarketplacePriceStock & {
@@ -24,6 +26,7 @@ export type MarketplaceProduct = MarketplacePriceStock & {
   variants_loaded?: boolean
   variants_offset?: number
   variants_complete?: boolean
+  reported_sku_count?: number
   variants?: (MarketplacePriceStock & { id: string; title: string; status: string; sku?: string; options?: { name: string; value: string }[] })[]
 }
 
@@ -44,11 +47,14 @@ export type MarketplaceRead = {
   connector_id: string
   operation: 'authorized_shops' | 'products' | 'orders' | 'product_details'
   shop_id: string | null
-  shops: { id: string; name: string; region: string; seller_type: string; domain?: string; currency?: string }[]
+  shops: { id: string; name: string; region: string; seller_type: string; domain?: string; currency?: string; region_id?: string; product_reads_available?: boolean; sku_reads_available?: boolean }[]
   products: MarketplaceProduct[]
   orders?: MarketplaceOrder[]
   partial_data?: boolean
-  source_requests?: { source_url: string; request_id: string }[]
+  source_requests?: { source_url: string; request_id: string; api_name?: string }[]
+  api_name?: string
+  authorization_expires_at?: string
+  supplier_price_access?: 'disabled' | 'not_authorized' | 'allowed' | 'unsupported_identifier'
   granted_scopes?: string[]
   order_window?: 'last_60_days' | 'all'
   next_page_token: string | null
@@ -76,6 +82,7 @@ export const PRODUCT_READ_SCOPE: Record<string, string> = {
   shopify: 'read_products',
   shein: 'shein:products:read',
   shopee: 'shopee:products:read',
+  temu: 'temu:products:read',
 }
 
 export type MarketplaceBinding = {
