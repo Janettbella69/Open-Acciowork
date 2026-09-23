@@ -128,7 +128,9 @@ can then read that shop and cite server-issued source receipts when recording ev
 Shopee reads single-shop products and SKU prices/stock with optional durable token refresh.
 Temu reads local-seller products/SKUs and separately authorized supply prices through
 regional gateways; see [Temu setup](docs/temu-connector.md).
-AliExpress, initial platform authorization flows and live seller certification remain open; see
+AliExpress verifies a seller account and reads status-filtered products and POP SKU
+quotes/stock, with complete, snapshot-bound SKU pages; see [AliExpress setup](docs/aliexpress-connector.md).
+Initial platform authorization flows and live seller certification remain open; see
 [`docs/marketplace-connectors.md`](docs/marketplace-connectors.md).
 
 Open **Project run metrics** in a saved workspace to inspect recent execution,

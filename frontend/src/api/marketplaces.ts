@@ -5,11 +5,17 @@ export type MarketplaceGuide = {
   documentation_url: string
 }
 
+export type MarketplaceQuote = { amount: string; currency: string | null }
+
 export type MarketplacePriceStock = {
   prices?: { currency: string; current: string | null; original: string | null }[]
   stock?: { total_available_stock: number | null; total_reserved_stock: number | null }
   reported_stock?: number | null
   supplier_price?: { amount: string; currency: string } | null
+  listed_price?: MarketplaceQuote | null
+  daily_discount_price?: MarketplaceQuote | null
+  country_discount_prices?: { country: string; quote: MarketplaceQuote | null }[]
+  in_stock?: boolean | null
 }
 
 export type MarketplaceProduct = MarketplacePriceStock & {
@@ -27,7 +33,9 @@ export type MarketplaceProduct = MarketplacePriceStock & {
   variants_offset?: number
   variants_complete?: boolean
   reported_sku_count?: number
-  variants?: (MarketplacePriceStock & { id: string; title: string; status: string; sku?: string; options?: { name: string; value: string }[] })[]
+  price_range?: { currency: string | null; min: string | null; max: string | null }
+  has_country_pricing?: boolean
+  variants?: (MarketplacePriceStock & { id: string; title: string; status: string; sku?: string; options?: { name: string; value: string }[]; id_kind?: 'platform' | 'properties'; property_signature?: string; attributes?: { property_id: string; value_id: string | null; value: string }[] })[]
 }
 
 export type MarketplaceOrder = {
@@ -47,7 +55,7 @@ export type MarketplaceRead = {
   connector_id: string
   operation: 'authorized_shops' | 'products' | 'orders' | 'product_details'
   shop_id: string | null
-  shops: { id: string; name: string; region: string; seller_type: string; domain?: string; currency?: string; region_id?: string; product_reads_available?: boolean; sku_reads_available?: boolean }[]
+  shops: { id: string; name: string; region: string; seller_type: string; domain?: string; currency?: string | null; region_id?: string; product_reads_available?: boolean; sku_reads_available?: boolean; identity_kind?: 'seller_account' }[]
   products: MarketplaceProduct[]
   orders?: MarketplaceOrder[]
   partial_data?: boolean
@@ -60,6 +68,8 @@ export type MarketplaceRead = {
   next_page_token: string | null
   pagination_unit?: 'SPU' | 'SKU'
   page_number?: number
+  total_pages?: number
+  product_status_filter?: string
   total_count?: number
   source_url: string
   retrieved_at: string
@@ -83,6 +93,7 @@ export const PRODUCT_READ_SCOPE: Record<string, string> = {
   shein: 'shein:products:read',
   shopee: 'shopee:products:read',
   temu: 'temu:products:read',
+  aliexpress: 'aliexpress:products:read',
 }
 
 export type MarketplaceBinding = {

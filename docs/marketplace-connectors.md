@@ -12,16 +12,17 @@ access or implement OAuth; current API and browser grants remain independent.
 ## Platform inventory
 
 Reviewed against official documentation on 2026-09-09 (Shopify on 2026-09-10,
-SHEIN, Shopee and Temu on 2026-09-22). Dynamic documentation
-was checked using official indexed pages where the supplied page returned only
-its JavaScript shell. These are documentation checks, not authenticated API tests.
+SHEIN, Shopee, Temu and AliExpress on 2026-09-22). Dynamic documentation
+was checked using official indexed pages or public document JSON handlers where
+the supplied page returned only its JavaScript shell. These are documentation
+checks, not authenticated API tests.
 
 | Platform | Official starting point | Delivered | Deferred / reason |
 | --- | --- | --- | --- |
 | SHEIN | [Developer guide](https://open.sheincorp.com/documents/system/dad0d1c7-be76-4b03-a735-4e23f012bdd9) | Seller-key configuration, store reads, SPU product pagination with nested SKC variants and shelf filters, project grants, main-Agent reads/source receipts, revoke/reconnect and offline API/SDK/UI verification | Live seller-program/model certification; authorization exchange/decryption; SKU price/inventory, orders and commercial writes |
 | Temu | [Developer guide](https://partner.temu.com/documentation?menu_code=52ef88bdef1d4527b15f6d303b173e48) | Regional credentials, live token identity/scopes/expiry, local-seller product and SKU pagination, separately authorized supply prices, project grants, native MCP/source receipts and administrator UI; [contract and offline verification](temu-connector.md) | Initial authorization exchange, semi-managed catalog, orders/writes and live seller/region/rate-limit/model acceptance |
 | TikTok Shop | [Developer onboarding](https://partner.tiktokshop.com/docv2/page/developer-onboarding) | Seller credential configuration, authorized-shop reads, product pagination, project-specific expiring shop grants, main-Agent read tool and source receipts, administrator grant/revoke UI; offline adapter/API/SDK/UI verification | Live developer/test-shop and model certification, OAuth callback/token exchange and refresh, commercial writes |
-| AliExpress | [Register an application](https://developer.alibaba.com/docs/doc.htm?articleId=120674&docType=1&treeId=727) | Correct platform identification and documentation entry | Runtime adapter: verify current app category, read endpoints, permissions and seller authorization; supplied registration page is dated 2022 |
+| AliExpress | [Current authorization guide](https://open.aliexpress.com/doc/doc.htm#/?docId=989) | Verified seller identity, explicit-status product pages, seller-bound POP SKU details, separate quote/stock semantics, complete snapshot-bound SKU pages, project grants and native MCP/source receipts, bilingual administrator UI; [contract and offline verification](aliexpress-connector.md) | Initial consent/code exchange/refresh, managed product programs, orders/writes and real seller/app-category/region/rate-limit/model acceptance |
 | Shopee | [API calls](https://open.shopee.cn/developer-guide/16) and [authorization](https://open.shopee.cn/developer-guide/20) | Single-shop credentials, optional durable one-use refresh, store/product/SKU price and stock reads, product/SKU pagination, project grants and native MCP/source receipts, administrator UI; [contract and offline verification](shopee-connector.md) | Initial seller OAuth/code exchange, orders, platform writes, live account/region/rate-limit/model acceptance |
 | Shopify | [Client credentials grant](https://shopify.dev/docs/apps/build/authentication-authorization/client-credentials-grant) | Store address and Dev Dashboard app credentials, in-memory 24-hour token exchange, shop/product/order reads on GraphQL Admin `2026-07`, project grants, main-Agent reads with source receipts, `shopify-store-review` Plugin Skill; offline adapter/API/UI verification | Live store E2E (needs the operator's app credentials); stores outside the app's Dev Dashboard organization (authorization code grant); legacy admin-created tokens; commercial writes |
 
@@ -42,10 +43,12 @@ credential is migrated between these platforms.
   describes an MD5-based parameter signature. Its [authorization callback guide](https://partner.temu.com/documentation?menu_code=fb16b05f7a904765aac4af3a24b87d4a)
   distinguishes regional partner portals and seller consent. No generic OAuth
   implementation or gateway is inferred from these pages.
-- AliExpress's [endpoint page](https://developer.alibaba.com/docs/doc.htm?articleId=120689&docType=1&treeId=727)
-  documents a production gateway, and its [signature page](https://developer.alibaba.com/docs/doc.htm?articleId=120692&docType=1&treeId=727)
-  describes HMAC-SHA256 with uppercase hexadecimal output. These older documents
-  are investigation inputs; production compatibility has not been certified.
+- AliExpress's current [gateway guide](https://open.aliexpress.com/doc/doc.htm#/?docId=636)
+  distinguishes migrated TOP methods from native GOP paths. Its
+  [signature guide](https://open.aliexpress.com/doc/doc.htm#/?docId=634), API schemas
+  and [POP integration guide](https://open.aliexpress.com/doc/doc.htm#/?docId=9800)
+  inform the reader. These replace assumptions from the original 2022 registration
+  page; production compatibility has not been certified.
 
 ## TikTok Shop read contract
 
@@ -171,12 +174,22 @@ ALL covers active/inactive products only. Supply prices retain their own meaning
 reported stock has no reserved/available breakdown. Semi-managed product reads
 and initial authorization exchange remain open.
 
+## AliExpress read contract
+
+See [AliExpress seller catalog and POP SKU reads](aliexpress-connector.md) for the
+current TOP signing/gateway contract and seller-account identity. Product lists
+require one of six explicit status filters. POP details reverify seller catalog
+membership and page full SKUs by count and observation size, binding cursors to a
+product snapshot. Listed, daily-discount and country-discount quotes remain
+distinct; missing currency/stock is unknown and an in-stock flag is not a quantity.
+Initial authorization/refresh and managed-program readers remain open.
+
 ## Boundaries and verification
 
 - `GET /api/connectors/marketplaces` exposes six official guide entries and
-  implementation availability. The AliExpress adapter cannot yet be invoked.
+  implementation availability. All six have the scoped read adapters described above.
 - `POST /api/connectors/{id}/marketplace-read` accepts only typed read operations
-  (authorized shops, products, Shopify orders and Shopee/Temu product/SKU details).
+  (authorized shops/accounts, products, Shopify orders and Shopee/Temu/AliExpress SKU details).
   In trusted-gateway mode it requires an owner/admin, independently
   of the shared connector mutation guard. Local-only mode retains the existing
   loopback/source checks. The Agent uses the separately scoped tool below.
@@ -201,8 +214,9 @@ and initial authorization exchange remain open.
 ## Grant a shop to a project
 
 After reading authorized shops and selecting one, open **Project access for Agents**
-in the TikTok Shop card, or after **Read store** in the Shopify, SHEIN, Shopee or supported Temu local-seller card. Choose a saved
-project and a duration of 1, 7 or 30 days,
+in the TikTok Shop card, after **Read store** in the Shopify, SHEIN, Shopee or
+supported Temu local-seller card, or after **Read seller account** in AliExpress.
+Choose a saved project and a duration of 1, 7 or 30 days,
 then select **Allow Agent reads for selected shop**. This permits the project's
 main Agent, including its scheduled runs, to read that shop until expiry. It does
 not expose all shops authorized by the seller token. Existing grants can be

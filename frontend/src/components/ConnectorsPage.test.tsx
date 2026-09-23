@@ -87,6 +87,19 @@ describe('ConnectorsPage', () => {
     expect(screen.getByRole('button', { name: 'Read store' })).toBeInTheDocument()
   })
 
+  it('routes AliExpress independently of the legacy Alibaba connector', async () => {
+    vi.mocked(listConnectors).mockResolvedValue([{
+      ...connector, id: 'aliexpress', type: 'aliexpress', display_name: 'AliExpress',
+      scope: 'aliexpress:seller:read aliexpress:products:read', endpoint: 'https://api-sg.aliexpress.com',
+    }, { ...connector, id: 'alibaba', type: 'alibaba', display_name: 'Alibaba / 1688' }])
+    render(<ConnectorsPage />)
+    await screen.findByLabelText('Seller ID')
+    expect(screen.getByLabelText('Seller ID')).toHaveAttribute('inputmode', 'numeric')
+    expect(screen.getByRole('button', { name: 'Read seller account' })).toBeInTheDocument()
+    expect(screen.getByText('Alibaba / 1688')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /save secret/i })).toBeInTheDocument()
+  })
+
   it('locks a revoked connector and never leaves it looking connected', async () => {
     vi.mocked(listConnectors).mockResolvedValue([connector])
     render(<ConnectorsPage />)

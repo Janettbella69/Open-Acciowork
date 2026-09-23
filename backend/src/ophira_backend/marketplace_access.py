@@ -17,6 +17,7 @@ from typing import Any, Literal
 import httpx
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from .aliexpress import ALIEXPRESS_TYPE, AliExpressReader
 from .auth import AuthorizationError, ProjectAccessStore, ProjectPermission
 from .config import Settings
 from .connectors import ConnectorNotFoundError, ConnectorRegistry, ConnectorUnavailableError
@@ -172,17 +173,20 @@ class MarketplaceReader:
         }
         self.adapters: dict[
             str, TikTokShopReader | ShopifyReader | SheinReader | ShopeeReader | TemuReader
+            | AliExpressReader
         ] = {
             TIKTOK_SHOP_TYPE: TikTokShopReader(connectors, **options),
             SHOPIFY_TYPE: ShopifyReader(connectors, **options),
             SHEIN_TYPE: SheinReader(connectors, **options),
             SHOPEE_TYPE: ShopeeReader(connectors, **options),
             TEMU_TYPE: TemuReader(connectors, **options),
+            ALIEXPRESS_TYPE: AliExpressReader(connectors, **options),
         }
 
     def adapter(
         self, connector_id: str,
-    ) -> TikTokShopReader | ShopifyReader | SheinReader | ShopeeReader | TemuReader:
+    ) -> (TikTokShopReader | ShopifyReader | SheinReader | ShopeeReader | TemuReader
+          | AliExpressReader):
         try:
             connector = self.connectors.get(connector_id)
         except (ConnectorNotFoundError, ValueError):

@@ -75,10 +75,14 @@ path and durable capture linkage; redirect/Service-Worker attack cases remain co
 by deterministic tests, and L3 OS-level computer use is not implemented.
 
 Authorized [marketplace readers](../docs/marketplace-connectors.md) support TikTok
-Shop, Shopify, SHEIN and [Shopee](../docs/shopee-connector.md). Shopee binds one
+Shop, Shopify, SHEIN, [Shopee](../docs/shopee-connector.md),
+[Temu](../docs/temu-connector.md) and [AliExpress](../docs/aliexpress-connector.md). Shopee binds one
 shop, reads product/SKU prices and stock, and optionally rotates existing tokens
-with a durable one-use claim. Project-specific grants control native Agent reads
-and source receipts. Initial Shopee OAuth and live seller acceptance remain open.
+with a durable one-use claim. Temu reads local-seller catalogs/SKUs and separately
+authorized supply prices. AliExpress binds a verified seller account, reads explicit
+product statuses and POP SKU quotes/stock, and preserves complete SKU pages with a
+snapshot digest. Project-specific grants control native Agent reads and source
+receipts. Initial platform OAuth and live seller acceptance remain open.
 
 Register and verify the local Chrome bridge through the connector API (Chrome
 must already be listening on the chosen loopback port):

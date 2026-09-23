@@ -63,9 +63,8 @@ MARKETPLACE_GUIDES = [
         "documentation_url": "https://partner.tiktokshop.com/docv2/page/developer-onboarding",
     },
     {
-        "type": "aliexpress", "name": "AliExpress", "read_adapter": False,
-        "documentation_url": "https://developer.alibaba.com/docs/doc.htm?"
-        "articleId=120674&docType=1&treeId=727",
+        "type": "aliexpress", "name": "AliExpress", "read_adapter": True,
+        "documentation_url": "https://open.aliexpress.com/doc/doc.htm#/?docId=989",
     },
     {
         "type": "shopee", "name": "Shopee", "read_adapter": True,
@@ -129,6 +128,7 @@ ProductStatus = Literal[
     "ON_SHELF", "OFF_SHELF",
     "NORMAL", "BANNED", "UNLIST", "REVIEWING", "SELLER_DELETE", "SHOPEE_DELETE",
     "INACTIVE", "INCOMPLETE",
+    "onSelling", "offline", "auditing", "editingRequired", "service_delete", "deleted",
 ]
 # Each platform documents its own status vocabulary; filters never cross platforms.
 TIKTOK_PRODUCT_STATUSES = frozenset({
