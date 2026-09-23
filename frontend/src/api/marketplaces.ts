@@ -7,6 +7,15 @@ export type MarketplaceGuide = {
 
 export type MarketplaceQuote = { amount: string; currency: string | null }
 
+export type SheinAuthorizationView = {
+  app_id: string
+  endpoint: string
+  scope: string
+  supplier_id: string | null
+  expires_at: number
+  status: 'pending' | 'exchanging' | 'installing' | 'complete' | 'cancelled' | 'failed' | 'expired'
+}
+
 export type MarketplacePriceStock = {
   prices?: { currency: string; current: string | null; original: string | null }[]
   stock?: { total_available_stock: number | null; total_reserved_stock: number | null }

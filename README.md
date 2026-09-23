@@ -121,8 +121,10 @@ product reader with pagination, scoped credentials and revoke/reconnect controls
 Shopify reads one store in the app's Dev Dashboard organization through the client
 credentials grant (24-hour tokens kept in memory): shop details, products and recent
 orders without customer identity, guided by the `shopify-store-review` Plugin Skill.
-SHEIN reads an authorized store and paginated SPU product groups with nested SKC
-variants, using existing decrypted seller keys; see [SHEIN setup](docs/shein-connector.md).
+SHEIN provides seller consent, one-attempt token exchange, key decryption and
+verified connection saving with interrupted-installation recovery. It reads the
+authorized store and paginated SPU groups with nested SKC variants; existing
+decrypted seller keys are also supported. See [SHEIN setup](docs/shein-connector.md).
 Project administrators can grant one shop for a fixed duration; the main Agent
 can then read that shop and cite server-issued source receipts when recording evidence.
 Shopee reads single-shop products and SKU prices/stock with optional durable token refresh.
@@ -130,7 +132,7 @@ Temu reads local-seller products/SKUs and separately authorized supply prices th
 regional gateways; see [Temu setup](docs/temu-connector.md).
 AliExpress verifies a seller account and reads status-filtered products and POP SKU
 quotes/stock, with complete, snapshot-bound SKU pages; see [AliExpress setup](docs/aliexpress-connector.md).
-Initial platform authorization flows and live seller certification remain open; see
+Other platforms' initial authorization flows and live seller certification remain open; see
 [`docs/marketplace-connectors.md`](docs/marketplace-connectors.md).
 
 Open **Project run metrics** in a saved workspace to inspect recent execution,

@@ -82,7 +82,10 @@ with a durable one-use claim. Temu reads local-seller catalogs/SKUs and separate
 authorized supply prices. AliExpress binds a verified seller account, reads explicit
 product statuses and POP SKU quotes/stock, and preserves complete SKU pages with a
 snapshot digest. Project-specific grants control native Agent reads and source
-receipts. Initial platform OAuth and live seller acceptance remain open.
+receipts. [SHEIN authorization](../docs/shein-connector.md) adds seller consent,
+a durable one-attempt exchange, AES key decryption, live store-identity verification
+and recoverable credential/configuration publication. Other platforms' initial
+OAuth and live seller acceptance remain open.
 
 Register and verify the local Chrome bridge through the connector API (Chrome
 must already be listening on the chosen loopback port):

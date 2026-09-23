@@ -8,7 +8,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from .auth import AuthenticationError, AuthorizationError, ProjectPermission
-from .connectors import ConnectorUnavailableError
+from .connectors import ConnectorNotFoundError, ConnectorUnavailableError
 from .constants import PrincipalRole
 from .marketplace_access import (
     MarketplaceAccessService,
@@ -21,6 +21,12 @@ from .marketplaces import (
     MarketplaceReadRequest,
 )
 from .models import PrincipalContext
+from .shein_authorization import (
+    BeginSheinAuthorization,
+    FinishSheinAuthorization,
+    SheinAuthorizationService,
+    SheinAuthorizationState,
+)
 from .storage import LedgerNotFoundError
 
 
@@ -34,6 +40,52 @@ def register_marketplace_routes(
     reader = marketplace_access.reader
     application.state.marketplace_reader = reader
     application.state.marketplace_access = marketplace_access
+    shein_authorization = SheinAuthorizationService(marketplace_access)
+    application.state.shein_authorization = shein_authorization
+
+    def authorization_principal(request, response):
+        response.headers.update({"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"})
+        principal = getattr(request.state, "principal", None)
+        shein_authorization._actor(principal)
+        return principal
+
+    @application.post("/api/connectors/{connector_id}/shein-authorization/start")
+    async def start_shein_authorization(
+        connector_id: str, payload: BeginSheinAuthorization, request: Request, response: Response,
+    ):
+        principal = authorization_principal(request, response)
+        try:
+            return shein_authorization.begin(connector_id, payload, principal)
+        except (ConnectorNotFoundError, ValueError):
+            raise HTTPException(400, "Invalid SHEIN connector configuration") from None
+
+    @application.post("/api/connectors/{connector_id}/shein-authorization/status")
+    async def view_shein_authorization(
+        connector_id: str, payload: SheinAuthorizationState, request: Request, response: Response,
+    ):
+        return shein_authorization.view(
+            connector_id, payload, authorization_principal(request, response),
+        )
+
+    @application.post("/api/connectors/{connector_id}/shein-authorization/cancel")
+    async def cancel_shein_authorization(
+        connector_id: str, payload: SheinAuthorizationState, request: Request, response: Response,
+    ):
+        return shein_authorization.cancel(
+            connector_id, payload, authorization_principal(request, response),
+        )
+
+    @application.post("/api/connectors/{connector_id}/shein-authorization/finish")
+    async def finish_shein_authorization(
+        connector_id: str, payload: FinishSheinAuthorization, request: Request, response: Response,
+    ):
+        principal = authorization_principal(request, response)
+        try:
+            return await shein_authorization.finish(connector_id, payload, principal)
+        except (ConnectorNotFoundError, ConnectorUnavailableError):
+            raise HTTPException(
+                409, "SHEIN configuration changed. Start authorization again.",
+            ) from None
 
     @application.exception_handler(MarketplaceError)
     async def marketplace_failure(_request: Request, exc: MarketplaceError):

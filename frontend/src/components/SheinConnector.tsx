@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { errorMessage, listConnectors, readMarketplace, revokeConnector, upsertConnector } from '../api/client'
+import { beginSheinAuthorization, errorMessage, listConnectors, readMarketplace, revokeConnector, upsertConnector } from '../api/client'
 import type { Connector } from '../api/types'
 import { PRODUCT_READ_SCOPE, type MarketplaceRead } from '../api/marketplaces'
 import { useT } from '../i18n'
@@ -16,6 +16,8 @@ export default function SheinConnector({ connector, onChange }: Props) {
   const [origin, setOrigin] = useState(connector.endpoint ?? ORIGINS[0])
   const [openKeyId, setOpenKeyId] = useState('')
   const [secretKey, setSecretKey] = useState('')
+  const [appId, setAppId] = useState('')
+  const [authorizationUrl, setAuthorizationUrl] = useState('')
   const [allowProducts, setAllowProducts] = useState(connector.scope.split(/\s+/).includes(PRODUCT_READ_SCOPE.shein))
   const [status, setStatus] = useState('ALL')
   const [shop, setShop] = useState<MarketplaceRead | null>(null)
@@ -45,7 +47,18 @@ export default function SheinConnector({ connector, onChange }: Props) {
       if (mounted.current) setBusy(false)
     }
   }
-  const clearResults = () => { setShop(null); setPage(null) }
+  const clearResults = () => { setShop(null); setPage(null); setAuthorizationUrl('') }
+  const beginAuthorization = () => act(async () => {
+    setAuthorizationUrl('')
+    if (!/^[A-Za-z0-9_-]{1,160}$/.test(appId.trim())) throw new Error(t('Enter a valid SHEIN app ID.'))
+    const result = await beginSheinAuthorization(connector.id, {
+      app_id: appId.trim(), endpoint: origin, allow_products: allowProducts,
+      redirect_origin: window.location.origin,
+    })
+    const url = new URL(result.authorization_url)
+    if (url.origin !== 'https://openapi-sem.sheincorp.com' || url.pathname !== '/' || !url.hash.startsWith('#/empower?')) throw new Error(t('The authorization link could not be verified. Start again.'))
+    if (mounted.current) setAuthorizationUrl(result.authorization_url)
+  })
   const accept = (updated: Connector) => {
     if (updated.id !== connector.id || updated.type !== 'shein') throw new Error(t('Refresh the connector status before continuing.'))
     if (!mounted.current) return
@@ -111,17 +124,32 @@ export default function SheinConnector({ connector, onChange }: Props) {
       <header><h3>{connector.display_name}</h3><span>{t(connector.enabled ? 'Seller read access' : 'Revoked')}</span></header>
       <p>{t('Read your authorized SHEIN store and product groups with their variants. Store listings do not describe market-wide demand.')}</p>
       <details>
+        <summary>{t('Authorize through SHEIN')}</summary>
+        <p>{t('Generate a link, approve access in SHEIN, then enter your app secret on the return page to verify and save the seller connection. The app secret is used only for that exchange.')}</p>
+        <form onSubmit={(event) => { event.preventDefault(); void beginAuthorization() }}>
+          <fieldset disabled={disabled}>
+            <label>{t('SHEIN app ID')}<input required autoComplete="off" maxLength={160} value={appId} onChange={(event) => { setAppId(event.target.value); setAuthorizationUrl('') }} /></label>
+            <label>{t('Authorization API region')}<select value={origin} onChange={(event) => { setOrigin(event.target.value); setAuthorizationUrl('') }}>
+              {ORIGINS.map((value) => <option key={value} value={value}>{value}</option>)}
+            </select></label>
+            <label className="marketplace-checkbox"><input type="checkbox" checked={allowProducts} onChange={(event) => { setAllowProducts(event.target.checked); setAuthorizationUrl('') }} />{t('Read products after authorization')}</label>
+            <button type="submit">{t('Generate SHEIN authorization link')}</button>
+          </fieldset>
+        </form>
+        {authorizationUrl && <p><a href={authorizationUrl} rel="noreferrer">{t('Continue to SHEIN authorization')}</a></p>}
+      </details>
+      <details>
         <summary>{t(connector.enabled ? 'Configure seller access' : 'Reconnect seller access')}</summary>
         <p>{t('Use the openKeyId and already decrypted seller secretKey from your authorized SHEIN integration. The encrypted secretKey returned by authorization exchange cannot be used directly.')}</p>
         <p><a href="https://open.sheincorp.com/zh/documents/system/passwdrule" target="_blank" rel="noreferrer">{t('Official developer guide')}</a></p>
         <form onSubmit={(event) => { event.preventDefault(); void save() }}>
           <fieldset disabled={disabled}>
-            <label>{t('SHEIN API origin')}<select value={origin} onChange={(event) => setOrigin(event.target.value)}>
+            <label>{t('SHEIN API origin')}<select value={origin} onChange={(event) => { setOrigin(event.target.value); setAuthorizationUrl('') }}>
               {ORIGINS.map((value) => <option key={value} value={value}>{value}</option>)}
             </select></label>
             <label>{t('Seller openKeyId')}<input type="password" required autoComplete="off" maxLength={160} value={openKeyId} onChange={(event) => setOpenKeyId(event.target.value)} /></label>
             <label>{t('Decrypted seller secretKey')}<input type="password" required autoComplete="new-password" maxLength={512} value={secretKey} onChange={(event) => setSecretKey(event.target.value)} /></label>
-            <label className="marketplace-checkbox"><input type="checkbox" checked={allowProducts} onChange={(event) => setAllowProducts(event.target.checked)} />{t('Allow SHEIN product reads')}</label>
+            <label className="marketplace-checkbox"><input type="checkbox" checked={allowProducts} onChange={(event) => { setAllowProducts(event.target.checked); setAuthorizationUrl('') }} />{t('Allow SHEIN product reads')}</label>
             <p>{t('This setting controls OPHIRA reads. SHEIN must also authorize these APIs for your integration.')}</p>
             <button type="submit">{t('Save seller credentials')}</button>
           </fieldset>

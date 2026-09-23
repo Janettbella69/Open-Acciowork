@@ -30,7 +30,7 @@
 | FR-18 恢复 | delivered：保存产物、错误分类、重试与重启恢复；Run 起点的完整可支持工作区快照、Bash 修改恢复、人工变更预览/确认/结果重试、中断目录切换修复、真实进程退出与冷备往返；同项目执行与产物收尾租约 | deferred：真实 SDK 故障注入、生产/跨宿主恢复、容量保留管理、性能与浏览器目视验收 |
 | FR-19 Deep Research | delivered：输入框内显式开关发起（默认关闭、运行中锁定）；三种原生只读研究单元的一次新建/同 Run 续接约束；共享预算/取消/原始截止时间；运行中资源 UI、来源包与主 Agent 去重落账；真实 DeepSeek 合成来源上的三单元并行/来源复核/证据合并与报告验收 | deferred：开放互联网研究质量、真实取消/耗尽/长时墙钟故障矩阵、其他 Provider 与浏览器目视验收 |
 | FR-20 GUI | delivered：L1/L2 真实浏览器 smoke；项目独立店铺 profile、用户登录确认、当前页观察引用、主Agent页面动作/报表下载与来源/产物落账、真实Chromium离线链路 | deferred：真实卖家后台/验证码/风控兼容性和模型联调；真实攻击/恢复矩阵；L3 桌面桥与 OS 权限治理未实现 |
-| FR-21 Connector | delivered：Catalog/Vault/health/revoke、HTTPS JSON send_message；六平台官方文档入口，TikTok Shop授权店铺/商品分页、Shopify自有店铺/token/商品/近期订单、SHEIN商家密钥/店铺/SPU与SKC商品读取，Shopee单店凭据/持久一次性刷新/商品与SKU价格库存/分页，Temu区域凭据/实时授权核验/本土商品与SKU/可选供货价，AliExpress卖家身份/状态商品/POP SKU完整分页/报价库存；项目店铺授权/到期/撤销、主Agent来源凭证与中英文管理员UI；项目店铺身份可关联平台Connector、独立浏览器授权及数据展示 | deferred：AliExpress初次授权/刷新、托管商品与订单；其余邮箱/店铺/CRM/社媒adapter；Temu初次授权交换/半托管商品/订单；Shopee初次OAuth/授权码交换与订单、TikTok Shop OAuth/refresh、SHEIN授权交换/解密与SKU库存价格、平台写操作；真实授权账号/模型调用验收与外发全链；API与浏览器数据自动合并 |
+| FR-21 Connector | delivered：Catalog/Vault/health/revoke、HTTPS JSON send_message；六平台官方文档入口，TikTok Shop授权店铺/商品分页、Shopify自有店铺/token/商品/近期订单、SHEIN卖家授权回调/持久一次性交换/密钥解密/店铺核验/中断安装恢复及店铺/SPU与SKC商品读取，Shopee单店凭据/持久一次性刷新/商品与SKU价格库存/分页，Temu区域凭据/实时授权核验/本土商品与SKU/可选供货价，AliExpress卖家身份/状态商品/POP SKU完整分页/报价库存；项目店铺授权/到期/撤销、主Agent来源凭证与中英文管理员UI；项目店铺身份可关联平台Connector、独立浏览器授权及数据展示 | deferred：AliExpress初次授权/刷新、托管商品与订单；其余邮箱/店铺/CRM/社媒adapter；Temu初次授权交换/半托管商品/订单；Shopee初次OAuth/授权码交换与订单、TikTok Shop OAuth/refresh、SHEIN SKU库存价格与订单、平台写操作；真实授权账号/模型调用验收与外发全链；API与浏览器数据自动合并 |
 | FR-22 组织治理 | delivered：单部署租户 principal/membership/策略；共享项目成员管理UI与版本冲突保护；持久团队讨论/回复/对象关联/编辑历史/解决状态；可复用项目模板、固定参考版本与来源、核对后创建和中断恢复；组织私有Skill导入人审、固定版本查看/导出、独立启停/恢复、跨进程凭证与冷备恢复 | deferred：真实身份网关联调、租户分区与隔离 runner、长期容量与浏览器目视验收 |
 | FR-23 Web 兜底 | delivered：Serper/Tavily 适配与 SSRF 防护 | deferred：真实配置搜索服务和 Provider 降级 E2E |
 | FR-24 IM | delivered：飞书签名入站/身份绑定/同 Agent/持久回复重试 | deferred：真实飞书/Lark 租户 E2E；微信适配未实现 |
@@ -1337,3 +1337,37 @@ Browser选择仍返回 `No browser is available`，故障检查返回 `[]`，页
 仍需交付：AliExpress初次授权/交换/刷新、半托管/全托管/海外托管商品接口、订单和
 商业写入，真实卖家类型/地区/权限/限流及模型验收；微信/桌面、真实领域数据适配、
 生产隔离和人工质量等总表剩余项继续保留。完整PRD目标仍未完成。
+
+## 2026-09-22：SHEIN 卖家授权、密钥交换与安装恢复
+
+基线：`25ce2e5`；实施合同：[SHEIN authorization and seller reads](shein-connector.md)。
+核验官方授权手册、当前交换接口 schema 和 AES 示例，补齐先前手工粘贴卖家密钥
+之外的授权路径。仍不把公共文档核验或合成测试算作真实卖家认证。
+
+- 管理员生成固定官方授权链接，卖家同意后返回独立页面；随机state绑定发起人、
+  租户、角色和网关会话。回调参数在初始化时移出URL，不进入浏览器持久存储；
+  所有授权API响应（含权限/参数错误）禁止缓存。部署端需排除回调查询串日志。
+- 返回页显式提交应用密钥后，使用应用身份签名兑换临时令牌，按官方AES-128-CBC
+  合同解密，核对appid/state/supplierId，再用卖家密钥读取同一店铺才保存。
+  应用密钥和临时令牌不落盘；店铺、API域名和本地权限绑定进既有Vault记录。
+- HTTP前先持久记录尝试，双击、并发和进程退出均不能重放交换。连接器发布/撤销
+  使用跨进程事务；密钥已保存、配置或完成记录尚未写入时，页面可凭保存标记恢复，
+  无需再次提交应用密钥或令牌。撤销、同值重存、配置变化、取消和新授权均阻止旧请求提交。
+- 30分钟本地流程有效期与平台同意后10分钟令牌有效期分别处理；不确定的交换结果
+  要求重新授权。中英文表单、状态复查、取消、安装恢复与既有项目授权读取接通。
+
+验证：
+
+- 新增授权专项 **59项**，与既有SHEIN读取共 **107 passed**；包含官方AES示例、
+  独立签名、真实spawn进程在claim/密钥写入/完成记录三个位置退出、撤销竞态、
+  篡改/过期state、新授权替换、网关新断言及回调隐私验证。
+- 冻结实现后后端全量 **2503 passed / 20 skipped**，145.98秒。跳过项仍为8项真实
+  Provider、5项可选Chromium及7项Linux资源验收。
+- 前端全量 **512 passed / 50 files**；授权相关页面/参数/i18n专项 **39 passed**。
+  lint、TypeScript/build、Ruff和diff检查通过。主JS **537.83kB**，既有分包警告保留。
+- eval工具 **59 passed**；Snapshot **61/61**。Browser恢复检查列表仍为 `[]`，
+  页面目视验收未完成。没有调用真实卖家业务接口或模型服务。
+
+剩余：SHEIN真实卖家计划与授权端到端验收、SKU库存价格、订单/商业写操作；其他平台
+初次授权/刷新、真实垂直数据、微信/桌面、生产隔离和人工质量等总表剩余项。
+完整PRD目标仍未完成。

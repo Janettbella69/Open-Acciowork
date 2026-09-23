@@ -7,11 +7,12 @@ import { I18nContext } from '../i18n'
 import SheinConnector from './SheinConnector'
 
 vi.mock('../api/client', () => ({
+  beginSheinAuthorization: vi.fn(),
   readMarketplace: vi.fn(), upsertConnector: vi.fn(), revokeConnector: vi.fn(), listConnectors: vi.fn(),
   listProjects: vi.fn(), getMarketplaceAccess: vi.fn(), grantMarketplaceAccess: vi.fn(), revokeMarketplaceAccess: vi.fn(),
   errorMessage: (error: unknown) => error instanceof Error ? error.message : 'unknown error',
 }))
-import { getMarketplaceAccess, grantMarketplaceAccess, listConnectors, listProjects, readMarketplace, revokeConnector, upsertConnector } from '../api/client'
+import { beginSheinAuthorization, getMarketplaceAccess, grantMarketplaceAccess, listConnectors, listProjects, readMarketplace, revokeConnector, upsertConnector } from '../api/client'
 
 const connector: Connector = {
   id: 'shein', type: 'shein', display_name: 'SHEIN', scope: 'shein:store:read shein:products:read',
@@ -67,6 +68,34 @@ beforeEach(() => {
 })
 
 describe('SheinConnector', () => {
+  it('starts consent with app identity and chosen scope without collecting seller keys', async () => {
+    const url = 'https://openapi-sem.sheincorp.com/#/empower?appid=synthetic-app'
+    vi.mocked(beginSheinAuthorization).mockResolvedValue({ authorization_url: url, expires_at: 9999999999 })
+    render(<Harness />)
+    fireEvent.click(screen.getByText('Authorize through SHEIN'))
+    fireEvent.change(screen.getByLabelText('SHEIN app ID'), { target: { value: 'synthetic-app' } })
+    fireEvent.change(screen.getByLabelText('Authorization API region'), { target: { value: 'https://openapi.sheincorp.cn' } })
+    fireEvent.click(screen.getByLabelText('Read products after authorization'))
+    fireEvent.click(screen.getByRole('button', { name: 'Generate SHEIN authorization link' }))
+    expect(await screen.findByRole('link', { name: 'Continue to SHEIN authorization' })).toHaveAttribute('href', url)
+    expect(beginSheinAuthorization).toHaveBeenCalledWith('shein', {
+      app_id: 'synthetic-app', endpoint: 'https://openapi.sheincorp.cn', allow_products: false, redirect_origin: window.location.origin,
+    })
+    expect(upsertConnector).not.toHaveBeenCalled()
+    expect(readMarketplace).not.toHaveBeenCalled()
+    fireEvent.change(screen.getByLabelText('SHEIN app ID'), { target: { value: 'changed-app' } })
+    expect(screen.queryByRole('link', { name: 'Continue to SHEIN authorization' })).not.toBeInTheDocument()
+  })
+
+  it('does not render an authorization URL to a different host', async () => {
+    vi.mocked(beginSheinAuthorization).mockResolvedValue({ authorization_url: 'https://evil.test/#/empower', expires_at: 9999999999 })
+    render(<Harness />)
+    fireEvent.change(screen.getByLabelText('SHEIN app ID'), { target: { value: 'synthetic-app' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Generate SHEIN authorization link' }))
+    await screen.findByRole('alert')
+    expect(screen.queryByRole('link', { name: 'Continue to SHEIN authorization' })).not.toBeInTheDocument()
+  })
+
   it('saves masked seller credentials to the selected official origin only after submission', async () => {
     const onChange = vi.fn()
     render(<Harness onChange={onChange} />)

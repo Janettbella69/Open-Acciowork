@@ -19,7 +19,7 @@ checks, not authenticated API tests.
 
 | Platform | Official starting point | Delivered | Deferred / reason |
 | --- | --- | --- | --- |
-| SHEIN | [Developer guide](https://open.sheincorp.com/documents/system/dad0d1c7-be76-4b03-a735-4e23f012bdd9) | Seller-key configuration, store reads, SPU product pagination with nested SKC variants and shelf filters, project grants, main-Agent reads/source receipts, revoke/reconnect and offline API/SDK/UI verification | Live seller-program/model certification; authorization exchange/decryption; SKU price/inventory, orders and commercial writes |
+| SHEIN | [Authorization manual](https://open.sheincorp.com/documents/system/2169474d-1d4a-41a9-b9fd-427f63f54a63) | Seller consent/callback, durable one-attempt exchange, key decryption, verified store binding and interrupted-installation recovery; existing seller-key configuration, store/SPU/SKC reads, project grants, main-Agent source receipts, revoke/reconnect and offline API/SDK/UI/process verification | Live seller-program authorization/model certification; SKU price/inventory, orders and commercial writes |
 | Temu | [Developer guide](https://partner.temu.com/documentation?menu_code=52ef88bdef1d4527b15f6d303b173e48) | Regional credentials, live token identity/scopes/expiry, local-seller product and SKU pagination, separately authorized supply prices, project grants, native MCP/source receipts and administrator UI; [contract and offline verification](temu-connector.md) | Initial authorization exchange, semi-managed catalog, orders/writes and live seller/region/rate-limit/model acceptance |
 | TikTok Shop | [Developer onboarding](https://partner.tiktokshop.com/docv2/page/developer-onboarding) | Seller credential configuration, authorized-shop reads, product pagination, project-specific expiring shop grants, main-Agent read tool and source receipts, administrator grant/revoke UI; offline adapter/API/SDK/UI verification | Live developer/test-shop and model certification, OAuth callback/token exchange and refresh, commercial writes |
 | AliExpress | [Current authorization guide](https://open.aliexpress.com/doc/doc.htm#/?docId=989) | Verified seller identity, explicit-status product pages, seller-bound POP SKU details, separate quote/stock semantics, complete snapshot-bound SKU pages, project grants and native MCP/source receipts, bilingual administrator UI; [contract and offline verification](aliexpress-connector.md) | Initial consent/code exchange/refresh, managed product programs, orders/writes and real seller/app-category/region/rate-limit/model acceptance |
@@ -36,9 +36,10 @@ credential is migrated between these platforms.
 
 - SHEIN's [authorization exchange](https://open.sheincorp.com/documents/apidoc/detail/3001520-1000012)
   documents `POST /open-api/auth/get-by-token`, a temporary token, app headers and
-  returned encrypted seller credentials. The implemented reader uses existing
-  decrypted credentials and the independently verified signature tool and product
-  search contract documented in [SHEIN seller reader](shein-connector.md).
+  returned encrypted seller credentials. The linked authorization manual supplies
+  the consent URL, callback and AES contract used by the implemented flow. See
+  [SHEIN authorization and reads](shein-connector.md) for the verified contracts,
+  store identity checks, recovery and deployment requirements.
 - Temu's [signature method](https://partner.temu.com/documentation?menu_code=38e79b35d2cb463d85619c1c786dd303&sub_menu_code=4a821c90d06442a09e061b0d4316fbf3)
   describes an MD5-based parameter signature. Its [authorization callback guide](https://partner.temu.com/documentation?menu_code=fb16b05f7a904765aac4af3a24b87d4a)
   distinguishes regional partner portals and seller consent. No generic OAuth
@@ -148,10 +149,12 @@ Alternatively set `OPHIRA_CONNECTOR_SHOPIFY_KEY` to a JSON object with `client_i
 `client_secret` after saving the store address. A Shopify project grant requires product
 reads to be allowed; order reads follow the connector setting and the app's granted scopes.
 
-## SHEIN read contract
+## SHEIN authorization and read contract
 
-See [SHEIN seller reader](shein-connector.md) for the official signature evidence,
-both fixed origins, credential setup, store verification and SPU/SKC contract.
+See [SHEIN authorization and reads](shein-connector.md) for consent, callback,
+exchange/decryption, recovery, signature evidence, both fixed origins, existing-key
+setup, store verification and the SPU/SKC contract. Authorization installation
+does not create project grants. The app secret and temporary token are not stored.
 The shared API accepts `page_size` 1–10 for SHEIN products (explicitly pass it;
 the general HTTP request default remains 20). Main-Agent requests already default
 to 10. Page tokens are positive decimal page numbers, with

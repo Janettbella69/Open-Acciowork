@@ -71,3 +71,8 @@
   .plugins-registry { margin-top: 44px; }
   .plugins-grid { grid-template-columns: 1fr; }
 }
+.shein-authorization-callback {
+  max-width: 800px;
+  margin: 32px auto;
+  padding: 24px;
+}

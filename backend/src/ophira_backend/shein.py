@@ -18,7 +18,7 @@ import time
 from typing import TYPE_CHECKING
 
 import httpx
-from pydantic import BaseModel, ConfigDict, Field, SecretStr
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, model_validator
 
 from .backup_files import parse_json
 from .marketplaces import (
@@ -38,6 +38,7 @@ SHEIN_TYPE = "shein"
 SHEIN_ORIGIN = "https://openapi.sheincorp.com"
 SHEIN_ORIGINS = frozenset({SHEIN_ORIGIN, "https://openapi.sheincorp.cn"})
 SHEIN_STORE_PATH = "/open-api/openapi-business-backend/query-store-info"
+SHEIN_AUTH_PATH = "/open-api/auth/get-by-token"
 SHEIN_PRODUCTS_PATH = "/open-api/goods/searchProduct"
 # Application permissions; these are not claims about upstream OAuth scopes.
 SHEIN_STORE_SCOPE = "shein:store:read"
@@ -52,6 +53,23 @@ class SheinCredentials(BaseModel):
 
     open_key_id: SecretStr = Field(min_length=1, max_length=160)
     secret_key: SecretStr = Field(min_length=1, max_length=512)
+    authorization_id: str | None = Field(default=None, pattern=r"^[a-f0-9]{32}$")
+    bound_endpoint: str | None = None
+    bound_scope: str | None = None
+    supplier_id: str | None = Field(default=None, pattern=r"^[1-9][0-9]{0,18}$")
+
+    @model_validator(mode="after")
+    def authorization_binding(self):
+        fields = (self.authorization_id, self.bound_endpoint, self.bound_scope, self.supplier_id)
+        if any(value is not None for value in fields):
+            if (
+                any(value is None for value in fields)
+                or self.bound_endpoint not in SHEIN_ORIGINS
+                or self.bound_scope not in {SHEIN_STORE_SCOPE, SHEIN_DEFAULT_SCOPE}
+                or int(self.supplier_id) >= 2**63
+            ):
+                raise ValueError("invalid SHEIN authorization binding")
+        return self
 
 
 def parse_shein_credentials(raw):
@@ -201,6 +219,15 @@ class SheinReader:
                 supplier_id = info.get("supplierId")
                 if type(supplier_id) is not int or not 0 < supplier_id < 2**63:
                     raise _invalid()
+                if (
+                    credentials.supplier_id is not None
+                    and str(supplier_id) != credentials.supplier_id
+                ):
+                    raise MarketplaceError(
+                        "MARKETPLACE_SHOP_NOT_AUTHORIZED",
+                        "The seller key no longer matches the authorized shop.",
+                        403,
+                    )
                 shop = {
                     "id": _identifier(str(supplier_id), private_values),
                     "name": _text(info.get("storeName"), private_values, 1000),
@@ -336,7 +363,9 @@ class SheinReader:
                 "Accept": "application/json",
                 "Accept-Encoding": "identity",
                 "language": "en",
-                "x-lt-openKeyId": credentials.open_key_id.get_secret_value(),
+                (
+                    "x-lt-appid" if path == SHEIN_AUTH_PATH else "x-lt-openKeyId"
+                ): credentials.open_key_id.get_secret_value(),
                 "x-lt-timestamp": timestamp,
                 "x-lt-signature": signature,
             },

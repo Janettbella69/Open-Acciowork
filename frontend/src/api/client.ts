@@ -40,7 +40,7 @@ import type { SkillProposalDetail, SkillProposalPage, SkillProposalPreview, Skil
 import type { KnowledgeSearch } from './knowledge'
 import type { CredentialArchive, CredentialView } from './credentials'
 import type { ProjectExportPreview } from './projectExports'
-import type { MarketplaceAccess, MarketplaceGuide, MarketplaceRead, MarketplaceReadInput } from './marketplaces'
+import type { MarketplaceAccess, MarketplaceGuide, MarketplaceRead, MarketplaceReadInput, SheinAuthorizationView } from './marketplaces'
 import type { ProjectShop, ShopData, ShopIdentityInput } from './shops'
 import type { ArtifactTextUpdate, ArtifactTextView } from './artifacts'
 import type { WorkspaceCheckpoint, WorkspaceRestore } from './workspaceRecovery'
@@ -755,6 +755,30 @@ export function readMarketplace(id: string, input: MarketplaceReadInput): Promis
 
 export function getMarketplaceAccess(projectId: string): Promise<MarketplaceAccess> {
   return request<MarketplaceAccess>(`/api/projects/${encodeURIComponent(projectId)}/marketplace-access`)
+}
+
+export function beginSheinAuthorization(id: string, input: { app_id: string; endpoint: string; allow_products: boolean; redirect_origin: string }): Promise<{ authorization_url: string; expires_at: number }> {
+  return request(`/api/connectors/${encodeURIComponent(id)}/shein-authorization/start`, {
+    method: 'POST', cache: 'no-store', body: JSON.stringify(input),
+  })
+}
+
+export function getSheinAuthorization(id: string, state: string): Promise<SheinAuthorizationView> {
+  return request(`/api/connectors/${encodeURIComponent(id)}/shein-authorization/status`, {
+    method: 'POST', cache: 'no-store', body: JSON.stringify({ state }),
+  })
+}
+
+export function finishSheinAuthorization(id: string, input: { state: string; app_id?: string; app_secret?: string; temp_token?: string }): Promise<Connector> {
+  return request(`/api/connectors/${encodeURIComponent(id)}/shein-authorization/finish`, {
+    method: 'POST', cache: 'no-store', body: JSON.stringify(input),
+  })
+}
+
+export function cancelSheinAuthorization(id: string, state: string): Promise<{ status: 'cancelled' }> {
+  return request(`/api/connectors/${encodeURIComponent(id)}/shein-authorization/cancel`, {
+    method: 'POST', cache: 'no-store', body: JSON.stringify({ state }),
+  })
 }
 
 const shopPath = (projectId: string, shopId?: string) => `/api/projects/${encodeURIComponent(projectId)}/shops${shopId ? `/${encodeURIComponent(shopId)}` : ''}`

@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import fcntl
 import ipaddress
 import os
 import re
 import socket
+import tempfile
 import threading
 from collections.abc import Mapping
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -50,6 +53,7 @@ from .shopify import (
     check_shopify_store_endpoint,
     parse_shopify_credentials,
 )
+from .skill_proposal_files import directory_fd
 from .temu import (
     TEMU_DEFAULT_SCOPE,
     TEMU_ORIGIN,
@@ -325,6 +329,18 @@ class ConnectorRegistry:
         self._credential_defaults = dict(credential_defaults or {})
         self._lock = threading.RLock()
 
+    @contextmanager
+    def transaction(self):
+        """Serialize configuration publication with credential installation/revoke."""
+        with self._lock, directory_fd(self.root) as fd:
+            lock = os.open(".mutation.lock", os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW,
+                           0o600, dir_fd=fd)
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX)
+                yield
+            finally:
+                os.close(lock)
+
     @staticmethod
     def _safe_id(value: str) -> str:
         if not re.fullmatch(r"[A-Za-z0-9_-]+", value) or value in {".", ".."}:
@@ -336,9 +352,20 @@ class ConnectorRegistry:
 
     def _write(self, connector: Connector) -> None:
         path = self._path(connector.id)
-        temporary = path.with_suffix(".tmp")
-        temporary.write_text(connector.model_dump_json(indent=2) + "\n", encoding="utf-8")
-        os.replace(temporary, path)
+        with tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", dir=self.root,
+            prefix=".connector-", suffix=".tmp", delete=False,
+        ) as stream:
+            temporary = Path(stream.name)
+            try:
+                stream.write(connector.model_dump_json(indent=2) + "\n")
+                stream.flush()
+                os.fsync(stream.fileno())
+                os.replace(temporary, path)
+                with directory_fd(self.root) as fd:
+                    os.fsync(fd)
+            finally:
+                temporary.unlink(missing_ok=True)
 
     def ensure_catalog(self) -> list[Connector]:
         for item in CONNECTOR_CATALOG:
@@ -459,7 +486,7 @@ class ConnectorRegistry:
             last_checked_at=None,
             created_at=existing.created_at if existing else utc_now(),
         )
-        with self._lock:
+        with self.transaction():
             self._write(connector)
             if secret and self.vault is not None:
                 self.vault.set(connector.id, secret)
@@ -481,17 +508,20 @@ class ConnectorRegistry:
             parse_shopee_credentials(secret)
         if self.vault is None:
             raise ValueError("connector vault is not configured")
-        self.vault.set(connector.id, secret)
+        with self.transaction():
+            if self.get(connector_id) != connector:
+                raise CredentialChangedError("Connector configuration changed")
+            self.vault.set(connector.id, secret)
         return connector
 
     def revoke(self, connector_id: str) -> Connector:
-        connector = self.get(connector_id)
-        if self.vault is not None:
-            self.vault.delete(connector.id)
-        updated = connector.model_copy(
-            update={"enabled": False, "health": "unknown", "last_checked_at": utc_now()}
-        )
-        with self._lock:
+        with self.transaction():
+            connector = self.get(connector_id)
+            if self.vault is not None:
+                self.vault.delete(connector.id)
+            updated = connector.model_copy(
+                update={"enabled": False, "health": "unknown", "last_checked_at": utc_now()}
+            )
             self._write(updated)
         return updated
 
@@ -530,7 +560,9 @@ class ConnectorRegistry:
         updated = connector.model_copy(
             update={"health": health, "last_checked_at": utc_now()}
         )
-        with self._lock:
+        with self.transaction():
+            if self.get(connector_id) != connector:
+                return self.get(connector_id)
             self._write(updated)
         return updated
 
@@ -647,6 +679,10 @@ class ConnectorRegistry:
         return CommercialConnectorRuntime(connector=connector, credential=SecretStr(secret))
 
     def require_shein_runtime(self, connector_id: str) -> CommercialConnectorRuntime:
+        with self.transaction():
+            return self._shein_runtime(connector_id)
+
+    def _shein_runtime(self, connector_id: str) -> CommercialConnectorRuntime:
         try:
             connector = self.get(connector_id)
         except (ConnectorNotFoundError, ValueError):
@@ -668,13 +704,62 @@ class ConnectorRegistry:
             view, secret = self.vault.resolve_versioned(connector.id, fallback=fallback)
             if not secret:
                 raise ValueError
-            parse_shein_credentials(secret)
+            credentials = parse_shein_credentials(secret)
+            if credentials.authorization_id is not None and (
+                credentials.bound_endpoint != connector.endpoint
+                or credentials.bound_scope != connector.scope
+            ):
+                raise ValueError("SHEIN authorization publication is incomplete")
         except (OSError, ValueError):
             raise ConnectorUnavailableError(
                 "MARKETPLACE_CREDENTIAL_INVALID", "Configure valid SHEIN seller credentials first.",
             ) from None
         return CommercialConnectorRuntime(connector=connector, credential=SecretStr(secret),
                                           credential_revision=view["revision"])
+
+    def install_shein_authorization(
+        self, expected: Connector, desired: Connector, revision: str,
+        authorization_id: str, *, raw: str | None = None, authorize=lambda: None,
+    ) -> Connector | None:
+        """Publish once; recover a saved credential without repeating its exchange."""
+        if self.vault is None or expected.type != SHEIN_TYPE or desired.id != expected.id:
+            raise CredentialChangedError("SHEIN configuration is unavailable")
+        with self.transaction():
+            authorize()
+            current = self.get(expected.id)
+            fallback = self.environment_credential(current)
+            view, stored = self.vault.resolve_versioned(current.id, fallback=fallback)
+            installed = None
+            if stored:
+                try:
+                    installed = parse_shein_credentials(stored)
+                except ValueError:
+                    pass
+            def same(first, second):
+                ignored = {"health", "last_checked_at"}
+                return first.model_dump(exclude=ignored) == second.model_dump(exclude=ignored)
+            if installed is not None and installed.authorization_id == authorization_id:
+                if (installed.bound_endpoint != desired.endpoint
+                        or installed.bound_scope != desired.scope
+                        or not (same(current, expected) or same(current, desired))):
+                    raise CredentialChangedError("SHEIN configuration changed")
+                if not same(current, desired):
+                    self._write(desired)
+                return self.get(current.id)
+            if not same(current, expected) or view["revision"] != revision:
+                raise CredentialChangedError("SHEIN configuration changed")
+            if raw is None:
+                return None
+            credentials = parse_shein_credentials(raw)
+            if (credentials.authorization_id != authorization_id
+                    or credentials.bound_endpoint != desired.endpoint
+                    or credentials.bound_scope != desired.scope):
+                raise ValueError("Invalid SHEIN installation")
+            self.vault.set(current.id, raw, expected_revision=revision, fallback=fallback,
+                           authorize=authorize)
+            # Bound credentials reject an old endpoint/scope after an interrupted publication.
+            self._write(desired)
+            return desired
 
     def require_aliexpress_runtime(self, connector_id: str) -> CommercialConnectorRuntime:
         try:

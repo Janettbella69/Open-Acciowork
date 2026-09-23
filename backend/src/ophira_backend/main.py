@@ -790,7 +790,10 @@ def _create_app(
     async def private_collaboration_responses(request: Request, call_next):
         response = await call_next(request)
         parts = request.url.path.split("/")
-        if parts[1:3] == ["api", "skills"] or (
+        if (
+            parts[1:3] == ["api", "connectors"]
+            and parts[4:5] == ["shein-authorization"]
+        ) or parts[1:3] == ["api", "skills"] or (
             parts[1:3] == ["api", "projects"] and parts[4:5] in (
                 ["comments"], ["collaboration"], ["access"], ["templates"],
             )
