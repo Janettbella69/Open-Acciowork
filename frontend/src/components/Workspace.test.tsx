@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { FeedbackItem, OrgPolicy, RunRecord } from '../api/types'
+import type { FeedbackItem, OpportunityProject, OrgPolicy, RunRecord } from '../api/types'
 import { useOpportunityRuntime } from '../api/useOpportunityRuntime'
 import Workspace from './Workspace'
 
@@ -183,6 +183,38 @@ describe('Workspace approval mode', () => {
 })
 
 describe('Workspace new task', () => {
+  it('leaves the current run alive when starting another independent task', async () => {
+    const runtime = vi.mocked(useOpportunityRuntime)()
+    vi.mocked(useOpportunityRuntime).mockReturnValue({ ...runtime, isActive: true, run: { ...failedRun, status: 'running' } })
+    render(<Workspace />)
+    await waitFor(() => expect(screen.getByRole('button', { name: /open approval mode selector/i })).toHaveTextContent('Ask for approval'))
+    fireEvent.click(screen.getByRole('button', { name: /new task/i }))
+    expect(runtime.cancel).not.toHaveBeenCalled()
+    expect(runtime.reset).toHaveBeenCalledOnce()
+    expect(screen.getByText('The previous task continues in the background. Start another independent task.')).toBeVisible()
+  })
+
+  it('reopens the exact linked project run rather than the latest run', async () => {
+    const runtime = vi.mocked(useOpportunityRuntime)()
+    const project: OpportunityProject = {
+      id: 'project_1', name: 'Supplier project', objective: '', product_brief: '',
+      target_markets: [], constraints: [], stage: 'discovery', hypotheses: [], evidence: [],
+      assessments: {}, stage_decisions: [], decisions: [], artifacts: [], revision: 1,
+      created_at: '2026-09-23T00:00:00Z', updated_at: '2026-09-23T00:00:00Z',
+    }
+    const historical = { ...failedRun, id: 'run_historical', status: 'completed' as const }
+    vi.mocked(runtime.selectProject).mockResolvedValue(historical)
+    vi.mocked(useOpportunityRuntime).mockReturnValue({ ...runtime, projects: [project] })
+    window.history.replaceState({}, '', '/app?project=project_1&run=run_historical')
+    try {
+      render(<Workspace />)
+      await waitFor(() => expect(runtime.selectProject).toHaveBeenCalledWith(project, 'run_historical'))
+      await waitFor(() => expect(window.location.search).toBe('?project=project_1&run=run_historical'))
+    } finally {
+      window.history.replaceState({}, '', '/app')
+    }
+  })
+
   it('preserves an unsent draft and local attachments when project access is lost, ignoring late start failures', async () => {
     const runtime = vi.mocked(useOpportunityRuntime)()
     let failStart!: (reason: unknown) => void

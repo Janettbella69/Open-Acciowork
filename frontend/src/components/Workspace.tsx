@@ -16,10 +16,27 @@ function importedAgentId(): string | null {
   return new URLSearchParams(window.location.search).get('agent')
 }
 
+function importedRunLink(): { projectId: string; runId: string } | null {
+  const params = new URLSearchParams(window.location.search)
+  const projectId = params.get('project')
+  const runId = params.get('run')
+  return projectId && runId ? { projectId, runId } : null
+}
+
 function normalizeWorkspaceUrl(): void {
   const canonicalUrl = new URL(window.location.href)
   canonicalUrl.searchParams.delete('brief')
+  canonicalUrl.searchParams.delete('project')
+  canonicalUrl.searchParams.delete('run')
   window.history.replaceState({}, '', `${canonicalUrl.pathname}${canonicalUrl.search}${canonicalUrl.hash}`)
+}
+
+function recordWorkspaceRunUrl(projectId: string, runId: string | null): void {
+  const url = new URL(window.location.href)
+  url.searchParams.set('project', projectId)
+  if (runId) url.searchParams.set('run', runId)
+  else url.searchParams.delete('run')
+  window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`)
 }
 
 export default function Workspace() {
@@ -40,6 +57,7 @@ export default function Workspace() {
   const [retryFailure, setRetryFailure] = useState<{ runId: string; message: string } | null>(null)
   const retryInFlightRef = useRef<object | null>(null)
   const navigationRef = useRef(0)
+  const importedRunRef = useRef(importedRunLink())
   const onProjectUnavailable = useCallback(() => {
     navigationRef.current += 1
     retryInFlightRef.current = null
@@ -48,7 +66,7 @@ export default function Workspace() {
     setNotice('This project is no longer available. Your unsent message and local attachments are still here.')
   }, [])
   const runtime = useOpportunityRuntime(onProjectUnavailable)
-  const { discardProject, discardConversation, refreshActiveProject, project: currentProject } = runtime
+  const { discardProject, discardConversation, refreshActiveProject, selectProject, project: currentProject } = runtime
   const onDeletionAccepted = useCallback((operation: ProjectDeletionOperation) => {
     if (discardProject(operation.project_id)) {
       setNotice('Deletion was accepted. Your unsent message and local attachments are still here.')
@@ -156,19 +174,20 @@ export default function Workspace() {
     }
   }
 
-  const startNewResearch = async () => {
-    const navigation = ++navigationRef.current
-    if (runtime.isActive) await runtime.cancel()
-    if (navigationRef.current !== navigation) return
+  const startNewResearch = () => {
+    navigationRef.current += 1
+    const keepRunning = runtime.isActive
     runtime.reset()
     setRetryFailure(null)
     setBriefInput('')
     setAttachedFiles([])
     normalizeWorkspaceUrl()
-    setNotice('Start with whatever you want to accomplish.')
+    setNotice(keepRunning
+      ? 'The previous task continues in the background. Start another independent task.'
+      : 'Start with whatever you want to accomplish.')
   }
 
-  const selectProjectRecord = async (project: OpportunityProject, runId?: string) => {
+  const selectProjectRecord = useCallback(async (project: OpportunityProject, runId?: string) => {
     const navigation = ++navigationRef.current
     setBriefInput('')
     setAttachedFiles([])
@@ -176,9 +195,10 @@ export default function Workspace() {
     normalizeWorkspaceUrl()
     setNotice('Loading the saved project truth and run history…')
     try {
-      const loadedRun = await runtime.selectProject(project, runId)
+      const loadedRun = await selectProject(project, runId)
       if (navigationRef.current !== navigation) return
       setProviderProfileId(loadedRun?.provider_profile_id ?? null)
+      recordWorkspaceRunUrl(project.id, loadedRun?.id ?? null)
       setNotice(loadedRun
         ? ''
         : 'This project has no recorded run yet. Send a message to begin.')
@@ -187,7 +207,16 @@ export default function Workspace() {
         setNotice('The recorded run history could not be loaded. The project truth below is still current.')
       }
     }
-  }
+  }, [selectProject])
+
+  useEffect(() => {
+    const link = importedRunRef.current
+    if (!link) return
+    const project = runtime.projects.find((item) => item.id === link.projectId)
+    if (!project) return
+    importedRunRef.current = null
+    void selectProjectRecord(project, link.runId)
+  }, [runtime.projects, selectProjectRecord])
 
   const selectSavedProject = (projectId: string) => {
     const project = runtime.projects.find((item) => item.id === projectId)
@@ -239,7 +268,7 @@ export default function Workspace() {
         && ['missing', 'rejected', 'forbidden'].includes(conversationDeletion.attempt.phase)}
       onConversationDeletionReviewAgain={conversationDeletion.dismiss}
       onDeleteConversation={conversationDeletion.submit}
-      onNewResearch={() => void startNewResearch()}
+      onNewResearch={startNewResearch}
       onSelectProject={(projectId) => void selectSavedProject(projectId)}
       onSelectRun={(runId) => {
         if (runtime.project) void selectProjectRecord(runtime.project, runId)

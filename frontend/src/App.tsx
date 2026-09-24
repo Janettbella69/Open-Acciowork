@@ -6,12 +6,14 @@ import MobilePage from './components/MobilePage'
 import PluginsPage from './components/PluginsPage'
 import ScheduledTasksPage from './components/ScheduledTasksPage'
 import SettingsPage from './components/SettingsPage'
+import TaskOverviewPage from './components/TaskOverviewPage'
 import Workspace from './components/Workspace'
 import I18nProvider from './I18nProvider'
 import { pageTitle } from './pageMetadata'
 
 function route(pathname: string) {
   if (pathname.startsWith('/app/settings')) return <SettingsPage />
+  if (pathname.startsWith('/app/tasks')) return <TaskOverviewPage />
   if (pathname.startsWith('/app/schedules')) return <ScheduledTasksPage />
   if (pathname.startsWith('/app/agents')) return <AgentsPage />
   if (pathname.startsWith('/app/inbox')) return <InboxPage />

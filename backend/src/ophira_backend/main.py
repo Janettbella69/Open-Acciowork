@@ -258,6 +258,7 @@ from .storage import (
 )
 from .task_experience import TaskExperienceStore
 from .task_experience_routes import register_task_experience_routes
+from .task_overview import TaskOverview, read_task_overview
 from .telemetry import RunTelemetry, build_run_telemetry
 from .templates import TEMPLATE_SPECS
 from .workspace_recovery_api import register_workspace_recovery_routes
@@ -1166,6 +1167,18 @@ def _create_app(
             return ledger.list_runs(project_id)
         except (LedgerNotFoundError, ValueError) as exc:
             raise HTTPException(status_code=404, detail="Project not found") from exc
+
+    @application.get("/api/tasks", response_model=TaskOverview)
+    def list_tasks(request: Request, response: Response) -> TaskOverview:
+        principal = _request_principal(request)
+        response.headers["Cache-Control"] = "no-store"
+        return read_task_overview(
+            ledger,
+            can_read_run=lambda project_id: project_is_visible(
+                project_id, principal, ProjectPermission.RUN_READ,
+            ),
+            pending=permissions.list_pending(),
+        )
 
     @application.get("/api/projects/{project_id}/session-search", response_model=SessionSearch)
     def search_sessions(

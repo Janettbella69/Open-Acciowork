@@ -1,0 +1,21 @@
+.task-overview-shell { display: grid; min-height: 100vh; grid-template-columns: 264px minmax(0, 1fr); background: #fff; color: var(--ophira-ink); font-family: var(--ophira-product-font); }
+.task-overview-shell .conversation-sidebar { position: sticky; top: 0; }
+.task-overview-shell .conversation-new-research { justify-content: flex-start; }
+.task-overview-shell main { width: min(100% - 64px, 960px); margin: 0 auto; padding: 64px 0; }
+.task-overview-shell main > header { display: flex; align-items: center; justify-content: space-between; gap: 24px; }
+.task-overview-shell h1 { margin: 8px 0; font-size: 40px; font-weight: 550; }
+.task-overview-shell header p { color: #717975; line-height: 1.5; }
+.task-overview-shell header small { color: #8d968e; letter-spacing: .12em; }
+.task-overview-shell header button { border: 1px solid #d7ddd7; border-radius: 10px; padding: 10px 16px; background: #fff; cursor: pointer; }
+.task-overview-shell main > ul { display: grid; margin: 24px 0 0; padding: 0; gap: 12px; list-style: none; }
+.task-overview-shell main li { border: 1px solid #e4e8e3; border-radius: 14px; }
+.task-overview-shell main li a { display: block; padding: 18px 20px; text-decoration: none; }
+.task-overview-shell main li a:hover { background: #f7faf7; }
+.task-overview-shell main li div { display: flex; align-items: start; justify-content: space-between; gap: 12px; }
+.task-overview-shell main li strong { font-size: 17px; font-weight: 650; overflow-wrap: anywhere; }
+.task-overview-shell main li div span { border-radius: 99px; padding: 4px 9px; color: #586858; background: #ecf2eb; font-size: 11px; white-space: nowrap; }
+.task-overview-shell main li div span[data-status='waiting_permission'] { color: #8c5b25; background: #fff4dd; }
+.task-overview-shell main li p { margin: 12px 0; color: #626e65; font-size: 13px; overflow-wrap: anywhere; }
+.task-overview-shell main li small { color: #858d85; }
+.task-overview-shell main li footer { display: flex; margin-top: 16px; flex-wrap: wrap; gap: 10px 24px; color: #6e786f; font-size: 12px; }
+@media (max-width: 700px) { .task-overview-shell { display: block; } .task-overview-shell .conversation-sidebar { position: static; height: auto; } .task-overview-shell main { width: min(100% - 32px, 960px); padding: 32px 0; } }

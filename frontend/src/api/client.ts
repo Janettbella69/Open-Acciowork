@@ -43,6 +43,7 @@ import type { ArtifactTextUpdate, ArtifactTextView } from './artifacts'
 import type { WorkspaceCheckpoint, WorkspaceRestore } from './workspaceRecovery'
 import type { RunResources } from './runResources'
 import type { SessionSearch } from './sessionSearch'
+import type { TaskOverview } from './taskOverview'
 import type { CollaborationCapabilities, CommentChange, CommentCreate, CommentHistory, CommentPage, CommentThread, ProjectAccess, ProjectComment, ProjectRole } from './collaboration'
 import type { ProjectTemplate, TemplateApplied, TemplateApplications, TemplateApply, TemplateDetail, TemplateLibrary, TemplateSave } from './projectTemplates'
 import type { SkillFilePreview, SkillImportReviewRequest, SkillImportView, SkillPackageView, SkillRepositoryCapabilities, SkillRepositorySelection } from './skillRepository'
@@ -315,6 +316,10 @@ export function searchProjectSessions(projectId: string, query: string, signal?:
   return request<SessionSearch>(`/api/projects/${encodeURIComponent(projectId)}/session-search?${params}`, {
     signal, cache: 'no-store',
   })
+}
+
+export function listTasks(signal?: AbortSignal): Promise<TaskOverview> {
+  return request<TaskOverview>('/api/tasks', { signal, cache: 'no-store' })
 }
 
 export function getProjectKnowledge(projectId: string, query = '', signal?: AbortSignal): Promise<KnowledgeSearch> {
