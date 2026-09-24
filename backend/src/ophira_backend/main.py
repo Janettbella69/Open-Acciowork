@@ -231,6 +231,12 @@ from .scheduler import (
     new_schedule,
 )
 from .sdk_adapter import ClaudeAgentRuntime
+from .session_search import (
+    MAX_QUERY_CHARS,
+    MAX_SEARCH_RESULTS,
+    SessionSearch,
+    search_project_sessions,
+)
 from .shop_browser import ShopBrowserService
 from .shop_browser_api import register_shop_browser_routes
 from .skill_proposal_routes import register_skill_proposal_routes
@@ -284,7 +290,7 @@ def _project_route_permission(method: str, path: str) -> ProjectPermission:
         return ProjectPermission.COMMERCIAL_READ
     if "/source-receipts" in path:
         return ProjectPermission.SOURCE_RECEIPT_READ
-    if path.endswith(("/runs", "/metrics")):
+    if path.endswith(("/runs", "/metrics", "/session-search")):
         return (
             ProjectPermission.RUN_READ
             if method == "GET"
@@ -1160,6 +1166,23 @@ def _create_app(
             return ledger.list_runs(project_id)
         except (LedgerNotFoundError, ValueError) as exc:
             raise HTTPException(status_code=404, detail="Project not found") from exc
+
+    @application.get("/api/projects/{project_id}/session-search", response_model=SessionSearch)
+    def search_sessions(
+        request: Request, response: Response, project_id: str,
+        q: Annotated[str, Query(min_length=1, max_length=MAX_QUERY_CHARS)],
+        limit: Annotated[int, Query(ge=1, le=MAX_SEARCH_RESULTS)] = 10,
+    ) -> SessionSearch:
+        require_project_authorization(
+            project_id, _request_principal(request), ProjectPermission.RUN_READ,
+        )
+        response.headers["Cache-Control"] = "no-store"
+        try:
+            return search_project_sessions(ledger, project_id, query=q, limit=limit)
+        except LedgerNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="Project not found") from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail="Invalid session search query") from exc
 
     @application.get("/api/projects/{project_id}/metrics", response_model=ProjectMetrics)
     def get_project_metrics(

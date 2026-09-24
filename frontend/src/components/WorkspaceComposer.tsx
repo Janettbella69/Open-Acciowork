@@ -38,6 +38,7 @@ import ProjectCollaborationPanel from './ProjectCollaborationPanel'
 import ProjectTemplatesPanel from './ProjectTemplatesPanel'
 import WorkspaceRecoveryPanel from './WorkspaceRecoveryPanel'
 import RunResourcesPanel from './RunResourcesPanel'
+import SessionSearchPanel from './SessionSearchPanel'
 import ResourceEventLinks from './ResourceEventLinks'
 import ProjectShopsPanel from './ProjectShopsPanel'
 import WorkspaceNav from './WorkspaceNav'
@@ -85,6 +86,7 @@ type WorkspaceComposerProps = {
   onDeleteConversation?: (projectId: string, request: ProjectDeletionRequest, runId?: string) => Promise<void>
   onNewResearch: () => void
   onSelectProject: (projectId: string) => void
+  onSelectRun?: (runId: string) => void
   onCancel: () => void
   onDecision: (
     requestId: string,
@@ -366,6 +368,7 @@ export default function WorkspaceComposer({
   onDeleteConversation,
   onNewResearch,
   onSelectProject,
+  onSelectRun,
   onCancel,
   onDecision,
   permissionBusy = false,
@@ -698,6 +701,7 @@ export default function WorkspaceComposer({
               <article className="conversation-user-message">
                 <p>{run?.prompt ?? project?.objective ?? value}</p>
               </article>
+              {project && onSelectRun && <SessionSearchPanel projectId={project.id} onSelectRun={onSelectRun} />}
 
               <article className="conversation-agent-message">
                 {(run || historyLoading) && (

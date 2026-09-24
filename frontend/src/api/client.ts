@@ -42,6 +42,7 @@ import type { ProjectShop, ShopData, ShopIdentityInput } from './shops'
 import type { ArtifactTextUpdate, ArtifactTextView } from './artifacts'
 import type { WorkspaceCheckpoint, WorkspaceRestore } from './workspaceRecovery'
 import type { RunResources } from './runResources'
+import type { SessionSearch } from './sessionSearch'
 import type { CollaborationCapabilities, CommentChange, CommentCreate, CommentHistory, CommentPage, CommentThread, ProjectAccess, ProjectComment, ProjectRole } from './collaboration'
 import type { ProjectTemplate, TemplateApplied, TemplateApplications, TemplateApply, TemplateDetail, TemplateLibrary, TemplateSave } from './projectTemplates'
 import type { SkillFilePreview, SkillImportReviewRequest, SkillImportView, SkillPackageView, SkillRepositoryCapabilities, SkillRepositorySelection } from './skillRepository'
@@ -307,6 +308,13 @@ export function getProject(projectId: string, signal?: AbortSignal): Promise<Opp
 
 export function listProjectRuns(projectId: string): Promise<RunRecord[]> {
   return request<RunRecord[]>(`/api/projects/${projectId}/runs`)
+}
+
+export function searchProjectSessions(projectId: string, query: string, signal?: AbortSignal): Promise<SessionSearch> {
+  const params = new URLSearchParams({ q: query, limit: '20' })
+  return request<SessionSearch>(`/api/projects/${encodeURIComponent(projectId)}/session-search?${params}`, {
+    signal, cache: 'no-store',
+  })
 }
 
 export function getProjectKnowledge(projectId: string, query = '', signal?: AbortSignal): Promise<KnowledgeSearch> {

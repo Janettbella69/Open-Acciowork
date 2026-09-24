@@ -207,6 +207,19 @@
 .conversation-native-tasks li > small { color: #737e74; white-space: nowrap; }
 .conversation-native-tasks li[data-status='completed'] > span:first-child { color: #36865c; }
 .conversation-native-tasks li[data-status='in_progress'] > span:first-child { color: #b57c26; }
+.conversation-session-search { width: min(820px, 100%); margin: 14px 0; border: 1px solid #e5e9e4; border-radius: 12px; padding: 12px 16px; text-align: left; }
+.conversation-session-search > summary { cursor: pointer; color: #59685a; font-size: 13px; font-weight: 650; }
+.conversation-session-search form { margin-top: 12px; }
+.conversation-session-search label { display: block; margin-bottom: 6px; color: #727972; font-size: 12px; }
+.conversation-session-search form > div { display: flex; gap: 8px; }
+.conversation-session-search input { min-width: 0; flex: 1; border: 1px solid #dfe4dd; border-radius: 8px; padding: 8px 10px; font: inherit; }
+.conversation-session-search form button { border: 0; border-radius: 8px; padding: 8px 12px; color: #fff; background: #536f59; cursor: pointer; }
+.conversation-session-search form button:disabled { opacity: .5; cursor: default; }
+.conversation-session-search ul { display: grid; margin: 10px 0 0; padding: 0; gap: 6px; list-style: none; }
+.conversation-session-search li button { display: grid; width: 100%; border: 0; border-radius: 8px; padding: 10px; gap: 6px; background: #f7faf6; text-align: left; cursor: pointer; }
+.conversation-session-search li strong { color: #3d483e; font-size: 13px; font-weight: 500; overflow-wrap: anywhere; }
+.conversation-session-search li small { color: #7b847b; font-size: 11px; overflow-wrap: anywhere; }
+.conversation-session-search p { color: #8a6354; font-size: 12px; }
 
 .conversation-activity { display: flex; min-height: 28px; align-items: center; gap: 16px; }
 .conversation-activity > button { min-height: 44px; border: 0; border-radius: 8px; padding: 0 10px; color: #8a5048; background: transparent; font-family: inherit; font-size: 13px; }

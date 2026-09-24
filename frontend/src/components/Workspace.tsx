@@ -168,7 +168,7 @@ export default function Workspace() {
     setNotice('Start with whatever you want to accomplish.')
   }
 
-  const selectProjectRecord = async (project: OpportunityProject) => {
+  const selectProjectRecord = async (project: OpportunityProject, runId?: string) => {
     const navigation = ++navigationRef.current
     setBriefInput('')
     setAttachedFiles([])
@@ -176,7 +176,7 @@ export default function Workspace() {
     normalizeWorkspaceUrl()
     setNotice('Loading the saved project truth and run history…')
     try {
-      const loadedRun = await runtime.selectProject(project)
+      const loadedRun = await runtime.selectProject(project, runId)
       if (navigationRef.current !== navigation) return
       setProviderProfileId(loadedRun?.provider_profile_id ?? null)
       setNotice(loadedRun
@@ -241,6 +241,9 @@ export default function Workspace() {
       onDeleteConversation={conversationDeletion.submit}
       onNewResearch={() => void startNewResearch()}
       onSelectProject={(projectId) => void selectSavedProject(projectId)}
+      onSelectRun={(runId) => {
+        if (runtime.project) void selectProjectRecord(runtime.project, runId)
+      }}
       onCancel={() => void runtime.cancel()}
       onDecision={(requestId, decision, answers) =>
         void runtime.decidePermission(requestId, decision, answers)}

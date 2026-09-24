@@ -114,6 +114,7 @@ class EventType(StrEnum):
     RUN_FAILED = "run.failed"
     RUN_CANCEL_REQUESTED = "run.cancel_requested"
     RUN_CANCELLED = "run.cancelled"
+    RUN_INTERJECTION_REQUESTED = "run.interjection.requested"
 
     ASSISTANT_MESSAGE_STARTED = "assistant.message.started"
     ASSISTANT_TEXT_DELTA = "assistant.text.delta"
@@ -332,6 +333,7 @@ TOOL_REGISTER_ARTIFACT = "mcp__ophira_ledger__register_artifact"
 TOOL_UPDATE_EVIDENCE_STATUS = "mcp__ophira_ledger__update_evidence_status"
 TOOL_PROPOSE_MEMORY = "mcp__ophira_ledger__propose_memory"
 TOOL_SEARCH_MEMORY = "mcp__ophira_ledger__search_memory"
+TOOL_SEARCH_PROJECT_SESSIONS = "mcp__ophira_ledger__search_project_sessions"
 
 TOOL_SEARCH_PUBLIC_WEB = "mcp__ophira_web__search_public_web"
 TOOL_FETCH_PAGE_SNAPSHOT = "mcp__ophira_web__fetch_page_snapshot"
@@ -374,6 +376,7 @@ LEDGER_TOOL_NAMES = [
     TOOL_GET_PROJECT_CONTEXT,
     TOOL_SEARCH_EVIDENCE,
     TOOL_SEARCH_PROJECT_KNOWLEDGE,
+    TOOL_SEARCH_PROJECT_SESSIONS,
     TOOL_READ_SOURCE_RECEIPT,
     TOOL_READ_MARKETPLACE,
     TOOL_RECORD_HYPOTHESIS,
@@ -476,6 +479,7 @@ READ_ONLY_MCP_TOOL_NAMES = [
     TOOL_GET_PROJECT_CONTEXT,
     TOOL_SEARCH_EVIDENCE,
     TOOL_SEARCH_PROJECT_KNOWLEDGE,
+    TOOL_SEARCH_PROJECT_SESSIONS,
     TOOL_READ_SOURCE_RECEIPT,
     TOOL_READ_MARKETPLACE,
     TOOL_SEARCH_MEMORY,

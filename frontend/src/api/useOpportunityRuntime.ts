@@ -620,7 +620,7 @@ export function useOpportunityRuntime(onProjectUnavailable?: (projectId: string)
     }
   }, [checkProjectAccess, run, permissions, refreshPermissions])
 
-  const selectProject = useCallback(async (selected: OpportunityProject): Promise<RunRecord | null> => {
+  const selectProject = useCallback(async (selected: OpportunityProject, runId?: string): Promise<RunRecord | null> => {
     if (discardedProjectsRef.current.has(selected.id)) return null
     const selection = ++selectionRef.current
     closeStream()
@@ -645,7 +645,8 @@ export function useOpportunityRuntime(onProjectUnavailable?: (projectId: string)
         throw cause
       })
       if (selectionRef.current !== selection) return null
-      const latestRun = projectRuns[0] ?? null
+      const latestRun = runId ? projectRuns.find((item) => item.id === runId) : projectRuns[0]
+      if (runId && !latestRun) throw new Error('The selected run is no longer available in this project.')
       if (!latestRun) {
         setHistoryLoading(false)
         return null

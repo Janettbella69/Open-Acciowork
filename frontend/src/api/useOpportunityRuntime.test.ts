@@ -81,6 +81,16 @@ async function setup() {
 }
 
 describe('project selection isolation', () => {
+  it('replays the exact older Run selected from a session search result', async () => {
+    const older = { ...runA, id: 'run_older' }
+    vi.mocked(api.listProjectRuns).mockResolvedValueOnce([runA, older])
+    const { result } = renderHook(() => useOpportunityRuntime())
+    await waitFor(() => expect(result.current.projects).toHaveLength(2))
+    await act(async () => { await result.current.selectProject(projectA, older.id) })
+    expect(result.current.run?.id).toBe(older.id)
+    expect(MockEventSource.instances.at(-1)?.url).toContain(older.id)
+  })
+
   it('keeps a newly created template project when the initial project list arrives late and starts no run', async () => {
     const initial = deferred<OpportunityProject[]>()
     vi.mocked(api.listProjects).mockReturnValueOnce(initial.promise)
