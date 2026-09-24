@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+from bisect import bisect_right
 from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
@@ -17,6 +18,12 @@ from pydantic import Field
 
 from .events import redact
 from .models import APIModel, Artifact, utc_now
+from .office_reference import (
+    OFFICE_SUFFIXES,
+    InvalidOfficeDocument,
+    OfficeExtractionLimit,
+    extract_office_passages,
+)
 from .skill_proposal_files import read_relative, relative_parts
 from .storage import FileLedger, LedgerNotFoundError
 
@@ -39,6 +46,8 @@ class ReferenceStatus(StrEnum):
     CHANGED = "changed"
     TOO_LARGE = "too_large"
     INVALID_TEXT = "invalid_text"
+    INVALID_DOCUMENT = "invalid_document"
+    EXTRACTION_LIMIT = "extraction_limit"
     BUDGET_EXCEEDED = "budget_exceeded"
 
 
@@ -63,6 +72,7 @@ class ReferenceMatch(APIModel):
     end_line: int
     start_column: int
     excerpt_truncated: bool
+    source_location: str | None = Field(default=None, max_length=200)
 
 
 class KnowledgeSearch(APIModel):
@@ -100,7 +110,7 @@ def capture_reference(
     parts = relative_parts(artifact.path)
     if (
         any(part.startswith(".") for part in parts)
-        or Path(artifact.path).suffix.lower() not in TEXT_SUFFIXES
+        or Path(artifact.path).suffix.lower() not in TEXT_SUFFIXES | OFFICE_SUFFIXES
         or artifact.size_bytes > MAX_KNOWLEDGE_FILE_BYTES
     ):
         raise ValueError("reference is outside the supported capture limits")
@@ -120,7 +130,9 @@ def _document(artifact: Artifact, status: ReferenceStatus) -> ReferenceDocument:
     )
 
 
-def _excerpt(text: str, position: int, artifact_id: str) -> ReferenceMatch:
+def _excerpt(
+    text: str, position: int, artifact_id: str, source_location: str | None = None,
+) -> ReferenceMatch:
     # Keep real source coordinates even when a single CSV row is very long.
     start = max(text.rfind("\n", 0, position) + 1, position - 240)
     end = min(len(text), start + MAX_EXCERPT_CHARS)
@@ -135,6 +147,7 @@ def _excerpt(text: str, position: int, artifact_id: str) -> ReferenceMatch:
         end_line=text.count("\n", 0, max(start, end - 1)) + 1,
         start_column=start - text.rfind("\n", 0, start),
         excerpt_truncated=start > 0 or end < len(text) or len(excerpt) > MAX_EXCERPT_CHARS,
+        source_location=str(redact(source_location))[:200] if source_location else None,
     )
 
 
@@ -174,7 +187,7 @@ def search_project_knowledge(
         except ValueError:
             state = ReferenceStatus.UNAVAILABLE
         if state == ReferenceStatus.INDEXED:
-            if Path(artifact.path).suffix.lower() not in TEXT_SUFFIXES:
+            if Path(artifact.path).suffix.lower() not in TEXT_SUFFIXES | OFFICE_SUFFIXES:
                 state = ReferenceStatus.UNSUPPORTED
             elif artifact.size_bytes > MAX_KNOWLEDGE_FILE_BYTES:
                 state = ReferenceStatus.TOO_LARGE
@@ -194,14 +207,36 @@ def search_project_knowledge(
         if hashlib.sha256(raw).hexdigest() != artifact.checksum:
             documents.append(_document(artifact, ReferenceStatus.CHANGED))
             continue
-        try:
-            text = raw.decode("utf-8-sig").replace("\r\n", "\n").replace("\r", "\n")
-            if "\x00" in text:
-                raise ValueError("binary data")
-        except (UnicodeError, ValueError):
-            documents.append(_document(artifact, ReferenceStatus.INVALID_TEXT))
-            continue
+        suffix = Path(artifact.path).suffix.lower()
+        location_starts: list[int] = []
+        locations: list[str] = []
+        notice = None
+        if suffix in OFFICE_SUFFIXES:
+            try:
+                passages, notice = extract_office_passages(raw, suffix)
+                offset = 0
+                for passage in passages:
+                    location_starts.append(offset)
+                    locations.append(passage.location)
+                    offset += len(passage.text) + 1
+                text = "\n".join(passage.text for passage in passages)
+            except OfficeExtractionLimit:
+                documents.append(_document(artifact, ReferenceStatus.EXTRACTION_LIMIT))
+                continue
+            except InvalidOfficeDocument:
+                documents.append(_document(artifact, ReferenceStatus.INVALID_DOCUMENT))
+                continue
+        else:
+            try:
+                text = raw.decode("utf-8-sig").replace("\r\n", "\n").replace("\r", "\n")
+                if "\x00" in text:
+                    raise ValueError("binary data")
+            except (UnicodeError, ValueError):
+                documents.append(_document(artifact, ReferenceStatus.INVALID_TEXT))
+                continue
         document = _document(artifact, ReferenceStatus.INDEXED)
+        if notice:
+            document.extraction_notice = notice
         if any(
             source_id in artifacts_by_id
             and artifacts_by_id[source_id].path + ".md" == artifact.path
@@ -224,8 +259,12 @@ def search_project_knowledge(
             if body_hit:
                 positions.append(body_hit.start())
         else:
+            position = min(positions, default=0)
+            location = None
+            if locations:
+                location = locations[max(0, bisect_right(location_starts, position) - 1)]
             ranked.append((
-                -title_hits, order, _excerpt(text, min(positions, default=0), artifact.id),
+                -title_hits, order, _excerpt(text, position, artifact.id, location),
             ))
     ranked.sort(key=lambda item: item[:2])
     return KnowledgeSearch(

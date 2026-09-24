@@ -93,11 +93,13 @@ describe('Project knowledge', () => {
 
   it('renders hostile content as text and ignores matches without current documents', async () => {
     const data = fixture(); data.matches[0].excerpt = '<script>alert(1)</script>'
+    data.matches[0].source_location = '<img src=x onerror=alert(1)>'
     data.matches.push({ ...data.matches[0], artifact_id: 'foreign', excerpt: 'foreign result' })
     vi.mocked(getProjectKnowledge).mockResolvedValue(data)
     const { container } = render(<ProjectKnowledgePanel projectId="project_1" />)
     open(); await screen.findByText('<script>alert(1)</script>')
     expect(container.querySelector('script')).toBeNull()
+    expect(container.querySelector('img')).toBeNull()
     expect(screen.queryByText('foreign result')).not.toBeInTheDocument()
   })
 
@@ -107,6 +109,22 @@ describe('Project knowledge', () => {
     render(<ProjectKnowledgePanel projectId="project_1" />)
     open(); await screen.findByText('OCR incomplete: missing page 2')
     expect(screen.getByText('Extraction notes — check before citing')).toBeInTheDocument()
+  })
+
+  it('shows Office source locations and clearly marks unreadable Office files', async () => {
+    const data = fixture()
+    data.documents[0].name = 'quotes.xlsx'
+    data.documents[0].path = 'uploads/quotes.xlsx'
+    data.documents[0].extraction_notice = 'Cell text, stored values and formula expressions are indexed; formulas are not recalculated. Images and charts are not read.'
+    data.matches[0].source_location = 'Supplier Quotes!B3'
+    data.documents.push({ ...data.documents[0], artifact_id: 'broken', name: 'broken.docx',
+      path: 'uploads/broken.docx', status: 'invalid_document', extraction_notice: null })
+    vi.mocked(getProjectKnowledge).mockResolvedValue(data)
+    render(<I18nContext.Provider value="zh-CN"><ProjectKnowledgePanel projectId="project_1" /></I18nContext.Provider>)
+    fireEvent.click(screen.getByRole('button', { name: '项目知识库' }))
+    await screen.findByText('原件位置：Supplier Quotes!B3')
+    expect(screen.getByText('无法读取 Office 文档')).toBeInTheDocument()
+    expect(screen.getByText(/已索引单元格文本/)).toBeInTheDocument()
   })
 
   it('provides Chinese labels and guidance for an empty project', async () => {

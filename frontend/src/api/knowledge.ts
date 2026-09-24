@@ -1,4 +1,4 @@
-export type ReferenceStatus = 'indexed' | 'unsupported' | 'unavailable' | 'changed' | 'too_large' | 'invalid_text' | 'budget_exceeded'
+export type ReferenceStatus = 'indexed' | 'unsupported' | 'unavailable' | 'changed' | 'too_large' | 'invalid_text' | 'invalid_document' | 'extraction_limit' | 'budget_exceeded'
 
 export interface ReferenceDocument {
   artifact_id: string
@@ -21,6 +21,7 @@ export interface ReferenceMatch {
   end_line: number
   start_column: number
   excerpt_truncated: boolean
+  source_location?: string | null
 }
 
 export interface KnowledgeSearch {

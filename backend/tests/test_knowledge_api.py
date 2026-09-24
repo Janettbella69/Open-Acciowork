@@ -1,4 +1,7 @@
+from io import BytesIO
+
 import pytest
+from docx import Document
 from httpx import ASGITransport, AsyncClient
 from test_auth_api import FakeRuntime, principal, request_as, trusted_settings
 
@@ -146,3 +149,35 @@ async def test_reference_download_rechecks_permission_after_read(tmp_path, monke
         )
     assert response.status_code == 403
     assert "private download" not in response.text
+
+
+@pytest.mark.asyncio
+async def test_office_reference_api_returns_source_location_and_exact_authorized_bytes(tmp_path):
+    app = create_app(trusted_settings(tmp_path), runtime=FakeRuntime())
+    owner = principal("owner", PrincipalRole.OWNER)
+    project = app.state.ledger.create_project(
+        ProjectCreate(name="Office sources", objective="Compare suppliers"), principal=owner,
+    )
+    app.state.project_access.bind_project(project.id, owner)
+    document = Document()
+    document.add_paragraph("Acme wholesale terms")
+    output = BytesIO()
+    document.save(output)
+    raw = output.getvalue()
+    artifact = app.state.ledger.save_upload(project.id, "supplier.docx", raw)
+    base = f"/api/projects/{project.id}/knowledge"
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="https://gateway.test",
+    ) as client:
+        found = await request_as(client, "GET", base + "?q=Acme", owner.principal_id, owner.role)
+        assert found.status_code == 200
+        assert found.json()["matches"][0]["source_location"] == "Body paragraph 1"
+        assert found.json()["documents"][0]["checksum"] == artifact.checksum
+        downloaded = await request_as(
+            client, "GET", base + f"/{artifact.id}/download", owner.principal_id, owner.role,
+        )
+        assert downloaded.status_code == 200 and downloaded.content == raw
+        denied = await request_as(
+            client, "GET", base + "?q=Acme", "outsider", PrincipalRole.OWNER,
+        )
+        assert denied.status_code == 403 and "Acme" not in denied.text

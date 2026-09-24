@@ -15,6 +15,7 @@ export const knowledgeZh: Record<string, string> = {
   '{shown} of {total} matching files': '显示 {total} 份匹配文件中的 {shown} 份',
   'No matching passages in the searchable files. Try fewer terms and check file coverage below.': '可检索文件中未找到匹配内容。请减少关键词，并检查下方文件覆盖情况。',
   'Lines {start}–{end} · column {column}': '第 {start}–{end} 行 · 从第 {column} 列开始',
+  'Source location: {location}': '原件位置：{location}',
   'Excerpt only. Download the source for full context.': '仅显示摘录，可下载原文件查看完整上下文。',
   'Reference provenance': '参考资料来源',
   'Source records': '关联来源记录',
@@ -26,5 +27,10 @@ export const knowledgeZh: Record<string, string> = {
   'File differs from registered version': '文件与已登记版本不一致',
   'File exceeds search size limit': '文件超出检索大小上限',
   'Text could not be decoded': '无法解码为文本',
+  'Office document could not be read': '无法读取 Office 文档',
+  'Office content exceeds search limits': 'Office 内容超出检索解析上限',
+  'Word paragraphs, tables, headers, footers, footnotes and endnotes are indexed; images and layout are not read.': '已索引 Word 的段落、表格、页眉页脚、脚注和尾注；未读取图像和版式。',
+  'Cell text, stored values and formula expressions are indexed; formulas are not recalculated. Images and charts are not read.': '已索引单元格文本、存储值与公式表达式；不会重新计算公式，也未读取图像和图表。',
+  'Slide, speaker-note and cached chart text are indexed; images and layout are not read.': '已索引幻灯片、演讲者备注和图表缓存文本；未读取图像和版式。',
   'Outside this search reading limit': '超出本次读取总量上限',
 }

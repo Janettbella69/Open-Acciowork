@@ -197,6 +197,28 @@ def test_cold_restore_retains_history_without_workspace_file(source, tmp_path):
     assert restored.capture_artifact(project.id, second.id)[1] == b"Revised version"
 
 
+def test_cold_restore_rebuilds_office_reference_index_from_exact_artifact(source, tmp_path):
+    from io import BytesIO
+
+    from docx import Document
+
+    from ophira_backend.knowledge import search_project_knowledge
+
+    _, _, ledger, _, _, project, *_ = source
+    document = Document()
+    document.add_paragraph("Restored supplier proposal")
+    output = BytesIO()
+    document.save(output)
+    artifact = ledger.save_upload(project.id, "proposal.docx", output.getvalue())
+    archive = make_backup(source, tmp_path)
+    target = tmp_path / "restored"
+    backup.restore_backup(archive, target)
+    result = search_project_knowledge(FileLedger(target / "data"), project.id, query="supplier")
+    assert result.matches[0].artifact_id == artifact.id
+    assert result.matches[0].source_location == "Body paragraph 1"
+    assert result.documents[0].checksum == artifact.checksum
+
+
 def test_cold_backup_rejects_corrupt_artifact_history(source, tmp_path):
     from ophira_backend.artifact_files import snapshot_relative
 

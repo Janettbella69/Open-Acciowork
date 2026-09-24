@@ -7,7 +7,9 @@ import './project-knowledge.css'
 const statusLabels: Record<ReferenceStatus, string> = {
   indexed: 'Searchable', unsupported: 'Format not indexed', unavailable: 'File unavailable',
   changed: 'File differs from registered version', too_large: 'File exceeds search size limit',
-  invalid_text: 'Text could not be decoded', budget_exceeded: 'Outside this search reading limit',
+  invalid_text: 'Text could not be decoded', invalid_document: 'Office document could not be read',
+  extraction_limit: 'Office content exceeds search limits',
+  budget_exceeded: 'Outside this search reading limit',
 }
 
 function Source({ document, projectId }: { document: ReferenceDocument; projectId: string }) {
@@ -50,8 +52,10 @@ function SearchResult({ projectId, query }: { projectId: string; query: string }
       if (!document) return null
       return <article className="project-knowledge-match" key={match.artifact_id}>
         <Source document={document} projectId={projectId} />
-        {document.extraction_notice && <div className="project-knowledge-notice"><strong>{t('Extraction notes — check before citing')}</strong><pre>{document.extraction_notice}</pre></div>}
-        <small>{t('Lines {start}–{end} · column {column}', { start: match.start_line, end: match.end_line, column: match.start_column })}</small>
+        {document.extraction_notice && <div className="project-knowledge-notice"><strong>{t('Extraction notes — check before citing')}</strong><pre>{t(document.extraction_notice)}</pre></div>}
+        <small>{match.source_location
+          ? t('Source location: {location}', { location: match.source_location })
+          : t('Lines {start}–{end} · column {column}', { start: match.start_line, end: match.end_line, column: match.start_column })}</small>
         <pre>{match.excerpt}</pre>
         {match.excerpt_truncated && <small>{t('Excerpt only. Download the source for full context.')}</small>}
         <details><summary>{t('Reference provenance')}</summary>
