@@ -26,6 +26,7 @@ import FeedbackForm from './FeedbackForm'
 import FeedbackReviewPanel from './FeedbackReviewPanel'
 import { PermissionDetails, PermissionQuestionCard } from './PermissionRequest'
 import DurablePermissionNotice from './DurablePermissionNotice'
+import VoiceDictation from './VoiceDictation'
 import { permissionLifecycleState } from '../permissionLifecycle'
 import PresentationCards, { extractPresentationFrames } from './PresentationCards'
 import ProjectMetricsPanel from './ProjectMetricsPanel'
@@ -492,6 +493,7 @@ export default function WorkspaceComposer({
           disabled={busy}
           autoFocus={!sessionOpen}
         />
+        <VoiceDictation value={value} onChange={onChange} disabled={busy} />
         {attachedFiles.length > 0 && (
           <div className="conversation-attachments" aria-label={t('Locally staged attachments')}>
             <div>

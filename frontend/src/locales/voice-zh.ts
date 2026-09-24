@@ -1,0 +1,18 @@
+export const voiceZh: Record<string, string> = {
+  'Dictate message': '语音输入',
+  'Stop dictation': '停止听写',
+  'Dictate message. Your browser may process the audio with its speech service.': '语音输入。浏览器可能使用其语音服务处理音频。',
+  'Voice input requires a supporting browser and a secure connection. You can use keyboard dictation instead.': '语音输入需要受支持的浏览器和安全连接；也可以使用键盘自带的语音听写。',
+  'Speech language': '听写语言',
+  'Listening… Speak, then stop to review.': '正在聆听…说完后停止，再核对文字。',
+  'Review or edit the transcription before using it.': '请先核对或修改转写文字。',
+  'Transcription draft': '转写草稿',
+  'Your browser may process audio with its speech service. Nothing is sent to the Agent until you submit the message.': '浏览器可能使用其语音服务处理音频。你提交消息前，文字不会发送给 Agent。',
+  'Cancel dictation': '取消听写',
+  'Use reviewed text': '使用已核对文字',
+  'No speech was detected. Try again.': '没有检测到语音，请重试。',
+  'Microphone or speech recognition permission was denied.': '麦克风或语音识别权限被拒绝。',
+  'The browser speech service is unavailable. Try again.': '浏览器语音服务暂时不可用，请重试。',
+  'Voice transcription failed. Try again or type your message.': '语音转写失败，请重试或直接输入文字。',
+  'The reviewed text would exceed the message limit. Shorten it first.': '核对后的文字会超出消息长度上限，请先缩短。',
+}

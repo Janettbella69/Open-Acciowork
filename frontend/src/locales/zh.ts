@@ -14,6 +14,7 @@ import { templatesZh } from './templates-zh'
 import { repositoryZh } from './repository-zh'
 import { exportZh } from './export-zh'
 import { workspaceZh } from './workspace-zh'
+import { voiceZh } from './voice-zh'
 import { memoryZh } from './memory-zh'
 import { deletionZh } from './deletion-zh'
 
@@ -22,6 +23,7 @@ export const zh: Record<string, string> = {
   ...deletionZh,
   ...memoryZh,
   ...workspaceZh,
+  ...voiceZh,
   ...exportZh,
   ...repositoryZh,
   ...templatesZh,

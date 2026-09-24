@@ -20,6 +20,7 @@ import DurablePermissionNotice from './DurablePermissionNotice'
 import { PermissionDetails, PermissionQuestionCard } from './PermissionRequest'
 import { permissionConflict, permissionLifecycleState } from '../permissionLifecycle'
 import MobileRunProgress from './MobileRunProgress'
+import VoiceDictation from './VoiceDictation'
 
 function canCancel(run: RunRecord): boolean {
   return ['queued', 'running', 'waiting_permission', 'paused'].includes(run.status)
@@ -261,6 +262,7 @@ export default function MobileCompanion({ initialSession, entry }: {
         {overview.device.allow_run_start ? <form className="mobile-run-form" onSubmit={launch}>
           <label><span>{t('Project')}</span><select aria-label={t('Project')} value={projectId} disabled={Boolean(busy)} onChange={(event) => setProjectId(event.target.value)}>{overview.projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}</select></label>
           <label><span>{t('Prompt')}</span><textarea aria-label={t('Prompt')} value={prompt} disabled={Boolean(busy)} onChange={(event) => setPrompt(event.target.value)} rows={4} /></label>
+          <VoiceDictation value={prompt} onChange={setPrompt} disabled={Boolean(busy)} inline />
           <button type="submit" disabled={!projectId || !prompt.trim() || Boolean(busy)}>{t(busy === 'start' ? 'Starting…' : 'Start run')}</button>
         </form> : <p className="mobile-empty">{t('The desktop owner has not allowed this device to start runs.')}</p>}
       </section>
