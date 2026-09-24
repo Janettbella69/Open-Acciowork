@@ -24,6 +24,12 @@ python3.11 -m venv .venv --clear
 .venv/bin/uvicorn ophira_backend.main:app --app-dir backend/src --reload
 ```
 
+Publishing a saved HTML artifact requires trusted-gateway mode and a separate
+`OPHIRA_SITE_PUBLIC_ORIGIN=https://pages.example.com`. Route only `/published/`
+from that host to the backend; the management API remains on its own host. A
+project administrator reviews and approves each exact version and can withdraw
+it later. See [site publication setup](../docs/site-publications.md).
+
 Browser L1/L2 support is an explicit optional install because Playwright also
 needs a managed Chromium binary:
 

@@ -33,6 +33,28 @@ def companion_origin(value: str) -> str:
         raise ValueError("companion_public_origin must be an exact HTTPS origin") from exc
 
 
+def public_https_origin(value: str, setting_name: str) -> str:
+    try:
+        origin = companion_origin(value)
+        hostname = urlsplit(origin).hostname or ""
+        if (
+            hostname == "localhost"
+            or hostname.endswith((".localhost", ".local", ".test", ".invalid"))
+        ):
+            raise ValueError
+        try:
+            address = ipaddress.ip_address(hostname)
+        except ValueError:
+            address = None
+        if address is not None and not address.is_global:
+            raise ValueError
+        if address is None and "." not in hostname:
+            raise ValueError
+        return origin
+    except ValueError as exc:
+        raise ValueError(f"{setting_name} must be a public HTTPS origin") from exc
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="OPHIRA_",
@@ -140,6 +162,7 @@ class Settings(BaseSettings):
     auth_assertion_future_skew_seconds: int = Field(default=5, ge=0, le=30)
     companion_enabled: bool = False
     companion_public_origin: str | None = Field(default=None, max_length=500)
+    site_public_origin: str | None = Field(default=None, max_length=500)
     push_enabled: bool = False
     push_vapid_private_key: SecretStr | None = Field(default=None, max_length=2_000)
     push_vapid_subject: str | None = Field(default=None, max_length=500)
@@ -232,6 +255,14 @@ class Settings(BaseSettings):
         self.push_allowed_origins = [companion_origin(item) for item in self.push_allowed_origins]
         if self.companion_public_origin is not None:
             self.companion_public_origin = companion_origin(self.companion_public_origin)
+        if self.site_public_origin is not None:
+            self.site_public_origin = public_https_origin(
+                self.site_public_origin, "site_public_origin",
+            )
+            if (self.companion_public_origin is not None
+                    and urlsplit(self.site_public_origin).hostname
+                    == urlsplit(self.companion_public_origin).hostname):
+                raise ValueError("site_public_origin must use a separate host")
         if self.companion_enabled and self.companion_public_origin is None:
             raise ValueError("companion access requires OPHIRA_COMPANION_PUBLIC_ORIGIN")
         if self.auth_mode == "local_only":

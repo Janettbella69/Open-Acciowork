@@ -48,11 +48,47 @@ import type { CollaborationCapabilities, CommentChange, CommentCreate, CommentHi
 import type { ProjectTemplate, TemplateApplied, TemplateApplications, TemplateApply, TemplateDetail, TemplateLibrary, TemplateSave } from './projectTemplates'
 import type { SkillFilePreview, SkillImportReviewRequest, SkillImportView, SkillPackageView, SkillRepositoryCapabilities, SkillRepositorySelection } from './skillRepository'
 import type { ProjectExportPreview } from './projectExport'
+import type { SitePublicationCatalog, SitePublicationView } from './sitePublications'
 import type { ConversationDeletionOperation, ConversationDeletionPreview, ProjectDeletionOperation, ProjectDeletionPreview, ProjectDeletionRequest } from './projectDeletion'
 import type { GovernedMemory, MemoryExpiryUpdate, MemoryExport, MemoryTombstone } from '../types/MemoryGovernance'
 
 const configuredBaseUrl = import.meta.env.VITE_OPHIRA_API_URL?.trim() ?? ''
 export const apiBaseUrl = configuredBaseUrl.replace(/\/$/, '')
+
+export function getSitePublications(projectId: string, signal?: AbortSignal): Promise<SitePublicationCatalog> {
+  return request(`/api/projects/${encodeURIComponent(projectId)}/site-publications`, {
+    signal, cache: 'no-store',
+  })
+}
+
+export function stageSitePublication(projectId: string, artifactId: string): Promise<SitePublicationView> {
+  return request(`/api/projects/${encodeURIComponent(projectId)}/site-publications`, {
+    method: 'POST', body: JSON.stringify({ artifact_id: artifactId }), cache: 'no-store',
+  })
+}
+
+export function publishSitePublication(projectId: string, view: SitePublicationView): Promise<SitePublicationView> {
+  const item = view.publication
+  return request(`/api/projects/${encodeURIComponent(projectId)}/site-publications/${encodeURIComponent(item.id)}/publish`, {
+    method: 'POST', cache: 'no-store', body: JSON.stringify({
+      expected_revision: item.revision, expected_checksum: item.artifact_checksum,
+      confirmation: 'publish',
+    }),
+  })
+}
+
+export function revokeSitePublication(projectId: string, view: SitePublicationView): Promise<SitePublicationView> {
+  const item = view.publication
+  return request(`/api/projects/${encodeURIComponent(projectId)}/site-publications/${encodeURIComponent(item.id)}/revoke`, {
+    method: 'POST', cache: 'no-store', body: JSON.stringify({
+      expected_revision: item.revision, confirmation: 'revoke',
+    }),
+  })
+}
+
+export function sitePublicationPreviewUrl(projectId: string, siteId: string): string {
+  return `${apiBaseUrl}/api/projects/${encodeURIComponent(projectId)}/site-publications/${encodeURIComponent(siteId)}/preview`
+}
 
 export function getProjectExport(projectId: string, signal?: AbortSignal): Promise<ProjectExportPreview> {
   return request(`/api/projects/${encodeURIComponent(projectId)}/export`, { signal, cache: 'no-store' })

@@ -3,10 +3,12 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import re
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from typing import Annotated
+from urllib.parse import urlsplit
 
 import uvicorn
 from fastapi import FastAPI, Header, HTTPException, Query, Request, Response, status
@@ -239,6 +241,8 @@ from .session_search import (
 )
 from .shop_browser import ShopBrowserService
 from .shop_browser_api import register_shop_browser_routes
+from .site_publication_routes import register_site_publication_routes
+from .site_publications import SitePublicationStore
 from .skill_proposal_routes import register_skill_proposal_routes
 from .skill_proposals import SkillProposalService
 from .skill_repository_routes import register_skill_repository_routes
@@ -341,6 +345,7 @@ def _create_app(
     project_access = ProjectAccessStore(settings.data_dir / "auth" / "projects")
     project_deletion = ProjectDeletionService(ledger, project_access)
     project_deletion.recover()
+    site_publications = SitePublicationStore(ledger, settings.site_public_origin)
     conversation_deletion = ConversationDeletionService(ledger, project_access)
     conversation_deletion.recover()
     events = EventPublisher(ledger)
@@ -639,6 +644,12 @@ def _create_app(
     register_project_export_routes(
         application, ledger, project_access, settings, _read_bounded_body,
     )
+    application.state.site_publications = site_publications
+    register_site_publication_routes(
+        application, store=site_publications, settings=settings,
+        read_body=_read_bounded_body,
+        require_project_authorization=require_project_authorization,
+    )
     register_skill_repository_routes(
         application, ledger, skills, settings, _read_bounded_body,
     )
@@ -667,6 +678,12 @@ def _create_app(
     @application.middleware("http")
     async def authenticate_control_plane(request: Request, call_next):
         path = request.url.path
+        if settings.site_public_origin is not None:
+            public_host = urlsplit(settings.site_public_origin).netloc.casefold()
+            if request.headers.get("host", "").casefold() == public_host and not re.fullmatch(
+                r"/published/[A-Za-z0-9_-]+/site_[0-9a-f]{32}", path,
+            ):
+                return JSONResponse(status_code=404, content={"detail": "Page not found"})
         if not (path == "/api" or path.startswith("/api/")):
             return await call_next(request)
         # This is a deliberately separate, project-scoped device API. Its cookie

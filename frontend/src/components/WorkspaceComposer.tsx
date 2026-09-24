@@ -32,6 +32,7 @@ import PresentationCards, { extractPresentationFrames } from './PresentationCard
 import ProjectMetricsPanel from './ProjectMetricsPanel'
 import ProjectKnowledgePanel from './ProjectKnowledgePanel'
 import ProjectArtifactsPanel from './ProjectArtifactsPanel'
+import SitePublicationsPanel from './SitePublicationsPanel'
 import ProjectExportPanel from './ProjectExportPanel'
 import ProjectDeletionPanel from './ProjectDeletionPanel'
 import type { ProjectDeletionRequest } from '../api/projectDeletion'
@@ -904,6 +905,7 @@ export default function WorkspaceComposer({
                 )}
                 {project && <ProjectKnowledgePanel projectId={project.id} revision={project.artifacts.map((item) => item.id).join(':')} />}
                 {project && <ProjectArtifactsPanel projectId={project.id} artifacts={project.artifacts} onChanged={onProjectRefresh} />}
+                {project && <SitePublicationsPanel key={`site:${project.id}`} projectId={project.id} artifacts={project.artifacts} />}
                 {project && <ProjectExportPanel projectId={project.id} />}
                 {project && run && onDeleteConversation && <ProjectDeletionPanel projectId={project.id} runId={run.id}
                   pending={conversationDeletionPending} canReviewAgain={conversationDeletionCanReviewAgain}
