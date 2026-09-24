@@ -1,4 +1,5 @@
 import asyncio
+import base64
 import json
 import multiprocessing
 from datetime import timedelta
@@ -19,10 +20,12 @@ from ophira_backend.companion import (
     PairingStatus,
 )
 from ophira_backend.config import Settings
-from ophira_backend.constants import PermissionDecision, PrincipalRole, RunStatus
+from ophira_backend.constants import EventType, PermissionDecision, PrincipalRole, RunStatus
+from ophira_backend.events import EventPublisher
 from ophira_backend.main import create_app
 from ophira_backend.models import PrincipalContext, ProjectCreate, utc_now
 from ophira_backend.project_lifecycle import ProjectLifecycle, ProjectUnavailableError
+from ophira_backend.storage import FileLedger
 
 PUBLIC_ORIGIN = "https://companion.example"
 DEVICE_HEADERS = {"X-Ophira-Companion": "1", "Origin": PUBLIC_ORIGIN}
@@ -141,6 +144,146 @@ async def test_real_http_pairing_requires_desktop_confirmation_and_scopes_projec
         assert (await device.get("/api/companion/session", headers={
             "Cookie": f"{COMPANION_COOKIE}={pending_cookie}",
         })).json()["status"] == "unpaired"
+
+
+async def test_companion_activity_replays_steps_and_verified_run_screenshot(app):
+    ledger = app.state.ledger
+    project = ledger.create_project(ProjectCreate(name="Allowed", objective="Inspect"))
+    other = ledger.create_project(ProjectCreate(name="Private", objective="Not shared"))
+    png = base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJ"
+        "AAAADUlEQVQIHWP4z8DwHwAFgAI/ScL/nwAAAABJRU5ErkJggg=="
+    )
+    async with owner_client(app) as owner, device_client(app) as device:
+        pairing_id, code, _ = await pair(owner, device, project.id, allow_run_start=True)
+        await approve(owner, device, pairing_id, code)
+        started = await device.post(f"/api/companion/projects/{project.id}/runs", json={
+            "prompt": "Inspect the storefront",
+        })
+        assert started.status_code == 202
+        run_id = started.json()["id"]
+        for _ in range(100):
+            if ledger.get_run(run_id).status == RunStatus.RUNNING:
+                break
+            await asyncio.sleep(0.01)
+        assert ledger.get_run(run_id).status == RunStatus.RUNNING
+        await app.state.events.publish(run_id, EventType.TOOL_STARTED, {
+            "tool_name": "Read", "tool_use_id": "tool_1",
+        })
+        await app.state.events.publish(run_id, EventType.TOOL_COMPLETED, {
+            "tool_name": "TaskCreate", "tool_input": {"subject": "Inspect page"},
+            "tool_response": {"task": {"id": "1", "subject": "Inspect page"}},
+        })
+        path = ledger.workspace_for_project(project.id) / "storefront.png"
+        path.write_bytes(png)
+        artifact = ledger.register_artifact(project.id, path.name, run_id=run_id)
+        await app.state.events.publish(run_id, EventType.ARTIFACT_REGISTERED, {
+            "artifact_id": artifact.id, "resource_id": artifact.id,
+        })
+
+        route = f"/api/companion/runs/{run_id}/activity"
+        activity = await device.post(route, json={"after_sequence": 0})
+        assert activity.status_code == 200, activity.text
+        page = activity.json()
+        assert {item["type"] for item in page["events"]} >= {
+            "tool.started", "tool.completed", "artifact.registered",
+        }
+        assert [item["id"] for item in page["artifacts"]] == [artifact.id]
+        assert (await device.post(route, json={
+            "after_sequence": page["next_sequence"],
+        })).json()["events"] == []
+        preview = await device.post(
+            f"/api/companion/runs/{run_id}/artifacts/{artifact.id}/preview", json={},
+        )
+        assert preview.status_code == 200
+        assert preview.content == png
+        assert preview.headers["content-type"] == "image/png"
+        assert preview.headers["x-content-type-options"] == "nosniff"
+        unrelated_path = ledger.workspace_for_project(project.id) / "other.png"
+        unrelated_path.write_bytes(png)
+        unrelated = ledger.register_artifact(project.id, unrelated_path.name)
+        assert (await device.post(
+            f"/api/companion/runs/{run_id}/artifacts/{unrelated.id}/preview", json={},
+        )).status_code == 404
+        svg_path = ledger.workspace_for_project(project.id) / "unsafe.svg"
+        svg_path.write_text('<svg xmlns="http://www.w3.org/2000/svg"/>', encoding="utf-8")
+        svg = ledger.register_artifact(project.id, svg_path.name, run_id=run_id)
+        assert (await device.post(
+            f"/api/companion/runs/{run_id}/artifacts/{svg.id}/preview", json={},
+        )).status_code == 415
+        foreign = ledger.create_run(other.id, "Private run")
+        assert (await device.post(
+            f"/api/companion/runs/{foreign.id}/activity", json={"after_sequence": 0},
+        )).status_code == 403
+        revoked = await owner.post(f"/api/mobile/pairings/{pairing_id}/revoke")
+        assert revoked.status_code == 200
+        assert (await device.post(route, json={"after_sequence": 0})).status_code in {401, 403}
+
+
+async def test_companion_activity_waits_for_relevant_events_and_rechecks_revocation(app):
+    ledger = app.state.ledger
+    project = ledger.create_project(ProjectCreate(name="Allowed", objective="Inspect"))
+    async with owner_client(app) as owner, device_client(app) as device:
+        pairing_id, code, _ = await pair(owner, device, project.id)
+        await approve(owner, device, pairing_id, code)
+        started = await owner.post(f"/api/projects/{project.id}/runs", json={
+            "prompt": "Inspect the storefront",
+        })
+        assert started.status_code == 202
+        run_id = started.json()["id"]
+        for _ in range(100):
+            if ledger.get_run(run_id).status == RunStatus.RUNNING:
+                break
+            await asyncio.sleep(0.01)
+        assert ledger.get_run(run_id).status == RunStatus.RUNNING
+        route = f"/api/companion/runs/{run_id}/activity"
+        first = await device.post(route, json={"after_sequence": 0})
+        assert first.status_code == 200
+        cursor = first.json()["next_sequence"]
+        assert (await device.post(route, json={
+            "after_sequence": cursor + 1000,
+        })).status_code == 400
+
+        pending = asyncio.create_task(device.post(route, json={
+            "after_sequence": cursor, "wait_for_update": True,
+        }))
+        await asyncio.sleep(0.05)
+        assert not pending.done()
+        await app.state.events.publish(run_id, EventType.ASSISTANT_TEXT_DELTA, {
+            "text": "Private narrative is outside the phone activity feed",
+        })
+        await asyncio.sleep(0.05)
+        assert not pending.done()
+        await app.state.events.publish(run_id, EventType.TOOL_STARTED, {
+            "tool_name": "Read",
+        })
+        response = await asyncio.wait_for(pending, 3)
+        assert response.status_code == 200, response.text
+        page = response.json()
+        assert [item["type"] for item in page["events"]] == [EventType.TOOL_STARTED]
+        assert page["next_sequence"] > cursor
+        assert response.headers["cache-control"] == "no-store"
+
+        pending = asyncio.create_task(device.post(route, json={
+            "after_sequence": page["next_sequence"], "wait_for_update": True,
+        }))
+        await asyncio.sleep(0.05)
+        assert not pending.done()
+        await EventPublisher(FileLedger(ledger.root)).publish(run_id, EventType.TASK_PROGRESS, {
+            "subject": "Second worker step",
+        })
+        external = await asyncio.wait_for(pending, 3)
+        assert external.status_code == 200, external.text
+        assert [item["type"] for item in external.json()["events"]] == [EventType.TASK_PROGRESS]
+
+        pending = asyncio.create_task(device.post(route, json={
+            "after_sequence": external.json()["next_sequence"], "wait_for_update": True,
+        }))
+        await asyncio.sleep(0.05)
+        assert not pending.done()
+        assert (await owner.post(f"/api/mobile/pairings/{pairing_id}/revoke")).status_code == 200
+        revoked = await asyncio.wait_for(pending, 3)
+        assert revoked.status_code in {401, 403}
 
 
 async def test_companion_can_start_cancel_and_approve_only_granted_project(app):

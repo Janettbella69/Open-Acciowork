@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import TypeVar
 from urllib.parse import urlencode
@@ -27,9 +28,16 @@ from .companion import (
 )
 from .companion_authorization import authorize_companion_project
 from .config import Settings, companion_origin
-from .constants import PermissionDecision
+from .constants import EventType, PermissionDecision, RunStatus
 from .durable_permissions import DurablePermissionConflict
-from .models import APIModel, EventActor, PermissionResolution, RunRecord
+from .models import (
+    APIModel,
+    Artifact,
+    EventActor,
+    EventEnvelope,
+    PermissionResolution,
+    RunRecord,
+)
 from .permissions import PermissionBroker, PermissionNotFoundError
 from .policy import PolicyDeniedError
 from .providers import ProviderConfigurationError, ProviderNotFoundError
@@ -43,6 +51,39 @@ Payload = TypeVar("Payload", bound=APIModel)
 
 class CompanionRunCreate(APIModel):
     prompt: str = Field(min_length=1, max_length=40_000)
+
+
+class CompanionActivityRequest(APIModel):
+    after_sequence: int = Field(default=0, ge=0)
+    wait_for_update: bool = False
+
+
+class CompanionActivityPage(APIModel):
+    events: list[EventEnvelope]
+    artifacts: list[Artifact]
+    next_sequence: int
+    has_more: bool
+    status: RunStatus
+
+
+COMPANION_ACTIVITY_WAIT_SECONDS = 20
+
+
+def _companion_activity_event(event: EventEnvelope) -> bool:
+    return (
+        event.type.startswith("task.")
+        or event.type.startswith("run.")
+        or event.type in {
+            EventType.ARTIFACT_REGISTERED,
+            EventType.ARTIFACT_UPDATED,
+            EventType.TOOL_STARTED,
+            EventType.TOOL_FAILED,
+        }
+        or (event.type == EventType.TOOL_COMPLETED
+            and event.data.get("tool_name") in {
+                "TodoWrite", "TaskCreate", "TaskUpdate", "TaskGet", "TaskList",
+            })
+    )
 
 
 def validate_companion_request(settings: Settings, request: Request) -> None:
@@ -244,6 +285,111 @@ def register_companion_routes(
                 key=lambda run: run.created_at, reverse=True,
             )[:100],
         }
+
+    @application.post(
+        "/api/companion/runs/{run_id}/activity",
+        response_model=CompanionActivityPage,
+    )
+    async def run_activity(
+        request: Request, response: Response, run_id: str,
+    ) -> CompanionActivityPage:
+        payload = await _payload(request, CompanionActivityRequest)
+        record = run_authority(request, run_id)
+        response.headers["Cache-Control"] = "no-store"
+        run = ledger.get_run(run_id)
+        try:
+            last_sequence = ledger.get_run_summary(run_id).last_sequence
+        except (LedgerNotFoundError, ValueError) as exc:
+            raise HTTPException(status_code=404, detail="Run activity is unavailable") from exc
+        if payload.after_sequence > last_sequence:
+            raise HTTPException(status_code=400, detail="Activity cursor is ahead of the Run")
+
+        def activity_page(after_sequence: int) -> CompanionActivityPage:
+            try:
+                history = ledger.list_events(run_id, after_sequence)
+                project = ledger.get_project(run.project_id)
+            except (LedgerNotFoundError, ValueError) as exc:
+                raise HTTPException(status_code=404, detail="Run activity is unavailable") from exc
+            selected: list[EventEnvelope] = []
+            cursor = after_sequence
+            has_more = False
+            for event in history:
+                relevant = _companion_activity_event(event)
+                if relevant and len(selected) >= 60:
+                    has_more = True
+                    break
+                cursor = event.sequence
+                if relevant:
+                    selected.append(event)
+            artifacts = sorted(
+                (item for item in project.artifacts if item.run_id == run.id),
+                key=lambda item: item.updated_at, reverse=True,
+            )[:30]
+            return CompanionActivityPage(
+                events=selected, artifacts=artifacts, next_sequence=cursor,
+                has_more=has_more, status=ledger.get_run(run_id).status,
+            )
+
+        page = activity_page(payload.after_sequence)
+        if (
+            payload.wait_for_update and not page.events and not page.has_more
+            and page.status not in {RunStatus.COMPLETED, RunStatus.FAILED, RunStatus.CANCELLED}
+        ):
+            try:
+                async with asyncio.timeout(COMPANION_ACTIVITY_WAIT_SECONDS):
+                    async for event in runs.events.stream(
+                        run_id, page.next_sequence, heartbeat_seconds=1,
+                    ):
+                        # A connection never extends device or project authority.
+                        run_authority(request, run_id)
+                        if event is not None and _companion_activity_event(event):
+                            break
+                        if ledger.get_run(run_id).status in {
+                            RunStatus.COMPLETED, RunStatus.FAILED, RunStatus.CANCELLED,
+                        }:
+                            break
+            except TimeoutError:
+                pass
+            except (LedgerNotFoundError, ValueError) as exc:
+                raise HTTPException(status_code=404, detail="Run activity is unavailable") from exc
+            page = activity_page(page.next_sequence)
+        owner_project_check(record, ProjectPermission.PROJECT_WRITE, run.project_id)
+        authenticated(request)
+        return page
+
+    @application.post("/api/companion/runs/{run_id}/artifacts/{artifact_id}/preview")
+    async def preview_run_image(
+        request: Request, run_id: str, artifact_id: str,
+    ) -> Response:
+        record = run_authority(request, run_id)
+        run = ledger.get_run(run_id)
+        try:
+            item = next(
+                artifact for artifact in ledger.get_project(run.project_id).artifacts
+                if artifact.id == artifact_id and artifact.run_id == run_id
+            )
+        except (LedgerNotFoundError, StopIteration) as exc:
+            raise HTTPException(status_code=404, detail="Run image not found") from exc
+        if (
+            item.mime not in {"image/png", "image/jpeg", "image/webp"}
+            or item.size_bytes > 5_000_000
+        ):
+            raise HTTPException(status_code=415, detail="Run image preview is unavailable")
+        try:
+            verified, content = ledger.capture_artifact(run.project_id, artifact_id)
+        except (LedgerNotFoundError, OSError, ValueError) as exc:
+            raise HTTPException(status_code=409, detail="Run image failed verification") from exc
+        if (
+            verified.run_id != run_id
+            or verified.mime not in {"image/png", "image/jpeg", "image/webp"}
+            or len(content) > 5_000_000
+        ):
+            raise HTTPException(status_code=409, detail="Run image changed during preview")
+        owner_project_check(record, ProjectPermission.PROJECT_WRITE, run.project_id)
+        authenticated(request)
+        return Response(content, media_type=verified.mime, headers={
+            "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff",
+        })
 
     @application.post("/api/companion/runs/{run_id}/permissions/{request_id}", status_code=204)
     async def resolve(request: Request, run_id: str, request_id: str):

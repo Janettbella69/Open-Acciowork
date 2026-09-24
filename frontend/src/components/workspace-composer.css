@@ -199,6 +199,14 @@
 .conversation-run-outcome { max-width: 900px; margin-top: 38px; padding: 0; }
 .conversation-run-outcome strong { color: #8e453c; font-size: 16px; }
 .conversation-run-outcome p { margin: 8px 0 0; color: #5f4b47; font-size: 18px; line-height: 1.65; white-space: pre-wrap; }
+.conversation-native-tasks { width: min(820px, 100%); margin: 16px 0; border: 1px solid #e5e9e4; border-radius: 12px; padding: 14px 18px; background: #f9fbf8; text-align: left; }
+.conversation-native-tasks h3 { margin: 0 0 10px; color: #546452; font-size: 13px; }
+.conversation-native-tasks ol { display: grid; margin: 0; padding: 0; gap: 8px; list-style: none; }
+.conversation-native-tasks li { display: flex; align-items: baseline; gap: 10px; color: #545b55; font-size: 13px; }
+.conversation-native-tasks li > span:nth-child(2) { min-width: 0; flex: 1; overflow-wrap: anywhere; }
+.conversation-native-tasks li > small { color: #737e74; white-space: nowrap; }
+.conversation-native-tasks li[data-status='completed'] > span:first-child { color: #36865c; }
+.conversation-native-tasks li[data-status='in_progress'] > span:first-child { color: #b57c26; }
 
 .conversation-activity { display: flex; min-height: 28px; align-items: center; gap: 16px; }
 .conversation-activity > button { min-height: 44px; border: 0; border-radius: 8px; padding: 0 10px; color: #8a5048; background: transparent; font-family: inherit; font-size: 13px; }

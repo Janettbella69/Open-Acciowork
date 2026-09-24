@@ -1,5 +1,5 @@
 import { apiBaseUrl } from './client'
-import type { Notification, OpportunityProject, PendingPermissionView, PermissionAnswers, RunRecord } from './types'
+import type { Artifact, Notification, OpportunityProject, OphiraEvent, PendingPermissionView, PermissionAnswers, RunRecord, RunStatus } from './types'
 
 export type PairingView = {
   id: string
@@ -31,6 +31,14 @@ export type CompanionOverview = {
   pending_permissions: PendingPermissionView[]
   notifications: Notification[]
   runs: RunRecord[]
+}
+
+export type CompanionActivityPage = {
+  events: OphiraEvent[]
+  artifacts: Artifact[]
+  next_sequence: number
+  has_more: boolean
+  status: RunStatus
 }
 
 export type CompanionPushStatus = {
@@ -78,11 +86,12 @@ export function consumePairingFragment(): PairingFragment {
   return { kind: 'pairing', input: { pairing_id: id, secret } }
 }
 
-async function request<T>(path: string, body?: unknown, method = body === undefined ? 'GET' : 'POST'): Promise<T> {
+async function request<T>(path: string, body?: unknown, method = body === undefined ? 'GET' : 'POST', signal?: AbortSignal): Promise<T> {
   const response = await fetch(`${apiBaseUrl}${path}`, {
     method,
     credentials: 'include',
     cache: 'no-store',
+    signal,
     headers: {
       Accept: 'application/json',
       'X-Ophira-Companion': '1',
@@ -135,6 +144,28 @@ export function getCompanionSession(): Promise<CompanionSession> {
 
 export function getCompanionOverview(): Promise<CompanionOverview> {
   return request('/api/companion/overview')
+}
+
+export function getCompanionRunActivity(
+  runId: string, afterSequence: number, signal?: AbortSignal, waitForUpdate = false,
+): Promise<CompanionActivityPage> {
+  return request(`/api/companion/runs/${encodeURIComponent(runId)}/activity`,
+    { after_sequence: afterSequence, wait_for_update: waitForUpdate }, 'POST', signal)
+}
+
+export async function getCompanionImagePreview(
+  runId: string, artifactId: string, signal?: AbortSignal,
+): Promise<Blob> {
+  const response = await fetch(
+    `${apiBaseUrl}/api/companion/runs/${encodeURIComponent(runId)}/artifacts/${encodeURIComponent(artifactId)}/preview`,
+    {
+      method: 'POST', credentials: 'include', cache: 'no-store', signal,
+      headers: { Accept: 'image/png,image/jpeg,image/webp', 'X-Ophira-Companion': '1', 'Content-Type': 'application/json' },
+      body: '{}',
+    },
+  )
+  if (!response.ok) throw new CompanionRequestError('Image preview is unavailable', response.status)
+  return response.blob()
 }
 
 export function resolveCompanionPermission(runId: string, id: string, decision: 'allow_once' | 'deny', answers?: PermissionAnswers): Promise<void> {

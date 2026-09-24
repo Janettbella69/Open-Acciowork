@@ -19,6 +19,7 @@ import CompanionPushControls from './CompanionPushControls'
 import DurablePermissionNotice from './DurablePermissionNotice'
 import { PermissionDetails, PermissionQuestionCard } from './PermissionRequest'
 import { permissionConflict, permissionLifecycleState } from '../permissionLifecycle'
+import MobileRunProgress from './MobileRunProgress'
 
 function canCancel(run: RunRecord): boolean {
   return ['queued', 'running', 'waiting_permission', 'paused'].includes(run.status)
@@ -36,6 +37,7 @@ export default function MobileCompanion({ initialSession, entry }: {
   const [overview, setOverview] = useState<CompanionOverview | null>(null)
   const [projectId, setProjectId] = useState('')
   const [prompt, setPrompt] = useState('')
+  const [progressRunId, setProgressRunId] = useState('')
   const [confirmed, setConfirmed] = useState<Record<string, boolean>>({})
   const [busy, setBusy] = useState('')
   const [refreshing, setRefreshing] = useState(false)
@@ -264,7 +266,16 @@ export default function MobileCompanion({ initialSession, entry }: {
       </section>
       <section className="mobile-settings" aria-labelledby="mobile-runs-heading"><h2 id="mobile-runs-heading">{t('Recent runs')}</h2>
         {!overview.runs.length && <p className="mobile-empty">{t('No runs in the authorized projects.')}</p>}
-        {overview.runs.map((run) => <article className="mobile-device-card" key={run.id}><div className="mobile-device-heading"><h3>{run.prompt}</h3><span>{t(run.status)}</span></div><p>{run.id}</p>{run.error && <p>{run.error}</p>}{canCancel(run) && <button type="button" disabled={Boolean(busy)} onClick={() => cancel(run)}>{t('Cancel run')}</button>}</article>)}
+        {overview.runs.map((run) => <article className="mobile-device-card" key={run.id}>
+          <div className="mobile-device-heading"><h3>{run.prompt}</h3><span>{t(run.status)}</span></div>
+          <p>{run.id}</p>{run.error && <p>{run.error}</p>}
+          <button type="button" disabled={Boolean(busy)} aria-expanded={progressRunId === run.id}
+            onClick={() => setProgressRunId(progressRunId === run.id ? '' : run.id)}>
+            {t(progressRunId === run.id ? 'Hide progress' : 'View live progress')}
+          </button>
+          {progressRunId === run.id && <MobileRunProgress runId={run.id} />}
+          {canCancel(run) && <button type="button" disabled={Boolean(busy)} onClick={() => cancel(run)}>{t('Cancel run')}</button>}
+        </article>)}
       </section>
       <section className="mobile-settings" aria-labelledby="mobile-notifications-heading"><h2 id="mobile-notifications-heading">{t('Project notifications')}</h2>
         {!overview.notifications.length && <p className="mobile-empty">{t('No notifications for these projects.')}</p>}

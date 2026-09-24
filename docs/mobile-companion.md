@@ -33,6 +33,14 @@ administrative fallback. Entry selection does not weaken either API boundary.
 The desktop can revoke an invitation or trusted device. **Disconnect this device**
 on the phone revokes its own server session and clears its credential cookie.
 
+Expanding a Run loads its current steps, task list, artifact versions, and verified
+image preview through the device-only API. While the Run is active, the phone
+then waits up to 20 seconds for a relevant event and resumes from the durable
+event cursor. The server checks device and project authority throughout that
+wait, including when a different API worker writes the event. The five-second
+overview refresh remains separate; completed Run details refresh every five
+seconds while their panel stays open.
+
 ## Scope and security contract
 
 - Administrative device operations use `/api/mobile/status` and

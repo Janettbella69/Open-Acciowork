@@ -7,4 +7,8 @@ export const workspaceZh: Record<string, string> = {
   'Download {name} · version {version}': '下载 {name} · 版本 {version}',
   'Refresh the project to view this saved artifact.': '请刷新项目以查看这份已保存的交付物。',
   'This project is no longer available. Your unsent message and local attachments are still here.': '此项目已无法访问，尚未发送的消息和本地附件仍保留在这里。',
+  'Task progress': '任务进度',
+  'In progress': '进行中',
+  'Completed': '已完成',
+  'Pending': '待开始',
 }
