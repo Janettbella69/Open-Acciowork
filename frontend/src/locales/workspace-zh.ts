@@ -33,4 +33,11 @@ export const workspaceZh: Record<string, string> = {
   'Run budget': '运行预算',
   'View run': '查看运行',
   'The previous task continues in the background. Start another independent task.': '上一个任务会在后台继续。现在可以创建另一项独立任务。',
+  'First task setup': '首次任务设置',
+  'Start your first task': '开始第一个任务',
+  'Choose an example below or describe your goal.': '从下方选一个示例，或直接描述目标。',
+  'Verified model selected.': '已选择通过预检的模型。',
+  'Choose a verified model from the model selector.': '从模型选择器中选择已通过预检的模型。',
+  'Add a model, store its API key, and run preflight in Settings.': '前往设置添加模型、保存 API Key 并运行预检。',
+  'Return here, review the goal, then press Send. You can approve risky actions as they arise.': '回到这里确认目标，再点击发送；高风险动作会单独征求批准。',
 }

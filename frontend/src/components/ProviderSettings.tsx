@@ -219,9 +219,14 @@ export default function ProviderSettings() {
       })}
 
       {!providers.length && !error && (
-        <p className="settings-integration-note">
-          {t('No provider profiles yet. Add one to run the Agent on a real Anthropic-compatible endpoint.')}
-        </p>
+        <div className="settings-integration-note">
+          <p>{t('No provider profiles yet. Add one to run the Agent on a real Anthropic-compatible endpoint.')}</p>
+          <ol>
+            <li>{t('Get a standard API key and the official Anthropic-compatible endpoint and model from your provider. Do not use a coding-plan key.')}</li>
+            <li>{t('Add the provider below, review its production eligibility and terms, save the key, and run preflight.')}</li>
+            <li><a href="/app">{t('Return to your first task and select the verified model.')}</a></li>
+          </ol>
+        </div>
       )}
 
       {editor ? (

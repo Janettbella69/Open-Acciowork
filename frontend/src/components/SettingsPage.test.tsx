@@ -146,6 +146,16 @@ beforeEach(() => {
 })
 
 describe('SettingsPage · provider management', () => {
+  it('shows first-use provider setup and preflight steps when no provider exists', async () => {
+    stubLocalStorage()
+    vi.mocked(listProviders).mockResolvedValueOnce([])
+    render(<SettingsPage />)
+    await waitFor(() => expect(listProviders).toHaveBeenCalled())
+    expect(screen.getByText(/Do not use a coding-plan key/)).toBeVisible()
+    expect(screen.getByText(/run preflight/)).toBeVisible()
+    expect(screen.getByRole('link', { name: /Return to your first task/ })).toHaveAttribute('href', '/app')
+  })
+
   it('lists configured providers with status and never renders the key', async () => {
     stubLocalStorage()
     render(<SettingsPage />)

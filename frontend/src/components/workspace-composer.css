@@ -146,6 +146,12 @@
 .conversation-entry-center { width: min(100%, 1060px); margin: 0 auto; }
 .conversation-entry-center > h1 { margin: 0; font-family: var(--ophira-product-font); font-size: clamp(32px, 3vw, 42px); font-weight: 520; letter-spacing: -0.035em; line-height: 1.12; text-wrap: balance; }
 
+.conversation-first-task { max-width: 740px; margin-top: 28px; padding: 16px 20px; border: 1px solid #e5e8e2; border-radius: 14px; color: #536051; background: #f8faf7; font-size: 13px; line-height: 1.5; }
+.conversation-first-task > strong { color: var(--ophira-ink); font-size: 15px; }
+.conversation-first-task ol { margin: 10px 0 0; padding-left: 22px; }
+.conversation-first-task li { padding: 2px 0; }
+.conversation-first-task li[data-ready='true'] { color: #43845c; }
+.conversation-first-task a { color: #255b43; text-decoration: underline; text-underline-offset: 3px; }
 .conversation-quick-starts { margin-top: clamp(74px, 10vh, 112px); text-align: left; }
 .conversation-quick-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
 .conversation-quick-grid button { display: block; min-width: 0; border: 0; padding: 0; color: var(--ophira-ink); background: transparent; text-align: left; transition: transform 180ms ease; }

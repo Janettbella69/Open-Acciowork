@@ -411,6 +411,7 @@ export default function WorkspaceComposer({
   const selectedProviderUnavailable = Boolean(
     providerProfileId && (!selectedProvider || !providerIsRunnable(selectedProvider)),
   )
+  const hasRunnableProvider = providers.some(providerIsRunnable)
 
   useEffect(() => {
     if (composerMenu === 'closed') return
@@ -682,6 +683,23 @@ export default function WorkspaceComposer({
             <h1>What can I do for you?</h1>
 
             {composer}
+
+            {projects.length === 0 && (
+              <section className="conversation-first-task" aria-label={t('First task setup')}>
+                <strong>{t('Start your first task')}</strong>
+                <ol>
+                  <li data-ready={Boolean(value.trim())}>{t('Choose an example below or describe your goal.')}</li>
+                  <li data-ready={Boolean(selectedProvider && !selectedProviderUnavailable)}>
+                    {selectedProvider && !selectedProviderUnavailable
+                      ? t('Verified model selected.')
+                      : hasRunnableProvider
+                        ? t('Choose a verified model from the model selector.')
+                        : <a href="/app/settings#providers">{t('Add a model, store its API key, and run preflight in Settings.')}</a>}
+                  </li>
+                  <li>{t('Return here, review the goal, then press Send. You can approve risky actions as they arise.')}</li>
+                </ol>
+              </section>
+            )}
 
             <section className="conversation-quick-starts" aria-label={t('Example opportunities')}>
               <div className="conversation-quick-grid">
