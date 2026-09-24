@@ -38,6 +38,7 @@ import ProjectCollaborationPanel from './ProjectCollaborationPanel'
 import ProjectTemplatesPanel from './ProjectTemplatesPanel'
 import WorkspaceRecoveryPanel from './WorkspaceRecoveryPanel'
 import RunResourcesPanel from './RunResourcesPanel'
+import NativeTaskProgress from './NativeTaskProgress'
 import SessionSearchPanel from './SessionSearchPanel'
 import ResourceEventLinks from './ResourceEventLinks'
 import ProjectShopsPanel from './ProjectShopsPanel'
@@ -720,6 +721,7 @@ export default function WorkspaceComposer({
                 <p>{run?.prompt ?? project?.objective ?? value}</p>
               </article>
               {project && onSelectRun && <SessionSearchPanel projectId={project.id} onSelectRun={onSelectRun} />}
+              {run && <NativeTaskProgress events={events} runId={run.id} />}
 
               <article className="conversation-agent-message">
                 {(run || historyLoading) && (

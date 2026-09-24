@@ -389,6 +389,20 @@ describe('WorkspaceComposer', () => {
     expect(screen.queryByRole('region', { name: 'First task setup' })).not.toBeInTheDocument()
   })
 
+  it('replays native SDK task progress in the selected Run conversation', () => {
+    render(<WorkspaceComposer {...baseProps()} run={completedRun} events={[{
+      id: 'run_1:1', sequence: 1, type: 'tool.completed', run_id: 'run_1',
+      project_id: 'project_1', trace_id: 'trace_1', sdk_session_id: 'session_1',
+      provider_profile_id: null, timestamp: '2026-09-23T00:00:00Z',
+      actor: { type: 'agent', name: 'ophira', agent_id: null },
+      parent_id: null, tool_use_id: 'tool_1',
+      data: { tool_name: 'TaskList', tool_input: {}, tool_response: {
+        tasks: [{ id: 'task_1', subject: 'Verify supplier terms', status: 'in_progress' }],
+      } },
+    }]} />)
+    expect(screen.getByRole('region', { name: 'Task progress' })).toHaveTextContent('Verify supplier terms')
+  })
+
   it('renders emitted reasoning and complete tool event details in the execution trace', () => {
     render(
       <WorkspaceComposer
