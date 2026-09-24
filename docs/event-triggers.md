@@ -1,0 +1,140 @@
+# Signed event triggers (FR-37)
+
+Open **Scheduled tasks → My tasks → Event triggers** to create a project-bound
+trigger. Choose a webhook, inquiry email, or store order source; set the instruction,
+budget per Run, and permission ceiling. Creation returns a 256-bit signing key once.
+Save it in the sending system. The backend stores the key in a private `0600` file,
+outside the Agent-readable project tree. Rotating it immediately invalidates the
+old key and the current trigger revision; pausing stops new deliveries.
+
+## Delivery contract
+
+POST the raw JSON bytes (at most 64,000 bytes) to the trigger's **Delivery URL**.
+Use three headers:
+
+| Header | Value |
+|---|---|
+| `X-Ophira-Timestamp` | Current Unix time in seconds |
+| `X-Ophira-Event-Id` | Stable ID for this source event, up to 160 safe characters |
+| `X-Ophira-Signature` | `sha256=` plus lowercase hex HMAC-SHA256 |
+
+Compute the MAC over UTF-8 bytes of `timestamp + "\n" + event_id + "\n"`, followed
+by the **exact raw request body bytes**. The HMAC key is the signing key returned at
+creation. Timestamp drift of five minutes or more is rejected. A sender may retry
+the same event ID with a newly signed timestamp and identical body; it receives the
+same Run ID. Reusing an ID with different bytes is rejected.
+
+```python
+import hashlib
+import hmac
+import json
+import time
+
+body = json.dumps({"signal": "new inquiry"}, separators=(",", ":")).encode()
+timestamp = str(int(time.time()))
+event_id = "source-event-123"
+message = timestamp.encode() + b"\n" + event_id.encode() + b"\n" + body
+signature = "sha256=" + hmac.new(signing_key.encode(), message, hashlib.sha256).hexdigest()
+# POST body unchanged, with the three headers above.
+```
+
+The inquiry email source expects `message_id`, `from`, `subject`, and `body` as
+nonempty strings. The store order source expects `order_id`, `shop_id`, and `status`.
+Other fields remain available to the Agent as bounded, untrusted event data. A
+sender or integration gateway must normalize its upstream email/store event to
+this contract. A direct Shopify order webhook is also supported below; native
+mailbox subscriptions and other stores still need an integration gateway.
+
+## Direct Shopify order webhook
+
+Configure the Shopify connector with the store's exact
+`https://<store>.myshopify.com` origin and the app client ID and client secret.
+Grant the project access to that shop, then select **Store order → Shopify
+orders/create webhook** and its active shop grant in Event triggers. Creation
+returns no signing key: Shopify signs delivery with the app client secret already
+held in the connector vault. Register the displayed `/shopify` Delivery URL as
+an HTTPS `orders/create` webhook subscription in the Shopify app. In a trusted
+gateway deployment, set `OPHIRA_EVENT_PUBLIC_ORIGIN` to the operator-owned public
+HTTPS origin (for example `https://events.example.com`). A project administrator
+can then select **Register or verify with Shopify**. OPHIRA uses its configured
+origin and the app's current shop token to create a shop-specific subscription;
+the browser cannot choose the callback. The app must already have `read_orders`
+granted by Shopify. Local-only mode cannot register a public subscription.
+See Shopify's
+[subscription guide](https://shopify.dev/docs/apps/build/webhooks/subscribe).
+
+Registration first queries Shopify for this exact URL and topic. It creates a
+subscription with only the order ID, name, time, financial/fulfillment status,
+total price, and currency when none exists. A durable attempt is saved before
+the external mutation. If a response is lost, the next request queries Shopify
+again and reports an uncertain outcome without creating another subscription.
+After inspecting Shopify, an administrator may explicitly retry. **Remove
+Shopify subscription** checks the same URL and ID, removes that subscription,
+then clears the local record; a lost removal response is reconciled by another
+remove attempt. A changed public origin requires removal of the old subscription
+before registration at the new URL. Subscription status shown in the UI is the
+last local confirmation; **Register or verify** refreshes it from Shopify.
+Remove registered or uncertain Shopify subscriptions before deleting the project.
+The project deletion review discloses any local subscription record as an external
+retention boundary. Project deletion erases the local callback ID but does not
+revoke the remote Shopify webhook. Removal uses the recorded URL, so it still
+works after `OPHIRA_EVENT_PUBLIC_ORIGIN` is changed or unset, provided the shop
+grant and connector remain available. If those credentials are unavailable,
+remove the subscription directly in Shopify before deleting the project.
+
+The endpoint verifies `X-Shopify-Hmac-SHA256` against the **raw body**, then
+requires `X-Shopify-Topic: orders/create`, the granted store's exact
+`X-Shopify-Shop-Domain`, and `X-Shopify-Webhook-Id`. It rejects duplicate headers,
+invalid JSON, the absence of a matching active shop grant, a disabled connector, and a
+removed `read_orders` scope. The body cap is 1 MB. The webhook ID uses the same
+durable receipt and uncertain-dispatch policy as signed events. Shopify order
+payloads are reduced to order ID, shop ID, created status, order name, time,
+financial/fulfillment status, total price, and currency before reaching the
+Agent. Buyer email, customer, address, and line-item details are excluded from
+the Run prompt. Rotate the Shopify app secret in the connector, not on the
+trigger. Renewing a grant for the same connector and shop keeps the webhook URL
+working; revoking it without a replacement stops delivery. See Shopify's
+[delivery verification](https://shopify.dev/docs/apps/build/webhooks/verify-deliveries)
+for the provider's signature and duplicate-delivery contract.
+Pausing a trigger discards correctly signed Shopify deliveries with a success
+response so Shopify does not retry events intentionally skipped during the pause.
+
+## Authority and recovery
+
+The signature proves possession of this trigger's key. In authenticated deployments,
+dispatch also rechecks the saved creator's current project membership and `RUN_CREATE`
+permission. The request cannot choose a project, principal, provider, budget, or
+permission ceiling. Each accepted event starts a separate, single main Agent Run
+through `RunManager.create_and_start` with a pinned budget and trigger revision.
+The event body is framed as untrusted data. Shell/delegation are unavailable;
+project file writes inside an opted-in ceiling still require human permission.
+An optional ceiling permits commercial proposals only after a live human approves
+the stage call. Commercial outbound actions keep their separate review and apply
+gate; no signed event can approve or apply them on its own.
+Changing or pausing a trigger blocks later tool calls in its existing Runs.
+
+A durable receipt is written before dispatch. If a worker fails between the receipt
+and Run creation, a repeat returns `dispatch_uncertain` with no Run ID. If the Run
+was created but the receipt was not updated, a repeat recovers its Run ID. The
+system never starts a second Run for an uncertain event ID. Inspect project Runs
+before sending a distinct event ID after an uncertain result.
+
+In trusted gateway mode, the exact `/deliver` and `/shopify` POST paths accept
+their respective event signatures without a user assertion. Deploy them behind HTTPS,
+keep the management API behind
+the normal authenticated gateway, and rate limit the public path. Local-only mode
+accepts delivery only from loopback. Project deletion includes trigger definitions,
+receipts, and their private signing keys.
+
+## Verification boundary
+
+Local HTTP tests cover accepted deliveries, Shopify subscription creation,
+lookup, uncertain retries and removal, HMAC/shop/topic/grant checks,
+PII reduction, budget and permission bindings, stale
+or bad signatures, schemas, duplicates, key rotation, pause/revocation, creator
+membership, and interrupted receipt binding. A local desktop/mobile headless
+Chromium pass verified the signed management page, creation, one-time key display, and
+dismissal. A separate local desktop/mobile Chromium pass used a simulated API to
+check Shopify registration and removal controls and narrow-screen layout. Real email
+and Shopify deliveries, a public HTTPS ingress, a configured
+Provider Run, and deployed browser verification remain open.

@@ -4,6 +4,8 @@ import type { OpportunityProject, RunRecord, Schedule } from '../api/types'
 import { I18nContext } from '../i18n'
 import ScheduledTasksPage from './ScheduledTasksPage'
 
+vi.mock('./EventTriggersPanel', () => ({ default: () => null }))
+
 vi.mock('../api/client', () => ({
   listSchedules: vi.fn(),
   createSchedule: vi.fn(),

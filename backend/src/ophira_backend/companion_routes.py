@@ -36,6 +36,8 @@ from .models import (
     EventActor,
     EventEnvelope,
     PermissionResolution,
+    RunInterjectionReceipt,
+    RunInterjectionRequest,
     RunRecord,
 )
 from .permissions import PermissionBroker, PermissionNotFoundError
@@ -43,6 +45,7 @@ from .policy import PolicyDeniedError
 from .providers import ProviderConfigurationError, ProviderNotFoundError
 from .push_service import PushDeliveryService
 from .push_transport import PushSubscription
+from .run_interjections import RunInterjectionConflict
 from .runs import RunCancelConflictError, RunManager
 from .storage import FileLedger, LedgerNotFoundError
 
@@ -441,6 +444,31 @@ def register_companion_routes(
                 run_id, actor=EventActor(type="user", name=f"paired-device:{record.id}"),
             )
         except RunCancelConflictError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    @application.post(
+        "/api/companion/runs/{run_id}/interjections",
+        response_model=RunInterjectionReceipt, status_code=202,
+    )
+    async def interject(request: Request, run_id: str) -> RunInterjectionReceipt:
+        payload = await _payload(request, RunInterjectionRequest)
+        record = run_authority(request, run_id)
+        if not record.allow_run_start:
+            raise HTTPException(status_code=403, detail="Device may not direct or start runs")
+        run = ledger.get_run(run_id)
+        binding = record.principal_binding
+        if run.identity_binding == "authenticated_principal" and (
+            binding is None
+            or (binding.tenant_id, binding.principal_id, binding.role, binding.session_id)
+            != (run.tenant_id, run.principal_id, run.principal_role, run.principal_session_id)
+        ):
+            raise HTTPException(status_code=403, detail="Device is outside this Run's identity")
+        try:
+            return await runs.interject(
+                run_id, payload,
+                actor=EventActor(type="user", name=f"paired-device:{record.id}"),
+            )
+        except RunInterjectionConflict as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     @application.post("/api/companion/logout")

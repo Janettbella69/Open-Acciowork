@@ -17,7 +17,16 @@ export type RunStatus =
   | 'completed'
   | 'failed'
   | 'cancelled'
-export type RunMode = 'standard' | 'deep_research'
+export type RunMode = 'standard' | 'deep_research' | 'plan'
+export type RunInterjectionMode = 'now' | 'next_turn' | 'interrupt'
+export type RunInterjectionReceipt = {
+  request_id: string
+  run_id: string
+  prompt: string
+  mode: RunInterjectionMode
+  status: 'queued' | 'dispatching' | 'injected' | 'uncertain' | 'blocked' | 'carried'
+  next_run_id: string | null
+}
 export type RunRetryStrategy = 'resume' | 'new_branch'
 export type ScheduleKind = 'task' | 'heartbeat'
 export type AgentTemplate = 'general' | 'research' | 'sourcing' | 'marketing' | 'docs' | 'opportunity'
@@ -150,7 +159,10 @@ export type RunRecord = {
   prompt: string
   agent_id: string | null
   schedule_id?: string | null
+  event_trigger_id?: string | null
   resume_session_id?: string | null
+  manual_compaction?: boolean
+  session_compaction_epoch?: number
   mode: RunMode
   provider_profile_id: string | null
   provider_snapshot: Record<string, unknown> | null
@@ -604,6 +616,8 @@ export type OrgPolicy = {
   permission_mode: 'default' | 'auto'
   allowed_provider_ids: string[]
   allowed_skill_ids: string[]
+  remote_mcp_enabled: boolean
+  allowed_mcp_hosts: string[]
   browser_enabled: boolean
   computer_control_enabled: boolean
   channel_delivery_enabled: boolean
@@ -615,6 +629,26 @@ export type OrgPolicy = {
   commercial_forbidden_fields: string[]
   commercial_numeric_limits: CommercialNumericLimit[]
   updated_at: string
+}
+
+export type UserMcpTool = { name: string; policy: 'allow' | 'ask' | 'deny' }
+export type UserMcpConnector = {
+  id: string
+  project_id: string
+  name: string
+  url: string
+  revision: number
+  enabled: boolean
+  reviewed_at: string | null
+  review_error: string | null
+  credential_configured: boolean
+  tools: UserMcpTool[]
+}
+export type UserMcpCatalogItem = {
+  id: string
+  name: string
+  url: string
+  description: string
 }
 
 export type PermissionGrant = {

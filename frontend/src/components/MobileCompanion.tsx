@@ -4,6 +4,7 @@ import {
   cancelCompanionRun,
   getCompanionOverview,
   getCompanionSession,
+  interjectCompanionRun,
   logoutCompanion,
   pairCompanion,
   resolveCompanionPermission,
@@ -13,7 +14,7 @@ import {
   type CompanionSession,
   type PairingFragment,
 } from '../api/companion'
-import type { PendingPermissionView, PermissionAnswers, RunRecord } from '../api/types'
+import type { PendingPermissionView, PermissionAnswers, RunInterjectionMode, RunRecord } from '../api/types'
 import { useT } from '../i18n'
 import CompanionPushControls from './CompanionPushControls'
 import DurablePermissionNotice from './DurablePermissionNotice'
@@ -38,7 +39,11 @@ export default function MobileCompanion({ initialSession, entry }: {
   const [overview, setOverview] = useState<CompanionOverview | null>(null)
   const [projectId, setProjectId] = useState('')
   const [prompt, setPrompt] = useState('')
+  const [steeringRunId, setSteeringRunId] = useState('')
   const [progressRunId, setProgressRunId] = useState('')
+  const [steeringPrompt, setSteeringPrompt] = useState('')
+  const [steeringMode, setSteeringMode] = useState<RunInterjectionMode>('now')
+  const steeringRequest = useRef<{ id: string; prompt: string; mode: RunInterjectionMode } | null>(null)
   const [confirmed, setConfirmed] = useState<Record<string, boolean>>({})
   const [busy, setBusy] = useState('')
   const [refreshing, setRefreshing] = useState(false)
@@ -204,6 +209,33 @@ export default function MobileCompanion({ initialSession, entry }: {
     })
   }
 
+  const steer = (event: FormEvent) => {
+    event.preventDefault()
+    const run = overview?.runs.find((item) => item.id === steeringRunId)
+    const text = steeringPrompt.trim()
+    if (session?.status !== 'approved' || !overview?.device.allow_run_start
+      || run?.status !== 'running' || !text) return
+    const previous = steeringRequest.current
+    const message = previous?.prompt === text && previous.mode === steeringMode
+      ? previous : { id: crypto.randomUUID(), prompt: text, mode: steeringMode }
+    steeringRequest.current = message
+    void perform(`steer:${run.id}`,
+      () => interjectCompanionRun(run.id, message.id, text, steeringMode),
+      (receipt) => {
+        steeringRequest.current = null
+        setSteeringPrompt('')
+        setNotice(t(receipt.status === 'injected'
+          ? 'Direction sent to the active run.'
+          : receipt.status === 'uncertain'
+            ? 'Direction delivery could not be confirmed. Review the activity before retrying.'
+          : receipt.status === 'blocked'
+            ? 'This direction was blocked because device access changed.'
+          : receipt.status === 'dispatching'
+            ? 'Interrupt requested. Review the activity to confirm delivery.'
+            : 'Direction saved for the next turn.'))
+      }, true)
+  }
+
   const disconnect = () => {
     void perform('logout', logoutCompanion, () => {
       setOverview(null)
@@ -276,6 +308,17 @@ export default function MobileCompanion({ initialSession, entry }: {
             {t(progressRunId === run.id ? 'Hide progress' : 'View live progress')}
           </button>
           {progressRunId === run.id && <MobileRunProgress runId={run.id} />}
+          {run.status === 'running' && overview.device.allow_run_start && <button type="button" disabled={Boolean(busy)} onClick={() => setSteeringRunId(steeringRunId === run.id ? '' : run.id)}>{t('Direct this run')}</button>}
+          {steeringRunId === run.id && run.status === 'running' && <form className="mobile-run-form" onSubmit={steer}>
+            <label><span>{t('Direction')}</span><textarea value={steeringPrompt} onChange={(event) => setSteeringPrompt(event.target.value)} disabled={Boolean(busy)} rows={3} maxLength={40_000} /></label>
+            <VoiceDictation value={steeringPrompt} onChange={setSteeringPrompt} disabled={Boolean(busy)} inline />
+            <label><span>{t('Delivery')}</span><select value={steeringMode} onChange={(event) => setSteeringMode(event.target.value as RunInterjectionMode)} disabled={Boolean(busy)}>
+              <option value="now">{t('Send to active run')}</option>
+              <option value="next_turn">{t('Queue for next turn')}</option>
+              <option value="interrupt">{t('Interrupt and replace')}</option>
+            </select></label>
+            <button type="submit" disabled={!steeringPrompt.trim() || Boolean(busy)}>{t('Send direction')}</button>
+          </form>}
           {canCancel(run) && <button type="button" disabled={Boolean(busy)} onClick={() => cancel(run)}>{t('Cancel run')}</button>}
         </article>)}
       </section>

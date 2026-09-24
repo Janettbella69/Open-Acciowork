@@ -30,6 +30,18 @@ afterEach(() => {
 })
 
 describe('API client', () => {
+  it('binds plan continuation to the exact reviewed run', async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ id: 'run_next' }), { status: 202 }))
+    vi.stubGlobal('fetch', fetchMock)
+    await startRun('project_1', 'Execute the plan', 'session_1', 'standard', 'provider_1', null, 'run_plan')
+    expect(fetchMock).toHaveBeenCalledWith('/api/projects/project_1/runs', expect.objectContaining({
+      method: 'POST',
+      body: JSON.stringify({
+        prompt: 'Execute the plan', mode: 'standard', resume_session_id: 'session_1',
+        provider_profile_id: 'provider_1', plan_source_run_id: 'run_plan',
+      }),
+    }))
+  })
   it.each(['version', 'enablement'])('rejects stale Installed Skill %s before making a selection write', async (change) => {
     const hash = 'a'.repeat(64)
     const skill = { id: 'ophira-tenant:private-research', name: 'private-research', content_hash: hash }

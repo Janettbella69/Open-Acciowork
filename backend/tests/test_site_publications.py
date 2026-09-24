@@ -185,7 +185,7 @@ async def test_site_publication_requires_html_and_public_origin(tmp_path: Path):
     with pytest.raises(ValueError, match="separate host"):
         Settings(
             data_dir=tmp_path, site_public_origin="https://pages.example.com",
-            companion_public_origin="https://pages.example.com",
+            event_public_origin="https://pages.example.com",
         )
 
 

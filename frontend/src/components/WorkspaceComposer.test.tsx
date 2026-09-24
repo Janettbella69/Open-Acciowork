@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { useState } from 'react'
 import { vi } from 'vitest'
-import type { OpportunityProject, PendingPermission, ProviderProfile, RunRecord, RunTelemetry, TelemetryMetric } from '../api/types'
+import type { OpportunityProject, PendingPermission, ProviderProfile, RunMode, RunRecord, RunTelemetry, TelemetryMetric } from '../api/types'
 import { I18nContext } from '../i18n'
 import WorkspaceComposer from './WorkspaceComposer'
 
@@ -202,7 +202,7 @@ const runTelemetry: RunTelemetry = {
 function StatefulComposer() {
   const [value, setValue] = useState('')
   const [attachedFiles, setAttachedFiles] = useState<File[]>([])
-  const [runMode, setRunMode] = useState<'standard' | 'deep_research'>('standard')
+  const [runMode, setRunMode] = useState<RunMode>('standard')
   return (
     <WorkspaceComposer
       {...baseProps()}
@@ -217,6 +217,35 @@ function StatefulComposer() {
 }
 
 describe('WorkspaceComposer', () => {
+  it('replays SDK window occupancy and compaction with a manual action', () => {
+    const onCompact = vi.fn()
+    const events = [
+      { type: 'context.compacted', data: { trigger: 'auto' } },
+      { type: 'context.usage', data: { used_tokens: 41_000, max_tokens: 180_000 } },
+    ].map((item, index) => ({
+      id: `run_1:${index + 1}`, sequence: index + 1, type: item.type,
+      run_id: 'run_1', project_id: 'project_1', trace_id: 'trace_1',
+      sdk_session_id: 'session_1', provider_profile_id: null,
+      timestamp: '2026-09-24T10:00:00Z',
+      actor: { type: 'system', name: 'claude-agent-sdk', agent_id: null },
+      parent_id: null, tool_use_id: null, data: item.data,
+    }))
+    render(<WorkspaceComposer {...baseProps()} run={completedRun} events={events} onCompact={onCompact} />)
+    const usage = screen.getByLabelText('Context usage')
+    expect(usage).toHaveTextContent('41,000 / 180,000 tokens')
+    expect(within(usage).getByRole('progressbar')).toHaveAttribute('value', '41000')
+    expect(screen.getByText('Context compacted automatically')).toBeVisible()
+    fireEvent.click(within(usage).getByRole('button', { name: 'Compact context' }))
+    expect(onCompact).toHaveBeenCalledOnce()
+  })
+
+  it('marks an unmeasured window honestly and hides manual compaction during active work', () => {
+    render(<WorkspaceComposer {...baseProps()} run={{ ...completedRun, status: 'running' }}
+      isActive onCompact={vi.fn()} />)
+    expect(screen.getByText('Waiting for SDK context measurement')).toBeVisible()
+    expect(screen.queryByRole('button', { name: 'Compact context' })).not.toBeInTheDocument()
+  })
+
   it('shows server-replayed latency, turn, and cost telemetry for a terminal run', () => {
     render(
       <WorkspaceComposer
@@ -291,6 +320,31 @@ describe('WorkspaceComposer', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /deep research/i }))
     expect(screen.getByRole('button', { name: /deep research/i })).toHaveAttribute('aria-pressed', 'false')
+  })
+
+  it('offers an explicit read-only plan choice and a reviewed continuation', () => {
+    render(<StatefulComposer />)
+    const toggle = screen.getByRole('button', { name: 'Plan first' })
+    expect(toggle).toHaveAttribute('aria-pressed', 'false')
+    fireEvent.click(toggle)
+    expect(toggle).toHaveAttribute('aria-pressed', 'true')
+    fireEvent.click(screen.getByRole('button', { name: 'Deep Research' }))
+    expect(toggle).toHaveAttribute('aria-pressed', 'false')
+
+    const approve = vi.fn()
+    const revise = vi.fn()
+    const { unmount } = render(<WorkspaceComposer {...baseProps()}
+      run={{ ...completedRun, mode: 'plan' }} assistantText="1. Inspect sources; 2. Draft report"
+      onApprovePlan={approve} onRevisePlan={revise} />)
+    const review = screen.getByLabelText('Review plan')
+    expect(within(review).getByText(/has not been executed/)).toBeVisible()
+    fireEvent.click(within(review).getByRole('button', { name: 'Approve and execute' }))
+    expect(approve).toHaveBeenCalledOnce()
+    const changes = within(review).getByRole('textbox', { name: 'Changes to the plan' })
+    fireEvent.change(changes, { target: { value: 'Check German VAT first' } })
+    fireEvent.click(within(review).getByRole('button', { name: 'Request revised plan' }))
+    expect(revise).toHaveBeenCalledWith('Check German VAT first')
+    unmount()
   })
 
   it('locks the Deep Research choice while a task is running', () => {
@@ -436,6 +490,38 @@ describe('WorkspaceComposer', () => {
     expect(screen.getByText(/compared the available buyer evidence/i)).toBeVisible()
     expect(screen.getAllByText(/three verified sources/i)).toHaveLength(2)
     expect(screen.getByText(/trace trace_1/i)).toBeVisible()
+  })
+
+  it('accepts a direction during a running task and preserves the selected delivery mode', () => {
+    const props = baseProps()
+    const interject = vi.fn()
+    render(<WorkspaceComposer {...props} value="Check shipping first" busy isActive
+      run={{ ...completedRun, status: 'running', finished_at: null }}
+      onInterject={interject} />)
+    const input = screen.getByRole('textbox', { name: 'Ask TradeMind' })
+    expect(input).toBeEnabled()
+    fireEvent.change(screen.getByRole('combobox', { name: 'Delivery' }), {
+      target: { value: 'interrupt' },
+    })
+    fireEvent.submit(input.closest('form')!)
+    expect(interject).toHaveBeenCalledWith('interrupt')
+    expect(props.onSubmit).not.toHaveBeenCalled()
+  })
+
+  it('replays a queued direction and opens the run that consumed it', () => {
+    const selectRun = vi.fn()
+    render(<WorkspaceComposer {...baseProps()} run={completedRun} onSelectRun={selectRun}
+      events={[{
+        id: 'run_1:8', sequence: 8, type: 'run.interjection.carried', run_id: 'run_1',
+        project_id: 'project_1', trace_id: 'trace_1', sdk_session_id: 'session_1',
+        provider_profile_id: null, timestamp: '2026-08-05T10:01:00Z',
+        actor: { type: 'system', name: 'run-manager', agent_id: null },
+        parent_id: null, tool_use_id: null,
+        data: { resource_id: 'message_1', next_run_id: 'run_2' },
+      }]} />)
+    expect(screen.getByText('Direction moved into the next run')).toBeVisible()
+    fireEvent.click(screen.getByRole('button', { name: 'Open queued run' }))
+    expect(selectRun).toHaveBeenCalledWith('run_2')
   })
 
   it('shows a real history restore state without fabricating project results', () => {

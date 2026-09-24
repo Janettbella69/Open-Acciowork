@@ -5,12 +5,12 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 from ophira_backend.config import Settings
-from ophira_backend.constants import EventType, RunStatus
+from ophira_backend.constants import EventType, RunMode, RunStatus
 from ophira_backend.events import EventPublisher
 from ophira_backend.main import create_app
 from ophira_backend.models import ProjectCreate, utc_now
 from ophira_backend.permissions import PermissionBroker
-from ophira_backend.runs import RunManager
+from ophira_backend.runs import RunManager, RunResumeConflictError
 from ophira_backend.storage import FileLedger
 
 
@@ -32,6 +32,76 @@ def manager(root, runtime):
     events = EventPublisher(ledger)
     permissions = PermissionBroker(ledger, events, timeout_seconds=30)
     return RunManager(ledger, events, permissions, runtime)
+
+
+@pytest.mark.asyncio
+async def test_reviewed_plan_resumes_exact_session_once(tmp_path):
+    runtime = OfflineRuntime()
+    runs = manager(tmp_path, runtime)
+    project = runs.ledger.create_project(ProjectCreate(name="Plan", objective="Research first"))
+    plan = runs.ledger.create_run(project.id, "Plan it", mode=RunMode.PLAN)
+    plan = runs.ledger.update_run(
+        plan.id, status=RunStatus.COMPLETED, sdk_session_id="sdk_plan_session",
+        finished_at=utc_now(),
+    )
+
+    with pytest.raises(RunResumeConflictError, match="reviewed source Run"):
+        await runs.create_and_start(
+            project.id, "Bypass review", resume_session_id=plan.sdk_session_id,
+            mode=RunMode.STANDARD,
+        )
+
+    execution = await runs.create_and_start(
+        project.id, "Execute approved plan", resume_session_id=plan.sdk_session_id,
+        plan_source_run_id=plan.id, mode=RunMode.STANDARD,
+    )
+    assert execution.resume_source_run_id == plan.id
+    assert execution.resume_session_id == plan.sdk_session_id
+    with pytest.raises(RunResumeConflictError):
+        await runs.create_and_start(
+            project.id, "Duplicate approval", resume_session_id=plan.sdk_session_id,
+            plan_source_run_id=plan.id, mode=RunMode.STANDARD,
+        )
+    await asyncio.wait_for(runtime.started.wait(), 5)
+    for _ in range(100):
+        if runs.ledger.get_run(execution.id).status == RunStatus.COMPLETED:
+            break
+        await asyncio.sleep(0.01)
+    assert runs.ledger.get_run(execution.id).status == RunStatus.COMPLETED
+    # Even a terminal attempt without a recorded SDK session consumes the
+    # reviewed plan. It may have performed external work before losing the ID.
+    with pytest.raises(RunResumeConflictError, match="no longer the latest"):
+        await runs.create_and_start(
+            project.id, "Repeat after incomplete telemetry",
+            resume_session_id=plan.sdk_session_id, plan_source_run_id=plan.id,
+            mode=RunMode.STANDARD,
+        )
+    runs.ledger.update_run(execution.id, sdk_session_id=plan.sdk_session_id)
+    with pytest.raises(RunResumeConflictError, match="no longer the latest"):
+        await runs.create_and_start(
+            project.id, "Stale approval", resume_session_id=plan.sdk_session_id,
+            plan_source_run_id=plan.id, mode=RunMode.STANDARD,
+        )
+
+
+@pytest.mark.asyncio
+async def test_plan_run_api_accepts_plan_mode_and_reviewed_source(tmp_path):
+    app = create_app(Settings(data_dir=tmp_path), runtime=OfflineRuntime())
+    project = app.state.ledger.create_project(ProjectCreate(name="Plan API", objective="Review"))
+    source = app.state.ledger.create_run(project.id, "Draft", mode=RunMode.PLAN)
+    app.state.ledger.update_run(
+        source.id, status=RunStatus.COMPLETED, sdk_session_id="sdk_api_plan",
+        finished_at=utc_now(),
+    )
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://localhost") as client:
+        revision = await client.post(
+            f"/api/projects/{project.id}/runs",
+            json={"prompt": "Revise the plan", "mode": "plan",
+                  "resume_session_id": "sdk_api_plan", "plan_source_run_id": source.id},
+        )
+    assert revision.status_code == 202
+    assert revision.json()["mode"] == "plan"
+    assert revision.json()["resume_source_run_id"] == source.id
 
 
 @pytest.mark.parametrize(

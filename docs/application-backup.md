@@ -98,6 +98,10 @@ PYTHONPATH=backend/src .venv/bin/python -m ophira_backend.application_backup res
 由管理员刷新导入审核列表，按已有凭证完成核对并清理未提交暂存，再正常停机备份。
 该核对只补记结果，没有凭证时要求重新人审，不自动重新发布。
 
+[插件包导入](plugin-imports.md) 报告也纳入冷备核对：部署范围、报告身份、子 Skill 导入请求、
+上传者、扫描结论和固定内容哈希必须对应。MCP-only 插件同样保留部署范围；未完成的插件
+扫描暂存目录会阻止备份。恢复后报告仍指向原来的逐件 Skill 审核记录，MCP 地址不会自动启用。
+
 ```bash
 PYTHONPATH=backend/src .venv/bin/python -m pytest -q backend/tests/test_application_backup.py
 OPHIRA_CONTRACT_PROVIDER= PYTHONPATH=backend/src .venv/bin/python -m pytest -q backend/tests

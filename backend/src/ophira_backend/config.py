@@ -162,6 +162,8 @@ class Settings(BaseSettings):
     auth_assertion_future_skew_seconds: int = Field(default=5, ge=0, le=30)
     companion_enabled: bool = False
     companion_public_origin: str | None = Field(default=None, max_length=500)
+    # Operator-owned public HTTPS origin for external event deliveries.
+    event_public_origin: str | None = Field(default=None, max_length=500)
     site_public_origin: str | None = Field(default=None, max_length=500)
     push_enabled: bool = False
     push_vapid_private_key: SecretStr | None = Field(default=None, max_length=2_000)
@@ -255,13 +257,20 @@ class Settings(BaseSettings):
         self.push_allowed_origins = [companion_origin(item) for item in self.push_allowed_origins]
         if self.companion_public_origin is not None:
             self.companion_public_origin = companion_origin(self.companion_public_origin)
+        if self.event_public_origin is not None:
+            self.event_public_origin = public_https_origin(
+                self.event_public_origin, "event_public_origin",
+            )
         if self.site_public_origin is not None:
             self.site_public_origin = public_https_origin(
                 self.site_public_origin, "site_public_origin",
             )
-            if (self.companion_public_origin is not None
-                    and urlsplit(self.site_public_origin).hostname
-                    == urlsplit(self.companion_public_origin).hostname):
+            site_host = urlsplit(self.site_public_origin).hostname
+            if site_host in {
+                urlsplit(origin).hostname for origin in (
+                    self.event_public_origin, self.companion_public_origin,
+                ) if origin is not None
+            }:
                 raise ValueError("site_public_origin must use a separate host")
         if self.companion_enabled and self.companion_public_origin is None:
             raise ValueError("companion access requires OPHIRA_COMPANION_PUBLIC_ORIGIN")

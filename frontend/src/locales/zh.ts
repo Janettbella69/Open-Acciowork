@@ -14,18 +14,24 @@ import { templatesZh } from './templates-zh'
 import { repositoryZh } from './repository-zh'
 import { exportZh } from './export-zh'
 import { workspaceZh } from './workspace-zh'
-import { voiceZh } from './voice-zh'
-import { sitePublicationsZh } from './site-publications-zh'
 import { memoryZh } from './memory-zh'
 import { deletionZh } from './deletion-zh'
+import { mcpZh } from './mcp-zh'
+import { eventTriggersZh } from './event-triggers-zh'
+import { voiceZh } from './voice-zh'
+import { sitePublicationsZh } from './site-publications-zh'
+import { pluginImportsZh } from './plugin-imports-zh'
 
 /** 中文字典：key = 英文原文。缺条目时界面回落英文（可见即可补）。 */
 export const zh: Record<string, string> = {
+  ...pluginImportsZh,
+  ...sitePublicationsZh,
+  ...voiceZh,
+  ...eventTriggersZh,
+  ...mcpZh,
   ...deletionZh,
   ...memoryZh,
   ...workspaceZh,
-  ...voiceZh,
-  ...sitePublicationsZh,
   ...exportZh,
   ...repositoryZh,
   ...templatesZh,

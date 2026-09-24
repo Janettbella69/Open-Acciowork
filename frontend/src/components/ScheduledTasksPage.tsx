@@ -17,6 +17,7 @@ import type {
   SchedulePermissionRule,
 } from '../api/types'
 import Brand from './Brand'
+import EventTriggersPanel from './EventTriggersPanel'
 import TaskExperiencePanel from './TaskExperiencePanel'
 import { useLanguage, useT } from '../i18n'
 import './scheduled-tasks-page.css'
@@ -383,6 +384,7 @@ export default function ScheduledTasksPage() {
             ))}
           </div>
         )}
+        {view === 'tasks' && <EventTriggersPanel projects={projects} />}
       </main>
 
       {creatorOpen && (

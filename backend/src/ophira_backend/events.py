@@ -4,13 +4,15 @@ import asyncio
 import dataclasses
 import re
 from collections.abc import AsyncIterator, Awaitable, Callable
+from contextlib import nullcontext
 from datetime import date, datetime
 from enum import Enum
 from pathlib import Path
 from typing import Any
 
-from .constants import TERMINAL_RUN_STATUSES, EventType
+from .constants import TERMINAL_RUN_STATUSES, EventType, RunStatus
 from .models import EventActor, EventEnvelope
+from .run_interjections import RunInterjectionConflict
 from .storage import FileLedger
 
 SECRET_KEY_FRAGMENTS = {
@@ -137,6 +139,45 @@ class EventPublisher:
         return await self.publish(
             run_id, event_type, data, resource_id=resource_id, actor=actor,
         )
+
+    async def publish_run_interjection_requested(
+        self, run_id: str, data: dict[str, Any], *, actor: EventActor,
+    ) -> tuple[EventEnvelope, bool]:
+        """Serialize acceptance with terminal status and session resumption."""
+        resource_id = data.get("resource_id")
+        if not isinstance(resource_id, str) or not resource_id:
+            raise ValueError("interjection resource ID is required")
+        async with self._publish_lock(run_id):
+            while True:
+                snapshot = self.ledger.get_run(run_id)
+                session_lock = (
+                    self.ledger._lock_for(f"sdk-session:{snapshot.sdk_session_id}")
+                    if snapshot.sdk_session_id else nullcontext()
+                )
+                with session_lock, self.ledger._lock_for(run_id):
+                    run = self.ledger.get_run(run_id)
+                    if run.sdk_session_id != snapshot.sdk_session_id:
+                        continue
+                    if run.status not in {RunStatus.QUEUED, RunStatus.RUNNING}:
+                        raise RunInterjectionConflict(
+                            "This run is no longer accepting messages."
+                        )
+                    previous_sequence = self.ledger.get_run_summary(run_id).last_sequence
+                    event = EventEnvelope(
+                        id="pending", sequence=1,
+                        type=EventType.RUN_INTERJECTION_REQUESTED.value,
+                        run_id=run.id, project_id=run.project_id,
+                        trace_id=run.trace_id, sdk_session_id=run.sdk_session_id,
+                        provider_profile_id=run.provider_profile_id,
+                        actor=actor, data=redact(data),
+                    )
+                    stored = self.ledger.append_event_once(event, resource_id)
+                    created = stored.sequence > previous_sequence
+                    break
+        condition = self._condition(run_id)
+        async with condition:
+            condition.notify_all()
+        return stored, created
 
     async def stream(
         self,

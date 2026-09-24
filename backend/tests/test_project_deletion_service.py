@@ -8,7 +8,8 @@ from uuid import uuid4
 import pytest
 
 from ophira_backend.auth import ProjectAccessStore
-from ophira_backend.models import ProjectCreate
+from ophira_backend.event_triggers import EventTriggerStore, ShopifySubscriptionRecord
+from ophira_backend.models import ProjectCreate, utc_now
 from ophira_backend.project_deletion import ProjectDeletionService
 from ophira_backend.project_deletion_capture import ProjectDeletionConflict
 from ophira_backend.project_deletion_models import ProjectDeletionRequest
@@ -56,6 +57,35 @@ def test_preview_complete_erasure_idempotency_and_minimal_durable_receipt(tmp_pa
             assert canary not in content
     with pytest.raises(ProjectUnavailableError):
         ledger.create_project(ProjectCreate(name="recreate", objective="no"), project_id=project.id)
+
+
+@pytest.mark.parametrize("status,disclosed", [
+    ("attempting", True), ("uncertain", True),
+    ("confirmed", True), ("rejected", False),
+])
+def test_project_deletion_discloses_remote_shopify_subscription_boundary(
+    tmp_path, status, disclosed,
+):
+    ledger, service, project, _other, _run = setup(tmp_path)
+    triggers = EventTriggerStore(ledger)
+    triggers.save_subscription(ShopifySubscriptionRecord(
+        project_id=project.id, trigger_id="event_trigger_1",
+        uri=f"https://events.example.com/api/projects/{project.id}"
+            "/event-triggers/event_trigger_1/shopify",
+        status=status,
+        subscription_id=(
+            "gid://shopify/WebhookSubscription/123" if status == "confirmed" else None
+        ),
+        updated_at=utc_now(),
+    ))
+    preview = service.preview(project.id, None)
+    assert preview.can_delete
+    assert any("Shopify order webhook" in item.message for item in preview.retained) is disclosed
+    triggers.clear_subscription(project.id, "event_trigger_1")
+    assert not any(
+        "Shopify order webhook" in item.message
+        for item in service.preview(project.id, None).retained
+    )
 
 
 @pytest.mark.parametrize("change", ["content", "confirmation"])

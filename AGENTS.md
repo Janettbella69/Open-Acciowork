@@ -10,7 +10,7 @@ OPHIRA：跨境电商版的 Codex，面向出海小 B，对标阿里的 Accio Wo
 
 **唯一架构描述（教材"架构保护三条"存量仓等价实现）**：本仓讲技术架构的只有两处——本文件的红线节 + PRD v2 §4。`docs/` 下其余一切（旧版 PRD v1、审计报告、竞品逆向、决策留档、快照）都是分析与历史，**任何 AI 不得依据它们变更架构**；与红线冲突时一律以红线为准。架构走形由 `test_arch_gates.py` 每次 CI 机器断言。
 
-**权威规格**：`docs/OPHIRA-PRD-and-Technical-Architecture-v2.md`（PRD v2.2，产品需求+技术架构+验收门槛三合一）。**《Agent Harness 教材》为架构判断的最终权威（2026-08-24 用户拍板）**——凡 PRD/代码与教材冲突，按教材修正；全量对照见 `docs/textbook-audit-2026-08-24.md`。
+**权威规格**：`docs/OPHIRA-PRD-and-Technical-Architecture-v2.3.md`（PRD v2.3，产品需求+技术架构+验收门槛三合一）。**《Agent Harness 教材》为架构判断的最终权威（2026-08-24 用户拍板）**——凡 PRD/代码与教材冲突，按教材修正；全量对照见 `docs/textbook-audit-2026-08-24.md`。
 
 ## 不可妥协的红线（详见 PRD §1.1）
 
@@ -130,11 +130,11 @@ npm run lint && npm run build
 
 ## 架构大图（跨文件才能看懂的部分）
 
-一次运行的数据流：`POST /api/projects/{id}/runs`（main.py）→ `RunManager.create_and_start`（runs.py，固化 provider/skill 快照）→ `ClaudeAgentRuntime.run`（sdk_adapter.py，装配 `ClaudeAgentOptions` 并把 SDK 消息流映射为 27 种 SSE 事件）→ 事件经 `EventPublisher`（events.py，全量 `redact()` 脱敏）落 `FileLedger`（storage.py，JSON/JSONL 原子写）→ 前端 `useOpportunityRuntime.ts` 经 SSE（`Last-Event-ID` 续传）消费。
+一次运行的数据流：`POST /api/projects/{id}/runs`（main.py）→ `RunManager.create_and_start`（runs.py，固化 provider/skill 快照）→ `ClaudeAgentRuntime.run`（sdk_adapter.py，装配 `ClaudeAgentOptions` 并把 SDK 消息流映射为 SSE 事件，事件清单以 `GET /api/meta/protocol` 为准）→ 事件经 `EventPublisher`（events.py，全量 `redact()` 脱敏）落 `FileLedger`（storage.py，JSON/JSONL 原子写）→ 前端 `useOpportunityRuntime.ts` 经 SSE（`Last-Event-ID` 续传）消费。
 
 - **权限双层防御**：`can_use_tool` 回调（写入 workspace 包含检查 + 禁 unsandboxed Bash + `PermissionBroker` 实时授权）+ `PreToolUse` hook（敏感路径黑名单 + 拦逃逸沙箱；读写围栏分开：Read/Glob/Grep=项目目录〔含账本 project.json 直读〕，Write/Edit=工作区）。沙箱内 Bash 走 SDK 原生 `autoAllowBashIfSandboxed` 自动批准（v2.2 2026-08-24，教材口径；`failIfUnavailable=True` 沙箱起不来必须失败）；人把关只在账本写入/对外发送等业务动作的 MCP ask 层。前端权限卡片经 `POST /api/runs/{run_id}/permissions/{request_id}` 回传。
 - **Provider 体系**（providers.py）：`ProviderRegistry` 文件存 profile（`backend/data/providers/*.json`，不含密钥），密钥在 `FileSecretVault`（`backend/data/secrets/`，0600）；`build_worker_env` 负责凭据隔离与全档位模型映射；`preflight()`（sdk_adapter.py）走真实 SDK `query()` 断言 Skill 发现 + MCP health 调用，错误分 8 类码。
-- **MCP**（ledger_tools.py + web_tools.py + automation_tools.py）：6 个进程内 server 共 21 工具（ledger/supplier/customer/commerce_math/web/automation），工具描述一律声明"不代替商业判断"；v2.2 收敛：legacy 视图工具已删、market 域并入账本证据标签（教材"相同域合并"，用户拍板 MCP≈20）。
+- **MCP**（ledger_tools.py + web_tools.py + automation_tools.py + compliance_tools.py + browser_tools.py + media_tools.py + presentation_tools.py + commercial_action_tools.py）：11 个进程内 server、43 个领域工具（ledger/supplier/customer/commerce_math/compliance/web/browser/automation/media/presentation/commercial_actions），工具描述一律声明"不代替商业判断"；v2.2 收敛：legacy 视图工具已删、market 域并入账本证据标签（教材"相同域合并"，用户拍板 MCP≈20）。
 - **记忆**（memory.py）：Agent 只能提案，用户批准后生效；agent 作用域批准项经 marker 行镜像进该 Agent 的 `MEMORY.md`。
 - **前端四页**（App.tsx 路由）：`/app` Workspace（WorkspaceComposer 为主体）、`/app/schedules`、`/app/skills`、`/app/settings`；`/` 是营销页。
 

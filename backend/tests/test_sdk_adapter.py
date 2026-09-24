@@ -4,6 +4,7 @@ import io
 import json
 import zipfile
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from claude_agent_sdk import (
@@ -82,6 +83,7 @@ def test_default_sdk_options_keep_the_agent_general_and_observable(tmp_path: Pat
     assert options.thinking == {"type": "adaptive", "display": "summarized"}
     assert options.tools == {"type": "preset", "preset": "claude_code"}
     assert options.disallowed_tools == []
+    assert {"TaskCreate", "TaskGet", "TaskUpdate", "TaskList"} <= set(options.allowed_tools)
     assert options.system_prompt["preset"] == "claude_code"
     assert "不要把请求强制归入预设意图" in options.system_prompt["append"]
     persisted = _ledger.get_run(run.id)
@@ -140,6 +142,63 @@ def test_default_sdk_options_keep_the_agent_general_and_observable(tmp_path: Pat
         "SubagentStart",
         "SubagentStop",
     }
+
+
+@pytest.mark.asyncio
+async def test_plan_run_uses_native_mode_and_blocks_every_mutating_tool(tmp_path: Path) -> None:
+    ledger, initial, runtime = build_runtime(tmp_path)
+    run = ledger.update_run(initial.id, mode=RunMode.PLAN)
+    options = runtime._build_options(run)
+    assert options.permission_mode == "plan"
+    assert ledger.get_run(run.id).sdk_permission_mode == "plan"
+    assert "Bash" in options.disallowed_tools
+    assert "mcp__*" in options.disallowed_tools
+    assert "TaskCreate" not in options.allowed_tools
+    assert "WebSearch" in options.allowed_tools
+    assert options.mcp_servers == {}
+    assert "Do not execute the plan" in runtime._query_prompt(run)
+
+    denied_fallback = await options.can_use_tool("Write", {}, None)
+    assert denied_fallback.behavior == "deny"
+    runtime._approved_invocations[run.id] = {
+        "question_1": (
+            "AskUserQuestion", {"questions": []},
+            SimpleNamespace(answers={"Market": "Germany"}),
+        )
+    }
+    answered = await options.can_use_tool(
+        "AskUserQuestion", {"questions": []},
+        SimpleNamespace(agent_id=None, tool_use_id="question_1"),
+    )
+    assert answered.behavior == "allow"
+    assert ledger.get_project(run.project_id).constraints == []
+
+    hook = runtime._hook(run.id, ledger.workspace_for_project(run.project_id))
+    for tool_name in (
+        "Write", "Bash", "NotebookEdit", "Agent", "TaskCreate",
+        "ExitPlanMode", "mcp__ophira_ledger__record_evidence",
+        "mcp__ophira_automation__send_notification", "mcp__unlisted__new_tool",
+    ):
+        decision = await hook(
+            {"hook_event_name": "PreToolUse", "tool_name": tool_name, "tool_input": {}},
+            None, None,
+        )
+        assert decision["hookSpecificOutput"]["permissionDecision"] == "deny"
+
+    safe_read = await hook(
+        {"hook_event_name": "PreToolUse", "tool_name": "Read",
+         "tool_input": {"file_path": str(ledger.workspace_for_project(run.project_id))}},
+        None, None,
+    )
+    assert safe_read == {}
+
+    await hook(
+        {"hook_event_name": "PostToolUse", "tool_name": "WebFetch",
+         "tool_input": {"url": "https://example.org/market"},
+         "tool_response": [{"type": "text", "text": "Public research result"}]},
+        None, None,
+    )
+    assert ledger.list_tool_receipts(run.project_id, run_id=run.id) == []
 
 
 @pytest.mark.asyncio

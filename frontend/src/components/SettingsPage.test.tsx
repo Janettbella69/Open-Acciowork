@@ -82,6 +82,8 @@ const orgPolicy: OrgPolicy = {
   permission_mode: 'default',
   allowed_provider_ids: [],
   allowed_skill_ids: [],
+  remote_mcp_enabled: true,
+  allowed_mcp_hosts: [],
   browser_enabled: true,
   computer_control_enabled: false,
   channel_delivery_enabled: false,
@@ -290,6 +292,18 @@ describe('SettingsPage · provider management', () => {
 })
 
 describe('SettingsPage · organization policy and grants', () => {
+  it('saves custom remote MCP hosts through organization policy', async () => {
+    stubLocalStorage()
+    render(<SettingsPage />)
+
+    const hosts = await screen.findByRole('textbox', { name: 'Approved custom MCP hosts' })
+    fireEvent.change(hosts, { target: { value: 'MCP.Example.Test\nmcp.other.test' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save hosts' }))
+    await waitFor(() => expect(saveOrgPolicy).toHaveBeenCalledWith({
+      ...orgPolicy, allowed_mcp_hosts: ['mcp.example.test', 'mcp.other.test'],
+    }))
+  })
+
   it('locks the policy controls while a save is in flight', async () => {
     stubLocalStorage()
     let resolveSave!: (value: OrgPolicy) => void

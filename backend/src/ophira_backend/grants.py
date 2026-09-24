@@ -91,6 +91,8 @@ def permission_scope_covers(granted_scope: str, requested_scope: str) -> bool:
 
 def is_persistable_permission(tool_name: str, tool_input: dict | None) -> bool:
     """Whether a decision can safely outlive exactly one invocation."""
+    if tool_name.startswith("mcp__user_"):
+        return False
     leaf = _tool_leaf(tool_name)
     if leaf == CLARIFYING_TOOL or leaf in SHELL_BUILTIN_TOOLS:
         return False

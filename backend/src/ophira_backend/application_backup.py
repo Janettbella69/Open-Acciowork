@@ -23,6 +23,7 @@ from .backup_files import (
 )
 from .constants import TERMINAL_RUN_STATUSES
 from .maintenance import MAINTENANCE_LOCK, DataDirectoryBusyError, data_directory_lease
+from .plugin_import_backup import inspect_plugin_imports
 from .project_comments import MAX_COMMENT_BYTES, CommentLedger
 from .project_deletion_proofs import load_deletion_proofs
 from .project_template_backup import inspect_project_templates
@@ -230,6 +231,7 @@ def inspect_application(data: Path, plugin: Path) -> dict:
         ):
             raise BackupError("proposal_publication_receipt_mismatch")
     imports = inspect_skill_imports(ledger, registry)
+    plugin_imports = inspect_plugin_imports(ledger, imports)
     try:
         deleted_publications = {}
         for proof in load_deletion_proofs(data).values():
@@ -271,6 +273,13 @@ def inspect_application(data: Path, plugin: Path) -> dict:
                 "content_hash": item.skill.content_hash,
             }
             for item in imports.values()
+        },
+        "plugin_imports": {
+            item.id: {
+                "archive_hash": item.archive_hash,
+                "skill_imports": [skill.import_id for skill in item.skills],
+            }
+            for item in plugin_imports.values()
         },
     }
 

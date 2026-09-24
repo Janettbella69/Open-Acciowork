@@ -18,6 +18,7 @@ from contextlib import ExitStack, contextmanager
 from uuid import UUID
 
 from .auth import AuthorizationError, ProjectAccessStore, ProjectPermission
+from .event_triggers import ShopifySubscriptionRecord
 from .models import PrincipalBinding, PrincipalContext, utc_now
 from .project_deletion_capture import (
     ProjectDeletionConflict,
@@ -73,6 +74,7 @@ DOMAIN_LABELS = {
     "channel-deliveries": "Channel reply obligations",
     "shop-browsers": "Shop browser records",
     "channels/feishu-bindings": "Project channel bindings",
+    "event-triggers": "Event trigger signing keys",
 }
 
 
@@ -166,10 +168,32 @@ class ProjectDeletionService:
         domains = [DeletionDomain(id=key, label=DOMAIN_LABELS.get(key, key),
                                   files=value[0], bytes=value[1])
                    for key, value in sorted(grouped.items())]
+        retained_messages = [*application.retained, *native.retained]
+        subscription_prefix = f"projects/{project_id}/event-triggers/subscriptions/"
+        for entry in application.entries:
+            if not entry.path.startswith(subscription_prefix):
+                continue
+            try:
+                if entry.kind != "file":
+                    raise ValueError("invalid subscription record")
+                record = ShopifySubscriptionRecord.model_validate_json(
+                    read_relative(self.ledger.root, entry.path, 16 * 1024),
+                )
+                if (
+                    record.project_id != project_id
+                    or entry.path != f"{subscription_prefix}{record.trigger_id}.json"
+                ):
+                    raise ValueError("subscription record binding changed")
+            except (OSError, ValueError):
+                record = None
+            if record is None or record.status != "rejected":
+                retained_messages.append(
+                    "A Shopify order webhook may remain active after project deletion. "
+                    "Remove it from Shopify before deleting this project."
+                )
+                break
         retained = [DeletionRetention(code=f"retained_{index}", message=message)
-                    for index, message in enumerate(dict.fromkeys([
-                        *application.retained, *native.retained,
-                    ]))]
+                    for index, message in enumerate(dict.fromkeys(retained_messages))]
         blockers = [DeletionBlocker(code="inventory_requires_attention", message=message)
                     for message in application.blockers]
         blockers += [DeletionBlocker(code="native_session_scope_unproven", message=(

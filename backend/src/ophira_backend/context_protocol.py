@@ -20,7 +20,7 @@ from .agent_core import (
     assemble_system_prompt,
     read_core_file,
 )
-from .constants import RESEARCH_UNITS, USER_SCOPE_ID, MemoryScope, RunMode
+from .constants import RESEARCH_UNITS, USER_SCOPE_ID, EventType, MemoryScope, RunMode
 from .memory import MemoryProvider, gather_approved
 from .models import (
     ContextRefreshRecord,
@@ -47,6 +47,27 @@ PROJECT_SECTION_FIELDS: dict[str, tuple[str, ...]] = {
 }
 _CORE_FILES = ("IDENTITY.md", "AGENTS.md", "TOOLS.md", "SOUL.md", "USER.md")
 _EXCERPT_PREVIEW_CHARS = 200
+
+
+def reconcile_compaction_epoch(ledger: FileLedger, run_id: str) -> int:
+    """Rebuild the session epoch from durable boundaries after a process crash."""
+    run = ledger.get_run(run_id)
+    base = 0
+    if run.resume_source_run_id is not None:
+        source = ledger.get_run(run.resume_source_run_id)
+        if source.project_id != run.project_id:
+            raise ValueError("Run resume lineage crosses a project boundary")
+        # A source is terminal before its successor is created. Creation
+        # reconciles that source, so only this Run's crash window remains.
+        base = source.session_compaction_epoch
+    boundaries = sum(
+        event.type == EventType.CONTEXT_COMPACTED.value
+        for event in ledger.list_events(run.id)
+    )
+    epoch = max(run.session_compaction_epoch, base + boundaries)
+    if epoch != run.session_compaction_epoch:
+        ledger.update_run(run.id, session_compaction_epoch=epoch)
+    return epoch
 
 
 @dataclass(frozen=True)

@@ -8,6 +8,7 @@ from fastapi import FastAPI, HTTPException, Query, Request, Response
 from starlette.concurrency import run_in_threadpool
 
 from .auth import AuthenticationError, AuthorizationError
+from .plugin_imports import PluginImportService
 from .skill_import_models import (
     IMPORT_REQUEST_ID,
     SkillImportReviewRequest,
@@ -27,12 +28,14 @@ from .storage import LedgerNotFoundError
 def register_skill_repository_routes(app: FastAPI, ledger, registry, settings, read_body):
     repository = SkillRepository(ledger, registry, settings)
     app.state.skill_repository = repository
+    plugin_imports = PluginImportService(repository)
+    app.state.plugin_imports = plugin_imports
     headers = {"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"}
 
     def principal(request):
         return getattr(request.state, "principal", None)
 
-    async def result(request, response, operation):
+    async def result(request, response, operation, *, kind="Skill"):
         response.headers.update(headers)
         try:
             value = await run_in_threadpool(operation)
@@ -43,7 +46,9 @@ def register_skill_repository_routes(app: FastAPI, ledger, registry, settings, r
                 403, "Private Skill repository access is unavailable", headers
             ) from exc
         except (LedgerNotFoundError, SkillNotFoundError) as exc:
-            raise HTTPException(404, "Private Skill package or review not found", headers) from exc
+            raise HTTPException(
+                404, f"Private {kind} package or review not found", headers,
+            ) from exc
         except SkillConflictError as exc:
             raise HTTPException(409, str(exc), headers) from exc
         except (SkillIntegrityError, OSError) as exc:
@@ -51,11 +56,41 @@ def register_skill_repository_routes(app: FastAPI, ledger, registry, settings, r
                 409, "Private Skill storage could not be verified", headers
             ) from exc
         except (ValueError, SkillIdentifierError, BadZipFile) as exc:
-            raise HTTPException(422, "Invalid private Skill package or request", headers) from exc
+            raise HTTPException(422, f"Invalid private {kind} package or request", headers) from exc
 
     @app.get("/api/skills/repository")
     async def capabilities(request: Request, response: Response):
         return await result(request, response, lambda: repository.capabilities(principal(request)))
+
+    @app.get("/api/plugins/imports")
+    async def plugin_import_list(request: Request, response: Response):
+        return await result(
+            request, response, lambda: plugin_imports.list(principal(request)), kind="Plugin",
+        )
+
+    @app.post("/api/plugins/imports", status_code=201)
+    async def plugin_import_submit(
+        request: Request,
+        response: Response,
+        request_id: Annotated[str, Query(pattern=IMPORT_REQUEST_ID)],
+    ):
+        raw = await read_body(
+            request, max_bytes=MAX_SKILL_ARCHIVE_BYTES,
+            too_large_detail="Plugin archive exceeds the upload limit",
+        )
+        return await result(
+            request, response,
+            lambda: plugin_imports.submit(raw, request_id, principal(request)),
+            kind="Plugin",
+        )
+
+    @app.get("/api/plugins/imports/{import_id}")
+    async def plugin_import_detail(import_id: str, request: Request, response: Response):
+        return await result(
+            request, response,
+            lambda: plugin_imports.detail(import_id, principal(request)),
+            kind="Plugin",
+        )
 
     @app.post("/api/skills/install", status_code=201)
     async def submit(

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
+import logging
 from contextlib import AsyncExitStack
 from datetime import timedelta
 from pathlib import Path
@@ -44,7 +45,9 @@ from .constants import (
     DELEGATION_TOOL,
     DELETE_BUILTIN_TOOLS,
     ENVELOPE_APPROVED_MCP_TOOL_NAMES,
+    NATIVE_TASK_TRACKING_TOOLS,
     OPHIRA_TOOL_NAMES,
+    PLAN_ALLOWED_TOOLS,
     PRESENTATION_TOOL_NAMES,
     READ_ONLY_BUILTIN_TOOLS,
     READ_ONLY_MCP_TOOL_NAMES,
@@ -69,12 +72,14 @@ from .constants import (
     PermissionModePolicy,
     PresentationFrameType,
     ProviderErrorCode,
+    RunInterjectionMode,
     RunMode,
     RunStatus,
 )
 from .context_protocol import (
     PreparedRunContext,
     prepare_run_context,
+    reconcile_compaction_epoch,
 )
 from .destructive import is_destructive_delete
 from .durable_permissions import DurablePermissionConflict
@@ -83,7 +88,13 @@ from .ingest import file_needs_markdown_companion
 from .ledger_tools import build_mcp_servers
 from .marketplace_access import MarketplaceAccessService
 from .memory import MemoryProvider
-from .models import EventActor, ProviderPreflightResult, RunRecord, utc_now
+from .models import (
+    EventActor,
+    ProviderPreflightResult,
+    RunInterjectionRequest,
+    RunRecord,
+    utc_now,
+)
 from .native_hooks import NativeHookBridge
 from .permissions import PermissionBroker
 from .policy import OrgPolicyStore
@@ -98,6 +109,7 @@ from .providers import (
     successful_preflight,
 )
 from .run_accounting import cumulative_result, latest_result
+from .run_interjections import interjection_receipts
 from .shop_browser import ShopBrowserService
 from .skill_proposals import SkillProposalService
 from .skills import SkillRegistry, SkillRuntimeView
@@ -111,10 +123,23 @@ from .untrusted import (
     UntrustedSource,
     sanitize_untrusted_tool_output,
 )
+from .user_mcp import UserMcpConnector, UserMcpRegistry
 
 
 class AgentRunError(RuntimeError):
     pass
+
+
+logger = logging.getLogger(__name__)
+
+
+@dataclasses.dataclass
+class _InterjectionChannel:
+    client: ClaudeSDKClient
+    lock: asyncio.Lock = dataclasses.field(default_factory=asyncio.Lock)
+    pending_results: int = 1
+    replacement: RunInterjectionRequest | None = None
+    accepting: bool = False
 
 
 _CONTROL_PLANE_SECRET_ENV_NAMES = (
@@ -179,6 +204,8 @@ def _post_tool_untrusted_source(
     skill_read_roots: tuple[Path, ...] = (),
 ) -> UntrustedSource | None:
     """Classify tool results at the last boundary before Claude consumes them."""
+    if tool_name.startswith("mcp__user_"):
+        return UntrustedSource.REMOTE_MCP
     if tool_name == "WebSearch":
         return UntrustedSource.WEB_SEARCH
     if tool_name == "WebFetch":
@@ -275,6 +302,7 @@ class ClaudeAgentRuntime:
         skill_proposals: SkillProposalService | None = None,
         marketplace_access: MarketplaceAccessService | None = None,
         shop_browsers: ShopBrowserService | None = None,
+        user_mcp: UserMcpRegistry | None = None,
     ) -> None:
         from .auth import ProjectAccessStore
 
@@ -297,6 +325,7 @@ class ClaudeAgentRuntime:
             ledger, self.skills, access=self.access, auth_mode=settings.auth_mode,
         )
         self.connectors = connectors
+        self.user_mcp = user_mcp
         self.marketplace_access = marketplace_access or (
             MarketplaceAccessService(
                 ledger,
@@ -319,6 +348,7 @@ class ClaudeAgentRuntime:
             policy=self.policy,
         )
         self._clients: dict[str, ClaudeSDKClient] = {}
+        self._interjection_channels: dict[str, _InterjectionChannel] = {}
         self._clients_lock = asyncio.Lock()
         self._prepared_contexts: dict[str, PreparedRunContext] = {}
         self._single_tool_calls: dict[str, dict[str, tuple[str, dict[str, Any]]]] = {}
@@ -326,6 +356,7 @@ class ClaudeAgentRuntime:
         self._closed_tool_batches: dict[str, dict[str, int]] = {}
         self._batch_ready: dict[tuple[str, str], asyncio.Event] = {}
         self._approved_invocations: dict[str, dict[str, tuple[str, dict, Any]]] = {}
+        self._last_context_usage: dict[str, tuple[int, int, str | None, int]] = {}
 
     async def run(self, run: RunRecord) -> None:
         if (pending := self.permissions.durable.active(run)) is not None:
@@ -381,6 +412,7 @@ class ClaudeAgentRuntime:
             self._approved_invocations.pop(run.id, None)
             for key in [key for key in self._batch_ready if key[0] == run.id]:
                 self._batch_ready.pop(key, None)
+            self._last_context_usage.pop(run.id, None)
 
     async def _run_sdk_session(
         self,
@@ -424,58 +456,134 @@ class ClaudeAgentRuntime:
                     options, hooks={}, settings=bridge.settings(ask_tools=ask_tools),
                 )
             client = await stack.enter_async_context(ClaudeSDKClient(options=options))
+            channel = _InterjectionChannel(client)
             async with self._clients_lock:
                 self._clients[run.id] = client
+                self._interjection_channels[run.id] = channel
+            poller: asyncio.Task[None] | None = None
+            usage_poller: asyncio.Task[None] | None = None
             try:
+                await self._publish_context_usage(run.id, client)
+                if run.manual_compaction:
+                    # A failed or unconfirmed /compact must force a full business
+                    # context refresh on the next resumed turn.
+                    self.ledger.update_run(run.id, context_refresh=None)
                 wait = self.permissions.durable.active(run)
                 if wait is None or wait.state != "resolved":
                     prompt = self._query_prompt(run)
                     if self.task_experiences is not None:
                         prompt += self.task_experiences.context_for_run(run)
-                    await client.query(prompt)
+                    async with channel.lock:
+                        await client.query(prompt)
+                        channel.accepting = True
+                else:
+                    channel.accepting = True
                 # A deferred transcript resumes its pending native call on
                 # connection. Do not append a prompt or synthetic tool result.
-                async for message in client.receive_response():
-                    await self._map_message(run.id, message)
-                    if (isinstance(message, ResultMessage)
-                            and message.stop_reason == "tool_deferred_unavailable"
-                            and message.deferred_tool_use is not None):
-                        missing = message.deferred_tool_use
-                        self.permissions.durable.retain_unavailable(
-                            run.id, message.session_id, missing.id, missing.name, missing.input,
-                        )
-                        continue
-                    if (isinstance(message, ResultMessage)
-                            and message.stop_reason == "tool_deferred"):
-                        deferred = message.deferred_tool_use
-                        if deferred is None or message.is_error:
-                            raise AgentRunError("The SDK did not confirm a durable deferred call.")
-                        pending = self.permissions.durable.confirm(
-                            run.id, message.session_id, deferred.id, deferred.name, deferred.input,
-                        )
-                        await self.events.publish(
-                            run.id, EventType.PERMISSION_REQUESTED,
-                            {"request_id": pending.id, "tool_name": pending.tool_name,
-                             "tool_input": pending.tool_input, "scope": pending.scope,
-                             "destructive": pending.destructive, "persistable": pending.persistable,
-                             "timeout_seconds": self.permissions.timeout_seconds,
-                             "durable": True, "state": "pending",
-                             "tool_use_id": pending.tool_use_id,
-                             "expires_at": pending.expires_at.isoformat()},
-                            actor=EventActor(type="agent", name="sdk-permission"),
-                            tool_use_id=pending.tool_use_id,
-                        )
-                        await self.events.publish(
-                            run.id, EventType.RUN_STATUS, {"status": "waiting_permission"},
-                        )
-                    if isinstance(message, ResultMessage) and message.is_error:
-                        details = message.errors or [message.result or message.subtype]
-                        result_error = "; ".join(details)
+                poller = asyncio.create_task(
+                    self._poll_interjections(run.id, channel),
+                    name=f"ophira:interjections:{run.id}",
+                )
+                if getattr(client, "get_context_usage", None) is not None:
+                    usage_poller = asyncio.create_task(
+                        self._poll_context_usage(run.id, client),
+                        name=f"ophira:context-usage:{run.id}",
+                    )
+                while True:
+                    saw_result = False
+                    async for message in client.receive_response():
+                        await self._map_message(run.id, message)
+                        if isinstance(message, ResultMessage):
+                            await self._publish_context_usage(run.id, client)
+                        if (isinstance(message, ResultMessage)
+                                and message.stop_reason == "tool_deferred_unavailable"
+                                and message.deferred_tool_use is not None):
+                            missing = message.deferred_tool_use
+                            self.permissions.durable.retain_unavailable(
+                                run.id, message.session_id, missing.id, missing.name, missing.input,
+                            )
+                            continue
+                        if (isinstance(message, ResultMessage)
+                                and message.stop_reason == "tool_deferred"):
+                            deferred = message.deferred_tool_use
+                            if deferred is None or message.is_error:
+                                raise AgentRunError(
+                                    "The SDK did not confirm a durable deferred call."
+                                )
+                            pending = self.permissions.durable.confirm(
+                                run.id, message.session_id, deferred.id,
+                                deferred.name, deferred.input,
+                            )
+                            await self.events.publish(
+                                run.id, EventType.PERMISSION_REQUESTED,
+                                {"request_id": pending.id, "tool_name": pending.tool_name,
+                                 "tool_input": pending.tool_input, "scope": pending.scope,
+                                 "destructive": pending.destructive,
+                                 "persistable": pending.persistable,
+                                 "timeout_seconds": self.permissions.timeout_seconds,
+                                 "durable": True, "state": "pending",
+                                 "tool_use_id": pending.tool_use_id,
+                                 "expires_at": pending.expires_at.isoformat()},
+                                actor=EventActor(type="agent", name="sdk-permission"),
+                                tool_use_id=pending.tool_use_id,
+                            )
+                            await self.events.publish(
+                                run.id, EventType.RUN_STATUS, {"status": "waiting_permission"},
+                            )
+                        if isinstance(message, ResultMessage):
+                            saw_result = True
+                            interrupted_turn = (
+                                channel.replacement is not None
+                                and message.terminal_reason in {
+                                    "aborted_streaming", "aborted_tools",
+                                }
+                            )
+                            if message.is_error and not interrupted_turn:
+                                details = message.errors or [message.result or message.subtype]
+                                result_error = "; ".join(details)
+                    if not saw_result:
+                        async with channel.lock:
+                            channel.accepting = False
+                            if channel.pending_results > 1 or channel.replacement is not None:
+                                raise AgentRunError(
+                                    "The SDK stream ended before injected messages were answered."
+                                )
+                        break
+                    async with channel.lock:
+                        channel.pending_results -= 1
+                        if channel.replacement is not None:
+                            replacement = channel.replacement
+                            channel.replacement = None
+                            await client.query(replacement.prompt)
+                            channel.pending_results += 1
+                            await self.events.publish(
+                                run.id, EventType.RUN_INTERJECTION_INJECTED,
+                                {"resource_id": replacement.request_id},
+                                actor=EventActor(type="system", name="sdk-stream"),
+                            )
+                        if channel.pending_results == 0:
+                            channel.accepting = False
+                            break
             finally:
+                async with channel.lock:
+                    channel.accepting = False
+                if poller is not None:
+                    poller.cancel()
+                    await asyncio.gather(poller, return_exceptions=True)
+                if usage_poller is not None:
+                    usage_poller.cancel()
+                    await asyncio.gather(usage_poller, return_exceptions=True)
                 async with self._clients_lock:
                     self._clients.pop(run.id, None)
+                    self._interjection_channels.pop(run.id, None)
         if result_error:
             raise AgentRunError(result_error)
+        if run.manual_compaction and not any(
+            event.type == EventType.CONTEXT_COMPACTED.value
+            and event.data.get("trigger") == "manual"
+            for event in self.ledger.list_events(run.id)
+        ):
+            raise AgentRunError("The SDK did not confirm manual context compaction.")
         current = self.ledger.get_run(run.id)
         active = self.permissions.durable.active(current)
         if active is not None and active.state == "preparing":
@@ -638,6 +746,112 @@ class ClaudeAgentRuntime:
         if client is not None:
             await client.interrupt()
 
+    async def _publish_context_usage(self, run_id: str, client: ClaudeSDKClient) -> None:
+        """Persist only the SDK's window occupancy, never cumulative token totals."""
+        measure = getattr(client, "get_context_usage", None)
+        if measure is None:
+            return
+        try:
+            usage = await asyncio.wait_for(measure(), timeout=3)
+        except Exception:
+            logger.debug("SDK context usage unavailable for %s", run_id, exc_info=True)
+            return
+        if not isinstance(usage, dict):
+            return
+        used = usage.get("totalTokens")
+        capacity = usage.get("maxTokens")
+        if (type(used) is not int or type(capacity) is not int
+                or used < 0 or capacity <= 0):
+            return
+        model = usage.get("model")
+        model = model[:160] if isinstance(model, str) else None
+        epoch = self.ledger.get_run(run_id).session_compaction_epoch
+        snapshot = (used, capacity, model, epoch)
+        if self._last_context_usage.get(run_id) == snapshot:
+            return
+        await self.events.publish(
+            run_id, EventType.CONTEXT_USAGE,
+            {"used_tokens": used, "max_tokens": capacity,
+             "percentage": round(used / capacity * 100, 1),
+             "model": model,
+             "auto_compact_enabled": usage.get("isAutoCompactEnabled") is True,
+             "session_compaction_epoch": epoch,
+             "source": "sdk_get_context_usage"},
+            actor=EventActor(type="system", name="claude-agent-sdk"),
+        )
+        self._last_context_usage[run_id] = snapshot
+
+    async def _poll_context_usage(self, run_id: str, client: ClaudeSDKClient) -> None:
+        while True:
+            await asyncio.sleep(5)
+            if self.ledger.get_run(run_id).status != RunStatus.RUNNING:
+                return
+            await self._publish_context_usage(run_id, client)
+
+    async def interject(self, run_id: str, request: RunInterjectionRequest) -> bool:
+        """Write to the live streaming session, or leave the request queued."""
+        async with self._clients_lock:
+            channel = self._interjection_channels.get(run_id)
+        if channel is None:
+            return False
+        async with channel.lock:
+            if not channel.accepting or channel.replacement is not None:
+                return False
+            if self.ledger.get_run(run_id).status != RunStatus.RUNNING:
+                return False
+            receipt = next(
+                (item for item in interjection_receipts(
+                    run_id, self.ledger.list_events(run_id),
+                ) if item.request_id == request.request_id),
+                None,
+            )
+            if receipt is None or receipt.status != "queued":
+                return False
+            await self.events.publish(
+                run_id, EventType.RUN_INTERJECTION_DISPATCHING,
+                {"resource_id": request.request_id},
+                actor=EventActor(type="system", name="sdk-stream"),
+            )
+            if request.mode == RunInterjectionMode.INTERRUPT:
+                await channel.client.interrupt()
+                channel.replacement = request
+                return True
+            await channel.client.query(request.prompt)
+            channel.pending_results += 1
+            await self.events.publish(
+                run_id, EventType.RUN_INTERJECTION_INJECTED,
+                {"resource_id": request.request_id},
+                actor=EventActor(type="system", name="sdk-stream"),
+            )
+            return True
+
+    async def _poll_interjections(
+        self, run_id: str, channel: _InterjectionChannel,
+    ) -> None:
+        requested_count = -1
+        while channel.accepting:
+            try:
+                count = self.ledger.get_run_summary(run_id).event_counts.get(
+                    EventType.RUN_INTERJECTION_REQUESTED.value, 0,
+                )
+                if count != requested_count:
+                    requested_count = count
+                    for receipt in interjection_receipts(
+                        run_id, self.ledger.list_events(run_id),
+                    ):
+                        if (
+                            receipt.status == "queued"
+                            and receipt.mode != RunInterjectionMode.NEXT_TURN
+                        ):
+                            await self.interject(run_id, RunInterjectionRequest(
+                                request_id=receipt.request_id,
+                                prompt=receipt.prompt,
+                                mode=receipt.mode,
+                            ))
+            except Exception:
+                logger.exception("Could not poll Run interjections for %s", run_id)
+            await asyncio.sleep(0.5)
+
     def _require_provider(self, run: RunRecord) -> None:
         if run.provider_profile_id:
             self.providers.build_worker_env(run.provider_profile_id)
@@ -686,6 +900,35 @@ class ClaudeAgentRuntime:
         self._prepared_contexts[run.id] = prepared
         return prepared
 
+    def _remote_connectors(self, run: RunRecord) -> dict[str, UserMcpConnector]:
+        if (self.user_mcp is None or run.mode == RunMode.PLAN or run.manual_compaction
+                or run.standing_intent_id is not None):
+            return {}
+        connectors: dict[str, UserMcpConnector] = {}
+        for raw in run.mcp_snapshot:
+            try:
+                pinned = UserMcpConnector.model_validate(raw)
+                current = self.user_mcp.get(run.project_id, pinned.id)
+                self.user_mcp._check_url(current.url)
+                if current.credential_configured and not self.user_mcp.vault.has(
+                    self.user_mcp._vault_id(run.project_id, current.id)
+                ):
+                    continue
+                if current == pinned and current.enabled and current.reviewed_at is not None:
+                    connectors[current.server_name] = current
+            except (KeyError, ValueError):
+                continue
+        return connectors
+
+    def _remote_mcp_decision(self, run: RunRecord, tool_name: str) -> str | None:
+        if not tool_name.startswith("mcp__user_"):
+            return None
+        for connector in self._remote_connectors(run).values():
+            for item in connector.tools:
+                if connector.tool_name(item.name) == tool_name:
+                    return item.policy
+        return "deny"
+
     def _build_options(
         self,
         run: RunRecord,
@@ -695,8 +938,22 @@ class ClaudeAgentRuntime:
         agent = self.ledger.get_agent(run.agent_id) if run.agent_id else None
         workspace = self.ledger.workspace_for_project(run.project_id).resolve()
         deep_research = run.mode == RunMode.DEEP_RESEARCH
+        remote_connectors = self._remote_connectors(run)
 
         async def can_use_tool(tool_name: str, tool_input: dict[str, Any], context):
+            if self._remote_mcp_decision(run, tool_name) == "deny":
+                return PermissionResultDeny(message="Remote MCP tool is not approved.")
+            if run.manual_compaction:
+                return PermissionResultDeny(
+                    message="Context compaction does not permit tool calls."
+                )
+            if run.mode == RunMode.PLAN and tool_name not in PLAN_ALLOWED_TOOLS:
+                return PermissionResultDeny(
+                    message=(
+                        "Plan mode permits read-only research only. "
+                        "Review the plan before execution."
+                    )
+                )
             # §6.1 红线：账本写入与自动化承诺只属主 Agent。支线子代理（原生
             # general-purpose/Explore 等）做研究与计算，把发现带回主线落账。
             subagent_id = getattr(context, "agent_id", None)
@@ -732,7 +989,8 @@ class ClaudeAgentRuntime:
                     return PermissionResultDeny(message="Approved invocation input changed.")
                 if tool_name == CLARIFYING_TOOL and resolution is not None:
                     answers = resolution.answers or {}
-                    self._record_constraints(run.project_id, answers)
+                    if run.mode != RunMode.PLAN:
+                        self._record_constraints(run.project_id, answers)
                     return PermissionResultAllow(
                         updated_input={**approved_input, "answers": answers},
                     )
@@ -765,7 +1023,8 @@ class ClaudeAgentRuntime:
             }:
                 if tool_name == CLARIFYING_TOOL:
                     answers = resolution.answers or {}
-                    self._record_constraints(run.project_id, answers)
+                    if run.mode != RunMode.PLAN:
+                        self._record_constraints(run.project_id, answers)
                     return PermissionResultAllow(
                         updated_input={
                             "questions": tool_input.get("questions", []),
@@ -791,6 +1050,7 @@ class ClaudeAgentRuntime:
             model = agent.model
         org_policy = self.policy.get()
         permission_mode = (
+            "plan" if run.mode == RunMode.PLAN else
             "auto" if org_policy.permission_mode == PermissionModePolicy.AUTO else "default"
         )
         with self.ledger._lock_for(run.id):
@@ -825,22 +1085,25 @@ class ClaudeAgentRuntime:
                 "PreToolUse", "PostToolUse", "PostToolUseFailure", "SubagentStart", "SubagentStop",
             )
         }
-        mcp_servers = build_mcp_servers(
-            self.ledger,
-            run.project_id,
-            memory=self.memory,
-            agent_id=run.agent_id,
-            settings=self.settings,
-            run_id=run.id,
-            policy=org_policy,
-            connectors=self.connectors,
-            commercial_actions=self.commercial_actions,
-            project_events=self.project_events,
-            skill_proposals=self.skill_proposals,
-            marketplace_access=self.marketplace_access,
-            shop_browsers=self.shop_browsers,
+        mcp_servers = (
+            {} if run.mode == RunMode.PLAN or run.manual_compaction else build_mcp_servers(
+                self.ledger,
+                run.project_id,
+                memory=self.memory,
+                agent_id=run.agent_id,
+                settings=self.settings,
+                run_id=run.id,
+                policy=org_policy,
+                connectors=self.connectors,
+                commercial_actions=self.commercial_actions,
+                project_events=self.project_events,
+                skill_proposals=self.skill_proposals,
+                marketplace_access=self.marketplace_access,
+                shop_browsers=self.shop_browsers,
+            )
         )
-        if self.intents is not None and self.notifications is not None:
+        if (run.mode != RunMode.PLAN and not run.manual_compaction
+                and self.intents is not None and self.notifications is not None):
             from .automation_tools import build_automation_mcp_server
 
             mcp_servers[AUTOMATION_MCP_SERVER_NAME] = build_automation_mcp_server(
@@ -853,11 +1116,18 @@ class ClaudeAgentRuntime:
                 bound_intent_id=run.standing_intent_id,
                 task_experiences=self.task_experiences,
             )
+        if self.user_mcp is not None:
+            for connector in remote_connectors.values():
+                if any(item.policy != "deny" for item in connector.tools):
+                    mcp_servers[connector.server_name] = self.user_mcp.sdk_server(connector)
         unattended_intent = run.standing_intent_id is not None
+        event_run = run.event_trigger_id is not None
         return ClaudeAgentOptions(
             tools={"type": "preset", "preset": "claude_code"},
-            allowed_tools=[
+            allowed_tools=([] if run.manual_compaction else
+                sorted(PLAN_ALLOWED_TOOLS) if run.mode == RunMode.PLAN else [
                 *READ_ONLY_BUILTIN_TOOLS,
+                *NATIVE_TASK_TRACKING_TOOLS,
                 *[
                     name
                     for name in READ_ONLY_MCP_TOOL_NAMES
@@ -869,21 +1139,38 @@ class ClaudeAgentRuntime:
                 *(
                     [TOOL_LIST_STANDING_INTENTS, TOOL_TRIGGER_STANDING_INTENT]
                     if unattended_intent
-                    else ENVELOPE_APPROVED_MCP_TOOL_NAMES
+                    else ([] if event_run else ENVELOPE_APPROVED_MCP_TOOL_NAMES)
                 ),
                 # 2026-08-24 拍板"按原生能力来做"：支线子代理开放，派遣动作
                 # 自动放行（无副作用）；子代理内部的工具调用仍逐项过权限，
                 # 账本写入在 can_use_tool 对子代理代码级拒绝。
-                *([] if unattended_intent else [DELEGATION_TOOL]),
-            ],
-            disallowed_tools=[],
+                *([] if unattended_intent or event_run else [DELEGATION_TOOL]),
+                *[
+                    connector.tool_name(item.name)
+                    for connector in remote_connectors.values()
+                    for item in connector.tools if item.policy == "allow" and not event_run
+                ],
+            ]),
+            disallowed_tools=(
+                ["Bash", "Write", "Edit", "NotebookEdit", "Agent", "Task", "TaskCreate",
+                 "TaskUpdate", "TaskStop", "TodoWrite", "mcp__*", "EnterPlanMode",
+                 "ExitPlanMode"]
+                if run.mode == RunMode.PLAN or run.manual_compaction else [
+                    *(["Bash", "Agent"] if event_run else []),
+                    *[
+                        connector.tool_name(item.name)
+                        for connector in remote_connectors.values()
+                        for item in connector.tools if item.policy == "deny"
+                    ],
+                ]
+            ),
             system_prompt={
                 "type": "preset",
                 "preset": "claude_code",
                 "append": self._system_append(run),
             },
-            plugins=skill_view.plugin_paths,
-            skills=skill_view.skill_ids,
+            plugins=[] if run.manual_compaction else skill_view.plugin_paths,
+            skills=[] if run.manual_compaction else skill_view.skill_ids,
             mcp_servers=mcp_servers,
             strict_mcp_config=True,
             permission_mode=permission_mode,
@@ -1043,6 +1330,7 @@ class ClaudeAgentRuntime:
                 )
         self._remaining_budget(run.id)
         mode = (
+            "plan" if run.mode == RunMode.PLAN else
             "auto" if self.policy.get().permission_mode == PermissionModePolicy.AUTO else "default"
         )
         if mode != run.sdk_permission_mode:
@@ -1060,6 +1348,10 @@ class ClaudeAgentRuntime:
                 raise DurablePermissionConflict("Provider configuration changed during suspension.")
         if self._policy_skill_snapshot(run.skill_snapshot) != run.skill_snapshot:
             raise DurablePermissionConflict("A suspended Run Skill is no longer allowed by policy.")
+        if run.mcp_snapshot and len(self._remote_connectors(run)) != len(run.mcp_snapshot):
+            raise DurablePermissionConflict(
+                "A suspended Run remote MCP connector changed or was revoked."
+            )
 
     def _hook(
         self, run_id: str, workspace: Path, *, skill_read_roots: tuple[Path, ...] = (),
@@ -1086,6 +1378,50 @@ class ClaudeAgentRuntime:
                     actor=actor,
                     tool_use_id=tool_use_id,
                 )
+                if run.event_trigger_id is not None:
+                    try:
+                        registry = self.permissions.event_triggers
+                        trigger = (
+                            registry.get(run.project_id, run.event_trigger_id)
+                            if registry else None
+                        )
+                        valid = (trigger is not None and trigger.enabled
+                                 and trigger.revision == run.event_trigger_revision)
+                    except Exception:
+                        valid = False
+                    if not valid or tool_name in {"Bash", "Agent"}:
+                        return {"hookSpecificOutput": {
+                            "hookEventName": "PreToolUse", "permissionDecision": "deny",
+                            "permissionDecisionReason": (
+                                "Event trigger was revoked or changed, or this tool "
+                                "requires an attended Run."
+                            ),
+                        }}
+                if run.manual_compaction:
+                    return {"hookSpecificOutput": {
+                        "hookEventName": "PreToolUse", "permissionDecision": "deny",
+                        "permissionDecisionReason": "Context compaction does not permit tools.",
+                    }}
+                if run.mode == RunMode.PLAN and tool_name not in PLAN_ALLOWED_TOOLS:
+                    return {"hookSpecificOutput": {
+                        "hookEventName": "PreToolUse", "permissionDecision": "deny",
+                        "permissionDecisionReason": (
+                            "Plan mode permits read-only research only. "
+                            "Review the plan before execution."
+                        ),
+                    }}
+                remote_decision = self._remote_mcp_decision(run, str(tool_name))
+                if remote_decision is not None and input_data.get("agent_id"):
+                    remote_decision = "deny"
+                if remote_decision in {"ask", "deny"}:
+                    return {"hookSpecificOutput": {
+                        "hookEventName": "PreToolUse",
+                        "permissionDecision": remote_decision,
+                        "permissionDecisionReason": (
+                            "Remote MCP tool requires approval" if remote_decision == "ask"
+                            else "Remote MCP tool is not approved"
+                        ),
+                    }}
                 denial = self._research_dispatch_denial(
                     run, str(tool_name), tool_input, tool_use_id,
                 )
@@ -1309,6 +1645,7 @@ class ClaudeAgentRuntime:
                         untrusted_source,
                         parse_json_strings=(
                             tool_name in _UNTRUSTED_JSON_TOOL_NAMES
+                            or tool_name.startswith("mcp__user_")
                             or (tool_name in {TOOL_SNAPSHOT_PAGE, TOOL_ACT_ON_PAGE}
                                 and bool(tool_input.get("shop_id") or tool_input.get("list_shops")))
                         ),
@@ -1318,18 +1655,21 @@ class ClaudeAgentRuntime:
                         "hookEventName": "PostToolUse",
                         "additionalContext": UNTRUSTED_DATA_NOTICE,
                     }
-                receipt_attachment = attach_source_receipts(
-                    self.ledger,
-                    run_id,
-                    tool_name,
-                    tool_input,
-                    tool_response,
-                    delegated=bool(input_data.get("agent_id")),
-                )
-                tool_response = receipt_attachment.tool_response
-                receipt_context = model_visible_source_receipt_context(
-                    receipt_attachment.receipt_ids
-                )
+                if run.mode == RunMode.PLAN:
+                    receipt_context = None
+                else:
+                    receipt_attachment = attach_source_receipts(
+                        self.ledger,
+                        run_id,
+                        tool_name,
+                        tool_input,
+                        tool_response,
+                        delegated=bool(input_data.get("agent_id")),
+                    )
+                    tool_response = receipt_attachment.tool_response
+                    receipt_context = model_visible_source_receipt_context(
+                        receipt_attachment.receipt_ids
+                    )
                 if hook_specific_output is not None and receipt_context is not None:
                     # Built-in renderers can keep host-added structured fields in
                     # transcript metadata without placing them in Claude's visible
@@ -1485,7 +1825,8 @@ class ClaudeAgentRuntime:
             return policy_hook
         approved = {
             *READ_ONLY_BUILTIN_TOOLS, *READ_ONLY_MCP_TOOL_NAMES,
-            *ENVELOPE_APPROVED_MCP_TOOL_NAMES, DELEGATION_TOOL,
+            *([] if run.event_trigger_id else ENVELOPE_APPROVED_MCP_TOOL_NAMES),
+            *([] if run.event_trigger_id else [DELEGATION_TOOL]),
             # Setting options.skills makes Skill native-auto-approved. Loading
             # a scanned, pinned method must not add a new human approval step;
             # tools invoked by that method still pass their own host policy.
@@ -1726,6 +2067,7 @@ class ClaudeAgentRuntime:
             result_data = cumulative_result(latest_result(self.ledger, run_id),
                 {
                     "sdk_result_uuid": message.uuid,
+                    "manual_compaction": self.ledger.get_run(run_id).manual_compaction,
                     "subtype": message.subtype,
                     "is_error": message.is_error,
                     "result": message.result,
@@ -1774,6 +2116,34 @@ class ClaudeAgentRuntime:
             )
             return
         if isinstance(message, SystemMessage):
+            if message.subtype == "compact_boundary":
+                metadata = message.data.get("compact_metadata")
+                metadata = metadata if isinstance(metadata, dict) else {}
+                trigger = metadata.get("trigger")
+                if trigger not in {"auto", "manual"}:
+                    trigger = "unknown"
+                boundary_id = message.data.get("uuid")
+                resource_id = (
+                    boundary_id if isinstance(boundary_id, str)
+                    and 1 <= len(boundary_id) <= 160
+                    and all(character.isalnum() or character in "-_" for character in boundary_id)
+                    else None
+                )
+                payload = {"trigger": trigger}
+                if resource_id is not None:
+                    payload["resource_id"] = resource_id
+                    await self.events.publish_once(
+                        run_id, EventType.CONTEXT_COMPACTED, payload,
+                        resource_id=resource_id,
+                        actor=EventActor(type="system", name="claude-agent-sdk"),
+                    )
+                else:
+                    await self.events.publish(
+                        run_id, EventType.CONTEXT_COMPACTED, payload,
+                        actor=EventActor(type="system", name="claude-agent-sdk"),
+                    )
+                reconcile_compaction_epoch(self.ledger, run_id)
+                return
             session_id = message.data.get("session_id")
             if session_id:
                 self.ledger.update_run(run_id, sdk_session_id=session_id)
@@ -1899,10 +2269,23 @@ class ClaudeAgentRuntime:
         self.ledger.update_project(project_id, mutate)
 
     def _query_prompt(self, run: RunRecord) -> str:
+        if run.manual_compaction:
+            return "/compact"
         prepared = self._prepared_contexts.get(run.id)
         if prepared is None:
             prepared = self._prepare_context(
                 run,
                 self._policy_skill_snapshot(run.skill_snapshot),
+            )
+        if run.mode == RunMode.PLAN:
+            return (
+                "<OPHIRA_PLAN_MODE>\n"
+                "Research using read-only tools and propose a plan. Include the steps, tools, "
+                "any external actions that would need approval, and an estimated cost or a "
+                "clear statement that cost cannot yet be estimated. Do not execute the plan, "
+                "write files, change project records, or call ExitPlanMode. Present the plan "
+                "in your final response for the user to review.\n"
+                "</OPHIRA_PLAN_MODE>\n\n"
+                f"{run.prompt}\n\n{prepared.envelope}"
             )
         return f"{run.prompt}\n\n{prepared.envelope}"

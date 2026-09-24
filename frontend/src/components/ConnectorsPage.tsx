@@ -5,6 +5,7 @@ import type { MarketplaceGuide } from '../api/marketplaces'
 import { useT } from '../i18n'
 import MarketplaceConnector from './MarketplaceConnector'
 import ShopifyConnector from './ShopifyConnector'
+import UserMcpPanel from './UserMcpPanel'
 import './connectors-page.css'
 
 function statusLabel(connector: Connector): string {
@@ -111,6 +112,8 @@ export default function ConnectorsPage() {
             <div><dt>{t('Configured')}</dt><dd>{configured}</dd></div>
           </dl>
         </header>
+
+        <UserMcpPanel />
 
         {marketplaces.length > 0 && <section className="marketplace-guides" aria-label={t('Marketplace integrations')}>
           <h2>{t('Marketplace integrations')}</h2>

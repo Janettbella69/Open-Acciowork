@@ -6,9 +6,15 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from .constants import EventType, PermissionDecision, RunStatus
+from .constants import (
+    TOOL_STAGE_COMMERCIAL_ACTION,
+    EventType,
+    PermissionDecision,
+    RunStatus,
+)
 from .destructive import is_destructive_delete
 from .durable_permissions import DurablePermissionStore
+from .event_triggers import EventTriggerError, EventTriggerStore
 from .events import EventPublisher, redact
 from .grants import (
     PermissionGrantStore,
@@ -73,11 +79,13 @@ class PermissionBroker:
         events: EventPublisher,
         timeout_seconds: int,
         grants: PermissionGrantStore | None = None,
+        event_triggers: EventTriggerStore | None = None,
     ) -> None:
         self.ledger = ledger
         self.events = events
         self.timeout_seconds = timeout_seconds
         self.grants = grants
+        self.event_triggers = event_triggers
         self.durable = DurablePermissionStore(ledger, timeout_seconds)
         self._pending: dict[str, PendingPermission] = {}
         self._run_allowed_scopes: dict[str, set[tuple[str, str]]] = {}
@@ -125,6 +133,52 @@ class PermissionBroker:
             run = self.ledger.get_run(run_id)
         except (LedgerNotFoundError, ValueError):
             run = None
+        if run is not None and run.event_trigger_id is not None:
+            try:
+                trigger = (
+                    self.event_triggers.get(run.project_id, run.event_trigger_id)
+                    if self.event_triggers else None
+                )
+            except (KeyError, ValueError, EventTriggerError):
+                trigger = None
+            if (
+                trigger is None or not trigger.enabled
+                or trigger.revision != run.event_trigger_revision
+            ):
+                return PermissionResolution(
+                    decision=PermissionDecision.DENY,
+                    reason="The originating event trigger is unavailable or changed.",
+                )
+            if tool_name == TOOL_STAGE_COMMERCIAL_ACTION:
+                if any(
+                    rule.tool_name == tool_name and rule.scope == "path:."
+                    for rule in run.event_permission_ceiling
+                ):
+                    # A proposal is internal only, yet still needs a live human
+                    # permission. External apply has its own review gate.
+                    return None
+                return PermissionResolution(
+                    decision=PermissionDecision.DENY,
+                    reason="Commercial proposals are outside this event trigger policy.",
+                )
+            if destructive or not persistable or not scope:
+                return PermissionResolution(
+                    decision=PermissionDecision.DENY,
+                    reason="This event action is outside unattended permission policy.",
+                )
+            workspace = self.ledger.workspace_for_project(run.project_id).resolve()
+            if not any(
+                rule.tool_name == tool_name
+                and _schedule_scope_covers(rule.scope, scope, workspace=workspace)
+                for rule in run.event_permission_ceiling
+            ):
+                return PermissionResolution(
+                    decision=PermissionDecision.DENY,
+                    reason="This action is outside the event trigger permission ceiling.",
+                )
+            # A signed event never inherits broad persistent grants. A human
+            # reviews every permitted write via the ordinary Run permission UI.
+            return None
         if run is not None and run.schedule_id is not None:
             try:
                 schedule = self.ledger.get_schedule(run.schedule_id)

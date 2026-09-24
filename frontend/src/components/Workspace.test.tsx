@@ -19,6 +19,8 @@ const organizationPolicy: OrgPolicy = {
   permission_mode: 'default',
   allowed_provider_ids: [],
   allowed_skill_ids: [],
+  remote_mcp_enabled: true,
+  allowed_mcp_hosts: [],
   browser_enabled: true,
   computer_control_enabled: false,
   channel_delivery_enabled: false,
@@ -83,6 +85,8 @@ beforeEach(() => {
     isActive: false,
     start: vi.fn(),
     continueProject: vi.fn(),
+    interject: vi.fn(),
+    compact: vi.fn(),
     retry: retryRuntime,
     cancel: vi.fn(),
     decidePermission: vi.fn(),
@@ -183,6 +187,46 @@ describe('Workspace approval mode', () => {
 })
 
 describe('Workspace new task', () => {
+  it('starts manual compaction for the selected completed SDK session', async () => {
+    const runtime = vi.mocked(useOpportunityRuntime)()
+    const completed = { ...failedRun, status: 'completed' as const, sdk_session_id: 'session_1' }
+    vi.mocked(runtime.compact).mockResolvedValue({ ...completed, id: 'run_compact', manual_compaction: true })
+    vi.mocked(useOpportunityRuntime).mockReturnValue({ ...runtime, run: completed })
+    render(<Workspace />)
+    fireEvent.click(screen.getByRole('button', { name: 'Compact context' }))
+    await waitFor(() => expect(runtime.compact).toHaveBeenCalledOnce())
+  })
+
+  it('continues a reviewed plan in the exact SDK session for approval or revision', async () => {
+    const runtime = vi.mocked(useOpportunityRuntime)()
+    const project: OpportunityProject = {
+      id: 'project_1', name: 'Plan project', objective: 'Review market', product_brief: '',
+      target_markets: [], constraints: [], stage: 'discovery', hypotheses: [], evidence: [],
+      assessments: {}, stage_decisions: [], decisions: [], artifacts: [], revision: 1,
+      created_at: '2026-09-23T00:00:00Z', updated_at: '2026-09-23T00:00:00Z',
+    }
+    const plan = { ...failedRun, id: 'run_plan', mode: 'plan' as const,
+      status: 'completed' as const, sdk_session_id: 'session_plan' }
+    vi.mocked(runtime.continueProject).mockResolvedValue(plan)
+    vi.mocked(useOpportunityRuntime).mockReturnValue({ ...runtime, project, projects: [project],
+      run: plan, assistantText: '1. Inspect sources; 2. Draft report' })
+    render(<Workspace />)
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Approve and execute' })).toBeEnabled())
+    fireEvent.click(screen.getByRole('button', { name: 'Approve and execute' }))
+    await waitFor(() => expect(runtime.continueProject).toHaveBeenCalledWith(
+      expect.stringContaining('I approve the plan'), [], 'standard', null, null, 'run_plan',
+    ))
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Request revised plan' })).toBeDisabled())
+    fireEvent.change(screen.getByRole('textbox', { name: 'Changes to the plan' }), {
+      target: { value: 'Check compliance before supplier outreach' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Request revised plan' }))
+    await waitFor(() => expect(runtime.continueProject).toHaveBeenLastCalledWith(
+      expect.stringContaining('Check compliance before supplier outreach'),
+      [], 'plan', null, null, 'run_plan',
+    ))
+  })
+
   it('leaves the current run alive when starting another independent task', async () => {
     const runtime = vi.mocked(useOpportunityRuntime)()
     vi.mocked(useOpportunityRuntime).mockReturnValue({ ...runtime, isActive: true, run: { ...failedRun, status: 'running' } })

@@ -7,20 +7,26 @@ import logging
 import os
 import threading
 from collections.abc import Callable
+from contextlib import nullcontext
 from functools import wraps
 from typing import Protocol
 
+from .auth import AuthorizationError, ProjectAccessStore, ProjectPermission
 from .channel_delivery import ChannelDeliveryService, FeishuReplyTarget
+from .companion import CompanionError, CompanionStore
+from .companion_authorization import authorize_companion_project
 from .constants import (
     HEARTBEAT_OK,
     TERMINAL_RUN_STATUSES,
     EventType,
     ProviderErrorCode,
+    RunInterjectionMode,
     RunMode,
     RunRetryStrategy,
     RunStatus,
     ScheduleKind,
 )
+from .context_protocol import reconcile_compaction_epoch
 from .distill import distill_run
 from .durable_permissions import DurablePermissionConflict
 from .events import EventPublisher, redact
@@ -31,7 +37,10 @@ from .models import (
     PermissionResolution,
     PrincipalBinding,
     PrincipalContext,
+    RunInterjectionReceipt,
+    RunInterjectionRequest,
     RunRecord,
+    SchedulePermissionRule,
     new_id,
     utc_now,
 )
@@ -45,8 +54,16 @@ from .providers import (
     classify_provider_error,
     provider_readiness_failures,
 )
+from .run_interjections import (
+    RunInterjectionConflict,
+    carry_prompt,
+    interjection_receipts,
+    prompt_digest,
+    queued_for_next_turn,
+)
 from .skills import SkillRegistry
 from .storage import FileLedger
+from .user_mcp import UserMcpRegistry
 from .workspace_checkpoints import WorkspaceCheckpoints, try_workspace_lease
 
 INTERRUPTED_RUN_MESSAGE = (
@@ -107,6 +124,9 @@ class RunManager:
         channel_delivery: ChannelDeliveryService | None = None,
         feedback: FeedbackStore | None = None,
         project_events: ProjectEventProjector | None = None,
+        access: ProjectAccessStore | None = None,
+        companions: CompanionStore | None = None,
+        user_mcp: UserMcpRegistry | None = None,
     ) -> None:
         self.ledger = ledger
         self.events = events
@@ -121,8 +141,90 @@ class RunManager:
         self.channel_delivery = channel_delivery
         self.feedback = feedback
         self.project_events = project_events or ProjectEventProjector(ledger, events, memory)
+        self.access = access
+        self.companions = companions
+        self.user_mcp = user_mcp
         self._tasks: dict[str, asyncio.Task[None]] = {}
         self._workspace_owners: set[str] = set()
+        self._interjection_locks: dict[str, asyncio.Lock] = {}
+
+    @_run_operation
+    async def compact(self, run_id: str, *, principal: PrincipalContext | None) -> RunRecord:
+        """Start a dedicated SDK /compact turn in the exact completed session."""
+        source = self.ledger.get_run(run_id)
+        if (source.status != RunStatus.COMPLETED or not source.sdk_session_id
+                or source.mode == RunMode.PLAN):
+            raise RunResumeConflictError("Only a completed execution session can be compacted.")
+        if queued_for_next_turn(source.id, self.ledger.list_events(source.id)):
+            raise RunResumeConflictError("Queued directions must be delivered before compaction.")
+        return await self.create_and_start(
+            source.project_id, "Compress conversation context",
+            agent_id=source.agent_id,
+            resume_session_id=source.sdk_session_id,
+            compaction_source_run_id=source.id,
+            manual_compaction=True,
+            provider_profile_id=source.provider_profile_id,
+            provider_snapshot=source.provider_snapshot,
+            skill_snapshot=source.skill_snapshot,
+            resolve_default_provider=False,
+            principal=principal,
+        )
+
+    @_run_operation
+    async def interject(
+        self, run_id: str, request: RunInterjectionRequest, *, actor: EventActor,
+    ) -> RunInterjectionReceipt:
+        """Persist user input before attempting a live SDK write."""
+        async with self._interjection_locks.setdefault(run_id, asyncio.Lock()):
+            run = self.ledger.get_run(run_id)
+            if run.manual_compaction:
+                raise RunInterjectionConflict("Context compaction does not accept directions.")
+            history = self.ledger.list_events(run_id)
+            receipts = {item.request_id: item for item in interjection_receipts(run_id, history)}
+            previous = receipts.get(request.request_id)
+            if previous is not None:
+                original = next(
+                    event for event in history
+                    if event.type == EventType.RUN_INTERJECTION_REQUESTED
+                    and event.data.get("resource_id") == request.request_id
+                )
+                if (original.data.get("prompt_digest") != prompt_digest(request.prompt)
+                        or previous.mode != request.mode):
+                    raise RunInterjectionConflict(
+                        "This message ID already names different content."
+                    )
+                return previous
+            if run.status not in {RunStatus.QUEUED, RunStatus.RUNNING}:
+                raise RunInterjectionConflict("This run is no longer accepting messages.")
+            queued_chars = sum(len(item.prompt) for item in receipts.values())
+            if len(receipts) >= 20 or queued_chars + len(request.prompt) > 32_000:
+                raise RunInterjectionConflict("This run's message queue is full.")
+            stored, created = await self.events.publish_run_interjection_requested(
+                run_id,
+                {"resource_id": request.request_id, "prompt": request.prompt,
+                 "prompt_digest": prompt_digest(request.prompt), "mode": request.mode.value},
+                actor=actor,
+            )
+            if (stored.data.get("prompt_digest") != prompt_digest(request.prompt)
+                    or stored.data.get("mode") != request.mode.value):
+                raise RunInterjectionConflict(
+                    "This message ID already names different content."
+                )
+            if not created:
+                latest = interjection_receipts(run_id, self.ledger.list_events(run_id))
+                return next(item for item in latest if item.request_id == request.request_id)
+            if request.mode != RunInterjectionMode.NEXT_TURN:
+                inject = getattr(self.runtime, "interject", None)
+                if inject is not None:
+                    try:
+                        await inject(run_id, request)
+                    except Exception:
+                        # The dispatching event, if present, means delivery is
+                        # uncertain. It must never be retried automatically.
+                        logger.exception("Run interjection dispatch failed for %s", run_id)
+                        await self._settle_uncertain_interjections(run_id)
+            latest = interjection_receipts(run_id, self.ledger.list_events(run_id))
+            return next(item for item in latest if item.request_id == request.request_id)
 
     def _acquire_run_lease(self, run_id: str) -> int | None:
         # The lease exists before run.json is published and is held until the
@@ -153,10 +255,12 @@ class RunManager:
         """Make ownerless runs retryable without replaying any model or external action."""
 
         for candidate in self.ledger.list_runs():
+            await self._reconcile_carried_interjections(candidate)
             if (
                 candidate.status in TERMINAL_RUN_STATUSES
                 and candidate.error != INTERRUPTED_RUN_MESSAGE
             ):
+                await self._settle_uncertain_interjections(candidate.id)
                 await self.project_events.reconcile_run(candidate.id)
                 continue
             lease = self._acquire_run_lease(candidate.id)
@@ -165,6 +269,7 @@ class RunManager:
             try:
                 run = self.ledger.get_run(candidate.id)
                 if run.status in TERMINAL_RUN_STATUSES:
+                    await self._settle_uncertain_interjections(run.id)
                     # Complete the crash window between the recovery snapshot
                     # and its terminal event, without rewriting existing history.
                     if (
@@ -185,7 +290,8 @@ class RunManager:
                             },
                             actor=EventActor(type="system", name="run-manager"),
                         )
-                    self._capture_terminal_feedback(run.id)
+                    if not run.manual_compaction:
+                        self._capture_terminal_feedback(run.id)
                     continue
                 message = INTERRUPTED_RUN_MESSAGE
                 if self.permissions.durable.recover(run.id):
@@ -218,7 +324,8 @@ class RunManager:
                 if run.status == RunStatus.CANCELLING:
                     await self._finalize_cancel(run.id)
                     continue
-                await self._capture_artifacts(run.id)
+                if not run.manual_compaction:
+                    await self._capture_artifacts(run.id)
                 self.ledger.update_run(
                     run.id,
                     status=RunStatus.FAILED,
@@ -236,14 +343,82 @@ class RunManager:
                     },
                     actor=EventActor(type="system", name="run-manager"),
                 )
-                self._write_diary(run.id, RunStatus.FAILED, message)
+                await self._settle_uncertain_interjections(run.id)
+                if not run.manual_compaction:
+                    self._write_diary(run.id, RunStatus.FAILED, message)
                 self._notify_schedule_failure(run.id, message, ProviderErrorCode.SDK_RUNTIME_FAILED)
-                self._capture_terminal_feedback(run.id)
+                if not run.manual_compaction:
+                    self._capture_terminal_feedback(run.id)
             finally:
                 try:
                     await self.project_events.reconcile_run(candidate.id)
                 finally:
                     os.close(lease)
+
+    async def _reconcile_carried_interjections(self, run: RunRecord) -> None:
+        if not run.resume_source_run_id:
+            return
+        for request_id in run.carried_interjection_ids:
+            await self.events.publish_once(
+                run.resume_source_run_id, EventType.RUN_INTERJECTION_CARRIED,
+                {"resource_id": request_id, "next_run_id": run.id},
+                resource_id=request_id,
+                actor=EventActor(type="system", name="run-manager"),
+            )
+
+    async def _settle_uncertain_interjections(self, run_id: str) -> None:
+        for receipt in interjection_receipts(run_id, self.ledger.list_events(run_id)):
+            if receipt.status == "dispatching":
+                await self.events.publish(
+                    run_id, EventType.RUN_INTERJECTION_UNCERTAIN,
+                    {"resource_id": receipt.request_id},
+                    actor=EventActor(type="system", name="run-manager"),
+                )
+
+    def _authorized_queued_interjections(
+        self, run: RunRecord,
+    ) -> tuple[list[RunInterjectionReceipt], list[RunInterjectionReceipt]]:
+        history = self.ledger.list_events(run.id)
+        queued = queued_for_next_turn(run.id, history)
+        request_actors = {
+            event.data.get("resource_id"): event.actor.name
+            for event in history
+            if event.type == EventType.RUN_INTERJECTION_REQUESTED
+        }
+        authorized: list[RunInterjectionReceipt] = []
+        blocked: list[RunInterjectionReceipt] = []
+        for item in queued:
+            actor = request_actors.get(item.request_id, "")
+            if isinstance(actor, str) and actor.startswith("paired-device:"):
+                if self.companions is None or self.access is None or self.settings is None:
+                    blocked.append(item)
+                    continue
+                try:
+                    device = self.companions.approved_record(actor.removeprefix("paired-device:"))
+                    if not device.allow_run_start:
+                        blocked.append(item)
+                        continue
+                    authorize_companion_project(
+                        self.settings, self.ledger, self.access, device,
+                        ProjectPermission.RUN_CREATE, run.project_id,
+                    )
+                except (CompanionError, AuthorizationError):
+                    blocked.append(item)
+                    continue
+            authorized.append(item)
+        return authorized, blocked
+
+    async def _publish_blocked_interjections(
+        self, run_id: str, blocked: list[RunInterjectionReceipt],
+    ) -> None:
+        for item in blocked:
+            await self.events.publish_once(
+                run_id, EventType.RUN_INTERJECTION_BLOCKED,
+                {"resource_id": item.request_id,
+                 "reason": "Device authority was revoked before the next turn."},
+                resource_id=item.request_id,
+                actor=EventActor(type="system", name="run-manager"),
+            )
 
     async def stop(self) -> None:
         # Schedulers stop first so no new run can race with this snapshot.
@@ -329,11 +504,18 @@ class RunManager:
         *,
         agent_id: str | None = None,
         schedule_id: str | None = None,
+        event_trigger_id: str | None = None,
+        event_trigger_revision: int | None = None,
+        event_id_digest: str | None = None,
+        event_permission_ceiling: list[SchedulePermissionRule] | None = None,
         task_experience_config_hash: str | None = None,
         standing_intent_id: str | None = None,
         automation_claim_id: str | None = None,
         companion_device_id: str | None = None,
         resume_session_id: str | None = None,
+        plan_source_run_id: str | None = None,
+        compaction_source_run_id: str | None = None,
+        manual_compaction: bool = False,
         mode: RunMode = RunMode.STANDARD,
         provider_profile_id: str | None = None,
         provider_snapshot: dict[str, object] | None = None,
@@ -345,6 +527,12 @@ class RunManager:
     ) -> RunRecord:
         if (schedule_id is None) != (task_experience_config_hash is None):
             raise ValueError("scheduled dispatch requires its host experience configuration hash")
+        if event_trigger_id is not None and (
+            schedule_id is not None or standing_intent_id is not None
+            or event_trigger_revision is None or event_id_digest is None
+            or max_budget_usd is None
+        ):
+            raise ValueError("event dispatch requires an isolated trigger and budget")
         if resolve_default_provider and provider_profile_id is None and self.providers is not None:
             provider_profile_id = self.providers.default_profile_id()
         if provider_profile_id is not None and not provider_profile_id.strip():
@@ -365,46 +553,109 @@ class RunManager:
                 provider_snapshot = self.providers.snapshot(provider_profile_id)
         if skill_snapshot is None and self.skills:
             skill_snapshot = self.skills.snapshot()
-        resume_source = self._resolve_resume_source(
-            resume_session_id,
-            project_id=project_id,
-            agent_id=agent_id,
-            provider_profile_id=provider_profile_id,
-            principal=principal,
-        )
         run_id = new_id("run")
         lease = self._acquire_run_lease(run_id)
         if lease is None:
             raise RuntimeError("Unable to acquire a new run lease")
         try:
-            run = self.ledger.create_run(
-                project_id,
-                prompt,
-                agent_id=agent_id,
-                schedule_id=schedule_id,
-                standing_intent_id=standing_intent_id,
-                automation_claim_id=automation_claim_id,
-                companion_device_id=companion_device_id,
-                resume_session_id=resume_session_id,
-                resume_source_run_id=resume_source.id if resume_source else None,
-                session_compaction_epoch=(
-                    resume_source.session_compaction_epoch if resume_source else 0
-                ),
-                mode=mode,
-                provider_profile_id=provider_profile_id,
-                provider_snapshot=provider_snapshot,
-                skill_snapshot=skill_snapshot,
-                max_budget_usd=max_budget_usd,
-                principal=principal,
-                run_id=run_id,
+            # Lock the SDK session through source validation and durable Run creation.
+            # Otherwise two tabs/workers can both approve one plan before either
+            # has published its new Run.
+            session_lock = (
+                self.ledger._lock_for(f"sdk-session:{resume_session_id}")
+                if resume_session_id else nullcontext()
             )
-            if task_experience_config_hash is not None:
-                # Persist before publishing RUN_CREATED or starting the SDK task.
-                # A crash before this write cannot initialize experience later
-                # from a different, mutable Schedule definition.
-                run = self.ledger.update_run(
-                    run.id, task_experience_config_hash=task_experience_config_hash,
+            with session_lock:
+                resume_source = self._resolve_resume_source(
+                    resume_session_id,
+                    project_id=project_id,
+                    agent_id=agent_id,
+                    provider_profile_id=provider_profile_id,
+                    principal=principal,
                 )
+                if manual_compaction and (
+                    resume_source is None
+                    or resume_source.id != compaction_source_run_id
+                    or resume_source.status != RunStatus.COMPLETED
+                    or resume_source.mode == RunMode.PLAN
+                    or self.ledger.runs_claiming_sdk_session(resume_session_id)[0].id
+                    != compaction_source_run_id
+                    or queued_for_next_turn(
+                        resume_source.id, self.ledger.list_events(resume_source.id)
+                    )
+                ):
+                    raise RunResumeConflictError(
+                        "The session changed before compaction could start."
+                    )
+                if resume_source is not None:
+                    reconcile_compaction_epoch(self.ledger, resume_source.id)
+                    resume_source = self.ledger.get_run(resume_source.id)
+                carried, blocked = (
+                    self._authorized_queued_interjections(resume_source)
+                    if resume_source else ([], [])
+                )
+                effective_prompt = carry_prompt(prompt, carried)
+                if (
+                    resume_source is not None
+                    and resume_source.mode == RunMode.PLAN
+                    and plan_source_run_id is None
+                ):
+                    raise RunResumeConflictError(
+                        "A plan session requires its reviewed source Run before continuation."
+                    )
+                if plan_source_run_id is not None and (
+                    resume_source is None
+                    or resume_source.id != plan_source_run_id
+                    or resume_source.mode != RunMode.PLAN
+                    or resume_source.status != RunStatus.COMPLETED
+                    or mode not in {RunMode.PLAN, RunMode.STANDARD}
+                    or self.ledger.runs_claiming_sdk_session(resume_session_id)[0].id
+                    != plan_source_run_id
+                ):
+                    raise RunResumeConflictError(
+                        "The reviewed plan is no longer the latest completed run "
+                        "in this SDK session."
+                    )
+                run = self.ledger.create_run(
+                    project_id,
+                    effective_prompt,
+                    agent_id=agent_id,
+                    schedule_id=schedule_id,
+                    event_trigger_id=event_trigger_id,
+                    event_trigger_revision=event_trigger_revision,
+                    event_id_digest=event_id_digest,
+                    event_permission_ceiling=event_permission_ceiling,
+                    standing_intent_id=standing_intent_id,
+                    automation_claim_id=automation_claim_id,
+                    companion_device_id=companion_device_id,
+                    resume_session_id=resume_session_id,
+                    resume_source_run_id=resume_source.id if resume_source else None,
+                    carried_interjection_ids=[item.request_id for item in carried],
+                    manual_compaction=manual_compaction,
+                    session_compaction_epoch=(
+                        resume_source.session_compaction_epoch if resume_source else 0
+                    ),
+                    mode=mode,
+                    provider_profile_id=provider_profile_id,
+                    provider_snapshot=provider_snapshot,
+                    skill_snapshot=skill_snapshot,
+                    mcp_snapshot=(
+                        [item.model_dump(mode="json") for item in self.user_mcp.active(project_id)]
+                        if self.user_mcp is not None and mode != RunMode.PLAN
+                        and not manual_compaction and standing_intent_id is None
+                        else []
+                    ),
+                    max_budget_usd=max_budget_usd,
+                    principal=principal,
+                    run_id=run_id,
+                )
+                if task_experience_config_hash is not None:
+                    # Persist before publishing RUN_CREATED or starting the SDK task.
+                    # A crash before this write cannot initialize experience later
+                    # from a different, mutable Schedule definition.
+                    run = self.ledger.update_run(
+                        run.id, task_experience_config_hash=task_experience_config_hash,
+                    )
             await self.events.publish(
                 run.id,
                 EventType.RUN_CREATED,
@@ -415,12 +666,17 @@ class RunManager:
                     "provider_profile_id": run.provider_profile_id,
                     "skill_snapshot": run.skill_snapshot,
                     "standing_intent_id": run.standing_intent_id,
+                    "event_trigger_id": run.event_trigger_id,
                     "companion_device_id": run.companion_device_id,
                     "max_budget_usd": run.max_budget_usd,
                     "resume_source_run_id": run.resume_source_run_id,
+                    "manual_compaction": run.manual_compaction,
                 },
                 actor=EventActor(type="system", name="run-manager"),
             )
+            await self._reconcile_carried_interjections(run)
+            if resume_source is not None:
+                await self._publish_blocked_interjections(resume_source.id, blocked)
             if channel_reply_target is not None:
                 try:
                     if self.channel_delivery is None:
@@ -521,6 +777,19 @@ class RunManager:
                 "A resumed SDK session must keep the same Provider. Start a new conversation "
                 "to switch Providers."
             )
+        if source.identity_binding == "authenticated_principal" and self.access is not None:
+            try:
+                self.access.authorize_bound(
+                    project_id,
+                    tenant_id=source.tenant_id,
+                    principal_id=source.principal_id,
+                    role=source.principal_role,
+                    permission=ProjectPermission.RUN_CREATE,
+                )
+            except AuthorizationError as exc:
+                raise PolicyDeniedError(
+                    "The Run principal no longer has permission to continue this project."
+                ) from exc
         return source
 
     @_run_operation
@@ -577,7 +846,8 @@ class RunManager:
 
     async def _execute_runtime(self, run_id: str) -> None:
         try:
-            await self._checkpoint_workspace(run_id)
+            if not self.ledger.get_run(run_id).manual_compaction:
+                await self._checkpoint_workspace(run_id)
             run = self.ledger.update_run(
                 run_id, status=RunStatus.RUNNING,
                 started_at=self.ledger.get_run(run_id).started_at or utc_now(),
@@ -594,6 +864,7 @@ class RunManager:
             await self._fail_run(run_id, exc)
             return
         current = self.ledger.get_run(run_id)
+        await self._settle_uncertain_interjections(run_id)
         wait = self.permissions.durable.active(current)
         if (current.status == RunStatus.WAITING_PERMISSION and wait is not None
                 and wait.state in {"pending", "resolved"} and wait.confirmed_at is not None):
@@ -611,11 +882,54 @@ class RunManager:
             {"status": RunStatus.COMPLETED},
             actor=EventActor(type="system", name="run-manager"),
         )
+        if current.manual_compaction:
+            return
         await self._capture_artifacts(run_id)
         self._write_diary(run_id, RunStatus.COMPLETED, "")
         self._distill_memory(run_id)
         await self._notify_heartbeat_if_changed(run_id)
         await self._finalize_channel_reply(run_id)
+        await self._start_queued_next_turn(run_id)
+
+    async def _start_queued_next_turn(self, run_id: str) -> None:
+        source = self.ledger.get_run(run_id)
+        if (
+            not source.sdk_session_id
+            or source.schedule_id is not None
+            or source.standing_intent_id is not None
+            or source.automation_claim_id is not None
+        ):
+            return
+        queued, blocked = self._authorized_queued_interjections(source)
+        await self._publish_blocked_interjections(run_id, blocked)
+        if not queued:
+            return
+        principal = None
+        if source.identity_binding == "authenticated_principal":
+            principal = PrincipalBinding(
+                tenant_id=source.tenant_id,
+                principal_id=source.principal_id,
+                role=source.principal_role,
+                session_id=source.principal_session_id,
+            )
+        try:
+            await self.create_and_start(
+                source.project_id,
+                "Continue with the queued user directions.",
+                agent_id=source.agent_id,
+                resume_session_id=source.sdk_session_id,
+                mode=source.mode,
+                provider_profile_id=source.provider_profile_id,
+                provider_snapshot=source.provider_snapshot,
+                skill_snapshot=source.skill_snapshot,
+                max_budget_usd=source.max_budget_usd,
+                resolve_default_provider=False,
+                principal=principal,
+            )
+        except Exception:
+            # The request remains queued if the Provider is unavailable or a
+            # user started another continuation first. Never repeat a Run.
+            logger.exception("Could not start queued next turn for %s", run_id)
 
     async def _fail_run(self, run_id: str, exc: Exception) -> None:
         if self.ledger.get_run(run_id).permission_waits:
@@ -643,10 +957,13 @@ class RunManager:
             },
             actor=EventActor(type="system", name="run-manager"),
         )
-        await self._capture_artifacts(run_id)
-        self._write_diary(run_id, RunStatus.FAILED, safe_error)
+        await self._settle_uncertain_interjections(run_id)
+        if not self.ledger.get_run(run_id).manual_compaction:
+            await self._capture_artifacts(run_id)
+            self._write_diary(run_id, RunStatus.FAILED, safe_error)
         self._notify_schedule_failure(run_id, safe_error, error_code)
-        self._capture_terminal_feedback(run_id)
+        if not self.ledger.get_run(run_id).manual_compaction:
+            self._capture_terminal_feedback(run_id)
         await self._finalize_channel_reply(run_id)
 
     async def _finalize_channel_reply(self, run_id: str) -> None:
@@ -816,6 +1133,10 @@ class RunManager:
         principal: PrincipalContext | PrincipalBinding | None = None,
     ) -> RunRecord:
         source = self.ledger.get_run(run_id)
+        if source.manual_compaction:
+            raise RunRetryConflictError(
+                "A context compaction action cannot be retried as a business task."
+            )
         if source.standing_intent_id is not None:
             raise RunRetryConflictError(
                 "Standing-intent checks must be re-dispatched through their watcher budget."
@@ -900,7 +1221,8 @@ class RunManager:
         run = self.ledger.get_run(run_id)
         if run.status in TERMINAL_RUN_STATUSES:
             return
-        await self._capture_artifacts(run_id)
+        if not run.manual_compaction:
+            await self._capture_artifacts(run_id)
         self.ledger.update_run(
             run_id,
             status=RunStatus.CANCELLED,
@@ -912,8 +1234,9 @@ class RunManager:
             {"status": RunStatus.CANCELLED},
             actor=EventActor(type="system", name="run-manager"),
         )
-        self._write_diary(run_id, RunStatus.CANCELLED, "")
-        self._capture_terminal_feedback(run_id)
+        if not run.manual_compaction:
+            self._write_diary(run_id, RunStatus.CANCELLED, "")
+            self._capture_terminal_feedback(run_id)
 
     def _capture_terminal_feedback(self, run_id: str) -> None:
         if self.feedback is None:

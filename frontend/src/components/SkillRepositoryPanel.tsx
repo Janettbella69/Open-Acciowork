@@ -13,7 +13,9 @@ type Props = { skills: SkillVersion[]; capabilities: SkillRepositoryCapabilities
 function Imports({ capabilities, onUnavailable, onChanged }: Props) {
   const t = useT()
   const [items, setItems] = useState<SkillImportView[]>([])
-  const [selected, setSelected] = useState<string | null>(null)
+  const [selected, setSelected] = useState<string | null>(
+    () => new URLSearchParams(window.location.search).get('import'),
+  )
   const [file, setFile] = useState<{ value: File; requestId: string } | null>(null)
   const { run, busy, error } = useCollaborationRequest(onUnavailable)
   const { identity_mode, tenant_id, actor_id, can_manage } = capabilities
@@ -47,7 +49,9 @@ function Imports({ capabilities, onUnavailable, onChanged }: Props) {
 }
 export default function SkillRepositoryPanel(props: Props) {
   const t = useT()
-  const [tab, setTab] = useState<'published' | 'imports'>('published')
+  const [tab, setTab] = useState<'published' | 'imports'>(
+    () => new URLSearchParams(window.location.search).has('import') ? 'imports' : 'published',
+  )
   const [query, setQuery] = useState('')
   const [selected, setSelected] = useState<string | null>(null)
   const skills = props.skills.filter((row) => row.source === 'tenant')

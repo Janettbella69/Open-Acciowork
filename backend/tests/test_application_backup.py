@@ -144,6 +144,67 @@ def test_cold_restore_preserves_private_imports_and_publication_receipts(source,
         backup.inspect_application(data, plugin)
 
 
+def test_cold_restore_preserves_plugin_report_and_rejects_broken_skill_binding(
+    source, tmp_path,
+):
+    from test_plugin_imports import plugin_zip
+
+    from ophira_backend.config import Settings
+    from ophira_backend.plugin_imports import PluginImportService
+    from ophira_backend.skill_repository import SkillRepository
+
+    data, plugin, ledger, registry, *_ = source
+    repository = SkillRepository(ledger, registry, Settings(_env_file=None, data_dir=data))
+    service = PluginImportService(repository)
+    submitted = service.submit(plugin_zip(), "pluginbackuprequest01", None)
+    identifier = submitted["import"]["id"]
+    archive = make_backup(source, tmp_path)
+    target = tmp_path / "restored"
+    backup.restore_backup(archive, target)
+    restored_data = target / "data"
+    restored_repository = SkillRepository(
+        FileLedger(restored_data),
+        SkillRegistry(target / "application-plugin", restored_data / "skills"),
+        scope=repository.scope,
+    )
+    assert PluginImportService(restored_repository).detail(identifier, None) == submitted
+
+    report_path = service._path(identifier)
+    damaged = json.loads(report_path.read_text())
+    damaged["skills"][0]["content_hash"] = "0" * 64
+    report_path.write_text(json.dumps(damaged))
+    with pytest.raises(BackupError, match="plugin_import_invalid"):
+        backup.inspect_application(data, plugin)
+
+
+def test_mcp_only_plugin_backup_binds_scope_without_skill_imports(source, tmp_path):
+    import io
+    import zipfile
+
+    from ophira_backend.config import Settings
+    from ophira_backend.plugin_imports import PluginImportService
+    from ophira_backend.skill_repository import SkillRepository
+
+    data, plugin, ledger, registry, *_ = source
+    repository = SkillRepository(ledger, registry, Settings(_env_file=None, data_dir=data))
+    package = io.BytesIO()
+    with zipfile.ZipFile(package, "w") as archive:
+        archive.writestr(".claude-plugin/plugin.json", '{"name":"mcp-only"}')
+        archive.writestr(".mcp.json", '{"mcpServers":{"remote":{'
+                         '"type":"http","url":"https://mcp.example.com/mcp"}}}')
+    submitted = PluginImportService(repository).submit(
+        package.getvalue(), "mcpbackuprequest001", None,
+    )
+    assert submitted["import"]["skills"] == []
+    assert (data / "skill-imports/scope.json").is_file()
+    archive = make_backup(source, tmp_path)
+    target = tmp_path / "restored"
+    backup.restore_backup(archive, target)
+    assert backup.inspect_application(target / "data", target / "application-plugin")[
+        "plugin_imports"
+    ][submitted["import"]["id"]]["skill_imports"] == []
+
+
 @pytest.mark.parametrize("committed", [False, True])
 def test_private_publication_requires_receipt_reconciliation_before_cold_backup(
     source, tmp_path, monkeypatch, committed,

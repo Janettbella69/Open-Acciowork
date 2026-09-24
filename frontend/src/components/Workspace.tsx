@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { errorMessage, getOrgPolicy, listProviders, saveOrgPolicy } from '../api/client'
-import type { OpportunityProject, PermissionModePolicy, ProviderProfile, RunMode, RunRetryStrategy } from '../api/types'
+import type { OpportunityProject, PermissionModePolicy, ProviderProfile, RunInterjectionMode, RunMode, RunRetryStrategy } from '../api/types'
 import { useOpportunityRuntime } from '../api/useOpportunityRuntime'
 import { useProjectDeletion } from '../api/useProjectDeletion'
 import { requireConversationScope, type ConversationDeletionOperation, type ProjectDeletionOperation } from '../api/projectDeletion'
@@ -53,6 +53,14 @@ export default function Workspace() {
   const [approvalModeSaving, setApprovalModeSaving] = useState(false)
   const approvalSaveRef = useRef<Promise<void> | null>(null)
   const [runMode, setRunMode] = useState<RunMode>('standard')
+  const [planActionBusy, setPlanActionBusy] = useState(false)
+  const planActionRef = useRef(false)
+  const [interjectionBusy, setInterjectionBusy] = useState(false)
+  const [compacting, setCompacting] = useState(false)
+  const compactRef = useRef(false)
+  const interjectionRequestRef = useRef<{
+    id: string; prompt: string; mode: RunInterjectionMode
+  } | null>(null)
   const [retrying, setRetrying] = useState<RunRetryStrategy | null>(null)
   const [retryFailure, setRetryFailure] = useState<{ runId: string; message: string } | null>(null)
   const retryInFlightRef = useRef<object | null>(null)
@@ -119,7 +127,7 @@ export default function Workspace() {
 
   const runAnalysis = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
-    if (approvalSaveRef.current) return
+    if (approvalSaveRef.current || planActionRef.current || runtime.isActive) return
     const brief = briefInput.trim()
     if (!brief) return
     const navigation = ++navigationRef.current
@@ -146,6 +154,86 @@ export default function Workspace() {
       if (navigationRef.current === navigation) {
         setNotice('The research run could not start. Your brief is still here so you can try again.')
       }
+    }
+  }
+
+  const sendInterjection = async (mode: RunInterjectionMode) => {
+    const prompt = briefInput.trim()
+    if (!prompt || interjectionBusy || !runtime.run || runtime.run.status !== 'running') return
+    const existing = interjectionRequestRef.current
+    const request = existing?.prompt === prompt && existing.mode === mode
+      ? existing : { id: crypto.randomUUID(), prompt, mode }
+    interjectionRequestRef.current = request
+    const navigation = navigationRef.current
+    const runId = runtime.run.id
+    setInterjectionBusy(true)
+    setNotice('Sending your direction…')
+    try {
+      const receipt = await runtime.interject(prompt, mode, request.id)
+      if (navigationRef.current !== navigation || runtime.run?.id !== runId) return
+      interjectionRequestRef.current = null
+      setBriefInput('')
+      setNotice(receipt.status === 'injected'
+        ? 'Direction sent to the active run.'
+        : receipt.status === 'uncertain'
+          ? 'Direction delivery could not be confirmed. Review the activity before retrying.'
+        : receipt.status === 'blocked'
+          ? 'This direction was blocked because device access changed.'
+        : receipt.status === 'dispatching'
+          ? 'Interrupt requested. Review the activity to confirm delivery.'
+          : 'Direction saved for the next turn.')
+    } catch {
+      if (navigationRef.current === navigation) {
+        setNotice('The direction could not be confirmed. Your message is still here; retry it.')
+      }
+    } finally {
+      setInterjectionBusy(false)
+    }
+  }
+
+  const compactContext = async () => {
+    if (compactRef.current || runtime.starting || runtime.isActive
+      || runtime.run?.status !== 'completed' || !runtime.run.sdk_session_id) return
+    compactRef.current = true
+    setCompacting(true)
+    setNotice('Compacting conversation context…')
+    try {
+      const next = await runtime.compact()
+      if (next) setNotice('Context compaction started in the same session.')
+    } catch (cause) {
+      setNotice(`Context compaction could not start: ${errorMessage(cause)}`)
+    } finally {
+      compactRef.current = false
+      setCompacting(false)
+    }
+  }
+
+  const continuePlan = async (changes?: string) => {
+    const source = runtime.run
+    if (planActionRef.current || approvalSaveRef.current || runtime.starting || runtime.isActive
+      || runtime.historyLoading || source?.mode !== 'plan' || source.status !== 'completed'
+      || !source.sdk_session_id || source.project_id !== runtime.project?.id) return
+    if (changes !== undefined && !changes.trim()) return
+    planActionRef.current = true
+    setPlanActionBusy(true)
+    const navigation = navigationRef.current
+    try {
+      const prompt = changes === undefined
+        ? 'I approve the plan you just presented. Continue in this session and execute it. Ask for separate approval before any external action that requires it.'
+        : `Revise the plan you just presented using my changes below. Do not execute it yet.\n\n${changes.trim()}`
+      const next = await runtime.continueProject(
+        prompt, [], changes === undefined ? 'standard' : 'plan',
+        source.agent_id, source.provider_profile_id, source.id,
+      )
+      if (next && navigationRef.current === navigation) {
+        setRunMode(changes === undefined ? 'standard' : 'plan')
+        setNotice(changes === undefined ? 'Approved plan is running in the same session.' : 'Revising the plan in the same session.')
+      }
+    } catch (planError) {
+      if (navigationRef.current === navigation) setNotice(errorMessage(planError))
+    } finally {
+      planActionRef.current = false
+      setPlanActionBusy(false)
     }
   }
 
@@ -227,7 +315,7 @@ export default function Workspace() {
     <WorkspaceComposer
       value={briefInput}
       attachedFiles={attachedFiles}
-      busy={runtime.starting || runtime.isActive || runtime.historyLoading}
+      busy={runtime.starting || runtime.isActive || runtime.historyLoading || planActionBusy}
       notice={notice}
       error={runtime.error}
       projects={runtime.projects}
@@ -252,7 +340,13 @@ export default function Workspace() {
       onProviderProfileChange={setProviderProfileId}
       onApprovalModeChange={changeApprovalMode}
       onRunModeChange={setRunMode}
+      onApprovePlan={() => void continuePlan()}
+      onRevisePlan={(changes) => void continuePlan(changes)}
       onSubmit={runAnalysis}
+      onInterject={(mode) => void sendInterjection(mode)}
+      interjectionBusy={interjectionBusy}
+      compacting={compacting}
+      onCompact={() => void compactContext()}
       onProjectRefresh={() => void runtime.refreshActiveProject()}
       onProjectCreated={(project) => void selectProjectRecord(project)}
       deletionProgress={<><ProjectDeletionProgress deletion={deletion} /><ProjectDeletionProgress deletion={conversationDeletion} /></>}

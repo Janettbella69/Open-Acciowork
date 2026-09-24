@@ -24,6 +24,13 @@ python3.11 -m venv .venv --clear
 .venv/bin/uvicorn ophira_backend.main:app --app-dir backend/src --reload
 ```
 
+Shopify order event subscriptions require trusted-gateway mode and an
+operator-owned `OPHIRA_EVENT_PUBLIC_ORIGIN=https://events.example.com` that
+routes `/api/projects/.../event-triggers/.../shopify` to this backend. Project
+administrators register, verify, and remove subscriptions from **Event triggers**;
+the connector must hold a Shopify app client ID/secret with `read_orders` granted.
+See [event trigger setup](../docs/event-triggers.md).
+
 Publishing a saved HTML artifact requires trusted-gateway mode and a separate
 `OPHIRA_SITE_PUBLIC_ORIGIN=https://pages.example.com`. Route only `/published/`
 from that host to the backend; the management API remains on its own host. A
@@ -299,7 +306,7 @@ PYTHONPATH=backend/src .venv/bin/python backend/scripts/run_l2.py --dry-run
 ```
 
 Reports land in `evals/reports/`. See `docs/backend-api.md` for the frontend contract and
-observable-event policy, and the PRD (`docs/OPHIRA-PRD-and-Technical-Architecture-v2.md`)
+observable-event policy, and the PRD (`docs/OPHIRA-PRD-and-Technical-Architecture-v2.3.md`)
 for the architecture red lines enforced by `backend/tests/test_arch_gates.py`. The
 FR-26 autonomous-check safety, budget, and recovery contract is documented in
 `docs/standing-intent-watcher.md`.

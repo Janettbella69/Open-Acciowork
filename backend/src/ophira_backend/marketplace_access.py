@@ -19,7 +19,12 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .auth import AuthorizationError, ProjectAccessStore, ProjectPermission
 from .config import Settings
-from .connectors import ConnectorNotFoundError, ConnectorRegistry, ConnectorUnavailableError
+from .connectors import (
+    CommercialConnectorRuntime,
+    ConnectorNotFoundError,
+    ConnectorRegistry,
+    ConnectorUnavailableError,
+)
 from .constants import TOOL_READ_MARKETPLACE, EvidenceSourceType, RunStatus
 from .marketplaces import (
     SHOPIFY_TYPE,
@@ -31,7 +36,7 @@ from .marketplaces import (
     default_marketplace_transport,
 )
 from .models import PrincipalContext, new_id, utc_now
-from .shopify import ShopifyReader
+from .shopify import SHOPIFY_ORDER_SCOPE, ShopifyReader
 from .storage import FileLedger
 from .untrusted import UNTRUSTED_LIMITS, UntrustedSource, sanitize_untrusted_payload
 
@@ -272,6 +277,33 @@ class MarketplaceAccessService:
         # grant. Repointing the connector to a different app or store requires a new grant.
         value = self.reader.identity_parts(connector_id)
         return hashlib.sha256(json.dumps(value, separators=(",", ":")).encode()).hexdigest()
+
+    def require_shopify_webhook_binding(
+        self, project_id: str, binding_id: str,
+    ) -> tuple[MarketplaceBinding, CommercialConnectorRuntime]:
+        """Resolve a current project grant and server-owned Shopify signing material."""
+        bindings = self.get(project_id).bindings
+        original = next(
+            (item for item in bindings if item.id == binding_id), None,
+        )
+        if original is None:
+            raise AuthorizationError("Shopify shop grant is unavailable")
+        # Grant renewal revokes the old ID and creates a new one for the same
+        # connector/shop identity. Keep the webhook URL stable across renewals.
+        binding = next((item for item in reversed(bindings) if (
+            item.active(self.clock())
+            and item.connector_id == original.connector_id
+            and item.connector_identity == original.connector_identity
+            and item.shop_id == original.shop_id
+        )), None)
+        if binding is None:
+            raise AuthorizationError("Shopify shop grant is unavailable")
+        runtime = self.connectors.require_shopify_runtime(binding.connector_id)
+        if SHOPIFY_ORDER_SCOPE not in runtime.connector.scope.split():
+            raise AuthorizationError("Shopify order scope is unavailable")
+        if self._connector_identity(binding.connector_id) != binding.connector_identity:
+            raise AuthorizationError("Shopify connector identity changed")
+        return binding, runtime
 
     def _revision(self, project_id: str, expected: int) -> MarketplaceAccessRecord:
         record = self.get(project_id)

@@ -10,6 +10,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Annotated
 from urllib.parse import urlsplit
 
+import httpx
 import uvicorn
 from fastapi import FastAPI, Header, HTTPException, Query, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -92,7 +93,7 @@ from .commercial_adapters import HttpsJsonMessageAdapter
 from .companion import CompanionStore
 from .companion_routes import register_companion_routes, validate_companion_request
 from .config import Settings, get_settings
-from .connectors import ConnectorNotFoundError, ConnectorRegistry
+from .connectors import ConnectorNotFoundError, ConnectorRegistry, ConnectorUnavailableError
 from .constants import (
     STREAM_END_EVENT,
     USER_SCOPE_ID,
@@ -123,6 +124,24 @@ from .constants import (
 from .conversation_deletion import ConversationDeletionService
 from .conversation_deletion_api import register_conversation_deletion_routes
 from .durable_permissions import DurablePermissionConflict
+from .event_triggers import (
+    MAX_EVENT_BODY_BYTES,
+    MAX_SHOPIFY_WEBHOOK_BODY_BYTES,
+    EventTrigger,
+    EventTriggerBusy,
+    EventTriggerCreate,
+    EventTriggerCreated,
+    EventTriggerError,
+    EventTriggerStore,
+    EventTriggerUpdate,
+    ShopifySubscriptionRecord,
+    ShopifySubscriptionRegister,
+    ShopifySubscriptionRemove,
+    ShopifySubscriptionView,
+    event_prompt,
+    shopify_order_payload,
+    valid_event_id,
+)
 from .events import EventPublisher
 from .feedback import FeedbackStore
 from .feedback_routes import register_feedback_routes
@@ -139,6 +158,7 @@ from .knowledge import (
 from .maintenance import data_directory_lease
 from .marketplace_access import MarketplaceAccessService
 from .marketplace_api import register_marketplace_routes
+from .marketplaces import MarketplaceError
 from .memory import FileMemoryProvider, MemoryNotFoundError, public_memory_item
 from .models import (
     AgentCreate,
@@ -174,12 +194,15 @@ from .models import (
     PendingPermissionView,
     PermissionGrant,
     PermissionResolution,
+    PrincipalBinding,
     PrincipalContext,
     ProjectCreate,
     ProviderPreflightResult,
     ProviderProfile,
     ProviderProfileUpsert,
     RunCreate,
+    RunInterjectionReceipt,
+    RunInterjectionRequest,
     RunRecord,
     RunRetryRequest,
     Schedule,
@@ -213,10 +236,16 @@ from .project_metrics import (
 )
 from .project_scope import LOCAL_OPERATOR_ID
 from .project_template_api import register_project_template_routes
-from .providers import FileSecretVault, ProviderNotFoundError, ProviderRegistry
+from .providers import (
+    FileSecretVault,
+    ProviderNotFoundError,
+    ProviderRegistry,
+    provider_readiness_failures,
+)
 from .push_service import PushDeliveryService
 from .push_store import PushStore
 from .push_transport import WebPushAdapter
+from .run_interjections import RunInterjectionConflict
 from .run_resources import RunResources, read_run_resources
 from .runs import (
     AgentRuntime,
@@ -241,6 +270,7 @@ from .session_search import (
 )
 from .shop_browser import ShopBrowserService
 from .shop_browser_api import register_shop_browser_routes
+from .shopify import ShopifyReader, parse_shopify_credentials
 from .site_publication_routes import register_site_publication_routes
 from .site_publications import SitePublicationStore
 from .skill_proposal_routes import register_skill_proposal_routes
@@ -265,6 +295,14 @@ from .task_experience_routes import register_task_experience_routes
 from .task_overview import TaskOverview, read_task_overview
 from .telemetry import RunTelemetry, build_run_telemetry
 from .templates import TEMPLATE_SPECS
+from .user_mcp import (
+    MCP_CATALOG,
+    UserMcpConflictError,
+    UserMcpConnector,
+    UserMcpRegistry,
+    UserMcpToolPolicyUpdate,
+    UserMcpUpsert,
+)
 from .workspace_recovery_api import register_workspace_recovery_routes
 
 MAX_PROJECT_UPLOAD_BYTES = 50 * 1024 * 1024
@@ -368,6 +406,7 @@ def _create_app(
         project_access,
     )
     channel_replays = ChannelReplayGuard(settings.data_dir / "channels" / "replays.json")
+    event_triggers = EventTriggerStore(ledger)
     channel_delivery = ChannelDeliveryService(
         ledger,
         ChannelDeliveryStore(settings.data_dir / "channel-deliveries"),
@@ -383,6 +422,7 @@ def _create_app(
         events,
         timeout_seconds=settings.permission_timeout_seconds,
         grants=grants,
+        event_triggers=event_triggers,
     )
     providers = ProviderRegistry(settings)
     skills = SkillRegistry(settings.capability_plugin_dir, settings.data_dir / "skills")
@@ -401,6 +441,11 @@ def _create_app(
         vault=FileSecretVault(settings.data_dir / "secrets", filename="connector-secrets.json"),
     )
     connectors.ensure_catalog()
+    user_mcp = UserMcpRegistry(
+        settings.data_dir / "user-mcp",
+        FileSecretVault(settings.data_dir / "secrets", filename="mcp-secrets.json"),
+        policy,
+    )
     marketplace_access = MarketplaceAccessService(
         ledger, connectors, settings=settings, access=project_access,
     )
@@ -425,6 +470,7 @@ def _create_app(
         intents=intents,
         notifications=notifications,
         connectors=connectors,
+        user_mcp=user_mcp,
         marketplace_access=marketplace_access,
         shop_browsers=shop_browsers,
         policy=policy,
@@ -448,6 +494,9 @@ def _create_app(
         channel_delivery=channel_delivery,
         feedback=feedback,
         project_events=project_events,
+        access=project_access,
+        companions=companions,
+        user_mcp=user_mcp,
     )
     scheduler = ScheduleService(
         ledger,
@@ -521,6 +570,7 @@ def _create_app(
     application.state.authenticator = authenticator
     application.state.project_access = project_access
     application.state.channel_identity_bindings = channel_identity_bindings
+    application.state.event_triggers = event_triggers
     application.state.commercial_actions = commercial_actions
     application.state.commercial_action_adapter = commercial_action_adapter
     application.state.channel_delivery = channel_delivery
@@ -574,7 +624,10 @@ def _create_app(
         try:
             authorize_project_request(project_id, principal, permission)
             return True
-        except (AuthorizationError, LedgerNotFoundError, ValueError):
+        except (
+            AuthorizationError, LedgerNotFoundError, ProjectUnavailableError,
+            ProjectLifecycleBusyError, ValueError,
+        ):
             return False
 
     def require_memory_authorization(
@@ -737,6 +790,26 @@ def _create_app(
                     status_code=status.HTTP_403_FORBIDDEN,
                     content={"detail": "local-only request source is not trusted"},
                 )
+        # Only this exact POST path accepts an external HMAC identity. The route
+        # validates the body-bound signature and the durable project binding.
+        if request.method == "POST" and re.fullmatch(
+            r"/api/projects/[A-Za-z0-9_-]+/event-triggers/[A-Za-z0-9_-]+/(?:deliver|shopify)",
+            path,
+        ):
+            if settings.auth_mode == "local_only":
+                try:
+                    authenticator.authenticate(
+                        request.headers, method=request.method, path=path,
+                        client_host=request.client.host if request.client else None,
+                    )
+                except AuthenticationError:
+                    return JSONResponse(
+                        status_code=403,
+                        content={"detail": "local-only event ingress requires loopback"},
+                    )
+            response = await call_next(request)
+            response.headers["Cache-Control"] = "no-store"
+            return response
         raw_path_value = request.scope.get("raw_path")
         try:
             raw_path = (
@@ -822,7 +895,7 @@ def _create_app(
                     if request.method in {"GET", "HEAD"}
                     else (
                         ProjectPermission.RUN_CREATE
-                        if path.endswith("/retry")
+                        if path.endswith(("/retry", "/compact"))
                         else ProjectPermission.PROJECT_WRITE
                     )
                 )
@@ -852,7 +925,7 @@ def _create_app(
         ) or (
             parts[1:3] == ["api", "projects"] and parts[4:5] in (
                 ["comments"], ["collaboration"], ["access"], ["templates"], ["export"],
-                ["deletion"], ["conversations"],
+                ["deletion"], ["conversations"], ["event-triggers"],
             )
         ):
             response.headers["Cache-Control"] = "no-store"
@@ -1524,6 +1597,7 @@ def _create_app(
                 payload.prompt,
                 agent_id=payload.agent_id,
                 resume_session_id=payload.resume_session_id,
+                plan_source_run_id=payload.plan_source_run_id,
                 mode=payload.mode,
                 provider_profile_id=provider_profile_id,
                 provider_snapshot=provider_snapshot,
@@ -1684,6 +1758,117 @@ def _create_app(
     async def list_connectors() -> list[Connector]:
         return connectors.list()
 
+    @application.get("/api/projects/{project_id}/mcp/catalog")
+    async def list_mcp_catalog(request: Request, project_id: str) -> list[dict[str, str]]:
+        require_project_authorization(
+            project_id, _request_principal(request), ProjectPermission.PROJECT_READ,
+        )
+        return list(MCP_CATALOG)
+
+    @application.get(
+        "/api/projects/{project_id}/mcp", response_model=list[UserMcpConnector],
+    )
+    async def list_user_mcp(request: Request, project_id: str) -> list[UserMcpConnector]:
+        require_project_authorization(
+            project_id, _request_principal(request), ProjectPermission.PROJECT_READ,
+        )
+        return user_mcp.list(project_id)
+
+    @application.post(
+        "/api/projects/{project_id}/mcp/catalog/{catalog_id}",
+        response_model=UserMcpConnector,
+    )
+    async def add_catalog_mcp(
+        request: Request, project_id: str, catalog_id: str,
+    ) -> UserMcpConnector:
+        require_project_authorization(
+            project_id, _request_principal(request), ProjectPermission.PROJECT_WRITE,
+        )
+        try:
+            added = user_mcp.add_catalog(project_id, catalog_id)
+            return await user_mcp.review(project_id, added.id)
+        except KeyError as exc:
+            raise HTTPException(404, "MCP catalog entry not found") from exc
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        except UserMcpConflictError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        except (OSError, TimeoutError, httpx.HTTPError, ExceptionGroup) as exc:
+            raise HTTPException(502, "Remote MCP handshake or tool review failed") from exc
+
+    @application.put(
+        "/api/projects/{project_id}/mcp/{connector_id}",
+        response_model=UserMcpConnector,
+    )
+    async def upsert_user_mcp(
+        request: Request, project_id: str, connector_id: str, payload: UserMcpUpsert,
+    ) -> UserMcpConnector:
+        require_project_authorization(
+            project_id, _request_principal(request), ProjectPermission.PROJECT_WRITE,
+        )
+        try:
+            return user_mcp.upsert(project_id, connector_id, payload)
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+    @application.post(
+        "/api/projects/{project_id}/mcp/{connector_id}/review",
+        response_model=UserMcpConnector,
+    )
+    async def review_user_mcp(
+        request: Request, project_id: str, connector_id: str,
+    ) -> UserMcpConnector:
+        require_project_authorization(
+            project_id, _request_principal(request), ProjectPermission.PROJECT_WRITE,
+        )
+        try:
+            return await user_mcp.review(project_id, connector_id)
+        except KeyError as exc:
+            raise HTTPException(404, "MCP connector not found") from exc
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        except UserMcpConflictError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        except (OSError, TimeoutError, httpx.HTTPError, ExceptionGroup) as exc:
+            raise HTTPException(502, "Remote MCP handshake or tool review failed") from exc
+
+    @application.put(
+        "/api/projects/{project_id}/mcp/{connector_id}/tools/{tool_name}",
+        response_model=UserMcpConnector,
+    )
+    async def set_user_mcp_tool_policy(
+        request: Request, project_id: str, connector_id: str, tool_name: str,
+        payload: UserMcpToolPolicyUpdate,
+    ) -> UserMcpConnector:
+        require_project_authorization(
+            project_id, _request_principal(request), ProjectPermission.PROJECT_WRITE,
+        )
+        try:
+            return user_mcp.set_tool_policy(
+                project_id, connector_id, tool_name, payload.policy,
+            )
+        except KeyError as exc:
+            raise HTTPException(404, "MCP connector or tool not found") from exc
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        except UserMcpConflictError as exc:
+            raise HTTPException(409, str(exc)) from exc
+
+    @application.post(
+        "/api/projects/{project_id}/mcp/{connector_id}/revoke",
+        response_model=UserMcpConnector,
+    )
+    async def revoke_user_mcp(
+        request: Request, project_id: str, connector_id: str,
+    ) -> UserMcpConnector:
+        require_project_authorization(
+            project_id, _request_principal(request), ProjectPermission.PROJECT_WRITE,
+        )
+        try:
+            return user_mcp.revoke(project_id, connector_id)
+        except KeyError as exc:
+            raise HTTPException(404, "MCP connector not found") from exc
+
     @application.post("/api/connectors/{connector_id}/health-check", response_model=Connector)
     async def connector_health_check(connector_id: str) -> Connector:
         try:
@@ -1717,6 +1902,72 @@ def _create_app(
     async def get_run(run_id: str) -> RunRecord:
         try:
             return ledger.get_run(run_id)
+        except (LedgerNotFoundError, ValueError) as exc:
+            raise HTTPException(status_code=404, detail="Run not found") from exc
+
+    @application.post(
+        "/api/runs/{run_id}/interjections", response_model=RunInterjectionReceipt,
+        status_code=status.HTTP_202_ACCEPTED,
+    )
+    async def interject_run(
+        request: Request, response: Response, run_id: str,
+        payload: RunInterjectionRequest,
+    ) -> RunInterjectionReceipt:
+        response.headers["Cache-Control"] = "no-store"
+        try:
+            run = ledger.get_run(run_id)
+            principal = _request_principal(request)
+            require_project_authorization(
+                run.project_id, principal, ProjectPermission.PROJECT_WRITE,
+            )
+            if run.identity_binding == "authenticated_principal" and (
+                principal is None
+                or (principal.tenant_id, principal.principal_id, principal.role,
+                    principal.session_id)
+                != (run.tenant_id, run.principal_id, run.principal_role,
+                    run.principal_session_id)
+            ):
+                raise HTTPException(
+                    status_code=403, detail="Run is bound to another principal session",
+                )
+            return await runs.interject(
+                run_id, payload,
+                actor=EventActor(
+                    type="user", name=(
+                        f"principal:{principal.principal_id}" if principal else "frontend-user"
+                    ),
+                ),
+            )
+        except RunInterjectionConflict as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except (LedgerNotFoundError, ValueError) as exc:
+            raise HTTPException(status_code=404, detail="Run not found") from exc
+
+    @application.post(
+        "/api/runs/{run_id}/compact", response_model=RunRecord,
+        status_code=status.HTTP_202_ACCEPTED,
+    )
+    async def compact_run(request: Request, response: Response, run_id: str) -> RunRecord:
+        response.headers["Cache-Control"] = "no-store"
+        try:
+            source = ledger.get_run(run_id)
+            principal = _request_principal(request)
+            require_project_authorization(
+                source.project_id, principal, ProjectPermission.RUN_CREATE,
+            )
+            if source.identity_binding == "authenticated_principal" and (
+                principal is None
+                or (principal.tenant_id, principal.principal_id, principal.role,
+                    principal.session_id)
+                != (source.tenant_id, source.principal_id, source.principal_role,
+                    source.principal_session_id)
+            ):
+                raise HTTPException(
+                    status_code=403, detail="Run is bound to another principal session",
+                )
+            return await runs.compact(run_id, principal=principal)
+        except (RunResumeConflictError, PolicyDeniedError) as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
         except (LedgerNotFoundError, ValueError) as exc:
             raise HTTPException(status_code=404, detail="Run not found") from exc
 
@@ -2436,7 +2687,13 @@ def _create_app(
         return policy.get()
 
     @application.put("/api/org/policy", response_model=OrgPolicy)
-    async def put_org_policy(payload: OrgPolicy) -> OrgPolicy:
+    async def put_org_policy(request: Request, payload: OrgPolicy) -> OrgPolicy:
+        principal = _request_principal(request)
+        if (settings.auth_mode == "trusted_gateway"
+                and (principal is None or principal.role not in {
+                    PrincipalRole.OWNER, PrincipalRole.ADMIN,
+                })):
+            raise HTTPException(403, "Organization policy requires owner or admin")
         return policy.save(payload)
 
     @application.get("/api/permissions/pending", response_model=list[PendingPermissionView])
@@ -2618,6 +2875,513 @@ def _create_app(
                 status_code=500,
                 detail="Channel identity binding could not be revoked",
             ) from exc
+
+    @application.get(
+        "/api/projects/{project_id}/event-triggers", response_model=list[EventTrigger],
+    )
+    async def list_event_triggers(project_id: str, request: Request) -> list[EventTrigger]:
+        require_project_authorization(
+            project_id, _request_principal(request), ProjectPermission.PROJECT_READ,
+        )
+        return event_triggers.list(project_id)
+
+    @application.post(
+        "/api/projects/{project_id}/event-triggers",
+        response_model=EventTriggerCreated,
+        status_code=status.HTTP_201_CREATED,
+    )
+    async def create_event_trigger(
+        project_id: str, payload: EventTriggerCreate, request: Request,
+    ) -> EventTriggerCreated:
+        principal = _request_principal(request)
+        require_project_authorization(project_id, principal, ProjectPermission.RUN_CREATE)
+        try:
+            if payload.shopify_binding_id is not None:
+                marketplace_access.require_shopify_webhook_binding(
+                    project_id, payload.shopify_binding_id,
+                )
+            return event_triggers.create(
+                project_id, payload,
+                principal=PrincipalBinding.from_context(principal) if principal else None,
+            )
+        except EventTriggerError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except (AuthorizationError, ConnectorUnavailableError, MarketplaceError) as exc:
+            raise HTTPException(
+                status_code=409, detail="Shopify shop grant is unavailable",
+            ) from exc
+
+    @application.patch(
+        "/api/projects/{project_id}/event-triggers/{trigger_id}",
+        response_model=EventTrigger,
+    )
+    async def update_event_trigger(
+        project_id: str, trigger_id: str, payload: EventTriggerUpdate, request: Request,
+    ) -> EventTrigger:
+        require_project_authorization(
+            project_id, _request_principal(request), ProjectPermission.RUN_CREATE,
+        )
+        try:
+            return event_triggers.update(project_id, trigger_id, payload)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="Event trigger not found") from exc
+        except EventTriggerError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    @application.post(
+        "/api/projects/{project_id}/event-triggers/{trigger_id}/rotate-secret",
+        response_model=EventTriggerCreated,
+    )
+    async def rotate_event_trigger_secret(
+        project_id: str, trigger_id: str, request: Request,
+    ) -> EventTriggerCreated:
+        require_project_authorization(
+            project_id, _request_principal(request), ProjectPermission.RUN_CREATE,
+        )
+        try:
+            return event_triggers.rotate(project_id, trigger_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="Event trigger not found") from exc
+        except EventTriggerError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    def shopify_subscription_url(project_id: str, trigger_id: str) -> str | None:
+        if settings.auth_mode != "trusted_gateway" or settings.event_public_origin is None:
+            return None
+        return (
+            f"{settings.event_public_origin}/api/projects/{project_id}"
+            f"/event-triggers/{trigger_id}/shopify"
+        )
+
+    def shopify_subscription_view(
+        project_id: str, trigger_id: str,
+    ) -> ShopifySubscriptionView:
+        uri = shopify_subscription_url(project_id, trigger_id)
+        record = event_triggers.subscription(project_id, trigger_id)
+        return ShopifySubscriptionView(
+            delivery_url=uri,
+            status=(
+                "unconfigured" if uri is None and record is None else
+                "not_registered" if record is None else
+                "origin_changed" if uri is None or record.uri != uri else record.status
+            ),
+            subscription_id=record.subscription_id if record else None,
+            updated_at=record.updated_at if record else None,
+        )
+
+    @application.get(
+        "/api/projects/{project_id}/event-triggers/{trigger_id}/shopify-subscription",
+        response_model=ShopifySubscriptionView,
+    )
+    async def get_shopify_subscription(
+        project_id: str, trigger_id: str, request: Request,
+    ) -> ShopifySubscriptionView:
+        require_project_authorization(
+            project_id, _request_principal(request), ProjectPermission.PROJECT_READ,
+        )
+        try:
+            trigger = event_triggers.get(project_id, trigger_id)
+            if trigger.shopify_binding_id is None:
+                raise KeyError(trigger_id)
+            return shopify_subscription_view(project_id, trigger_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="Shopify trigger not found") from exc
+
+    @application.post(
+        "/api/projects/{project_id}/event-triggers/{trigger_id}/shopify-subscription",
+        response_model=ShopifySubscriptionView,
+    )
+    async def register_shopify_subscription(
+        project_id: str, trigger_id: str, payload: ShopifySubscriptionRegister,
+        request: Request,
+    ) -> ShopifySubscriptionView:
+        principal = _request_principal(request)
+        require_project_authorization(
+            project_id, principal, ProjectPermission.PROJECT_ACCESS_MANAGE,
+        )
+        uri = shopify_subscription_url(project_id, trigger_id)
+        if uri is None:
+            raise HTTPException(
+                status_code=409,
+                detail="Configure a public HTTPS event origin in trusted gateway mode",
+            )
+        try:
+            with ledger.lifecycle.lease(project_id):
+                with event_triggers.delivery_lock(project_id, trigger_id):
+                    trigger = event_triggers.get(project_id, trigger_id)
+                    if trigger.shopify_binding_id is None or trigger.kind != "store_order":
+                        raise HTTPException(status_code=404, detail="Shopify trigger not found")
+                    if trigger.revision != payload.expected_revision or not trigger.enabled:
+                        raise HTTPException(
+                            status_code=409, detail="Shopify trigger changed or is paused",
+                        )
+                    bound = trigger.principal_binding
+                    if bound is not None:
+                        try:
+                            project_access.authorize_bound(
+                                project_id, tenant_id=bound.tenant_id,
+                                principal_id=bound.principal_id, role=bound.role,
+                                permission=ProjectPermission.RUN_CREATE,
+                            )
+                        except AuthorizationError as exc:
+                            raise HTTPException(
+                                status_code=403,
+                                detail="Trigger creator is no longer authorized",
+                            ) from exc
+                    initial_binding, _runtime = (
+                        marketplace_access.require_shopify_webhook_binding(
+                            project_id, trigger.shopify_binding_id,
+                        )
+                    )
+                    adapter = marketplace_access.reader.adapter(initial_binding.connector_id)
+                    if not isinstance(adapter, ShopifyReader):
+                        raise HTTPException(
+                            status_code=409, detail="Shopify connector is unavailable",
+                        )
+                    record = event_triggers.subscription(project_id, trigger_id)
+                    if record is not None and record.uri != uri:
+                        raise HTTPException(
+                            status_code=409,
+                            detail=(
+                                "Public event origin changed; remove the old Shopify "
+                                "subscription first"
+                            ),
+                        )
+
+                    def authorize() -> None:
+                        require_project_authorization(
+                            project_id, principal, ProjectPermission.PROJECT_ACCESS_MANAGE,
+                        )
+                        current = event_triggers.get(project_id, trigger_id)
+                        if current.revision != trigger.revision or not current.enabled:
+                            raise HTTPException(
+                                status_code=409, detail="Shopify trigger changed or is paused",
+                            )
+                        active, _current_runtime = (
+                            marketplace_access.require_shopify_webhook_binding(
+                                project_id, trigger.shopify_binding_id,
+                            )
+                        )
+                        if (
+                            active.connector_id != initial_binding.connector_id
+                            or active.connector_identity != initial_binding.connector_identity
+                            or active.shop_id != initial_binding.shop_id
+                        ):
+                            raise HTTPException(
+                                status_code=409, detail="Shopify shop grant changed",
+                            )
+
+                    found = await adapter.find_order_webhook_subscription(
+                        initial_binding.connector_id, uri, authorize=authorize,
+                    )
+                    if found is not None:
+                        event_triggers.save_subscription(ShopifySubscriptionRecord(
+                            project_id=project_id, trigger_id=trigger_id, uri=uri,
+                            status="confirmed", subscription_id=found, updated_at=utc_now(),
+                        ))
+                        return shopify_subscription_view(project_id, trigger_id)
+                    if (
+                        record is not None and record.status in {"attempting", "uncertain"}
+                        and not payload.retry_uncertain
+                    ):
+                        event_triggers.save_subscription(record.model_copy(update={
+                            "status": "uncertain", "updated_at": utc_now(),
+                        }))
+                        return shopify_subscription_view(project_id, trigger_id)
+                    event_triggers.save_subscription(ShopifySubscriptionRecord(
+                        project_id=project_id, trigger_id=trigger_id, uri=uri,
+                        status="attempting", updated_at=utc_now(),
+                    ))
+                    try:
+                        subscription_id = await adapter.create_order_webhook_subscription(
+                            initial_binding.connector_id, uri, authorize=authorize,
+                        )
+                    except MarketplaceError as exc:
+                        event_triggers.save_subscription(ShopifySubscriptionRecord(
+                            project_id=project_id, trigger_id=trigger_id, uri=uri,
+                            status=(
+                                "rejected" if exc.code == "MARKETPLACE_WEBHOOK_REJECTED"
+                                else "uncertain"
+                            ),
+                            updated_at=utc_now(),
+                        ))
+                        raise
+                    event_triggers.save_subscription(ShopifySubscriptionRecord(
+                        project_id=project_id, trigger_id=trigger_id, uri=uri,
+                        status="confirmed", subscription_id=subscription_id,
+                        updated_at=utc_now(),
+                    ))
+                    return shopify_subscription_view(project_id, trigger_id)
+        except EventTriggerBusy as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="Shopify trigger not found") from exc
+        except (AuthorizationError, ConnectorUnavailableError) as exc:
+            raise HTTPException(
+                status_code=403, detail="Shopify shop grant is unavailable",
+            ) from exc
+
+    @application.delete(
+        "/api/projects/{project_id}/event-triggers/{trigger_id}/shopify-subscription",
+        response_model=ShopifySubscriptionView,
+    )
+    async def remove_shopify_subscription(
+        project_id: str, trigger_id: str, payload: ShopifySubscriptionRemove,
+        request: Request,
+    ) -> ShopifySubscriptionView:
+        principal = _request_principal(request)
+        require_project_authorization(
+            project_id, principal, ProjectPermission.PROJECT_ACCESS_MANAGE,
+        )
+        try:
+            with ledger.lifecycle.lease(project_id):
+                with event_triggers.delivery_lock(project_id, trigger_id):
+                    trigger = event_triggers.get(project_id, trigger_id)
+                    if trigger.shopify_binding_id is None or trigger.kind != "store_order":
+                        raise HTTPException(status_code=404, detail="Shopify trigger not found")
+                    if trigger.revision != payload.expected_revision:
+                        raise HTTPException(status_code=409, detail="Shopify trigger changed")
+                    record = event_triggers.subscription(project_id, trigger_id)
+                    if record is None:
+                        return shopify_subscription_view(project_id, trigger_id)
+                    initial, _runtime = marketplace_access.require_shopify_webhook_binding(
+                        project_id, trigger.shopify_binding_id,
+                    )
+                    adapter = marketplace_access.reader.adapter(initial.connector_id)
+                    if not isinstance(adapter, ShopifyReader):
+                        raise HTTPException(
+                            status_code=409, detail="Shopify connector is unavailable",
+                        )
+
+                    def authorize() -> None:
+                        require_project_authorization(
+                            project_id, principal, ProjectPermission.PROJECT_ACCESS_MANAGE,
+                        )
+                        current = event_triggers.get(project_id, trigger_id)
+                        if current.revision != trigger.revision:
+                            raise HTTPException(status_code=409, detail="Shopify trigger changed")
+                        active, _current_runtime = (
+                            marketplace_access.require_shopify_webhook_binding(
+                                project_id, trigger.shopify_binding_id,
+                            )
+                        )
+                        if (
+                            active.connector_id != initial.connector_id
+                            or active.connector_identity != initial.connector_identity
+                            or active.shop_id != initial.shop_id
+                        ):
+                            raise HTTPException(
+                                status_code=409, detail="Shopify shop grant changed",
+                            )
+
+                    found = await adapter.find_order_webhook_subscription(
+                        initial.connector_id, record.uri, authorize=authorize,
+                        require_fields=False,
+                    )
+                    if found is not None:
+                        if record.subscription_id is not None and found != record.subscription_id:
+                            raise HTTPException(
+                                status_code=409, detail="Shopify subscription ID changed",
+                            )
+                        await adapter.delete_order_webhook_subscription(
+                            initial.connector_id, found, authorize=authorize,
+                        )
+                    event_triggers.clear_subscription(project_id, trigger_id)
+                    return shopify_subscription_view(project_id, trigger_id)
+        except EventTriggerBusy as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="Shopify trigger not found") from exc
+        except (AuthorizationError, ConnectorUnavailableError) as exc:
+            raise HTTPException(
+                status_code=403, detail="Shopify shop grant is unavailable",
+            ) from exc
+
+    async def dispatch_event_trigger(
+        trigger: EventTrigger, event_id: str, body: bytes, payload: dict,
+    ) -> dict[str, object]:
+        project_id = trigger.project_id
+        trigger_id = trigger.id
+        try:
+            prompt = event_prompt(trigger, event_id, payload)
+        except EventTriggerError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        project = ledger.get_project(project_id)
+        binding = trigger.principal_binding
+        if project.identity_binding == "authenticated_principal":
+            if binding is None:
+                raise HTTPException(
+                    status_code=403, detail="Event trigger has no principal binding",
+                )
+            try:
+                project_access.authorize_bound(
+                    project_id, tenant_id=binding.tenant_id,
+                    principal_id=binding.principal_id, role=binding.role,
+                    permission=ProjectPermission.RUN_CREATE,
+                )
+            except AuthorizationError as exc:
+                raise HTTPException(
+                    status_code=403, detail="Event trigger principal is no longer authorized",
+                ) from exc
+        elif binding is not None:
+            raise HTTPException(
+                status_code=403, detail="Event trigger identity no longer matches project",
+            )
+        selected_provider = trigger.provider_profile_id or providers.default_profile_id()
+        if not policy.allows_provider(selected_provider):
+            raise HTTPException(status_code=403, detail="Event trigger Provider is disallowed")
+        if selected_provider is not None:
+            try:
+                profile = providers.get(selected_provider)
+            except ProviderNotFoundError as exc:
+                raise HTTPException(
+                    status_code=409, detail="Event trigger Provider is unavailable",
+                ) from exc
+            if provider_readiness_failures(profile):
+                raise HTTPException(
+                    status_code=409, detail="Event trigger Provider is not ready",
+                )
+        try:
+            with event_triggers.delivery_lock(project_id, trigger_id):
+                if trigger.shopify_binding_id is not None:
+                    try:
+                        marketplace_access.require_shopify_webhook_binding(
+                            project_id, trigger.shopify_binding_id,
+                        )
+                    except (AuthorizationError, ConnectorUnavailableError, MarketplaceError) as exc:
+                        raise HTTPException(
+                            status_code=403, detail="Shopify shop grant is unavailable",
+                        ) from exc
+                receipt, fresh = event_triggers.receipt(project_id, trigger_id, event_id, body)
+                if not fresh:
+                    run_id = receipt.run_id
+                    if run_id is None:
+                        prior = next((
+                            run for run in ledger.list_runs(project_id)
+                            if run.event_trigger_id == trigger_id
+                            and run.event_id_digest == receipt.event_id_digest
+                        ), None)
+                        if prior is not None:
+                            run_id = prior.id
+                            event_triggers.bind_run(receipt, run_id)
+                    return {
+                        "run_id": run_id, "project_id": project_id,
+                        "duplicate": True,
+                        "status": "accepted" if run_id else "dispatch_uncertain",
+                    }
+                run = await runs.create_and_start(
+                    project_id, prompt,
+                    event_trigger_id=trigger.id,
+                    event_trigger_revision=trigger.revision,
+                    event_id_digest=receipt.event_id_digest,
+                    event_permission_ceiling=trigger.permission_ceiling,
+                    provider_profile_id=trigger.provider_profile_id,
+                    max_budget_usd=trigger.max_budget_usd,
+                    principal=binding,
+                )
+                event_triggers.bind_run(receipt, run.id)
+                return {
+                    "run_id": run.id, "project_id": project_id,
+                    "duplicate": False, "status": "accepted",
+                }
+        except EventTriggerBusy as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except EventTriggerError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    @application.post("/api/projects/{project_id}/event-triggers/{trigger_id}/deliver")
+    async def deliver_event_trigger(
+        project_id: str, trigger_id: str, request: Request,
+    ) -> dict[str, object]:
+        body = await _read_bounded_body(
+            request, max_bytes=MAX_EVENT_BODY_BYTES,
+            too_large_detail="event payload too large",
+        )
+        try:
+            trigger = event_triggers.get(project_id, trigger_id)
+        except (KeyError, LedgerNotFoundError, ValueError) as exc:
+            raise HTTPException(status_code=404, detail="Event trigger not found") from exc
+        if trigger.shopify_binding_id is not None:
+            raise HTTPException(status_code=404, detail="Event trigger not found")
+        if not trigger.enabled:
+            raise HTTPException(status_code=403, detail="Event trigger is disabled")
+        timestamp = request.headers.get("x-ophira-timestamp", "")
+        event_id = request.headers.get("x-ophira-event-id", "")
+        signature = request.headers.get("x-ophira-signature", "")
+        if not event_triggers.verify(
+            project_id, trigger_id, timestamp=timestamp, event_id=event_id,
+            signature=signature, body=body,
+        ):
+            raise HTTPException(status_code=401, detail="Invalid event signature")
+        try:
+            payload = json.loads(body)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="Invalid event JSON") from exc
+        if not isinstance(payload, dict):
+            raise HTTPException(status_code=400, detail="Event JSON must be an object")
+        return await dispatch_event_trigger(trigger, event_id, body, payload)
+
+    @application.post("/api/projects/{project_id}/event-triggers/{trigger_id}/shopify")
+    async def deliver_shopify_order(
+        project_id: str, trigger_id: str, request: Request,
+    ) -> dict[str, object]:
+        body = await _read_bounded_body(
+            request, max_bytes=MAX_SHOPIFY_WEBHOOK_BODY_BYTES,
+            too_large_detail="Shopify webhook payload too large",
+        )
+        try:
+            trigger = event_triggers.get(project_id, trigger_id)
+        except (KeyError, LedgerNotFoundError, ValueError) as exc:
+            raise HTTPException(status_code=404, detail="Event trigger not found") from exc
+        if trigger.shopify_binding_id is None or trigger.kind != "store_order":
+            raise HTTPException(status_code=404, detail="Event trigger not found")
+        try:
+            binding, runtime = marketplace_access.require_shopify_webhook_binding(
+                project_id, trigger.shopify_binding_id,
+            )
+            credentials = parse_shopify_credentials(runtime.credential.get_secret_value())
+        except (AuthorizationError, ConnectorUnavailableError, MarketplaceError, ValueError) as exc:
+            raise HTTPException(
+                status_code=403, detail="Shopify shop grant is unavailable",
+            ) from exc
+        headers = request.headers
+        if any(len(headers.getlist(name)) != 1 for name in (
+            "x-shopify-hmac-sha256", "x-shopify-topic", "x-shopify-shop-domain",
+            "x-shopify-webhook-id",
+        )):
+            raise HTTPException(status_code=401, detail="Invalid Shopify webhook signature")
+        if not event_triggers.verify_shopify(
+            body, headers["x-shopify-hmac-sha256"],
+            credentials.client_secret.get_secret_value(),
+        ):
+            raise HTTPException(status_code=401, detail="Invalid Shopify webhook signature")
+        expected_domain = runtime.connector.endpoint.removeprefix("https://")
+        if (
+            headers["x-shopify-topic"] != "orders/create"
+            or headers["x-shopify-shop-domain"] != expected_domain
+        ):
+            raise HTTPException(status_code=403, detail="Shopify webhook source does not match")
+        event_id = headers["x-shopify-webhook-id"]
+        if not valid_event_id(event_id):
+            raise HTTPException(status_code=400, detail="Invalid Shopify webhook ID")
+        if not trigger.enabled:
+            # A paused trigger intentionally discards an authenticated delivery.
+            # Shopify should not retry it or remove the subscription for failures.
+            return {
+                "run_id": None, "project_id": project_id,
+                "duplicate": False, "status": "paused",
+            }
+        try:
+            upstream = json.loads(body)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="Invalid Shopify webhook JSON") from exc
+        if not isinstance(upstream, dict):
+            raise HTTPException(status_code=400, detail="Shopify webhook JSON must be an object")
+        try:
+            payload = shopify_order_payload(upstream, binding.shop_id)
+        except EventTriggerError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return await dispatch_event_trigger(trigger, event_id, body, payload)
 
     @application.post("/api/channels/feishu")
     async def feishu_channel(request: Request) -> dict:

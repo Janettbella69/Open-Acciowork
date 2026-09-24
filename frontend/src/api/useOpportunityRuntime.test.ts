@@ -91,6 +91,32 @@ describe('project selection isolation', () => {
     expect(MockEventSource.instances.at(-1)?.url).toContain(older.id)
   })
 
+  it('forwards the exact reviewed plan when continuing its SDK session', async () => {
+    const plan = { ...runA, mode: 'plan' as const, status: 'completed' as const,
+      sdk_session_id: 'session_plan' }
+    vi.mocked(api.listProjectRuns).mockResolvedValueOnce([plan])
+    vi.mocked(api.startRun).mockResolvedValueOnce({ ...runA, id: 'run_execution' })
+    const { result } = await setup()
+    await act(async () => {
+      await result.current.continueProject('Execute', [], 'standard', null, null, plan.id)
+    })
+    expect(api.startRun).toHaveBeenCalledWith(
+      projectA.id, 'Execute', 'session_plan', 'standard', null, null, plan.id,
+    )
+  })
+  it('replays the exact Run selected from project search, never another project or the latest fallback', async () => {
+    const historical = { ...runA, id: 'run_historical', status: 'completed' as const }
+    vi.mocked(api.listProjectRuns).mockResolvedValueOnce([runA, historical])
+    const { result } = renderHook(() => useOpportunityRuntime())
+    await waitFor(() => expect(result.current.projects).toHaveLength(2))
+    await act(async () => { await result.current.selectProject(projectA, historical.id) })
+    expect(result.current.run?.id).toBe(historical.id)
+    expect(MockEventSource.instances.at(-1)?.url).toContain(historical.id)
+    await act(async () => {
+      await expect(result.current.selectProject(projectA, runB.id)).rejects.toThrow('no longer available')
+    })
+    expect(result.current.run).toBeNull()
+  })
   it('keeps a newly created template project when the initial project list arrives late and starts no run', async () => {
     const initial = deferred<OpportunityProject[]>()
     vi.mocked(api.listProjects).mockReturnValueOnce(initial.promise)

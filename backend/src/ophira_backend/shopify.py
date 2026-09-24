@@ -1,9 +1,10 @@
-"""Bounded, read-only Shopify Admin reader for a store in the operator's organization.
+"""Bounded Shopify Admin reader and human-managed order webhook adapter.
 
 A Dev Dashboard app's client ID and secret stay in the connector vault. The reader
 exchanges them through the client credentials grant for a 24-hour access token held
-only in process memory, then runs fixed GraphQL Admin queries. Customer names,
-emails, addresses and phone numbers are never requested.
+only in process memory, then runs fixed GraphQL Admin queries. The reader never
+requests customer names, emails, addresses, or phone numbers. Fixed webhook
+subscription writes are available only to project administrators, not Agent tools.
 See docs/marketplace-connectors.md for source versions and acceptance limits.
 """
 
@@ -43,6 +44,11 @@ SHOPIFY_PRODUCT_SCOPE = "read_products"
 SHOPIFY_ORDER_SCOPE = "read_orders"
 SHOPIFY_ALL_ORDERS_SCOPE = "read_all_orders"
 SHOPIFY_DEFAULT_SCOPE = f"{SHOPIFY_PRODUCT_SCOPE} {SHOPIFY_ORDER_SCOPE}"
+SHOPIFY_ORDER_WEBHOOK_TOPIC = "ORDERS_CREATE"
+SHOPIFY_ORDER_WEBHOOK_FIELDS = (
+    "id", "name", "created_at", "financial_status", "fulfillment_status",
+    "total_price", "currency",
+)
 # Shopify's example refreshes a minute early; a token is never used closer to expiry.
 TOKEN_REFRESH_MARGIN_SECONDS = 60
 
@@ -83,6 +89,23 @@ ORDERS_QUERY = (
     "currentTotalPriceSet { shopMoney { amount currencyCode } } } "
     "pageInfo { hasNextPage endCursor } } }"
 )
+ORDER_WEBHOOK_LOOKUP = (
+    "query OphiraOrderWebhook($uri: String!) { "
+    "webhookSubscriptions(first: 3, topics: [ORDERS_CREATE], uri: $uri) "
+    "{ nodes { id topic uri includeFields } pageInfo { hasNextPage } } }"
+)
+ORDER_WEBHOOK_CREATE = (
+    "mutation OphiraOrderWebhookCreate($webhookSubscription: WebhookSubscriptionInput!) { "
+    "webhookSubscriptionCreate(topic: ORDERS_CREATE, webhookSubscription: $webhookSubscription) "
+    "{ webhookSubscription { id topic uri includeFields } "
+    "userErrors { field message } } }"
+)
+ORDER_WEBHOOK_DELETE = (
+    "mutation OphiraOrderWebhookDelete($id: ID!) { "
+    "webhookSubscriptionDelete(id: $id) "
+    "{ deletedWebhookSubscriptionId userErrors { field message } } }"
+)
+_WEBHOOK_SUBSCRIPTION_ID = re.compile(r"gid://shopify/WebhookSubscription/[1-9][0-9]{0,19}")
 
 
 def check_shopify_store_endpoint(endpoint: str | None) -> str | None:
@@ -266,6 +289,146 @@ class ShopifyReader:
             "retrieved_at": utc_now().isoformat(),
             "data_scope": "authorized_seller_data",
         }
+
+    async def _order_webhook_graphql(
+        self, connector_id: str, query: str, variables: dict[str, Any], *,
+        authorize: Callable[[], None],
+    ) -> dict[str, Any]:
+        """Fixed, administrator-only webhook operation; never exposed as an Agent read."""
+        authorize()
+        runtime = self.connectors.require_shopify_runtime(connector_id)
+        if SHOPIFY_ORDER_SCOPE not in runtime.connector.scope.split():
+            raise MarketplaceError(
+                "MARKETPLACE_SCOPE_REQUIRED", "Allow Shopify order reads first.", 403,
+            )
+        credentials = parse_shopify_credentials(runtime.credential.get_secret_value())
+        origin = runtime.connector.endpoint
+        assert origin is not None
+        private_values = {
+            credentials.client_id.get_secret_value(), credentials.client_secret.get_secret_value(),
+        }
+
+        def check_current() -> None:
+            authorize()
+            if self.connectors.require_shopify_runtime(connector_id) != runtime:
+                raise MarketplaceError(
+                    "MARKETPLACE_CONFIGURATION_CHANGED",
+                    "The Shopify connector changed during subscription setup.", 409,
+                )
+
+        try:
+            async with asyncio.timeout(30):
+                check_current()
+                token = await self._access_token(runtime, credentials, check_current)
+                private_values.add(token.value)
+                if SHOPIFY_ORDER_SCOPE not in token.scopes:
+                    raise MarketplaceError(
+                        "MARKETPLACE_SCOPE_REQUIRED",
+                        "The Shopify app is not granted read_orders.", 403,
+                    )
+                data, _request_id = await self._graphql(
+                    origin, token, query, variables, check_current, private_values,
+                )
+                check_current()
+                return data
+        except (TimeoutError, httpx.HTTPError, OSError):
+            raise MarketplaceError(
+                "MARKETPLACE_NETWORK_FAILED",
+                "Shopify subscription status is uncertain. Check it before retrying.", 502,
+            ) from None
+
+    @staticmethod
+    def _webhook_node(value: Any, uri: str, *, require_fields: bool = True) -> str:
+        if not isinstance(value, dict):
+            raise _invalid()
+        subscription_id = value.get("id")
+        fields = value.get("includeFields")
+        if (
+            not isinstance(subscription_id, str)
+            or not _WEBHOOK_SUBSCRIPTION_ID.fullmatch(subscription_id)
+            or value.get("topic") != SHOPIFY_ORDER_WEBHOOK_TOPIC
+            or value.get("uri") != uri
+            or (require_fields and (
+                not isinstance(fields, list)
+                or not all(isinstance(field, str) for field in fields)
+                or set(fields) != set(SHOPIFY_ORDER_WEBHOOK_FIELDS)
+                or len(fields) != len(SHOPIFY_ORDER_WEBHOOK_FIELDS)
+            ))
+        ):
+            raise MarketplaceError(
+                "MARKETPLACE_WEBHOOK_CONFLICT",
+                "A different Shopify subscription already uses this delivery URL.", 409,
+            )
+        return subscription_id
+
+    async def find_order_webhook_subscription(
+        self, connector_id: str, uri: str, *, authorize: Callable[[], None],
+        require_fields: bool = True,
+    ) -> str | None:
+        data = await self._order_webhook_graphql(
+            connector_id, ORDER_WEBHOOK_LOOKUP, {"uri": uri}, authorize=authorize,
+        )
+        connection = data.get("webhookSubscriptions")
+        if not isinstance(connection, dict):
+            raise _invalid()
+        nodes = connection.get("nodes")
+        page_info = connection.get("pageInfo")
+        if (
+            not isinstance(nodes, list) or len(nodes) > 3
+            or not isinstance(page_info, dict)
+            or type(page_info.get("hasNextPage")) is not bool
+        ):
+            raise _invalid()
+        if page_info["hasNextPage"] or len(nodes) > 1:
+            raise MarketplaceError(
+                "MARKETPLACE_WEBHOOK_CONFLICT",
+                "Multiple Shopify subscriptions use this delivery URL.", 409,
+            )
+        return self._webhook_node(nodes[0], uri, require_fields=require_fields) if nodes else None
+
+    async def create_order_webhook_subscription(
+        self, connector_id: str, uri: str, *, authorize: Callable[[], None],
+    ) -> str:
+        data = await self._order_webhook_graphql(
+            connector_id, ORDER_WEBHOOK_CREATE,
+            {"webhookSubscription": {
+                "uri": uri, "includeFields": list(SHOPIFY_ORDER_WEBHOOK_FIELDS),
+            }},
+            authorize=authorize,
+        )
+        result = data.get("webhookSubscriptionCreate")
+        if not isinstance(result, dict) or not isinstance(result.get("userErrors"), list):
+            raise _invalid()
+        if result["userErrors"]:
+            raise MarketplaceError(
+                "MARKETPLACE_WEBHOOK_REJECTED",
+                "Shopify rejected the order webhook. Check app scopes and public HTTPS setup.",
+                409,
+            )
+        return self._webhook_node(result.get("webhookSubscription"), uri)
+
+    async def delete_order_webhook_subscription(
+        self, connector_id: str, subscription_id: str, *,
+        authorize: Callable[[], None],
+    ) -> None:
+        if not _WEBHOOK_SUBSCRIPTION_ID.fullmatch(subscription_id):
+            raise MarketplaceError(
+                "MARKETPLACE_WEBHOOK_CONFLICT", "Invalid Shopify subscription ID.", 409,
+            )
+        data = await self._order_webhook_graphql(
+            connector_id, ORDER_WEBHOOK_DELETE, {"id": subscription_id},
+            authorize=authorize,
+        )
+        result = data.get("webhookSubscriptionDelete")
+        if not isinstance(result, dict) or not isinstance(result.get("userErrors"), list):
+            raise _invalid()
+        if result["userErrors"]:
+            raise MarketplaceError(
+                "MARKETPLACE_WEBHOOK_REJECTED",
+                "Shopify rejected removal of the order webhook.", 409,
+            )
+        if result.get("deletedWebhookSubscriptionId") != subscription_id:
+            raise _invalid()
 
     async def _operation(
         self, origin: str, token: _AccessToken, request: MarketplaceReadRequest,

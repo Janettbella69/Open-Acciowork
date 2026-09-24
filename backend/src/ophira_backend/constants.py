@@ -71,6 +71,13 @@ class RunStatus(StrEnum):
 class RunMode(StrEnum):
     STANDARD = "standard"
     DEEP_RESEARCH = "deep_research"
+    PLAN = "plan"
+
+
+class RunInterjectionMode(StrEnum):
+    NOW = "now"
+    NEXT_TURN = "next_turn"
+    INTERRUPT = "interrupt"
 
 
 RESEARCH_UNITS = {
@@ -115,6 +122,13 @@ class EventType(StrEnum):
     RUN_CANCEL_REQUESTED = "run.cancel_requested"
     RUN_CANCELLED = "run.cancelled"
     RUN_INTERJECTION_REQUESTED = "run.interjection.requested"
+    RUN_INTERJECTION_DISPATCHING = "run.interjection.dispatching"
+    RUN_INTERJECTION_INJECTED = "run.interjection.injected"
+    RUN_INTERJECTION_UNCERTAIN = "run.interjection.uncertain"
+    RUN_INTERJECTION_BLOCKED = "run.interjection.blocked"
+    RUN_INTERJECTION_CARRIED = "run.interjection.carried"
+    CONTEXT_USAGE = "context.usage"
+    CONTEXT_COMPACTED = "context.compacted"
 
     ASSISTANT_MESSAGE_STARTED = "assistant.message.started"
     ASSISTANT_TEXT_DELTA = "assistant.text.delta"
@@ -499,11 +513,15 @@ READ_ONLY_MCP_TOOL_NAMES = [
 ]
 
 READ_ONLY_BUILTIN_TOOLS = ["Read", "Glob", "Grep", "WebSearch", "WebFetch"]
+NATIVE_TASK_TRACKING_TOOLS = ["TaskCreate", "TaskGet", "TaskUpdate", "TaskList"]
 RESEARCH_READ_TOOL_NAMES = [
     *READ_ONLY_BUILTIN_TOOLS, TOOL_GET_PROJECT_CONTEXT, TOOL_SEARCH_EVIDENCE,
 ]
 # 结构化追问（CLI 内置工具，经 can_use_tool 到达；答案经 updated_input 回传）。
 CLARIFYING_TOOL = "AskUserQuestion"
+# Plan runs can inspect project files and public sources and ask questions. No
+# MCP tool is included: several nominally read-only tools mint ledger receipts.
+PLAN_ALLOWED_TOOLS = frozenset({*READ_ONLY_BUILTIN_TOOLS, CLARIFYING_TOOL, "Skill"})
 WRITE_BUILTIN_TOOLS = ["Write", "Edit"]
 DELETE_BUILTIN_TOOLS = ["Delete"]
 SHELL_BUILTIN_TOOLS = ["Bash"]

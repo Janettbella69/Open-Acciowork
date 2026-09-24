@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   cancelRun,
+  compactRun,
   createProject,
   errorMessage,
   getProject,
   getProtocol,
   getRun,
   getRunTelemetry,
+  interjectRun,
   listProjectRuns,
   listPendingPermissions,
   listProjects,
@@ -22,6 +24,8 @@ import type {
   OphiraEvent,
   PendingPermission,
   RunRecord,
+  RunInterjectionMode,
+  RunInterjectionReceipt,
   RunMode,
   RunRetryStrategy,
   RunStatus,
@@ -459,8 +463,12 @@ export function useOpportunityRuntime(onProjectUnavailable?: (projectId: string)
     mode: RunMode = 'standard',
     agentId?: string | null,
     providerProfileId?: string | null,
+    planSourceRunId?: string | null,
   ) => {
-    if (!project) return start(brief, files, mode, agentId, providerProfileId)
+    if (!project) {
+      if (planSourceRunId) throw new Error('The reviewed plan project is unavailable.')
+      return start(brief, files, mode, agentId, providerProfileId)
+    }
     if (projectRef.current?.id !== project.id || discardedProjectsRef.current.has(project.id)) return null
 
     const selection = ++selectionRef.current
@@ -477,7 +485,9 @@ export function useOpportunityRuntime(onProjectUnavailable?: (projectId: string)
     try {
       if (files.length) await Promise.all(files.map((file) => uploadProjectFile(project.id, file)))
       if (selectionRef.current !== selection) return null
-      const nextRun = await startRun(project.id, brief, run?.sdk_session_id, mode, providerProfileId, agentId)
+      const nextRun = planSourceRunId
+        ? await startRun(project.id, brief, run?.sdk_session_id, mode, providerProfileId, agentId, planSourceRunId)
+        : await startRun(project.id, brief, run?.sdk_session_id, mode, providerProfileId, agentId)
       if (selectionRef.current !== selection) return null
       runRef.current = nextRun
       setRun(nextRun)
@@ -494,6 +504,54 @@ export function useOpportunityRuntime(onProjectUnavailable?: (projectId: string)
       if (selectionRef.current === selection) setStarting(false)
     }
   }, [checkProjectAccess, closeStream, connectToRun, project, run?.sdk_session_id, start])
+
+  const interject = useCallback(async (
+    prompt: string, mode: RunInterjectionMode, requestId: string,
+  ): Promise<RunInterjectionReceipt> => {
+    const current = runRef.current
+    if (!current || current.status !== 'running'
+      || projectRef.current?.id !== current.project_id) {
+      throw new Error('This run is no longer accepting messages.')
+    }
+    try {
+      return await interjectRun(current.id, requestId, prompt, mode)
+    } catch (cause) {
+      await checkProjectAccess(cause, current.project_id)
+      throw cause
+    }
+  }, [checkProjectAccess])
+
+  const compact = useCallback(async (): Promise<RunRecord | null> => {
+    const source = runRef.current
+    if (!source || source.status !== 'completed' || !source.sdk_session_id
+      || source.mode === 'plan' || projectRef.current?.id !== source.project_id) return null
+    const selection = ++selectionRef.current
+    setStarting(true)
+    setError('')
+    try {
+      const nextRun = await compactRun(source.id)
+      if (selectionRef.current !== selection) return null
+      closeStream()
+      setEvents([])
+      setAssistantText('')
+      setReasoningSummary('')
+      setPermissions([])
+      setHistoryLoading(false)
+      sawTextDeltaRef.current = false
+      sawReasoningDeltaRef.current = false
+      runRef.current = nextRun
+      setRun(nextRun)
+      await connectToRun(nextRun)
+      return selectionRef.current === selection ? nextRun : null
+    } catch (cause) {
+      if (selectionRef.current !== selection) return null
+      await checkProjectAccess(cause, source.project_id)
+      if (selectionRef.current === selection) setError(errorMessage(cause))
+      throw cause
+    } finally {
+      if (selectionRef.current === selection) setStarting(false)
+    }
+  }, [checkProjectAccess, closeStream, connectToRun])
 
   const cancel = useCallback(async () => {
     if (!run || runRef.current?.id !== run.id || projectRef.current?.id !== run.project_id) return
@@ -753,6 +811,8 @@ export function useOpportunityRuntime(onProjectUnavailable?: (projectId: string)
     isActive: run ? !terminalStatuses.has(run.status) : false,
     start,
     continueProject,
+    interject,
+    compact,
     retry,
     cancel,
     decidePermission,

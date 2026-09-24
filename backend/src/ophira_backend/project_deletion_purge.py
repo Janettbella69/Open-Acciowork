@@ -182,6 +182,7 @@ def _validate_plan_paths(plan):
         f"memory/project/{project}",
         f"browser-profiles/{project}",
         f"collaboration/project-templates/{project}",
+        f"secrets/event-triggers/{project}",
     }
     for root, identifiers in (
         ("runs", plan.run_ids),

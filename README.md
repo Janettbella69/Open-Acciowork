@@ -42,12 +42,23 @@ same-origin HTTPS deployment is configured; optional Web Push additionally requi
 operator VAPID configuration and explicit browser subscription.
 See [`docs/mobile-companion.md`](docs/mobile-companion.md).
 
+Choose **Plan first** in the workspace to run SDK native plan mode. The Agent can
+inspect project files and public sources, then presents steps, tools, external
+actions and a cost estimate for review. Planning exposes no MCP server or shell/file
+write tool. **Approve and execute** or **Request revised plan** continues the exact
+reviewed SDK session; normal business-action approvals still apply during execution.
+Live Provider and browser acceptance remain open in the PRD delivery inventory.
+
 Human approvals now persist through native SDK deferral and resume the original
 Run across control-plane workers; see [`docs/durable-approvals.md`](docs/durable-approvals.md).
+The workspace also shows SDK-measured context occupancy and can request native
+same-session `/compact`; see [`docs/context-compaction.md`](docs/context-compaction.md).
 Scheduled runs can retain scoped, traceable task experience without changing user
 policy or global memory; see [`docs/task-experience.md`](docs/task-experience.md).
 Manual and automatic schedule triggers now share cross-process overlap checks;
 see [`docs/schedule-overlap.md`](docs/schedule-overlap.md).
+Signed project event triggers can start budgeted Runs from webhooks, normalized
+inquiry emails, and store orders; see [`docs/event-triggers.md`](docs/event-triggers.md).
 Run-bound evidence and decisions now emit recoverable ledger observations; the
 workspace drains the complete Run event tail before closing its stream.
 See [`docs/project-events.md`](docs/project-events.md).
@@ -74,6 +85,11 @@ enablement or version restoration. Organization members can inspect and download
 published packages. See [private Skill repository](docs/private-skill-repository.md)
 for API changes, single-deployment scope and recovery limits.
 
+**Plugins → Import a plugin package** accepts Claude plugin ZIPs with Skills and
+remote MCP declarations. Skills enter the private review flow one by one; MCP
+addresses require separate project review; subagent definitions are reported and
+ignored. See [plugin imports](docs/plugin-imports.md).
+
 All 13 built-in Skills include evidence guides and editable artifact templates that
 travel with the immutable package snapshot; see [`docs/skill-resources.md`](docs/skill-resources.md).
 The local [Skill backup and restore exercise](docs/skill-backup-exercise.md) verifies
@@ -96,6 +112,13 @@ Project administrators can grant one shop for a fixed duration; the main Agent
 can then read that shop and cite server-issued source receipts when recording evidence.
 The other four adapters and live seller certification remain open; see
 [`docs/marketplace-connectors.md`](docs/marketplace-connectors.md).
+
+**Plugins → Connectors** also has a project-scoped remote MCP directory and an
+advanced HTTPS address form. A live tool-list review is required before use;
+each discovered tool can be allowed, asked every time, or denied. Custom hosts
+require organization approval. Reviewed remote tools run through a pinned MCP
+gateway; live endpoint/Provider acceptance is still pending. See
+[`docs/user-mcp.md`](docs/user-mcp.md).
 
 Open **Project run metrics** in a saved workspace to inspect recent execution,
 latency, observed cost estimates, and Provider/Skill/tool groups. Missing data stays

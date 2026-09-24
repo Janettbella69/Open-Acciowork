@@ -286,6 +286,29 @@ async def test_companion_activity_waits_for_relevant_events_and_rechecks_revocat
         assert revoked.status_code in {401, 403}
 
 
+async def test_read_only_phone_can_view_progress_but_cannot_direct_a_run(app):
+    project = app.state.ledger.create_project(ProjectCreate(name="Allowed", objective="Inspect"))
+    async with owner_client(app) as owner, device_client(app) as device:
+        pairing_id, code, _ = await pair(owner, device, project.id, allow_run_start=False)
+        await approve(owner, device, pairing_id, code)
+        started = await owner.post(f"/api/projects/{project.id}/runs", json={
+            "prompt": "Inspect the storefront",
+        })
+        assert started.status_code == 202
+        run_id = started.json()["id"]
+        activity = await device.post(
+            f"/api/companion/runs/{run_id}/activity", json={"after_sequence": 0},
+        )
+        assert activity.status_code == 200
+        direction = await device.post(
+            f"/api/companion/runs/{run_id}/interjections", json={
+                "request_id": "abcd1234-1234-1234-1234-123456789abc",
+                "prompt": "Change the goal", "mode": "next_turn",
+            },
+        )
+        assert direction.status_code == 403
+
+
 async def test_companion_can_start_cancel_and_approve_only_granted_project(app):
     ledger = app.state.ledger
     project = ledger.create_project(ProjectCreate(name="Allowed", objective="Inspect"))

@@ -4,6 +4,7 @@ import type { SkillVersion } from '../api/types'
 import { useT } from '../i18n'
 import Brand from './Brand'
 import ConnectorsPage from './ConnectorsPage'
+import PluginImportsPanel from './PluginImportsPanel'
 import SkillsPage from './SkillsPage'
 import WorkspaceNav from './WorkspaceNav'
 import './workspace-composer.css'
@@ -122,6 +123,7 @@ function PluginsOverview() {
           </div>
         )}
       </section>
+      <PluginImportsPanel />
     </section>
   )
 }

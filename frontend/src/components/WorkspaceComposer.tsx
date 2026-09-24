@@ -12,6 +12,7 @@ import {
   type PermissionModePolicy,
   type ProviderProfile,
   type RunMode,
+  type RunInterjectionMode,
   type RunRecord,
   type RunRetryStrategy,
   type RunTelemetry,
@@ -75,7 +76,13 @@ type WorkspaceComposerProps = {
   onProviderProfileChange: (providerProfileId: string | null) => void
   onApprovalModeChange: (mode: PermissionModePolicy) => Promise<void>
   onRunModeChange: (mode: RunMode) => void
+  onApprovePlan?: () => void
+  onRevisePlan?: (changes: string) => void
   onSubmit: (event: FormEvent<HTMLFormElement>) => void
+  onInterject?: (mode: RunInterjectionMode) => void
+  interjectionBusy?: boolean
+  onCompact?: () => void
+  compacting?: boolean
   onProjectRefresh: () => void
   onProjectCreated?: (project: OpportunityProject) => void
   deletionProgress?: ReactNode
@@ -105,7 +112,7 @@ type WorkspaceComposerProps = {
 }
 
 type ComposerMenuView = 'closed' | 'root'
-type ComposerToolIconName = 'files' | 'experts' | 'skills' | 'connectors' | 'research'
+type ComposerToolIconName = 'files' | 'experts' | 'skills' | 'connectors' | 'research' | 'plan'
 
 function ComposerToolIcon({ name }: { name: ComposerToolIconName }) {
   return (
@@ -118,6 +125,12 @@ function ComposerToolIcon({ name }: { name: ComposerToolIconName }) {
           <circle cx="11" cy="11" r="7" />
           <path d="m16.2 16.2 4.3 4.3" />
           <path d="M11 7.6 12.2 10l2.4 1-2.4 1-1.2 2.4-1.2-2.4-2.4-1 2.4-1L11 7.6Z" />
+        </>
+      )}
+      {name === 'plan' && (
+        <>
+          <path d="M8 5h11M8 12h11M8 19h11" />
+          <path d="m3 5 1.5 1.5L6.5 4M3 12l1.5 1.5L6.5 11M3 19l1.5 1.5L6.5 18" />
         </>
       )}
       {name === 'experts' && (
@@ -231,7 +244,17 @@ function eventTitle(event: OphiraEvent, t: Translate): string {
   if (event.type === 'assistant.message.completed' && text) return text
   if (event.type === 'permission.requested') return t('Approval requested for {tool}', { tool: toolName })
   if (event.type === 'permission.resolved') return decision ? t('Confirmed: {decision}', { decision }) : t('Approval confirmed')
-  if (event.type === 'run.result') return event.data.is_error ? t('Research ended with an error') : t('Research response prepared')
+  if (event.type === 'run.interjection.requested') return t('You sent a direction: {message}', { message: String(event.data.prompt ?? '') })
+  if (event.type === 'run.interjection.dispatching') return t('Sending direction to the active run')
+  if (event.type === 'run.interjection.injected') return t('Direction reached the active run')
+  if (event.type === 'run.interjection.uncertain') return t('Direction delivery could not be confirmed')
+  if (event.type === 'run.interjection.blocked') return t('Queued direction stopped after device access changed')
+  if (event.type === 'run.interjection.carried') return t('Direction moved into the next run')
+  if (event.type === 'context.compacted') return event.data.trigger === 'auto'
+    ? t('Context compacted automatically') : t('Context compacted')
+  if (event.type === 'run.result') return event.data.manual_compaction
+    ? t('Context compaction response received')
+    : event.data.is_error ? t('Research ended with an error') : t('Research response prepared')
   if (event.type === RESOURCE_EVENT.ARTIFACT_REGISTERED) return t('Artifact saved')
   if (event.type === RESOURCE_EVENT.ARTIFACT_UPDATED) return t('Artifact version saved')
   if (event.type === RESOURCE_EVENT.MEMORY_PROPOSED) return t('Memory proposed')
@@ -357,7 +380,13 @@ export default function WorkspaceComposer({
   onProviderProfileChange,
   onApprovalModeChange,
   onRunModeChange,
+  onApprovePlan,
+  onRevisePlan,
   onSubmit,
+  onInterject,
+  interjectionBusy = false,
+  onCompact,
+  compacting = false,
   onProjectRefresh,
   onProjectCreated,
   deletionProgress,
@@ -383,12 +412,16 @@ export default function WorkspaceComposer({
 }: WorkspaceComposerProps) {
   const [composerMenu, setComposerMenu] = useState<ComposerMenuView>('closed')
   const [modelMenuOpen, setModelMenuOpen] = useState(false)
+  const [planChanges, setPlanChanges] = useState('')
+  const [interjectionMode, setInterjectionMode] = useState<RunInterjectionMode>('now')
+  const canInterject = isActive && run?.status === 'running' && Boolean(onInterject)
   const [clock, setClock] = useState(() => Date.now())
   const t = useT()
   const language = useLanguage()
   const composerToolsRef = useRef<HTMLDivElement>(null)
   const modelSelectorRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  useEffect(() => setPlanChanges(''), [run?.id])
   const sessionOpen = Boolean(project || run)
   const hasProjectTruth = Boolean(project && (
     project.evidence.length
@@ -404,7 +437,16 @@ export default function WorkspaceComposer({
   ))
   const traceEvents = events.filter((event) => !event.type.endsWith('.delta')
     && !event.type.startsWith('assistant.reasoning')
+    && event.type !== 'context.usage'
     && event.type !== UI_PRESENTATION_EVENT)
+  const contextEvent = [...events].reverse().find((event) => event.type === 'context.usage')
+  const usedTokens = contextEvent?.data.used_tokens
+  const maxTokens = contextEvent?.data.max_tokens
+  const contextUsage = typeof usedTokens === 'number' && Number.isFinite(usedTokens)
+    && usedTokens >= 0 && typeof maxTokens === 'number' && Number.isFinite(maxTokens)
+    && maxTokens > 0 ? { used: usedTokens, max: maxTokens } : null
+  const canCompact = run?.status === 'completed' && run.mode !== 'plan'
+    && Boolean(run.sdk_session_id) && Boolean(onCompact) && !historyLoading
   const presentations = extractPresentationFrames(events)
   const startedAt = run?.started_at ? new Date(run.started_at).getTime() : run ? new Date(run.created_at).getTime() : clock
   const finishedAt = run?.finished_at ? new Date(run.finished_at).getTime() : clock
@@ -476,25 +518,29 @@ export default function WorkspaceComposer({
   }
 
   const composer = (
-    <div className="conversation-composer-dock" data-inline={!sessionOpen}>
-      <form className="conversation-composer" onSubmit={onSubmit}>
+    <div className="conversation-composer-dock" data-inline={!sessionOpen} data-interject={canInterject}>
+      <form className="conversation-composer" onSubmit={canInterject
+        ? (event) => { event.preventDefault(); onInterject?.(interjectionMode) }
+        : onSubmit}>
         <label className="conversation-visually-hidden" htmlFor="workspace-conversation-brief">{t('Ask TradeMind')}</label>
         <textarea
           id="workspace-conversation-brief"
           value={value}
           onChange={(event) => onChange(event.target.value)}
           onKeyDown={(event) => {
-            if ((event.metaKey || event.ctrlKey) && event.key === 'Enter' && !busy && !approvalModeSaving && value.trim()) {
+            if ((event.metaKey || event.ctrlKey) && event.key === 'Enter'
+              && (!busy || canInterject) && !interjectionBusy && !approvalModeSaving && value.trim()) {
               event.preventDefault()
               event.currentTarget.form?.requestSubmit()
             }
           }}
           placeholder={sessionOpen ? t('Continue this conversation…') : t('Message TradeMind…')}
           rows={sessionOpen ? 1 : 3}
-          disabled={busy}
+          disabled={(busy && !canInterject) || interjectionBusy}
           autoFocus={!sessionOpen}
         />
-        <VoiceDictation value={value} onChange={onChange} disabled={busy} />
+        <VoiceDictation value={value} onChange={onChange}
+          disabled={(busy && !canInterject) || interjectionBusy} />
         {attachedFiles.length > 0 && (
           <div className="conversation-attachments" aria-label={t('Locally staged attachments')}>
             <div>
@@ -569,6 +615,18 @@ export default function WorkspaceComposer({
             onChange={onApprovalModeChange}
           />
           <button
+            className="conversation-research-toggle conversation-plan-toggle"
+            type="button"
+            aria-label={t('Plan first')}
+            aria-pressed={runMode === 'plan'}
+            disabled={busy}
+            title={t('Research read-only, then review the plan before execution.')}
+            onClick={() => onRunModeChange(runMode === 'plan' ? 'standard' : 'plan')}
+          >
+            <ComposerToolIcon name="plan" />
+            <span>{t('Plan first')}</span>
+          </button>
+          <button
             className="conversation-research-toggle"
             type="button"
             aria-label={t('Deep Research')}
@@ -636,8 +694,18 @@ export default function WorkspaceComposer({
               </section>
             )}
           </div>
-          <button className="conversation-submit" type="submit" aria-label={busy ? t('Working') : t('Send')} aria-busy={approvalModeSaving || undefined} disabled={busy || approvalModeSaving || !value.trim() || selectedProviderUnavailable}>
-            <span className="conversation-submit-label">{busy ? t('Working…') : t('Send')}</span>
+          {canInterject && <label className="conversation-interjection-mode">
+            <span>{t('Delivery')}</span>
+            <select value={interjectionMode} disabled={interjectionBusy} onChange={(event) => setInterjectionMode(event.target.value as RunInterjectionMode)}>
+              <option value="now">{t('Send to active run')}</option>
+              <option value="next_turn">{t('Queue for next turn')}</option>
+              <option value="interrupt">{t('Interrupt and replace')}</option>
+            </select>
+          </label>}
+          <button className="conversation-submit" type="submit" aria-label={canInterject ? t('Send direction') : busy ? t('Working') : t('Send')} aria-busy={approvalModeSaving || interjectionBusy || undefined} disabled={canInterject
+            ? interjectionBusy || !value.trim() || attachedFiles.length > 0
+            : busy || approvalModeSaving || !value.trim() || selectedProviderUnavailable}>
+            <span className="conversation-submit-label">{canInterject ? t('Send direction') : busy ? t('Working…') : t('Send')}</span>
             <span aria-hidden="true">↑</span>
           </button>
         </div>
@@ -725,6 +793,24 @@ export default function WorkspaceComposer({
               </article>
               {project && onSelectRun && <SessionSearchPanel projectId={project.id} onSelectRun={onSelectRun} />}
               {run && <NativeTaskProgress events={events} runId={run.id} />}
+              {run && <section className="conversation-context-usage" aria-label={t('Context usage')}>
+                <div>
+                  <strong>{t('Context usage')}</strong>
+                  <small>{contextEvent
+                    ? t('Last measured at {time}', { time: new Date(contextEvent.timestamp).toLocaleTimeString(language === 'zh-CN' ? 'zh-CN' : 'en') })
+                    : t('Waiting for SDK context measurement')}</small>
+                </div>
+                {contextUsage && <>
+                  <progress max={contextUsage.max} value={Math.min(contextUsage.used, contextUsage.max)} />
+                  <span>{t('{used} / {max} tokens', {
+                    used: contextUsage.used.toLocaleString(), max: contextUsage.max.toLocaleString(),
+                  })}</span>
+                </>}
+                {canCompact && <button type="button" onClick={onCompact} disabled={compacting || busy}>
+                  {t(compacting ? 'Compacting…' : 'Compact context')}
+                </button>}
+                {run.manual_compaction && run.status === 'completed' && <p>{t('Context summary saved in this SDK session. Project records and artifacts remain available.')}</p>}
+              </section>}
 
               <article className="conversation-agent-message">
                 {(run || historyLoading) && (
@@ -802,6 +888,9 @@ export default function WorkspaceComposer({
                                     </summary>
                                     <div className="conversation-event-detail">
                                       <ResourceEventLinks event={event} project={project} />
+                                      {event.type === 'run.interjection.carried'
+                                        && typeof event.data.next_run_id === 'string' && onSelectRun
+                                        && <button type="button" onClick={() => onSelectRun(event.data.next_run_id as string)}>{t('Open queued run')}</button>}
                                       <dl>
                                         <div><dt>{t('Event')}</dt><dd>{event.type}</dd></div>
                                         <div><dt>{t('Actor')}</dt><dd>{t(label(event.actor.type))}</dd></div>
@@ -819,7 +908,7 @@ export default function WorkspaceComposer({
                         )}
                         {run && (
                           <p className="conversation-trace-note">
-                            {run.mode === 'deep_research' ? `${t('Deep Research')} · ` : `${t('Single Agent')} · `}
+                            {run.mode === 'deep_research' ? `${t('Deep Research')} · ` : run.mode === 'plan' ? `${t('Plan first')} · ` : `${t('Single Agent')} · `}
                             {t('Trace')} {run.trace_id}
                           </p>
                         )}
@@ -846,7 +935,8 @@ export default function WorkspaceComposer({
                     <strong>{t('Run failed')}</strong>
                     <p>{run.error || t('The backend ended this run without a response.')}</p>
                   </div>
-                ) : presentations.length === 0 ? (
+                ) : run?.manual_compaction && run.status === 'completed' ? null
+                  : presentations.length === 0 ? (
                   <div className="conversation-agent-waiting" role="status">
                     {isActive && <i aria-hidden="true" />}
                     <p>{isActive
@@ -857,7 +947,7 @@ export default function WorkspaceComposer({
                   </div>
                 ) : null}
 
-                {run && onRetry && (run.status === 'failed' || run.status === 'cancelled') && (
+                {run && !run.manual_compaction && onRetry && (run.status === 'failed' || run.status === 'cancelled') && (
                   <section className="conversation-retry" aria-label={t('Retry this run')}>
                     <header>
                       <strong>{t('Continue this run')}</strong>
@@ -885,6 +975,19 @@ export default function WorkspaceComposer({
                         <span>{t('Start a separate SDK session while keeping saved evidence and artifacts.')}</span>
                       </button>
                     </div>
+                  </section>
+                )}
+                {!historyLoading && run?.mode === 'plan' && run.status === 'completed' && Boolean(assistantText.trim()) && (
+                  <section className="conversation-plan-review" aria-label={t('Review plan')}>
+                    <strong>{t('Review plan')}</strong>
+                    <p>{t('The plan has not been executed. Approve it or describe changes to request another plan in this session.')}</p>
+                    {!run.sdk_session_id && <p role="alert">{t('The SDK session is unavailable. Start a new task to continue.')}</p>}
+                    <div>
+                      <button type="button" disabled={busy || !run.sdk_session_id || !onApprovePlan} onClick={onApprovePlan}>{t('Approve and execute')}</button>
+                    </div>
+                    <label htmlFor={`plan-changes-${run.id}`}>{t('Changes to the plan')}</label>
+                    <textarea id={`plan-changes-${run.id}`} value={planChanges} onChange={(event) => setPlanChanges(event.target.value)} placeholder={t('Describe what to change before execution')} />
+                    <button type="button" disabled={busy || !run.sdk_session_id || !planChanges.trim() || !onRevisePlan} onClick={() => onRevisePlan?.(planChanges)}>{t('Request revised plan')}</button>
                   </section>
                 )}
 

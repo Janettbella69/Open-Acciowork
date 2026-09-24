@@ -382,6 +382,7 @@ def _capture_project_deletion(root: Path, project_id: str, *, limits=LIMITS) -> 
         (f"memory/project/{project_id}", "memory"),
         (f"browser-profiles/{project_id}", "browser"),
         (f"collaboration/project-templates/{project_id}", "templates"),
+        (f"secrets/event-triggers/{project_id}", "event-triggers"),
     ):
         capture.tree(path, domain)
     for path in (

@@ -29,6 +29,9 @@
 .settings-row > span { display: grid; max-width: 760px; gap: 6px; }
 .settings-row strong { font-size: var(--ophira-type-title); }
 .settings-row small { color: #6f7376; font-size: var(--ophira-type-body); line-height: 1.55; }
+.settings-mcp-hosts > div { display: grid; width: min(100%, 360px); gap: 10px; }
+.settings-mcp-hosts textarea { width: 100%; box-sizing: border-box; border: 1px solid #d9dbdc; border-radius: 10px; padding: 10px; font: inherit; }
+.settings-mcp-hosts button { min-height: 44px; border: 1px solid #d9dbdc; border-radius: 999px; background: #fff; font-weight: 700; }
 .settings-grant-row button { min-height: 44px; flex: 0 0 auto; border: 1px solid #d9dbdc; border-radius: 999px; padding: 0 16px; color: #91483e; background: #fff; font-weight: 720; }
 .settings-row i { width: fit-content; border-radius: 999px; padding: 4px 7px; color: #974b3f; background: #f4e4e0; font-size: var(--ophira-type-small); font-style: normal; font-weight: 750; text-transform: uppercase; }
 .settings-row em { width: fit-content; color: #7f8386; font-size: var(--ophira-type-small); font-style: normal; text-transform: uppercase; }

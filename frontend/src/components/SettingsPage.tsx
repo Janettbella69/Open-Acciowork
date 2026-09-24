@@ -38,6 +38,7 @@ function OrgPolicyPanel() {
   const [loading, setLoading] = useState(true)
   const [savingPolicy, setSavingPolicy] = useState(false)
   const [revokingGrant, setRevokingGrant] = useState('')
+  const [mcpHostsDraft, setMcpHostsDraft] = useState('')
   const revokingGrantRef = useRef('')
   const policyRef = useRef<OrgPolicy | null>(null)
   const confirmedPolicyRef = useRef<OrgPolicy | null>(null)
@@ -54,6 +55,7 @@ function OrgPolicyPanel() {
           policyRef.current = policyResult.value
           confirmedPolicyRef.current = policyResult.value
           setPolicy(policyResult.value)
+          setMcpHostsDraft((policyResult.value.allowed_mcp_hosts || []).join('\n'))
         } else {
           failures.push(errorMessage(policyResult.reason))
         }
@@ -144,6 +146,17 @@ function OrgPolicyPanel() {
             <span><strong>{t('Channel delivery')}</strong><small>{t('Push inbox notifications to the configured IM webhook.')}</small></span>
             <input type="checkbox" role="switch" checked={policy.channel_delivery_enabled} disabled={savingPolicy} onChange={(event) => save({ channel_delivery_enabled: event.target.checked })} />
           </label>
+          <label className="settings-row settings-toggle-row">
+            <span><strong>{t('Remote MCP connectors')}</strong><small>{t('Allow reviewed remote MCP servers in project runs.')}</small></span>
+            <input type="checkbox" role="switch" checked={policy.remote_mcp_enabled ?? true} disabled={savingPolicy} onChange={(event) => save({ remote_mcp_enabled: event.target.checked })} />
+          </label>
+          <div className="settings-row settings-mcp-hosts">
+            <span><strong>{t('Approved custom MCP hosts')}</strong><small>{t('One exact public HTTPS host per line. The built-in directory is available separately.')}</small></span>
+            <div>
+              <textarea aria-label={t('Approved custom MCP hosts')} value={mcpHostsDraft} onChange={(event) => setMcpHostsDraft(event.target.value)} rows={4} placeholder="mcp.example.com" disabled={savingPolicy} />
+              <button type="button" disabled={savingPolicy} onClick={() => save({ allowed_mcp_hosts: [...new Set(mcpHostsDraft.split(/\s+/).map((host) => host.trim().toLowerCase()).filter(Boolean))] })}>{t('Save hosts')}</button>
+            </div>
+          </div>
           {savingPolicy && <p className="settings-integration-note" role="status">{t('Saving organization policy…')}</p>}
         </>
       )}

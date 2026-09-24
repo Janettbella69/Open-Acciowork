@@ -27,6 +27,7 @@ class UntrustedSource(StrEnum):
     PROJECT_PRESENTATION = "project_presentation"
     PROJECT_LEDGER = "project_ledger"
     PROJECT_FILE = "project_file"
+    REMOTE_MCP = "remote_mcp"
 
 
 UNTRUSTED_DATA_OPEN = "<OPHIRA_UNTRUSTED_DATA>"
@@ -99,6 +100,10 @@ UNTRUSTED_LIMITS: dict[UntrustedSource, UntrustedLimits] = {
     UntrustedSource.PROJECT_FILE: UntrustedLimits(
         field_chars=64_000,
         total_chars=64_000,
+    ),
+    UntrustedSource.REMOTE_MCP: UntrustedLimits(
+        field_chars=6_000,
+        total_chars=12_000,
     ),
 }
 

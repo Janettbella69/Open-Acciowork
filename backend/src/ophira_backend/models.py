@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ipaddress
 import math
 import posixpath
 import re
@@ -8,7 +9,15 @@ from typing import Annotated, Any, Literal
 from urllib.parse import urlsplit
 from uuid import uuid4
 
-from pydantic import BaseModel, ConfigDict, Field, HttpUrl, JsonValue, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    HttpUrl,
+    JsonValue,
+    field_validator,
+    model_validator,
+)
 
 from .constants import (
     CLARIFYING_TOOL,
@@ -38,6 +47,7 @@ from .constants import (
     PrincipalRole,
     ProjectStage,
     ProviderErrorCode,
+    RunInterjectionMode,
     RunMode,
     RunRetryStrategy,
     RunStatus,
@@ -463,12 +473,30 @@ class RunCreate(APIModel):
     prompt: str = Field(min_length=1, max_length=40_000)
     agent_id: str | None = None
     resume_session_id: str | None = Field(default=None, min_length=1, max_length=500)
+    plan_source_run_id: str | None = Field(default=None, min_length=1, max_length=160)
     mode: RunMode = RunMode.STANDARD
     provider_profile_id: str | None = None
 
 
 class RunRetryRequest(APIModel):
     strategy: RunRetryStrategy
+
+
+class RunInterjectionRequest(APIModel):
+    request_id: str = Field(
+        pattern=r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+    )
+    prompt: str = Field(min_length=1, max_length=8_000)
+    mode: RunInterjectionMode = RunInterjectionMode.NOW
+
+
+class RunInterjectionReceipt(APIModel):
+    request_id: str
+    run_id: str
+    prompt: str
+    mode: RunInterjectionMode
+    status: Literal["queued", "dispatching", "injected", "uncertain", "blocked", "carried"]
+    next_run_id: str | None = None
 
 
 class RunRecord(APIModel):
@@ -483,6 +511,13 @@ class RunRecord(APIModel):
     identity_binding: Literal["local_only", "authenticated_principal"] = "local_only"
     agent_id: str | None = None
     schedule_id: str | None = None
+    # Host-bound signed event origin. External payloads never supply this value.
+    event_trigger_id: str | None = None
+    event_trigger_revision: int | None = Field(default=None, ge=1)
+    event_id_digest: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    event_permission_ceiling: list[SchedulePermissionRule] = Field(
+        default_factory=list, max_length=100
+    )
     # Host fingerprint of the same Schedule snapshot used for the dispatch prompt.
     task_experience_config_hash: str | None = Field(
         default=None, pattern=r"^[0-9a-f]{64}$",
@@ -495,10 +530,15 @@ class RunRecord(APIModel):
     # Resumption is resolved server-side to a durable run. A caller-supplied SDK
     # session ID is a locator, never an authority boundary.
     resume_source_run_id: str | None = Field(default=None, min_length=1, max_length=160)
+    carried_interjection_ids: list[str] = Field(default_factory=list, max_length=20)
+    # Host-created maintenance run. Generic Run creation never accepts this flag.
+    manual_compaction: bool = False
     mode: RunMode = RunMode.STANDARD
     provider_profile_id: str | None = None
     provider_snapshot: dict[str, Any] | None = None
     skill_snapshot: list[dict[str, Any]] = Field(default_factory=list)
+    # Reviewed remote MCP authority is pinned for this Run (never credentials).
+    mcp_snapshot: list[dict[str, Any]] = Field(default_factory=list, max_length=10)
     # Per-run spend fuse in the operator's configured provider-cost units. The
     # SDK adapter applies the profile's budget_scale before setting max_budget_usd.
     max_budget_usd: float | None = Field(default=None, gt=0, le=1_000)
@@ -524,6 +564,15 @@ class RunRecord(APIModel):
 
     @model_validator(mode="after")
     def coherent_run_identity(self) -> RunRecord:
+        event_fields = (
+            self.event_trigger_id, self.event_trigger_revision, self.event_id_digest,
+        )
+        if any(value is not None for value in event_fields) != all(
+            value is not None for value in event_fields
+        ):
+            raise ValueError("event run binding is incomplete")
+        if self.event_trigger_id is None and self.event_permission_ceiling:
+            raise ValueError("ordinary runs cannot carry an event permission ceiling")
         values = (
             self.tenant_id,
             self.principal_id,
@@ -1861,6 +1910,10 @@ class OrgPolicy(APIModel):
     permission_mode: PermissionModePolicy = PermissionModePolicy.DEFAULT
     allowed_provider_ids: list[str] = Field(default_factory=list)
     allowed_skill_ids: list[str] = Field(default_factory=list)
+    remote_mcp_enabled: bool = True
+    # Custom hosts require explicit organization approval. The built-in catalog
+    # has its own narrow, reviewed host list.
+    allowed_mcp_hosts: list[str] = Field(default_factory=list, max_length=100)
     browser_enabled: bool = True
     computer_control_enabled: bool = False
     channel_delivery_enabled: bool = False
@@ -1882,6 +1935,27 @@ class OrgPolicy(APIModel):
         default_factory=list, max_length=100
     )
     updated_at: datetime = Field(default_factory=utc_now)
+
+    @field_validator("allowed_mcp_hosts")
+    @classmethod
+    def validate_mcp_hosts(cls, hosts: list[str]) -> list[str]:
+        normalized = [host.strip().rstrip(".").casefold() for host in hosts]
+        pattern = re.compile(
+            r"(?=.{4,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+"
+            r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?"
+        )
+        if len(normalized) != len(set(normalized)):
+            raise ValueError("remote MCP host allowlist contains duplicates")
+        for host in normalized:
+            if not pattern.fullmatch(host):
+                raise ValueError("remote MCP allowlist requires exact DNS hostnames")
+            try:
+                ipaddress.ip_address(host)
+            except ValueError:
+                pass
+            else:
+                raise ValueError("remote MCP allowlist requires DNS hostnames")
+        return normalized
 
     @model_validator(mode="after")
     def unique_commercial_policy_entries(self) -> OrgPolicy:

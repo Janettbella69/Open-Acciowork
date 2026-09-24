@@ -3,6 +3,8 @@ import type {
   AgentTemplate,
   Artifact,
   Connector,
+  UserMcpCatalogItem,
+  UserMcpConnector,
   Evidence,
   EvidenceStatus,
   EvidenceStatusChange,
@@ -13,6 +15,8 @@ import type {
   ProviderPreflightResult,
   ProviderProfile,
   RunMode,
+  RunInterjectionMode,
+  RunInterjectionReceipt,
   RunRecord,
   RunRetryStrategy,
   RunTelemetry,
@@ -49,6 +53,13 @@ import type { ProjectTemplate, TemplateApplied, TemplateApplications, TemplateAp
 import type { SkillFilePreview, SkillImportReviewRequest, SkillImportView, SkillPackageView, SkillRepositoryCapabilities, SkillRepositorySelection } from './skillRepository'
 import type { ProjectExportPreview } from './projectExport'
 import type { SitePublicationCatalog, SitePublicationView } from './sitePublications'
+import type { PluginImportRecord, PluginImportView } from './pluginImports'
+import type {
+  EventTrigger,
+  EventTriggerCreate,
+  EventTriggerCreated,
+  ShopifySubscriptionView,
+} from './eventTriggers'
 import type { ConversationDeletionOperation, ConversationDeletionPreview, ProjectDeletionOperation, ProjectDeletionPreview, ProjectDeletionRequest } from './projectDeletion'
 import type { GovernedMemory, MemoryExpiryUpdate, MemoryExport, MemoryTombstone } from '../types/MemoryGovernance'
 
@@ -372,6 +383,7 @@ export function startRun(
   mode: RunMode = 'standard',
   providerProfileId?: string | null,
   agentId?: string | null,
+  planSourceRunId?: string | null,
 ): Promise<RunRecord> {
   return request<RunRecord>(`/api/projects/${projectId}/runs`, {
     method: 'POST',
@@ -381,6 +393,7 @@ export function startRun(
       ...(resumeSessionId ? { resume_session_id: resumeSessionId } : {}),
       ...(providerProfileId ? { provider_profile_id: providerProfileId } : {}),
       ...(agentId ? { agent_id: agentId } : {}),
+      ...(planSourceRunId ? { plan_source_run_id: planSourceRunId } : {}),
     }),
   })
 }
@@ -389,6 +402,22 @@ export function retryRun(runId: string, strategy: RunRetryStrategy): Promise<Run
   return request<RunRecord>(`/api/runs/${encodeURIComponent(runId)}/retry`, {
     method: 'POST',
     body: JSON.stringify({ strategy }),
+  })
+}
+
+export function interjectRun(
+  runId: string, requestId: string, prompt: string,
+  mode: RunInterjectionMode,
+): Promise<RunInterjectionReceipt> {
+  return request<RunInterjectionReceipt>(
+    `/api/runs/${encodeURIComponent(runId)}/interjections`,
+    { method: 'POST', body: JSON.stringify({ request_id: requestId, prompt, mode }) },
+  )
+}
+
+export function compactRun(runId: string): Promise<RunRecord> {
+  return request<RunRecord>(`/api/runs/${encodeURIComponent(runId)}/compact`, {
+    method: 'POST',
   })
 }
 
@@ -584,6 +613,73 @@ export async function rollbackSkill(
 
 export function listSchedules(): Promise<Schedule[]> {
   return request<Schedule[]>('/api/schedules')
+}
+
+export function listEventTriggers(projectId: string): Promise<EventTrigger[]> {
+  return request<EventTrigger[]>(
+    `/api/projects/${encodeURIComponent(projectId)}/event-triggers`,
+    { cache: 'no-store' },
+  )
+}
+
+export function createEventTrigger(
+  projectId: string, input: EventTriggerCreate,
+): Promise<EventTriggerCreated> {
+  return request<EventTriggerCreated>(
+    `/api/projects/${encodeURIComponent(projectId)}/event-triggers`,
+    { method: 'POST', body: JSON.stringify(input), cache: 'no-store' },
+  )
+}
+
+export function updateEventTrigger(
+  projectId: string, triggerId: string,
+  input: { expected_revision: number; enabled: boolean },
+): Promise<EventTrigger> {
+  return request<EventTrigger>(
+    `/api/projects/${encodeURIComponent(projectId)}/event-triggers/${encodeURIComponent(triggerId)}`,
+    { method: 'PATCH', body: JSON.stringify(input), cache: 'no-store' },
+  )
+}
+
+export function rotateEventTriggerSecret(
+  projectId: string, triggerId: string,
+): Promise<EventTriggerCreated> {
+  return request<EventTriggerCreated>(
+    `/api/projects/${encodeURIComponent(projectId)}/event-triggers/${encodeURIComponent(triggerId)}/rotate-secret`,
+    { method: 'POST', cache: 'no-store' },
+  )
+}
+
+export function getShopifySubscription(
+  projectId: string, triggerId: string,
+): Promise<ShopifySubscriptionView> {
+  return request<ShopifySubscriptionView>(
+    `/api/projects/${encodeURIComponent(projectId)}/event-triggers/${encodeURIComponent(triggerId)}/shopify-subscription`,
+    { cache: 'no-store' },
+  )
+}
+
+export function registerShopifySubscription(
+  projectId: string, triggerId: string, expectedRevision: number,
+  retryUncertain = false,
+): Promise<ShopifySubscriptionView> {
+  return request<ShopifySubscriptionView>(
+    `/api/projects/${encodeURIComponent(projectId)}/event-triggers/${encodeURIComponent(triggerId)}/shopify-subscription`,
+    { method: 'POST', body: JSON.stringify({
+      expected_revision: expectedRevision, retry_uncertain: retryUncertain,
+    }), cache: 'no-store' },
+  )
+}
+
+export function removeShopifySubscription(
+  projectId: string, triggerId: string, expectedRevision: number,
+): Promise<ShopifySubscriptionView> {
+  return request<ShopifySubscriptionView>(
+    `/api/projects/${encodeURIComponent(projectId)}/event-triggers/${encodeURIComponent(triggerId)}/shopify-subscription`,
+    { method: 'DELETE', body: JSON.stringify({
+      expected_revision: expectedRevision,
+    }), cache: 'no-store' },
+  )
 }
 
 export function createSchedule(input: {
@@ -833,6 +929,54 @@ export function revokeConnector(id: string): Promise<Connector> {
   return request<Connector>(`/api/connectors/${encodeURIComponent(id)}/revoke`, { method: 'POST' })
 }
 
+function projectMcpPath(projectId: string): string {
+  return `/api/projects/${encodeURIComponent(projectId)}/mcp`
+}
+
+export function listUserMcpCatalog(projectId: string): Promise<UserMcpCatalogItem[]> {
+  return request<UserMcpCatalogItem[]>(`${projectMcpPath(projectId)}/catalog`)
+}
+
+export function listUserMcp(projectId: string): Promise<UserMcpConnector[]> {
+  return request<UserMcpConnector[]>(projectMcpPath(projectId))
+}
+
+export function addCatalogMcp(projectId: string, catalogId: string): Promise<UserMcpConnector> {
+  return request<UserMcpConnector>(
+    `${projectMcpPath(projectId)}/catalog/${encodeURIComponent(catalogId)}`,
+    { method: 'POST' },
+  )
+}
+
+export function saveUserMcp(projectId: string, id: string, input: {
+  name: string; url: string; bearer_token?: string
+}): Promise<UserMcpConnector> {
+  return request<UserMcpConnector>(`${projectMcpPath(projectId)}/${encodeURIComponent(id)}`, {
+    method: 'PUT', body: JSON.stringify(input),
+  })
+}
+
+export function reviewUserMcp(projectId: string, id: string): Promise<UserMcpConnector> {
+  return request<UserMcpConnector>(
+    `${projectMcpPath(projectId)}/${encodeURIComponent(id)}/review`, { method: 'POST' },
+  )
+}
+
+export function setUserMcpToolPolicy(
+  projectId: string, id: string, toolName: string, policy: 'allow' | 'ask' | 'deny',
+): Promise<UserMcpConnector> {
+  return request<UserMcpConnector>(
+    `${projectMcpPath(projectId)}/${encodeURIComponent(id)}/tools/${encodeURIComponent(toolName)}`,
+    { method: 'PUT', body: JSON.stringify({ policy }) },
+  )
+}
+
+export function revokeUserMcp(projectId: string, id: string): Promise<UserMcpConnector> {
+  return request<UserMcpConnector>(
+    `${projectMcpPath(projectId)}/${encodeURIComponent(id)}/revoke`, { method: 'POST' },
+  )
+}
+
 export function listMarketplaceGuides(): Promise<MarketplaceGuide[]> {
   return request<MarketplaceGuide[]>('/api/connectors/marketplaces')
 }
@@ -893,6 +1037,18 @@ export function revokeMarketplaceAccess(projectId: string, bindingId: string, re
 
 export function getSkillRepositoryCapabilities(signal?: AbortSignal): Promise<SkillRepositoryCapabilities> {
   return request('/api/skills/repository', { signal, cache: 'no-store' })
+}
+export function listPluginImports(signal?: AbortSignal): Promise<PluginImportRecord[]> {
+  return request('/api/plugins/imports', { signal, cache: 'no-store' })
+}
+export function getPluginImport(identifier: string, signal?: AbortSignal): Promise<PluginImportView> {
+  return request(`/api/plugins/imports/${encodeURIComponent(identifier)}`, { signal, cache: 'no-store' })
+}
+export function submitPluginImport(file: File, requestId: string, signal?: AbortSignal): Promise<PluginImportView> {
+  return request(`/api/plugins/imports?${new URLSearchParams({ request_id: requestId })}`, {
+    method: 'POST', body: file, signal, cache: 'no-store',
+    headers: { 'Content-Type': file.type || 'application/zip' },
+  })
 }
 export function listSkillImports(signal?: AbortSignal): Promise<SkillImportView[]> {
   return request('/api/skills/imports', { signal, cache: 'no-store' })

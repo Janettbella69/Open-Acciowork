@@ -1,6 +1,7 @@
 # PRD 全量交付清单
 
-基准：`OPHIRA-PRD-and-Technical-Architecture-v2.md` v2.2，2026-09-05。
+基准：`OPHIRA-PRD-and-Technical-Architecture-v2.md` v2.2，2026-09-05；
+2026-09-23 的 v2.3 新增要求单列于下方。
 本清单跟踪“完成 PRD 全部功能”的持续任务，不替换 PRD、不降低验收门槛。
 基线提交：`0dfff72`。状态为 **delivered**（指定范围已有证据）、
 **deferred**（仍需交付，原因列明）或 **omitted**（PRD 明确不做）。
@@ -39,19 +40,46 @@
 | FR-27 媒体 | delivered：安全二进制接入与 Artifact/Evidence | deferred：真实图像/视频厂商适配、授权配置及验收 |
 | FR-28 澄清表单 | delivered：结构化问题与同任务约束回传 | 保持 UI/API 回归 |
 
+## v2.3 增量要求（2026-09-23）
+
+以 `OPHIRA-PRD-and-Technical-Architecture-v2.3.md` §3.8 为准；delivered 仅表示本地代码/测试，不表示外部依赖和真实用户验收。
+
+| 要求 | 本轮状态与证据 | 尚需交付 / deferred 原因 |
+|---|---|---|
+| FR-29 计划模式 | delivered（本地）：独立 Run 选择 SDK 原生 `plan` 权限模式；计划阶段只开放原生只读研究/澄清工具，MCP 不装配，PreToolUse 与 can_use_tool 双重拒绝写入/对外动作；计划结果可审核、修改或批准，精确绑定最新计划 Run 后在同一 SDK 会话续行；跨进程会话创建加锁防重复 | deferred：真实 Provider 的计划质量/同会话执行、浏览器目视、预算估计准确性和故障矩阵验收 |
+| FR-30 任务进度 | delivered（本地）：钉版 SDK 原生 Task/Todo 工具允许与事件回放清单；主 Run/失败过滤测试 | deferred：真实 Provider 产出任务清单、浏览器刷新验收 |
+| FR-31 运行中插话 | delivered（本地代码/离线测试，2026-09-24）：用户消息先入 Run 事件序列，支持当前 SDK 流会话发送、排到下一轮及中断后替换；跨 worker 由持有会话的进程接收，具备 SDK session 的交互 Run 在实时投递不可用时自动启动同会话下一 Run；请求幂等、投递不确定/设备授权撤销状态、原 Run 回放和续行跳转、桌面及获准发起任务的配对手机入口均已覆盖 | deferred：真实 Provider 的中途插话/打断语义、浏览器与手机 HTTPS 目视验收；SDK 写入与持久确认之间的崩溃窗口只能标为不确定，不能盲目重试 |
+| FR-32 并行任务列表 | delivered（本地列表）：新任务不取消旧 Run；授权过滤列表展示独立 Run 状态、审批、预算、已报告的 SDK 费用和结果，精确 Run 跳转 | deferred：运行中的可靠实时花费、真实多个 SDK Run 并发、预算熔断与浏览器验收 |
+| FR-33 用户 MCP/连接器 | partial（本地）：项目级目录首项一键添加+在线工具清单审查、进阶 HTTPS/Bearer 配置、组织主机白名单、逐工具允许/每次询问/禁止、撤销、Run 快照与 SDK 显式装配；运行期经每次地址钉住的受控 MCP 网关，外部输出不可信过滤；见 `docs/user-mcp.md` | deferred：真实 MCP/Provider E2E、OAuth、更多已验证目录项、状态型服务器兼容与浏览器目视验收 |
+| FR-34 上下文压缩 | delivered（本地代码/离线测试，2026-09-24）：钉版 SDK `get_context_usage()` 采样有效窗口占用并随 Run 事件回放；原生压缩边界事件提示自动/手动压缩、崩溃后修复 epoch 并强制完整业务上下文刷新；用户可在已完成会话启动独立无工具 `/compact` Run，只有 SDK 手动边界确认才算成功，账本及产物不被压缩 Run 改写 | deferred：真实 Provider 用量/手动与自动压缩语义、长时采样及浏览器目视验收；SDK 不提供用量时显示未知，不从累计 token 推算 |
+| FR-35 会话检索 | delivered（本地）：项目内有界 Run 提问、用户插话、主 Agent 回复与结果检索，RUN_READ 校验、只读 MCP、Run ID 回放及截断提示 | deferred：大历史性能/覆盖、浏览器与真实会话质量验收 |
+| FR-36 首次引导 | delivered（本地）：示例任务、模型选择及设置页密钥/条款/预检/返回步骤 | deferred：新用户可用性测试和实际 Provider 配置 E2E |
+| FR-37 事件触发 | partial（本地）：项目级 webhook/询盘邮件/店铺订单规范化事件入口；Shopify `orders/create` 原生 HMAC 入站、项目店铺授权绑定、去重与买家信息裁剪，以及管理员触发的店铺级订阅注册/核验/移除、服务端公开 HTTPS 地址、外部结果不确定时的持久防重复重试；项目删除审核披露未移除的远端订阅；一次性签名密钥与轮换、创建人权限复验、单 Run 预算与权限上限、单主 Agent 和现有人审流程、前端管理入口；见 `docs/event-triggers.md` | deferred：真实公共 HTTPS/Shopify 店铺联调、邮箱与其他店铺原生适配、Provider E2E、部署环境浏览器验收与更广崩溃故障矩阵；不确定投递不盲目重试 |
+| FR-38 钉钉/企微 | deferred：现有飞书能力不能替代 | 各渠道入站验签、租户身份绑定、回帖与真实租户 E2E 未做；PRD 要求先完成微信 |
+| FR-39 插件导入 | partial（本地）：官方插件 ZIP 多 Skill 拆分后复用私有仓库安全扫描和逐件人审；远程 MCP 地址引导至 FR-33 项目审批/逐工具策略，插件子 Agent 与其它可执行组件明确忽略；Anthropic marketing 真包的 8 个 Skill 扫描通过、11 个远程 MCP 地址列出；冷备报告/子 Skill 绑定校验；见 `docs/plugin-imports.md` | deferred：远程 MCP/Provider E2E、认证部署验收和更多真实包兼容性；OAuth、stdio MCP 和 Claude marketplace 安装机制不在当前 FR-33 远程 HTTPS 边界内 |
+| FR-40 语音输入 | partial（本地）：支持浏览器 SpeechRecognition 的手机任务/插话与工作台听写；语言选择、可编辑转写草稿、明确填入确认和原有提交路径；取消、页面隐藏及卸载中止录音，未提供音频上传端点；见 `docs/voice-input.md` | deferred：真实手机麦克风授权/转写质量、Safari/Android 与受限浏览器兼容、HTTPS 部署验收；不支持 Web Speech API 的浏览器目前仍需键盘听写或文字输入 |
+| FR-41 发布网页 | partial（本地）：不可变 HTML 产物版本按校验和暂存，沙箱预览后由项目管理员明确批准；独立 HTTPS 域名公开、无缓存与脚本/表单隔离，持久撤回及项目删除清理；见 `docs/site-publications.md` | deferred：真实公网部署、浏览器/缓存验收；动态脚本和远程资源需要隔离的发布运行时，现仅支持自包含静态页面 |
+| FR-42 L3 桌面 GUI | deferred：未实现 | 桌面壳、OS 授权及 L1/L2 证据/域策略复用未做 |
+
+2026-09-24 自动化：后端全量（排除在文件沙箱内无法 `bind` 的 socket 专项）`2179 passed / 13 skipped`；socket 专项在允许绑定环境中 `9 passed`。FR-33 专项 `14 passed`，Ruff 通过。前端全量 `513 passed / 51 files`、ESLint 与 TypeScript/Vite 通过。浏览器工具实例不可用，未完成目视验收；公开 MCP 真握手因本机 DNS 解析为非公网地址而安全拒绝。未使用付费模型或真实凭据。尚不能声称 PRD 全部功能完成。
+
+2026-09-24 FR-37 增量：最终事件专项 `8 passed`，权限/SDK 相关定向 `45 passed`，Ruff 通过。后端全量在最后小范围修正前 `2186 passed / 13 skipped`，socket 专项在允许绑定环境中 `9 passed`。前端全量在最后权限选项调整前 `515 passed / 52 files`；随后事件/定时任务定向 `13 passed`，ESLint 与 TypeScript/Vite 通过；本地桌面和手机 Chromium 已完成页面目视及创建/密钥交互。真实 Provider/邮箱/店铺和公共 HTTPS 仍未验收。
+
+2026-09-24 FR-37 Shopify 增量：订单 webhook HMAC、店铺域名/主题、授权续期与撤销、去重和买家信息裁剪本地集成测试通过；后端全量（排除沙箱中不能绑定 socket 的专项）`2188 passed / 13 skipped`，Shopify/事件定向 `58 passed`。前端全量 `516 passed / 52 files`，ESLint、TypeScript/Vite 通过；本地 Chromium 桌面/手机对 Shopify 选择、创建和 URL 显示做了模拟 API 目视。真实 Shopify 投递、公共 HTTPS、Provider Run 和部署浏览器验收仍未完成。
+
+2026-09-24 FR-37 Shopify 订阅管理增量：店铺级 `orders/create` 订阅的查重、注册、核验、移除与不确定写入后的显式重试已本地实现；服务端固定回调 URL、限定订单字段，项目删除审核披露仍可能活跃的远端 webhook。本轮最终后端全量（排除 socket 专项）`2198 passed / 13 skipped`，相关 Ruff 通过；前端全量 `518 passed / 52 files`、ESLint 与 TypeScript/Vite 构建通过。桌面/手机本地 Chromium 通过模拟 API 核对注册和移除操作及窄屏布局。真实 Shopify 店铺、公共 HTTPS、Provider Run 与部署浏览器验收仍未完成；socket 专项为本批改动前的 `9 passed`，本批未重跑。
+
+2026-09-24 FR-40 语音输入增量：手机协同的发起任务/插话与工作台消息接入浏览器语音识别，听写先进入可编辑草稿，用户确认填入后仍需按普通按钮提交；拒绝权限、取消和不支持的浏览器有明确状态。前端全量 `523 passed / 53 files`，ESLint、TypeScript/Vite 构建通过。桌面及 390px 本地 Chromium 使用模拟语音结果与模拟手机会话核对草稿、填入和无横向溢出。真实移动设备、真实麦克风与语音服务尚未验收。
+
+2026-09-24 FR-41 静态网页发布增量：按不可变 HTML 产物版本暂存、沙箱预览、管理员校验和批准、独立公开 Host 返回及撤回的本地闭环已实现。后端全量（排除 socket 专项）`2201 passed / 13 skipped`，相关 Ruff 通过；前端全量 `525 passed / 54 files`、ESLint、TypeScript/Vite 构建通过。Chromium 本地模拟网关在 1360px/390px 核对暂存、批准与发布状态，无横向溢出或页面错误；CSP 浏览器检查确认内联 CSS 可用、脚本与存储权限受阻。真实公网 HTTPS/缓存链路、动态网页及外部资源仍未验收或实现。
+
+2026-09-24 FR-39 插件导入增量：官方格式 ZIP 可拆分多个 Skill，全部预检查后进入私有冻结导入、人审和默认关闭的发布流程；兼容远程 HTTPS MCP 只提供项目配置入口，插件 Agent/钩子不装载。插件报告和 Skill 绑定进入冷备结构校验；MCP-only 包亦固定部署范围。后端全量（排除 socket 专项）在最后真实包解析与崩溃暂存清理修正前 `2209 passed / 13 skipped`，随后插件/冷备专项 `56 passed`、Ruff 和 diff-check 通过。前端全量 `528 passed / 55 files`、ESLint、TypeScript/Vite 构建通过；本地 Chromium 模拟 API 在 1360px/390px 核对报告、审核与 MCP 跳转，无页面错误或横向溢出。Anthropic marketing 插件真包（`da38ec1`）的 8 个 Skill 静态扫描通过，11 个远程 MCP 地址列出，未连接外部 MCP 或调用模型。真实 MCP/Provider、OAuth、身份网关部署及更多官方包兼容性仍需验收。
+
+2026-09-24 FR-44 Office 原件索引增量：从项目登记的 DOCX/XLSX/PPTX 当前版本安全解包并按请求提取 Word 段落/表格/页眉页脚、Excel 单元格/公式及 PowerPoint 幻灯片/备注/图表缓存文本；匹配结果返回原件逻辑位置和产物版本，API 与只读 MCP 复用项目权限。坏包、链接、实体声明和解压/结构上限显式标为未索引，不把部分内容误称完整。后端全量（排除 socket 专项）在最后的内容类型校验与 MCP 断言补充前 `2215 passed / 13 skipped`，随后知识库/API 专项 `31 passed`、冷备恢复专项 `1 passed`，Ruff 与 diff-check 通过；前端全量 `529 passed / 55 files`，最后的来源位置转义断言后组件专项 `9 passed`，ESLint 和 TypeScript/Vite 构建通过。in-app Browser 发现列表为空，未做页面目视；真实资料检索质量、大规模性能及 Office 图像/版式提取仍待验收。
+
 2026-09-24 FR-25 手机进度增量：展开 Run 后先读取当前页，再用设备专用 POST 长等待请求按事件游标续接，相关步骤/任务/产物事件出现时返回；跨进程写入在最长一秒内发现，20 秒空闲超时后续接。等待中复验设备与项目权限，撤销后不返回内容。后端 companion/事件专项 `45 passed`、Ruff 通过；前端全量 `530 passed / 55 files`、ESLint 与 TypeScript/Vite 构建通过。真实手机 HTTPS、长历史性能和页面目视仍待验收。
 
 2026-09-24 FR-35 会话检索增量：项目内有界扫描保存的 Run 提问、用户插话、主 Agent 可见回复和 Run 结果；返回 Run ID、消息类型与事件序号，按项目 RUN_READ 校验。只读 MCP 将历史命中标为不可信内容，截断或超限时明确披露。真实长历史性能、模型自主使用质量和浏览器目视仍待验收。
-
-2026-09-24 FR-32 并行任务列表增量：新任务从工作区切走时保留旧 Run 后台执行；按 RUN_READ 汇总可见项目内最近 Run，展示状态、待审批数、独立预算、SDK 已报告花费和结果摘要，并链接到精确 Run。后端权限/架构定向 `16 passed`、Ruff 通过；前端全量在最后的刷新竞态修正前 `501 passed / 49 files`；随后任务/工作区定向 `14 passed`、ESLint 与 TypeScript/Vite 构建通过。真实多个 SDK Run 并发、预算熔断、运行中成本、浏览器目视和大历史性能仍待验收。
-
-2026-09-24 FR-36 首次使用引导增量：空项目工作区用已有示例任务引导输入目标，并按当前模型状态提示配置标准 API Key、条款与生产资格核对、预检、选择已验证模型和返回发送；设置页在无模型时显示对应步骤。前端独立暂存快照全量 `504 passed / 49 files`、ESLint 与 TypeScript/Vite 构建通过。真实新用户可用性、外部 Provider 接入和浏览器布局仍待验收。
-
-2026-09-24 FR-30 任务进度清单增量：将已有 SDK 原生 Task/Todo 事件回放组件接入桌面会话执行流；只取所选 Run 的成功主 Agent 工具事件，刷新后可重建步骤状态。独立暂存快照的组件/回放定向 `32 passed`、ESLint 与 TypeScript/Vite 构建通过。真实 Provider 产出和浏览器刷新目视仍待验收。
-
-2026-09-24 FR-40 语音输入增量：浏览器支持且来源安全时，工作区和获准配对手机的新任务表单可听写；转写先经可编辑草稿和用户确认，填入普通消息框后仍须手动提交。隐藏/取消/卸载中止识别；不向应用上传音频。独立暂存快照前端全量 `510 passed / 51 files`，随后语音/手机定向 `6 passed`、ESLint 与 TypeScript/Vite 构建通过。手机插话语音入口、真实设备麦克风/浏览器兼容和 HTTPS 部署仍待验收。
-
-2026-09-24 FR-41 静态网页发布增量：保存的不可变 HTML 产物版本经暂存、沙箱预览和项目管理员对完整校验和显式批准后，才在独立 HTTPS Host 提供无缓存公开读取；可持久撤回，项目删除使 URL 失效。独立暂存快照后端全量（排除 socket 专项）`2161 passed / 13 skipped`、Ruff 通过；前端全量 `513 passed / 52 files`、ESLint 与 TypeScript/Vite 构建通过；修正兄弟节点重复 key 后页面/发布定向 `23 passed`，警告消失。真实公网 HTTPS、缓存/浏览器链路、动态脚本和远程资源仍未验收或实现。
 
 ## FR 表之外仍属于全量范围的要求
 
@@ -59,7 +87,7 @@
 |---|---|
 | §3.5 A–G / §6.5 | delivered：文本产物原位编辑、不可变历史、修改后知识库检索的本地闭环；deferred：需求/供给/客户多起点真实基准、真实模型连续编辑/对话与产物质量验收 |
 | §3.7 / §4.7 | delivered：原生文件工具 + 显式Artifact提交候选，独立pending冻结包、人审revision/hash/当前目标CAS、静态扫描强制检查、不可变发布默认关闭和独立审阅UI；deferred：真实Provider自主提案质量、人工使用效果与生产隔离验收 |
-| §3.7 P2 知识库 | delivered：项目登记文本/OCR伴随文件索引、来源行列/版本、权限复验API、只读MCP与中英文工作区检索、校验和一致的下载；deferred：Office原件索引、真实检索质量/容量与浏览器目视验收 |
+| §3.7 P2 知识库 | delivered：项目登记文本/OCR伴随文件及有界 DOCX/XLSX/PPTX 原件索引、来源行列或 Office 逻辑位置/版本、权限复验 API、只读 MCP 与中英文工作区检索、校验和一致的下载；deferred：真实 Office 资料检索质量/大容量、图像与版式提取及浏览器目视验收 |
 | §3.7 P2 团队 | delivered：共享项目成员角色管理、关联项目/Run/消息/证据/决策/文件版本的团队讨论、项目模板保存/版本/参考文件下载/新建/归档/中断恢复、组织私有Skill审核发布与成员只读版本库及中英文UI；deferred：真实组织与浏览器目视验收、长期容量及生产隔离 |
 | §4.16 任务经验 | delivered：专属工具与版本/来源账本、创建时配置指纹、低信任检索注入、容量/事务恢复与人工停用UI；deferred：真实Provider自主调用及长期判断质量 |
 | §4.12 事件 | delivered：有真实Run归属的evidence.added/decision.recorded、artifact.registered/updated、memory.proposed；实时产物刷新、固定版本下载、记忆审核入口、持久幂等补发与完整SSE尾部消费；deferred：无Run项目变更和 schedule/preflight 细分事件 |

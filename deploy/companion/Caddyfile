@@ -1,0 +1,48 @@
+# Phone ingress for the trusted mobile companion (see docs/mobile-companion.md).
+#
+# Listens on loopback only, behind an HTTPS tunnel such as Tailscale Serve. It serves
+# the built frontend and forwards only /api/companion/* to the local API, marked as
+# HTTPS for the public host. Every other API path stays closed to the phone.
+#
+# Required environment:
+#   COMPANION_HOST  public host name, e.g. my-mac.tailnet-name.ts.net
+#   FRONTEND_DIST   absolute path to frontend/dist
+# Optional:
+#   COMPANION_INGRESS_PORT  loopback port (default 8480)
+#   COMPANION_API_UPSTREAM  local API address (default 127.0.0.1:8000)
+{
+	auto_https off
+}
+
+http://:{$COMPANION_INGRESS_PORT:8480} {
+	bind 127.0.0.1
+
+	header {
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy no-referrer
+		-Server
+	}
+
+	@companion path /api/companion /api/companion/*
+	handle @companion {
+		reverse_proxy {$COMPANION_API_UPSTREAM:127.0.0.1:8000} {
+			header_up Host {$COMPANION_HOST}
+			header_up X-Forwarded-Proto https
+		}
+	}
+
+	handle /api/* {
+		respond 404
+	}
+
+	handle /health {
+		respond 404
+	}
+
+	handle {
+		root * {$FRONTEND_DIST}
+		try_files {path} /index.html
+		file_server
+	}
+}

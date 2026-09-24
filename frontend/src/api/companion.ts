@@ -1,5 +1,5 @@
 import { apiBaseUrl } from './client'
-import type { Artifact, Notification, OpportunityProject, OphiraEvent, PendingPermissionView, PermissionAnswers, RunRecord, RunStatus } from './types'
+import type { Artifact, Notification, OpportunityProject, OphiraEvent, PendingPermissionView, PermissionAnswers, RunInterjectionMode, RunInterjectionReceipt, RunRecord, RunStatus } from './types'
 
 export type PairingView = {
   id: string
@@ -182,6 +182,14 @@ export function startCompanionRun(projectId: string, prompt: string): Promise<Ru
 
 export function cancelCompanionRun(id: string): Promise<RunRecord> {
   return request(`/api/companion/runs/${encodeURIComponent(id)}/cancel`, {})
+}
+
+export function interjectCompanionRun(
+  runId: string, requestId: string, prompt: string, mode: RunInterjectionMode,
+): Promise<RunInterjectionReceipt> {
+  return request(`/api/companion/runs/${encodeURIComponent(runId)}/interjections`, {
+    request_id: requestId, prompt, mode,
+  })
 }
 
 export function resumeCompanionPermissionRun(id: string): Promise<RunRecord> {
