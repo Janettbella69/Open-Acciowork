@@ -1,5 +1,6 @@
 """FR-23 retrieval MCP: SSRF guard, honest degradation, extraction, and search plumbing."""
 
+import copy
 import json
 from pathlib import Path
 
@@ -19,6 +20,29 @@ from ophira_backend.web_tools import (
     pin_public_http_url,
     search_public_web_impl,
 )
+
+EUROSTAT_URL = (
+    "https://ec.europa.eu/eurostat/api/comext/dissemination/statistics/1.0/data/DS-045409"
+    "?format=JSON&lang=EN&freq=A&reporter=DE&partner=WORLD&product=850940"
+    "&flow=1&indicators=VALUE_IN_EUROS&time=2024"
+)
+
+
+def eurostat_cell() -> dict:
+    codes = {
+        "freq": "A", "reporter": "DE", "partner": "WORLD", "product": "850940",
+        "flow": "1", "indicators": "VALUE_IN_EUROS", "time": "2024",
+    }
+    return {
+        "version": "2.0", "class": "dataset", "source": "ESTAT",
+        "updated": "2026-07-10T11:00:00+0200",
+        "id": list(codes), "size": [1] * len(codes),
+        "dimension": {
+            key: {"category": {"index": {code: 0}, "label": {code: code}}}
+            for key, code in codes.items()
+        },
+        "value": {"0": 125000000}, "status": {"0": "p"},
+    }
 
 
 def settings_with(tmp_path: Path, **overrides) -> Settings:
@@ -356,6 +380,115 @@ class TestFetchSnapshot:
         )
 
         assert result["error_code"] == "MARKET_SOURCE_INVALID"
+
+    @pytest.mark.asyncio
+    async def test_eurostat_hs6_import_cell_keeps_scope_and_run_receipt(
+        self, tmp_path: Path
+    ) -> None:
+        def handler(request: httpx.Request) -> httpx.Response:
+            assert request.headers["Host"] == "ec.europa.eu"
+            assert request.extensions["sni_hostname"] == "ec.europa.eu"
+            return httpx.Response(
+                200, headers={"content-type": "application/json"}, json=eurostat_cell()
+            )
+
+        result = await fetch_page_snapshot_impl(
+            settings_with(tmp_path), EUROSTAT_URL, transport=httpx.MockTransport(handler)
+        )
+        assert result["source_url"] == EUROSTAT_URL
+        assert result["source_id"] == "EUROSTAT_COMEXT:DS-045409:DE:WORLD:850940:2024:IMPORT"
+        assert result["applicable_market"] == "DE"
+        assert result["product"] == {"classification": "HS6", "code": "850940"}
+        assert result["observation"] == {
+            "year": "2024", "measure": "reported merchandise imports",
+            "value": "125000000", "unit": "EUR", "quality_flag": "p",
+        }
+        assert result["source_updated_at"] == "2026-07-10T11:00:00+02:00"
+        assert "not retail demand" in result["coverage_note"]
+        assert result["truncated"] is False
+
+        ledger = FileLedger(tmp_path / "ledger")
+        project = ledger.create_project(ProjectCreate(name="Trade", objective="Research"))
+        run = ledger.create_run(project.id, "Research DE category")
+        ledger.update_run(run.id, sdk_session_id="sdk_trade_test")
+        attached = attach_source_receipts(
+            ledger, run.id, TOOL_FETCH_PAGE_SNAPSHOT, {"url": EUROSTAT_URL},
+            [{"type": "text", "text": json.dumps(result)}], delegated=False,
+        )
+        assert len(attached.receipt_ids) == 1
+        replay = ledger.verify_tool_receipt(
+            project.id, attached.receipt_ids[0], run_id=run.id,
+            session_id="sdk_trade_test",
+        )
+        assert replay.receipt.canonical_source == EUROSTAT_URL
+        assert replay.payload["observation"]["value"] == "125000000"
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("url", [
+        EUROSTAT_URL.replace("product=850940", "product=850940&product=850941"),
+        EUROSTAT_URL.replace("reporter=DE", "reporter=US"),
+        EUROSTAT_URL.replace("time=2024", "time=2026"),
+        EUROSTAT_URL.replace("partner=WORLD", "partner=CN"),
+        EUROSTAT_URL.replace("format=JSON", "format=CSV"),
+    ])
+    async def test_eurostat_unreviewed_query_fails_before_network(
+        self, tmp_path: Path, url: str
+    ) -> None:
+        result = await fetch_page_snapshot_impl(
+            settings_with(tmp_path), url,
+            transport=httpx.MockTransport(
+                lambda _request: (_ for _ in ()).throw(AssertionError("no network"))
+            ),
+        )
+        assert result["error_code"] == "INVALID_MARKET_QUERY"
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("change", ["reporter", "product", "extra_cell", "negative"])
+    async def test_eurostat_mismatched_or_invalid_cell_is_not_exposed(
+        self, tmp_path: Path, change: str
+    ) -> None:
+        cell = copy.deepcopy(eurostat_cell())
+        if change == "reporter":
+            cell["dimension"]["reporter"]["category"]["index"] = {"FR": 0}
+        elif change == "product":
+            cell["dimension"]["product"]["category"]["index"] = {"850941": 0}
+        elif change == "extra_cell":
+            cell["size"][-1] = 2
+            cell["value"]["1"] = 42
+        else:
+            cell["value"]["0"] = -1
+        result = await fetch_page_snapshot_impl(
+            settings_with(tmp_path), EUROSTAT_URL,
+            transport=httpx.MockTransport(lambda _request: httpx.Response(
+                200, headers={"content-type": "application/json"}, json=cell,
+            )),
+        )
+        assert result["error_code"] == "MARKET_SOURCE_INVALID"
+        assert "observation" not in result
+
+    @pytest.mark.asyncio
+    async def test_eurostat_missing_cell_remains_unknown_and_redirect_is_rejected(
+        self, tmp_path: Path
+    ) -> None:
+        cell = eurostat_cell()
+        cell["value"] = {}
+        cell.pop("status")
+        empty = await fetch_page_snapshot_impl(
+            settings_with(tmp_path), EUROSTAT_URL,
+            transport=httpx.MockTransport(lambda _request: httpx.Response(
+                200, headers={"content-type": "application/json"}, json=cell,
+            )),
+        )
+        assert empty["observation"]["value"] is None
+        assert empty["observation"]["quality_flag"] is None
+
+        redirect = await fetch_page_snapshot_impl(
+            settings_with(tmp_path), EUROSTAT_URL,
+            transport=httpx.MockTransport(lambda _request: httpx.Response(
+                302, headers={"location": "https://example.org/other"},
+            )),
+        )
+        assert redirect["error_code"] == "MARKET_SOURCE_INVALID"
 
 
 class TestSearch:

@@ -21,7 +21,7 @@
 | FR-08 隔离 | delivered：项目路径、符号链接、独立 worker 配置 | deferred：生产 worker 资源包络与租户物理隔离演练 |
 | FR-09 来源账本 | delivered：同 Run/session 的服务器 source receipt | 保持来源、失效、回放和内容完整性回归 |
 | FR-10 决策 | delivered：证据关联与失效联动 | 开放任务质量另行验收 |
-| FR-11 领域 MCP | delivered：确定性商业计算、用户记录加工、显式结算计划的现金流/日末与保守日内资金缺口；TikTok Shop 项目指定店铺的主 Agent 只读 MCP 与来源凭证；ECB 公开参考汇率的日期匹配/过期拒绝、欧元交叉计算及同 Run 来源凭证；现有 Web MCP 对限定世界银行 WDI 国家级宏观指标的结构化读取与同 Run 来源凭证（见 `docs/fx-reference-rates.md`、`docs/market-indicators.md`） | deferred：真实供应商/客户/商品级市场/法规/物流/交易汇率授权数据适配及已实现商家接口的真实验收；本工作区公网 DNS 被安全策略拒绝，尚未完成汇率与 WDI 工具的完整在线调用 |
+| FR-11 领域 MCP | delivered：确定性商业计算、用户记录加工、显式结算计划的现金流/日末与保守日内资金缺口；TikTok Shop 项目指定店铺的主 Agent 只读 MCP 与来源凭证；ECB 公开参考汇率的日期匹配/过期拒绝、欧元交叉计算及同 Run 来源凭证；现有 Web MCP 对限定世界银行 WDI 国家级宏观指标、Eurostat Comext 单国 HS6 商品年度进口贸易额的结构化读取与同 Run 来源凭证（见 `docs/fx-reference-rates.md`、`docs/market-indicators.md`） | deferred：真实供应商/客户、零售需求/销量、法规/物流/交易汇率授权数据适配及已实现商家接口的真实验收；本工作区生产传输层的公网 DNS 被安全策略拒绝，尚未完成汇率、WDI、Comext 工具的完整在线调用；Comext 官方真实响应已由解析器核对 |
 | FR-12 Skill 生命周期 | delivered：发现/启停/扫描/不可变版本/配额/租约/回滚；13个内置Skill的证据参考与输出模板、固定包原生只读访问；Agent候选冻结、人审发布默认关闭、凭证恢复与独立审阅UI；独立Skill备份及含项目账本/候选库的应用冷备份、新进程恢复 | deferred：真实模型提案质量、真端点回滚重跑、跨宿主/生产恢复及其余子系统的恢复认证 |
 | FR-13 权限 | delivered：范围/有效期/审计、删除确认、沙箱拒绝逃逸；可信设备单次审批；原生SDK持久等待、原Run恢复、跨进程决议竞争、消费前撤销复验；工作台内切换组织授权模式，仅 SDK 原生 default/auto 两档 | deferred：真实远程审批与生产故障矩阵；原生多工具批次须拆为单次审批 |
 | FR-14 记忆 | delivered：提案人审、TTL/过期/检索/导出/删除恢复；跨进程scope事务、批准容量一致校验、中英文导出/续期/停用/确认删除UI与真实本地HTTP/浏览器验收 | deferred：真实蒸馏质量、生产备份删除边界与恢复演练 |
@@ -1393,3 +1393,20 @@ WDI 的三个限定宏观指标（货物进口总额、家庭最终消费、人�
 `api.worldbank.org` DNS 无法解析，
 所以真实数据请求与 Provider Run 仍待验收。本批未改前端；供应商、客户、商品级市场、
 实时法规与物流适配仍 deferred，完整 PRD 未完成。
+
+## 2026-09-25：FR-11 欧盟 HS6 商品进口贸易观察
+
+在现有 `ophira_web.fetch_page_snapshot` 中增加 Eurostat Comext `DS-045409` 的严格限定读取，
+一次只取一个欧盟成员国、一个已结束年度和一个六位 HS 商品类别的全球伙伴进口额（欧元）。
+服务端复核 JSON-stat 的来源、全部维度、单元格数值、质量标记与更新时间；缺失值保留为
+`null`，错配、重定向、超界和畸形响应不生成贸易观测。结果继续使用本来就有的
+Run/SDK session 来源凭证，不增加 MCP 工具。市场调研 Skill 明确编码核对、署名及
+贸易额与零售需求的区别，合同见 [市场指标](market-indicators.md)。
+
+这补入一个商品类别级的官方贸易统计信号，不等于用户商品的销量、实时需求或供应商报价；
+供应商/客户、物流、现行法规等适配仍 deferred。本地模拟 API 与来源凭证专项
+**59 passed**，后端全套 **2466 passed / 14 skipped**，Ruff 和 `git diff --check`
+通过；一次直接 HTTPS 请求取得 Eurostat
+真实 JSON-stat 单元格，生产解析器已核对。此工作区的 DNS 代理把 `ec.europa.eu`
+解析为 `198.18.0.126`，生产 SSRF 围栏按非公网地址拒绝，完整应用传输与
+Provider Run 仍未验收。完整 PRD 未完成。
