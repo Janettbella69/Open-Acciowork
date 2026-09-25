@@ -8,9 +8,11 @@ No public DNS, gateway account, or listening socket is needed.
 from __future__ import annotations
 
 import asyncio
+import io
 import json
 import sys
 import tempfile
+import zipfile
 from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -50,6 +52,29 @@ const pixel = new Image();
 pixel.src = 'https://collector.example/pixel';
 document.body.append(pixel);
 </script></body></html>"""
+BUNDLE_HTML = b"""<!doctype html><html><head>
+<link rel="stylesheet" href="assets/site.css"></head><body>
+<h1 id="bundle-state">Waiting</h1><img id="bundle-image" src="assets/logo.png" alt="Logo">
+<button id="bundle-change">Change</button>
+<script src="assets/site.js"></script></body></html>"""
+BUNDLE_JS = b"""document.querySelector('#bundle-change').onclick = () => {
+document.querySelector('#bundle-state').textContent = 'Bundled';
+};"""
+BUNDLE_PNG = (
+    b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
+    b"\x08\x04\x00\x00\x00\xb5\x1c\x0c\x02\x00\x00\x00\x0bIDATx\xdac\xfc\xff\x1f"
+    b"\x00\x03\x03\x02\x00\xef\xbf\xca\xa9\x00\x00\x00\x00IEND\xaeB`\x82"
+)
+
+
+def bundle_zip() -> bytes:
+    output = io.BytesIO()
+    with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("index.html", BUNDLE_HTML)
+        archive.writestr("assets/site.css", b"h1 { color: rgb(0, 128, 0); }")
+        archive.writestr("assets/site.js", BUNDLE_JS)
+        archive.writestr("assets/logo.png", BUNDLE_PNG)
+    return output.getvalue()
 
 
 class FakeRuntime:
@@ -110,6 +135,32 @@ async def run() -> dict[str, bool]:
                 })
                 urls[label] = approved.json()["public_url"]
 
+            (workspace / "bundle.zip").write_bytes(bundle_zip())
+            bundle_artifact = app.state.ledger.register_artifact(project_id, "bundle.zip")
+            bundle_stage = await managed("POST", base, json={
+                "artifact_id": bundle_artifact.id, "allow_scripts": True,
+            })
+            bundle_item = bundle_stage.json()["publication"]
+            previews["bundle"] = f"{base}/{bundle_item['id']}/preview/"
+            bundle_approved = await managed(
+                "POST", f"{base}/{bundle_item['id']}/publish", json={
+                    "expected_revision": 1, "expected_checksum": bundle_artifact.checksum,
+                    "expected_allow_scripts": True, "confirmation": "publish",
+                },
+            )
+            urls["bundle"] = bundle_approved.json()["public_url"]
+            static_bundle_stage = await managed("POST", base, json={
+                "artifact_id": bundle_artifact.id, "allow_scripts": False,
+            })
+            static_bundle_item = static_bundle_stage.json()["publication"]
+            static_bundle_approved = await managed(
+                "POST", f"{base}/{static_bundle_item['id']}/publish", json={
+                    "expected_revision": 1, "expected_checksum": bundle_artifact.checksum,
+                    "expected_allow_scripts": False, "confirmation": "publish",
+                },
+            )
+            urls["bundle_static"] = static_bundle_approved.json()["public_url"]
+
             blocked_requests: list[str] = []
 
             async def route_request(route: Route) -> None:
@@ -119,10 +170,13 @@ async def run() -> dict[str, bool]:
                     blocked_requests.append(url)
                     await route.abort()
                     return
-                if parsed.path == "/preview-container":
+                if parsed.path in {"/preview-container", "/bundle-preview-container"}:
+                    preview_key = (
+                        "bundle" if parsed.path == "/bundle-preview-container" else "interactive"
+                    )
                     html = (
                         '<iframe id="preview" sandbox="allow-scripts" '
-                        f'src="{previews["interactive"]}"></iframe>'
+                        f'src="{previews[preview_key]}"></iframe>'
                     )
                     await route.fulfill(status=200, content_type="text/html", body=html)
                     return
@@ -169,6 +223,35 @@ async def run() -> dict[str, bool]:
                         "() => { try { return window.parent.document.body === null; } "
                         "catch (_) { return true; } }"
                     )
+
+                    await page.goto(urls["bundle"])
+                    await page.locator("#bundle-change").click()
+                    bundle_script = await page.locator("#bundle-state").inner_text() == "Bundled"
+                    bundle_css = await page.locator("#bundle-state").evaluate(
+                        "element => getComputedStyle(element).color === 'rgb(0, 128, 0)'"
+                    )
+                    bundle_image = await page.locator("#bundle-image").evaluate(
+                        "element => element.complete && element.naturalWidth === 1"
+                    )
+
+                    await page.goto(urls["bundle_static"])
+                    await page.locator("#bundle-change").click()
+                    bundle_script_inert = (
+                        await page.locator("#bundle-state").inner_text() == "Waiting"
+                    )
+
+                    await page.goto("https://gateway.example.com/bundle-preview-container")
+                    bundle_frame = page.frame_locator("#preview")
+                    await bundle_frame.locator("#bundle-change").click()
+                    bundle_preview_script = (
+                        await bundle_frame.locator("#bundle-state").inner_text() == "Bundled"
+                    )
+                    bundle_preview_css = await bundle_frame.locator("#bundle-state").evaluate(
+                        "element => getComputedStyle(element).color === 'rgb(0, 128, 0)'"
+                    )
+                    bundle_preview_image = await bundle_frame.locator("#bundle-image").evaluate(
+                        "element => element.complete && element.naturalWidth === 1"
+                    )
                 finally:
                     await browser.close()
 
@@ -180,6 +263,13 @@ async def run() -> dict[str, bool]:
                 "interactive_form_submission_blocked": form_blocked,
                 "preview_runs_matching_script": preview_runs,
                 "preview_cannot_read_parent": preview_isolated,
+                "bundled_script_runs": bundle_script,
+                "bundled_css_renders": bundle_css,
+                "bundled_image_renders": bundle_image,
+                "bundle_script_inert_without_approval": bundle_script_inert,
+                "bundle_preview_script_runs": bundle_preview_script,
+                "bundle_preview_css_renders": bundle_preview_css,
+                "bundle_preview_image_renders": bundle_preview_image,
                 "no_external_requests_reached_transport": not blocked_requests,
             }
 

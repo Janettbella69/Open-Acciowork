@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import io
+import zipfile
 from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
@@ -14,6 +16,7 @@ from ophira_backend.main import create_app
 from ophira_backend.models import ProjectCreate
 from ophira_backend.project_deletion import ProjectDeletionService
 from ophira_backend.project_deletion_models import ProjectDeletionRequest
+from ophira_backend.site_bundle import InvalidSiteBundle, read_site_bundle
 from ophira_backend.site_publications import SitePublicationDecision, SitePublicationStore
 from ophira_backend.storage import FileLedger
 
@@ -22,6 +25,31 @@ HTML = (
     b"<!doctype html><html><head><style>h1{color:green}</style></head>"
     b"<body><h1>Shop</h1><script>window.siteScriptRan=true</script></body></html>"
 )
+SITE_HTML = (
+    b'<!doctype html><html><head><link rel="stylesheet" href="assets/site.css"></head>'
+    b'<body><img src="assets/logo.png" alt="Logo"><h1>Bundle</h1>'
+    b'<script src="assets/site.js"></script></body></html>'
+)
+SITE_CSS = b"h1 { color: rgb(0, 128, 0); }"
+SITE_JS = b'document.body.dataset.script="ran";'
+SITE_PNG = (
+    b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
+    b"\x08\x04\x00\x00\x00\xb5\x1c\x0c\x02\x00\x00\x00\x0bIDATx\xdac\xfc\xff\x1f"
+    b"\x00\x03\x03\x02\x00\xef\xbf\xca\xa9\x00\x00\x00\x00IEND\xaeB`\x82"
+)
+
+
+def site_zip(entries: dict[str, bytes] | None = None) -> bytes:
+    output = io.BytesIO()
+    with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as archive:
+        for name, raw in (entries or {
+            "index.html": SITE_HTML,
+            "assets/site.css": SITE_CSS,
+            "assets/site.js": SITE_JS,
+            "assets/logo.png": SITE_PNG,
+        }).items():
+            archive.writestr(name, raw)
+    return output.getvalue()
 
 
 class FakeRuntime:
@@ -58,7 +86,8 @@ async def test_reviewed_site_publication_is_pinned_public_and_revocable(tmp_path
     ) as client:
         async def managed(method: str, path: str, **kwargs):
             return await client.request(
-                method, path, headers=gateway_headers(method, path), **kwargs,
+                method, path,
+                headers=gateway_headers(method, path.split("?", 1)[0]), **kwargs,
             )
 
         created = await managed(
@@ -117,6 +146,7 @@ async def test_reviewed_site_publication_is_pinned_public_and_revocable(tmp_path
         assert staged.json()["public_url"] == public_url
         unpublished = await client.get(public_url)
         assert unpublished.status_code == 404
+        assert unpublished.headers["cache-control"].startswith("no-store")
 
         preview = await managed("GET", f"{base}/{site_id}/preview")
         assert preview.status_code == 200
@@ -176,6 +206,7 @@ async def test_reviewed_site_publication_is_pinned_public_and_revocable(tmp_path
         assert revoked.status_code == 200
         assert revoked.json()["publication"]["state"] == "revoked"
         assert (await client.get(public_url)).status_code == 404
+        assert (await client.get(public_url)).headers["cache-control"].startswith("no-store")
 
 
 @pytest.mark.asyncio
@@ -204,7 +235,7 @@ def test_project_deletion_withdraws_owned_publication(tmp_path: Path):
             confirmation="publish",
         ), approved_by="local-operator",
     )
-    assert sites.public_html(project.id, published.publication.id) == (HTML, False)
+    assert sites.public_html(project.id, published.publication.id) == (HTML, False, False)
     deletion = ProjectDeletionService(ledger, ProjectAccessStore(tmp_path / "auth" / "projects"))
     preview = deletion.preview(project.id, None)
     assert preview.can_delete
@@ -270,3 +301,103 @@ async def test_interactive_page_requires_explicit_script_review(tmp_path: Path):
         assert "sandbox allow-scripts" in page.headers["content-security-policy"]
         assert "script-src 'unsafe-inline'" in page.headers["content-security-policy"]
         assert "allow-same-origin" not in page.headers["content-security-policy"]
+
+
+@pytest.mark.asyncio
+async def test_site_zip_assets_are_pinned_previewed_published_and_revoked(tmp_path: Path):
+    app = create_app(Settings(
+        data_dir=tmp_path, auth_mode="trusted_gateway",
+        trusted_gateway_auth_secret=GATEWAY_SECRET,
+        trusted_gateway_tenant_id="tenant_sites",
+        site_public_origin="https://pages.example.com",
+    ), runtime=FakeRuntime())
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="https://gateway.example.com",
+    ) as client:
+        async def managed(method: str, path: str, **kwargs):
+            return await client.request(
+                method, path,
+                headers=gateway_headers(method, path.split("?", 1)[0]), **kwargs,
+            )
+
+        created = await managed("POST", "/api/projects", json={
+            "name": "Site ZIP", "objective": "Bundled site",
+        })
+        project_id = created.json()["id"]
+        uploaded = await managed(
+            "POST", f"/api/projects/{project_id}/files?filename=site.zip",
+            content=site_zip(),
+        )
+        assert uploaded.status_code == 201, uploaded.text
+        artifact = uploaded.json()
+        base = f"/api/projects/{project_id}/site-publications"
+        staged = await managed("POST", base, json={
+            "artifact_id": artifact["id"], "allow_scripts": True,
+        })
+        assert staged.status_code == 201, staged.text
+        item = staged.json()["publication"]
+        assert item["bundle"] is True
+        site_id = item["id"]
+        public_url = staged.json()["public_url"]
+        assert public_url.endswith(f"/{site_id}/")
+        assert (await client.get(public_url + "assets/site.css")).status_code == 404
+        assert (await client.get(public_url + "assets/site.css")).headers[
+            "cache-control"
+        ].startswith("no-store")
+        assert (await managed("GET", f"{base}/{site_id}/preview")).status_code == 404
+        preview_path = f"{base}/{site_id}/preview/"
+        preview = await managed("GET", preview_path)
+        assert preview.status_code == 200
+        assert preview.content == SITE_HTML
+        assert "preview/assets/" in preview.headers["content-security-policy"]
+        draft_css = await managed("GET", preview_path + "assets/site.css")
+        assert draft_css.content == SITE_CSS
+        assert draft_css.headers["content-type"].startswith("text/css")
+        draft_js = await managed("GET", preview_path + "assets/site.js")
+        assert draft_js.content == SITE_JS
+        assert draft_js.headers["content-type"].startswith("text/javascript")
+        draft_png = await managed("GET", preview_path + "assets/logo.png")
+        assert draft_png.content == SITE_PNG
+        assert (await managed("GET", preview_path + "assets/missing.css")).status_code == 404
+        approved = await managed("POST", f"{base}/{site_id}/publish", json={
+            "expected_revision": 1, "expected_checksum": artifact["checksum"],
+            "expected_allow_scripts": True, "confirmation": "publish",
+        })
+        assert approved.status_code == 200, approved.text
+        page = await client.get(public_url)
+        assert page.status_code == 200
+        assert page.content == SITE_HTML
+        assert f"/{site_id}/assets/" in page.headers["content-security-policy"]
+        assert (await client.get(public_url.rstrip("/"))).status_code == 404
+        css = await client.get(public_url + "assets/site.css")
+        assert css.content == SITE_CSS
+        assert css.headers["x-content-type-options"] == "nosniff"
+        assert (await client.get(public_url + "assets/site.js")).content == SITE_JS
+        assert (await client.get(public_url + "assets/logo.png")).content == SITE_PNG
+        assert (await client.get(public_url + "assets/missing.css")).status_code == 404
+        assert (await client.get(
+            f"https://gateway.example.com/published/{project_id}/{site_id}/assets/site.css",
+        )).status_code == 404
+        next_upload = await managed(
+            "POST", f"/api/projects/{project_id}/files?filename=site.zip",
+            content=site_zip({"index.html": b"<h1>Changed</h1>"}),
+        )
+        assert next_upload.status_code == 201
+        assert next_upload.json()["checksum"] != artifact["checksum"]
+        assert (await client.get(public_url + "assets/site.css")).content == SITE_CSS
+        revoked = await managed("POST", f"{base}/{site_id}/revoke", json={
+            "expected_revision": 2, "confirmation": "revoke",
+        })
+        assert revoked.status_code == 200
+        assert (await client.get(public_url + "assets/site.css")).status_code == 404
+
+
+@pytest.mark.parametrize("entries", [
+    {"index.html": SITE_HTML, "assets/../bad.css": SITE_CSS},
+    {"index.html": SITE_HTML, "assets/program.exe": b"alert(1)"},
+    {"index.html": SITE_HTML, "assets/logo.png": b"not a PNG"},
+    {"other.html": SITE_HTML},
+])
+def test_site_zip_rejects_unsafe_entries(entries: dict[str, bytes]):
+    with pytest.raises(InvalidSiteBundle):
+        read_site_bundle(site_zip(entries))

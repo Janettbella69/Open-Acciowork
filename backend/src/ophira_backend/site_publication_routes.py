@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from urllib.parse import urlsplit
 
 from fastapi import HTTPException, Request, Response
@@ -10,6 +11,7 @@ from starlette.concurrency import run_in_threadpool
 from .auth import ProjectPermission
 from .project_lifecycle import ProjectLifecycleBusyError, ProjectUnavailableError
 from .project_scope import LOCAL_OPERATOR_ID
+from .site_bundle import asset_media_type
 from .site_publications import (
     SitePublicationCatalog,
     SitePublicationConflict,
@@ -31,8 +33,20 @@ _SCRIPT_CSP = _PAGE_CSP.replace("sandbox;", "sandbox allow-scripts;").replace(
 )
 
 
-def _page_headers(*, preview: bool = False, allow_scripts: bool = False) -> dict[str, str]:
+def _page_headers(
+    *, preview: bool = False, allow_scripts: bool = False,
+    asset_source: str | None = None,
+) -> dict[str, str]:
     csp = _SCRIPT_CSP if allow_scripts else _PAGE_CSP
+    if asset_source:
+        csp = csp.replace(
+            "style-src 'unsafe-inline'", f"style-src 'unsafe-inline' {asset_source}",
+        ).replace("img-src data:", f"img-src data: {asset_source}")
+        if allow_scripts:
+            csp = csp.replace(
+                "script-src 'unsafe-inline'",
+                f"script-src 'unsafe-inline' {asset_source}",
+            )
     if preview:
         csp = csp.replace("frame-ancestors 'none'", "frame-ancestors 'self'")
     return {
@@ -42,6 +56,27 @@ def _page_headers(*, preview: bool = False, allow_scripts: bool = False) -> dict
         "X-Frame-Options": "SAMEORIGIN" if preview else "DENY",
         "Referrer-Policy": "no-referrer",
         "Cross-Origin-Opener-Policy": "same-origin",
+    }
+
+
+def _asset_source(request: Request, project_id: str, site_id: str, *, preview: bool) -> str:
+    hostname = request.url.hostname or ""
+    if not re.fullmatch(r"[A-Za-z0-9.-]+", hostname):
+        raise HTTPException(409, "Site host cannot be used in the asset policy")
+    port = request.url.port
+    host = hostname + (f":{port}" if port else "")
+    path = (
+        f"/api/projects/{project_id}/site-publications/{site_id}/preview/assets/"
+        if preview else f"/published/{project_id}/{site_id}/assets/"
+    )
+    return host + path
+
+
+def _asset_headers() -> dict[str, str]:
+    return {
+        "Cache-Control": "no-store, max-age=0",
+        "X-Content-Type-Options": "nosniff",
+        "Referrer-Policy": "no-referrer",
     }
 
 
@@ -133,17 +168,36 @@ def register_site_publication_routes(
         except Exception as exc:
             raise _site_error(exc) from exc
 
+    @app.get("/api/projects/{project_id}/site-publications/{site_id}/preview/")
     @app.get("/api/projects/{project_id}/site-publications/{site_id}/preview")
     def preview_site(project_id: str, site_id: str, request: Request):
         authorize(request, project_id, ProjectPermission.PROJECT_READ)
         try:
-            raw, allow_scripts = store.preview(project_id, site_id)
+            raw, allow_scripts, bundle = store.preview(project_id, site_id)
         except Exception as exc:
             raise _site_error(exc) from exc
+        if bundle and not request.url.path.endswith("/"):
+            raise HTTPException(404, "Use the site bundle preview address")
         return Response(
             raw, media_type="text/html",
-            headers=_page_headers(preview=True, allow_scripts=allow_scripts),
+            headers=_page_headers(
+                preview=True, allow_scripts=allow_scripts,
+                asset_source=_asset_source(request, project_id, site_id, preview=True)
+                if bundle else None,
+            ),
         )
+
+    @app.get("/api/projects/{project_id}/site-publications/{site_id}/preview/assets/{name}")
+    def preview_asset(project_id: str, site_id: str, name: str, request: Request):
+        authorize(request, project_id, ProjectPermission.PROJECT_READ)
+        media_type = asset_media_type(name)
+        if media_type is None:
+            raise HTTPException(404, "Site asset not found")
+        try:
+            raw = store.preview_asset(project_id, site_id, name)
+        except Exception as exc:
+            raise _site_error(exc) from exc
+        return Response(raw, media_type=media_type, headers=_asset_headers())
 
     @app.post(
         "/api/projects/{project_id}/site-publications/{site_id}/publish",
@@ -186,20 +240,44 @@ def register_site_publication_routes(
         except Exception as exc:
             raise _site_error(exc) from exc
 
-    @app.get("/published/{project_id}/{site_id}")
-    def public_site(project_id: str, site_id: str, request: Request):
+    def require_public_host(request: Request) -> None:
         expected_host = (
             urlsplit(store.public_origin).netloc.casefold()
             if settings.auth_mode == "trusted_gateway" and store.public_origin else None
         )
         if request.headers.get("host", "").casefold() != expected_host:
             raise HTTPException(404, "Page not found")
+
+    @app.get("/published/{project_id}/{site_id}/")
+    @app.get("/published/{project_id}/{site_id}")
+    def public_site(project_id: str, site_id: str, request: Request):
+        require_public_host(request)
         try:
-            raw, allow_scripts = store.public_html(project_id, site_id)
+            raw, allow_scripts, bundle = store.public_html(project_id, site_id)
         except (LedgerNotFoundError, ProjectUnavailableError, FileNotFoundError):
             raise HTTPException(404, "Page not found") from None
         except (SitePublicationConflict, ProjectLifecycleBusyError, OSError, ValueError):
             raise HTTPException(503, "Page is temporarily unavailable") from None
+        if bundle and not request.url.path.endswith("/"):
+            raise HTTPException(404, "Page not found")
         return Response(
-            raw, media_type="text/html", headers=_page_headers(allow_scripts=allow_scripts),
+            raw, media_type="text/html", headers=_page_headers(
+                allow_scripts=allow_scripts,
+                asset_source=_asset_source(request, project_id, site_id, preview=False)
+                if bundle else None,
+            ),
         )
+
+    @app.get("/published/{project_id}/{site_id}/assets/{name}")
+    def public_asset(project_id: str, site_id: str, name: str, request: Request):
+        require_public_host(request)
+        media_type = asset_media_type(name)
+        if media_type is None:
+            raise HTTPException(404, "Page not found")
+        try:
+            raw = store.public_asset(project_id, site_id, name)
+        except (LedgerNotFoundError, ProjectUnavailableError, FileNotFoundError):
+            raise HTTPException(404, "Page not found") from None
+        except (SitePublicationConflict, ProjectLifecycleBusyError, OSError, ValueError):
+            raise HTTPException(503, "Page is temporarily unavailable") from None
+        return Response(raw, media_type=media_type, headers=_asset_headers())

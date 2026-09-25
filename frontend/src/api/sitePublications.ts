@@ -5,6 +5,7 @@ export type SitePublication = {
   artifact_name: string
   artifact_checksum: string
   size_bytes: number
+  bundle: boolean
   allow_scripts: boolean
   origin: string
   state: 'draft' | 'published' | 'revoked'

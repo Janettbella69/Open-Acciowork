@@ -13,7 +13,7 @@ vi.mock('../api/client', () => ({
   publishSitePublication: vi.fn(),
   revokeSitePublication: vi.fn(),
   sitePublicationPreviewUrl: (projectId: string, siteId: string) =>
-    `/api/projects/${projectId}/site-publications/${siteId}/preview`,
+    `/api/projects/${projectId}/site-publications/${siteId}/preview/`,
   errorMessage: (cause: unknown) => String(cause instanceof Error ? cause.message : cause),
 }))
 
@@ -28,7 +28,8 @@ const draft: SitePublicationView = {
   publication: {
     id: 'site_' + 'c'.repeat(32), project_id: 'project_1', artifact_id: artifact.id,
     artifact_name: artifact.name, artifact_checksum: artifact.checksum,
-    size_bytes: artifact.size_bytes, allow_scripts: false, origin: 'https://pages.example.com',
+    size_bytes: artifact.size_bytes, allow_scripts: false, bundle: false,
+    origin: 'https://pages.example.com',
     state: 'draft', revision: 1, created_by: 'owner@example.com',
     created_at: '2026-09-24T00:00:00Z', published_by: null,
     published_at: null, revoked_by: null, revoked_at: null,
@@ -61,12 +62,12 @@ beforeEach(() => {
 it('stages a pinned artifact, requires human review, then publishes and withdraws it', async () => {
   const { container } = render(<SitePublicationsPanel projectId="project_1" artifacts={[artifact]} />)
   fireEvent.click(screen.getByRole('button', { name: 'Published pages · 0' }))
-  fireEvent.click(await screen.findByRole('button', { name: 'Stage this HTML version' }))
+  fireEvent.click(await screen.findByRole('button', { name: 'Stage this site version' }))
   await waitFor(() => expect(stageSitePublication).toHaveBeenCalledWith('project_1', artifact.id, false))
   const approve = await screen.findByRole('button', { name: 'Approve and publish page' })
   expect(approve).toBeDisabled()
   expect(container.querySelector('iframe')).toHaveAttribute(
-    'src', `/api/projects/project_1/site-publications/${draft.publication.id}/preview`,
+    'src', `/api/projects/project_1/site-publications/${draft.publication.id}/preview/`,
   )
   expect(container.querySelector('iframe')).toHaveAttribute('sandbox', '')
   fireEvent.click(screen.getByRole('checkbox', {
@@ -90,9 +91,9 @@ it('stages interactive scripts only after an explicit choice and shows the match
   render(<SitePublicationsPanel projectId="project_1" artifacts={[artifact]} />)
   fireEvent.click(screen.getByRole('button', { name: 'Published pages · 0' }))
   fireEvent.click(await screen.findByRole('checkbox', {
-    name: 'Run inline scripts in an isolated page (no storage or background requests).',
+    name: 'Run page scripts in an isolated page (no storage or background requests).',
   }))
-  fireEvent.click(screen.getByRole('button', { name: 'Stage this HTML version' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Stage this site version' }))
   await waitFor(() => expect(stageSitePublication).toHaveBeenCalledWith('project_1', artifact.id, true))
   expect(screen.getByTitle('Page draft preview')).toHaveAttribute('sandbox', 'allow-scripts')
   fireEvent.click(screen.getByRole('checkbox', {
@@ -102,6 +103,33 @@ it('stages interactive scripts only after an explicit choice and shows the match
   await waitFor(() => expect(publishSitePublication).toHaveBeenCalledWith('project_1', interactive))
 })
 
+it('stages a saved site ZIP and previews its relative assets from the bundle root', async () => {
+  const bundleArtifact: Artifact = {
+    ...artifact, id: 'artifact_' + 'd'.repeat(32), name: 'site.zip',
+    path: 'site.zip', mime: 'application/zip', size_bytes: 4096,
+  }
+  const bundle = {
+    ...draft,
+    publication: {
+      ...draft.publication, artifact_id: bundleArtifact.id,
+      artifact_name: bundleArtifact.name, bundle: true,
+    },
+    public_url: draft.public_url + '/',
+  }
+  vi.mocked(stageSitePublication).mockResolvedValue(bundle)
+  render(<SitePublicationsPanel projectId="project_1" artifacts={[bundleArtifact]} />)
+  fireEvent.click(screen.getByRole('button', { name: 'Published pages · 0' }))
+  expect(await screen.findByRole('option', { name: /site.zip/ })).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: 'Stage this site version' }))
+  await waitFor(() => expect(stageSitePublication).toHaveBeenCalledWith(
+    'project_1', bundleArtifact.id, false,
+  ))
+  expect(screen.getByTitle('Page draft preview')).toHaveAttribute(
+    'src', `/api/projects/project_1/site-publications/${bundle.publication.id}/preview/`,
+  )
+  expect(screen.getByText(/Site ZIP/)).toBeInTheDocument()
+})
+
 it('does not offer staging when no public site origin is configured', async () => {
   vi.mocked(getSitePublications).mockResolvedValue({
     public_origin: null, can_stage: false, can_publish: false, publications: [],
@@ -109,5 +137,5 @@ it('does not offer staging when no public site origin is configured', async () =
   render(<SitePublicationsPanel projectId="project_1" artifacts={[artifact]} />)
   fireEvent.click(screen.getByRole('button', { name: 'Published pages · 0' }))
   expect(await screen.findByText('Configure a separate public HTTPS site origin to publish pages.')).toBeInTheDocument()
-  expect(screen.queryByRole('button', { name: 'Stage this HTML version' })).not.toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: 'Stage this site version' })).not.toBeInTheDocument()
 })

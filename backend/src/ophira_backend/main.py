@@ -774,10 +774,18 @@ def _create_app(
         path = request.url.path
         if settings.site_public_origin is not None:
             public_host = urlsplit(settings.site_public_origin).netloc.casefold()
-            if request.headers.get("host", "").casefold() == public_host and not re.fullmatch(
-                r"/published/[A-Za-z0-9_-]+/site_[0-9a-f]{32}", path,
-            ):
-                return JSONResponse(status_code=404, content={"detail": "Page not found"})
+            if request.headers.get("host", "").casefold() == public_host:
+                if not re.fullmatch(
+                    r"/published/[A-Za-z0-9_-]+/site_[0-9a-f]{32}"
+                    r"(?:/|/assets/[A-Za-z0-9][A-Za-z0-9._-]{0,127})?", path,
+                ):
+                    return JSONResponse(
+                        status_code=404, content={"detail": "Page not found"},
+                        headers={"Cache-Control": "no-store, max-age=0"},
+                    )
+                response = await call_next(request)
+                response.headers["Cache-Control"] = "no-store, max-age=0"
+                return response
         if not (path == "/api" or path.startswith("/api/")):
             return await call_next(request)
         # This is a deliberately separate, project-scoped device API. Its cookie

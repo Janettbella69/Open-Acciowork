@@ -9,6 +9,7 @@ import { useT } from '../i18n'
 import './site-publications.css'
 
 const MAX_HTML_BYTES = 512 * 1024
+const MAX_BUNDLE_BYTES = 12 * 1024 * 1024
 
 export default function SitePublicationsPanel({ projectId, artifacts }: {
   projectId: string
@@ -26,13 +27,14 @@ export default function SitePublicationsPanel({ projectId, artifacts }: {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
-  const htmlArtifacts = artifacts.filter((item) => (
+  const siteArtifacts = artifacts.filter((item) => (
     item.project_id === projectId && item.content_storage === 'snapshot'
-    && item.size_bytes > 0 && item.size_bytes <= MAX_HTML_BYTES
-    && /\.html?$/i.test(item.name)
+    && item.size_bytes > 0
+    && ((/\.html?$/i.test(item.name) && item.size_bytes <= MAX_HTML_BYTES)
+      || (/\.zip$/i.test(item.name) && item.size_bytes <= MAX_BUNDLE_BYTES))
   )).sort((a, b) => b.created_at.localeCompare(a.created_at))
-  const chosenArtifactId = htmlArtifacts.some((item) => item.id === artifactId)
-    ? artifactId : htmlArtifacts[0]?.id ?? ''
+  const chosenArtifactId = siteArtifacts.some((item) => item.id === artifactId)
+    ? artifactId : siteArtifacts[0]?.id ?? ''
   const selected = catalog?.publications.find((item) => item.publication.id === selectedId)
 
   const refresh = useCallback(async (signal?: AbortSignal) => {
@@ -120,25 +122,25 @@ export default function SitePublicationsPanel({ projectId, artifacts }: {
       {!catalog && !error && <p role="status">{t('Loading page publications…')}</p>}
       {catalog && <>
         <p>{t('Publish a saved HTML version after reviewing it. Public pages can be withdrawn.')}</p>
-        <p>{t('Public pages allow inline CSS and embedded data images. Forms and remote resources are blocked.')}</p>
+        <p>{t('HTML can be self-contained; a site ZIP can include index.html and assets/ CSS, images, or JS. Forms and third-party resources are blocked.')}</p>
         {!catalog.public_origin && <p>{t('Configure a separate public HTTPS site origin to publish pages.')}</p>}
         {catalog.public_origin && catalog.can_stage && <div className="site-publications-stage">
-          <label>{t('Saved HTML version')}
+          <label>{t('Saved HTML or site ZIP version')}
             <select value={chosenArtifactId} onChange={(event) => setArtifactId(event.target.value)}>
-              {htmlArtifacts.map((item) => <option key={item.id} value={item.id}>
+              {siteArtifacts.map((item) => <option key={item.id} value={item.id}>
                 {item.name} · v{item.version} · {item.checksum.slice(0, 12)}
               </option>)}
             </select>
           </label>
           <label className="site-publications-confirm"><input type="checkbox" checked={allowScripts}
             disabled={busy} onChange={(event) => setAllowScripts(event.target.checked)} />
-            {t('Run inline scripts in an isolated page (no storage or background requests).')}</label>
+            {t('Run page scripts in an isolated page (no storage or background requests).')}</label>
           <button type="button" disabled={busy || !chosenArtifactId} onClick={() => void stage()}>
-            {t('Stage this HTML version')}
+            {t('Stage this site version')}
           </button>
         </div>}
-        {catalog.public_origin && catalog.can_stage && !htmlArtifacts.length
-          && <p>{t('Save an HTML artifact in this project before staging a page.')}</p>}
+        {catalog.public_origin && catalog.can_stage && !siteArtifacts.length
+          && <p>{t('Save an HTML or site ZIP artifact in this project before staging a page.')}</p>}
         {!catalog.publications.length && <p>{t('No page drafts or publications yet.')}</p>}
         {catalog.publications.map((view) => {
           const item = view.publication
@@ -146,7 +148,7 @@ export default function SitePublicationsPanel({ projectId, artifacts }: {
             <button type="button" aria-expanded={selectedId === item.id}
               onClick={() => { setSelectedId(selectedId === item.id ? '' : item.id); setReviewed(false); setRevokeId('') }}>
               <strong>{item.artifact_name}</strong>
-              <span>{t({ draft: 'Draft', published: 'Published', revoked: 'Withdrawn' }[item.state])} · {item.artifact_checksum.slice(0, 12)} · {item.allow_scripts ? t('Interactive scripts') : t('Static page')}</span>
+              <span>{t({ draft: 'Draft', published: 'Published', revoked: 'Withdrawn' }[item.state])} · {item.artifact_checksum.slice(0, 12)} · {item.bundle ? t('Site ZIP') : t('HTML')} · {item.allow_scripts ? t('Interactive scripts') : t('Static page')}</span>
             </button>
             {selected?.publication.id === item.id && <div className="site-publications-detail">
               <p>{t('Exact saved version')}: <code>{item.artifact_checksum}</code></p>

@@ -102,7 +102,7 @@ export function revokeSitePublication(projectId: string, view: SitePublicationVi
 }
 
 export function sitePublicationPreviewUrl(projectId: string, siteId: string): string {
-  return `${apiBaseUrl}/api/projects/${encodeURIComponent(projectId)}/site-publications/${encodeURIComponent(siteId)}/preview`
+  return `${apiBaseUrl}/api/projects/${encodeURIComponent(projectId)}/site-publications/${encodeURIComponent(siteId)}/preview/`
 }
 
 export function getProjectExport(projectId: string, signal?: AbortSignal): Promise<ProjectExportPreview> {

@@ -12,10 +12,16 @@ from pydantic import Field, field_validator
 
 from .config import public_https_origin
 from .models import APIModel, new_id, utc_now
+from .site_bundle import (
+    MAX_BUNDLE_BYTES,
+    MAX_HTML_BYTES,
+    InvalidSiteBundle,
+    read_site_bundle,
+    read_site_part,
+)
 from .skill_proposal_files import directory_fd, read_relative
 from .storage import FileLedger, LedgerNotFoundError
 
-MAX_SITE_HTML_BYTES = 512 * 1024
 MAX_SITES_PER_PROJECT = 100
 SITE_ID = re.compile(r"site_[0-9a-f]{32}")
 
@@ -51,7 +57,8 @@ class SitePublication(APIModel):
     artifact_id: str = Field(pattern=r"^artifact_[0-9a-f]{32}$")
     artifact_name: str = Field(min_length=1, max_length=255)
     artifact_checksum: str = Field(pattern=r"^[0-9a-f]{64}$")
-    size_bytes: int = Field(ge=1, le=MAX_SITE_HTML_BYTES)
+    size_bytes: int = Field(ge=1, le=MAX_BUNDLE_BYTES)
+    bundle: bool = False
     allow_scripts: bool = False
     origin: str = Field(max_length=500)
     state: Literal["draft", "published", "revoked"]
@@ -114,6 +121,7 @@ class SitePublicationStore:
             publication=record,
             public_url=(
                 f"{record.origin}/published/{record.project_id}/{record.id}"
+                + ("/" if record.bundle else "")
             ),
         )
 
@@ -137,9 +145,9 @@ class SitePublicationStore:
             self.ledger.get_project(project_id)
             return self._view(self._read(project_id, site_id))
 
-    def _html(self, record: SitePublication) -> bytes:
+    def _artifact_bytes(self, record: SitePublication) -> bytes:
         artifact, raw = self.ledger.capture_artifact(
-            record.project_id, record.artifact_id, limit=MAX_SITE_HTML_BYTES,
+            record.project_id, record.artifact_id, limit=MAX_BUNDLE_BYTES,
         )
         if (
             artifact.checksum != record.artifact_checksum
@@ -149,9 +157,32 @@ class SitePublicationStore:
             raise SitePublicationConflict("Published artifact version changed")
         return raw
 
+    def _html(self, record: SitePublication) -> bytes:
+        raw = self._artifact_bytes(record)
+        if not record.bundle:
+            self._validate_html(record.artifact_name, raw)
+            return raw
+        try:
+            return read_site_part(raw, "index.html")
+        except InvalidSiteBundle as exc:
+            raise SitePublicationConflict(str(exc)) from exc
+
+    def _asset(self, record: SitePublication, name: str) -> bytes:
+        if not record.bundle:
+            raise LedgerNotFoundError(name)
+        try:
+            return read_site_part(self._artifact_bytes(record), f"assets/{name}")
+        except KeyError as exc:
+            raise LedgerNotFoundError(name) from exc
+        except InvalidSiteBundle as exc:
+            raise SitePublicationConflict(str(exc)) from exc
+
     @staticmethod
     def _validate_html(name: str, raw: bytes) -> None:
-        if not name.lower().endswith((".html", ".htm")) or not raw or b"\x00" in raw:
+        if (
+            not name.lower().endswith((".html", ".htm"))
+            or not raw or len(raw) > MAX_HTML_BYTES or b"\x00" in raw
+        ):
             raise SitePublicationConflict("Select a saved HTML artifact")
         try:
             raw.decode("utf-8")
@@ -168,26 +199,38 @@ class SitePublicationStore:
             if len(self.list(project_id)) >= MAX_SITES_PER_PROJECT:
                 raise SitePublicationConflict("Too many site publications")
             artifact, raw = self.ledger.capture_artifact(
-                project_id, artifact_id, limit=MAX_SITE_HTML_BYTES,
+                project_id, artifact_id, limit=MAX_BUNDLE_BYTES,
             )
             if artifact.content_storage != "snapshot":
                 raise SitePublicationConflict("Save an immutable artifact version first")
-            self._validate_html(artifact.name, raw)
+            bundle = artifact.name.lower().endswith(".zip")
+            if bundle:
+                try:
+                    read_site_bundle(raw)
+                except InvalidSiteBundle as exc:
+                    raise SitePublicationConflict(str(exc)) from exc
+            else:
+                self._validate_html(artifact.name, raw)
             record = SitePublication(
                 id=new_id("site"), project_id=project_id,
                 artifact_id=artifact.id, artifact_name=artifact.name,
                 artifact_checksum=artifact.checksum, size_bytes=artifact.size_bytes,
-                allow_scripts=allow_scripts,
+                allow_scripts=allow_scripts, bundle=bundle,
                 origin=self.public_origin, state="draft", revision=1,
                 created_by=created_by, created_at=utc_now(),
             )
             self.ledger._atomic_write(self._path(project_id, record.id), record)
             return self._view(record)
 
-    def preview(self, project_id: str, site_id: str) -> tuple[bytes, bool]:
+    def preview(self, project_id: str, site_id: str) -> tuple[bytes, bool, bool]:
         with self.ledger.lifecycle.lease(project_id), self.ledger._lock_for(project_id):
             record = self._read(project_id, site_id)
-            return self._html(record), record.allow_scripts
+            return self._html(record), record.allow_scripts, record.bundle
+
+    def preview_asset(self, project_id: str, site_id: str, name: str) -> bytes:
+        with self.ledger.lifecycle.lease(project_id), self.ledger._lock_for(project_id):
+            record = self._read(project_id, site_id)
+            return self._asset(record, name)
 
     def publish(
         self, project_id: str, site_id: str, decision: SitePublicationDecision, *,
@@ -203,7 +246,7 @@ class SitePublicationStore:
                 or record.allow_scripts != decision.expected_allow_scripts
             ):
                 raise SitePublicationConflict("Site origin or reviewed HTML changed")
-            self._validate_html(record.artifact_name, self._html(record))
+            self._html(record)
             updated = record.model_copy(update={
                 "state": "published", "revision": record.revision + 1,
                 "published_by": approved_by, "published_at": utc_now(),
@@ -226,9 +269,16 @@ class SitePublicationStore:
             self.ledger._atomic_write(self._path(project_id, site_id), updated)
             return self._view(updated)
 
-    def public_html(self, project_id: str, site_id: str) -> tuple[bytes, bool]:
+    def public_html(self, project_id: str, site_id: str) -> tuple[bytes, bool, bool]:
         with self.ledger.lifecycle.lease(project_id), self.ledger._lock_for(project_id):
             record = self._read(project_id, site_id)
             if record.state != "published" or record.origin != self.public_origin:
                 raise LedgerNotFoundError(site_id)
-            return self._html(record), record.allow_scripts
+            return self._html(record), record.allow_scripts, record.bundle
+
+    def public_asset(self, project_id: str, site_id: str, name: str) -> bytes:
+        with self.ledger.lifecycle.lease(project_id), self.ledger._lock_for(project_id):
+            record = self._read(project_id, site_id)
+            if record.state != "published" or record.origin != self.public_origin:
+                raise LedgerNotFoundError(site_id)
+            return self._asset(record, name)
