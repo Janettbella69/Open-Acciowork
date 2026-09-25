@@ -780,6 +780,7 @@ def test_sdk_key_is_passed_to_subprocess_without_entering_events(tmp_path: Path)
     assert options.env["OPHIRA_WECOM_BOT_SECRET"] == ""
     assert options.env["OPHIRA_MEDIA_API_KEY"] == ""
     assert options.env["OPHIRA_MEDIA_OPENAI_API_KEY"] == ""
+    assert options.env["OPHIRA_MEDIA_RUNWAY_API_KEY"] == ""
     assert ledger.list_events(run.id) == []
 
 
@@ -869,6 +870,7 @@ def test_sdk_uses_anthropic_compatible_gateway_configuration(tmp_path: Path) -> 
         "OPHIRA_PUSH_VAPID_PRIVATE_KEY": "",
         "OPHIRA_MEDIA_API_KEY": "",
         "OPHIRA_MEDIA_OPENAI_API_KEY": "",
+        "OPHIRA_MEDIA_RUNWAY_API_KEY": "",
     }
     assert ledger.list_events(run.id) == []
 

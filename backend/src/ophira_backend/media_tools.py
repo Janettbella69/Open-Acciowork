@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import binascii
+import hashlib
 import json
 import os
 from datetime import UTC, datetime
@@ -17,6 +18,12 @@ from claude_agent_sdk import create_sdk_mcp_server, tool
 
 from .config import Settings
 from .constants import MEDIA_MCP_SERVER_NAME
+from .runway_video import (
+    RUNWAY_MODEL,
+    finish_runway_download,
+    release_runway_download,
+    runway_video_to_temporary,
+)
 from .storage import FileLedger
 from .web_tools import check_public_http_url
 
@@ -196,6 +203,16 @@ def _safe_media_target(workspace: Path, filename: str, kind: str) -> tuple[Path,
     return target, None
 
 
+def _same_file_bytes(left: Path, right: Path) -> bool:
+    """Recognize a previously linked Runway output after interrupted registration."""
+    if right.is_symlink() or not right.is_file() or left.stat().st_size != right.stat().st_size:
+        return False
+    with left.open("rb") as first, right.open("rb") as second:
+        return hashlib.file_digest(first, "sha256").digest() == hashlib.file_digest(
+            second, "sha256"
+        ).digest()
+
+
 async def generate_media_impl(
     ledger: FileLedger,
     project_id: str,
@@ -208,9 +225,10 @@ async def generate_media_impl(
     """Generate one draft through the selected adapter and register its validated bytes."""
     kind = str(args["kind"])
     use_openai = kind == "image" and settings.media_image_provider == "openai"
+    use_runway = kind == "video" and settings.media_video_provider == "runway"
     endpoint = settings.media_endpoint
     token = settings.media_api_key.get_secret_value() if settings.media_api_key else ""
-    if not use_openai:
+    if not use_openai and not use_runway:
         if not endpoint or not token:
             return _error(
                 "MEDIA_API_NOT_CONFIGURED",
@@ -239,6 +257,12 @@ async def generate_media_impl(
             "OpenAI 图像适配器只生成 PNG，请使用 .png 文件名。",
             content_type="image/png",
         )
+    if use_runway and target.suffix.casefold() != ".mp4":
+        return _error(
+            "MEDIA_EXTENSION_MISMATCH",
+            "Runway 视频适配器只生成 MP4，请使用 .mp4 文件名。",
+            content_type="video/mp4",
+        )
 
     source_ids = list(dict.fromkeys(args.get("source_ids") or []))
     project = ledger.get_project(project_id)
@@ -259,6 +283,8 @@ async def generate_media_impl(
     content_type = ""
     written = 0
     signature = bytearray()
+    runway_request_hash: str | None = None
+    runway_task_id: str | None = None
     try:
         if use_openai:
             image, error = await _openai_image_bytes(settings, str(args["prompt"]), transport)
@@ -273,6 +299,37 @@ async def generate_media_impl(
                 handle.write(image)
                 handle.flush()
                 os.fsync(handle.fileno())
+        elif use_runway:
+            outcome = await runway_video_to_temporary(
+                ledger,
+                project_id,
+                settings,
+                prompt=str(args["prompt"]),
+                filename=str(args["filename"]),
+                target_relative=target.relative_to(workspace).as_posix(),
+                source_ids=source_ids,
+                run_id=run_id,
+                temporary=temporary,
+                transport=transport,
+            )
+            if not outcome.get("ok") or outcome.get("artifact_id"):
+                return outcome
+            runway_request_hash = outcome["request_hash"]
+            runway_task_id = outcome["task_id"]
+            run_id = outcome["run_id"]
+            planned = Path(outcome["path"])
+            if (
+                len(planned.parts) != 2
+                or planned.parts[0] != "media"
+                or planned.suffix.casefold() != ".mp4"
+                or (workspace / planned).resolve().parent != (workspace / "media").resolve()
+            ):
+                release_runway_download(ledger, project_id, runway_request_hash)
+                return _error("MEDIA_TASK_STATE_INVALID", "视频任务目标路径无效。")
+            target = workspace / planned
+            content_type = "video/mp4"
+            written = outcome["written"]
+            signature.extend(outcome["signature"])
         else:
             async with httpx.AsyncClient(
                 transport=transport,
@@ -339,21 +396,31 @@ async def generate_media_impl(
                         handle.flush()
                         os.fsync(handle.fileno())
         if written == 0:
+            if runway_request_hash:
+                release_runway_download(ledger, project_id, runway_request_hash)
             return _error("MEDIA_EMPTY_RESPONSE", "媒体生成服务返回了空文件。")
         if not _matches_media_signature(content_type, bytes(signature)):
+            if runway_request_hash:
+                release_runway_download(ledger, project_id, runway_request_hash)
             return _error(
                 "MEDIA_SIGNATURE_REJECTED",
                 "媒体生成服务返回的文件签名与 Content-Type 不匹配。",
                 content_type=content_type,
             )
+        linked_new = True
         try:
             os.link(temporary, target)
         except FileExistsError:
-            # A second generator may have claimed the friendly versioned name after
-            # our existence check. Fall back to a collision-proof sibling without
-            # ever replacing that file.
-            target = target.with_name(f"{target.stem}.{uuid4().hex[:10]}{target.suffix}")
-            os.link(temporary, target)
+            if runway_request_hash:
+                if not _same_file_bytes(temporary, target):
+                    release_runway_download(ledger, project_id, runway_request_hash)
+                    return _error("MEDIA_TARGET_CONFLICT", "视频目标文件已有不同内容。")
+                linked_new = False
+            else:
+                # A second generator may have claimed the friendly versioned name
+                # after our existence check. Never replace that file.
+                target = target.with_name(f"{target.stem}.{uuid4().hex[:10]}{target.suffix}")
+                os.link(temporary, target)
         temporary.unlink()
         relative_path = target.relative_to(workspace).as_posix()
         try:
@@ -364,32 +431,52 @@ async def generate_media_impl(
                 source_ids=source_ids,
                 mime=content_type,
             )
-        except (OSError, ValueError):
-            target.unlink(missing_ok=True)
+        except (OSError, ValueError, KeyError):
+            if linked_new:
+                target.unlink(missing_ok=True)
+            if runway_request_hash:
+                release_runway_download(ledger, project_id, runway_request_hash)
             return _error(
                 "MEDIA_ARTIFACT_REGISTRATION_FAILED",
                 "媒体已生成但无法安全登记，因此已移除未登记文件。",
             )
-        return {
+        result = {
             "ok": True,
             "path": relative_path,
             "kind": kind,
             "mime": content_type,
             "size_bytes": written,
-            "provider": "openai" if use_openai else "raw_binary",
-            "model": _OPENAI_IMAGE_MODEL if use_openai else None,
+            "provider": "runway" if use_runway else "openai" if use_openai else "raw_binary",
+            "model": RUNWAY_MODEL if use_runway else _OPENAI_IMAGE_MODEL if use_openai else None,
             "artifact_id": artifact.id,
             "source_ids": artifact.source_ids,
             "retrieved_at": datetime.now(UTC).isoformat(),
             "note": "Draft only; publishing needs a separate high-risk approval.",
         }
+        if runway_request_hash:
+            result["task_id"] = runway_task_id
+            try:
+                finish_runway_download(
+                    ledger,
+                    project_id,
+                    runway_request_hash,
+                    artifact.id,
+                    relative_path,
+                )
+            except (OSError, ValueError, KeyError):
+                result["task_state_warning"] = "视频已登记，但任务完成标记需要人工核对。"
+        return result
     except OverflowError:
+        if runway_request_hash:
+            release_runway_download(ledger, project_id, runway_request_hash)
         return _error(
             "MEDIA_TOO_LARGE",
             "生成媒体超过大小上限。",
             max_bytes=max_bytes,
         )
     except (httpx.HTTPError, OSError):
+        if runway_request_hash:
+            release_runway_download(ledger, project_id, runway_request_hash)
         return _error(
             "MEDIA_GENERATION_FAILED",
             "媒体生成或安全落盘失败；没有登记不完整产物。",
@@ -411,8 +498,9 @@ def build_media_mcp_server(
     @tool(
         "generate_media",
         "Generate a listing or social image/video draft via the configured media "
-        "connector. Does not publish. Requires a raw binary response, validates type "
-        "and size, and immediately registers the file as an Artifact.",
+        "adapter. Does not publish. Validates type and size before registering an "
+        "Artifact. For a pending Runway video task, call again later with the same "
+        "prompt, filename and source_ids; this resumes the task without a new charge.",
         {
             "type": "object",
             "properties": {

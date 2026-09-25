@@ -37,7 +37,7 @@
 | FR-24 IM | delivered：飞书签名入站/身份绑定/同 Agent/持久回复重试；重放认领跨 worker 原子化、状态损坏时拒绝 | deferred：真实飞书/Lark 租户 E2E；微信适配未实现 |
 | FR-25 移动 | delivered（本地）：项目范围配对、双端验证码批准、私有 cookie 与设备撤销/过期；单次持久审批、可选任务发起和运行中插话；展开运行后用 20 秒有界长等待与事件游标更新当前步骤、SDK 原生任务清单及产物版本，等待中复验设备/项目权限，并通过设备专用接口预览已校验的运行截图；Web Push 订阅/加密 VAPID/授权复验/持久重试与状态 UI | deferred：真实手机 HTTPS/外部 Push/长期运行、native push 和 OS 防休眠未验收；大事件历史与大截图需性能验收 |
 | FR-26 主动服务 | delivered：授权 standing intent、只读 watcher、预算与持久 claim | deferred：真实数据/Provider 长时判断质量、有效变化触达 |
-| FR-27 媒体 | delivered（本地）：安全二进制接入与 Artifact/Evidence；OpenAI Image API 固定端点、单张 PNG、有界流式 JSON/base64 校验和独立密钥的离线合约测试 | deferred：真实图像账号/计费/成品质量验收；视频仍需具体厂商适配与真实验收，见 `docs/media-generation.md` |
+| FR-27 媒体 | delivered（本地）：安全二进制接入与 Artifact/Evidence/Run；OpenAI Image API 固定端点、单张 PNG、有界流式 JSON/base64 校验；Runway Dev Gen-4.5 文字生成视频任务、持久续查、有界公网 HTTPS 下载和 MP4 校验，两个适配器均使用独立密钥及离线合约测试 | deferred：真实图像/视频账号、计费、成品质量及长时故障验收，见 `docs/media-generation.md` |
 | FR-28 澄清表单 | delivered：结构化问题与同任务约束回传 | 保持 UI/API 回归 |
 
 ## v2.3 增量要求（2026-09-23）
@@ -64,6 +64,8 @@
 2026-09-25 FR-21 Shopify 商家授权增量：同组织 client credentials 保留；组织外商家可经管理员发起的授权码同意页、十分钟一次性 state、Shopify HMAC 与固定店铺校验取得限时离线令牌。令牌只存连接器私有 vault，按官方 refresh_token 流程提前刷新，并用跨 worker 文件锁串行化轮换；重配/撤销删除 state 与令牌。后端全量 `2319 passed / 13 skipped`；最后两处失效保护后 Shopify 与控制面基准定向 `65 passed`，Ruff 通过。前端全量 `546 passed / 56 files`、ESLint 与 TypeScript/Vite 构建通过。Browser 技能返回空可用浏览器列表，故未做页面目视；真实 Shopify 商家授权、HTTPS 网关、Admin API 和模型 Run 验收仍未完成。
 
 2026-09-25 FR-27 图像适配增量：仅显式启用后访问官方固定 Image API，独立密钥不进入 Agent worker，也不会发送给通用媒体端点；请求一张固定 PNG，并对 JSON/base64 和落盘文件逐层限额与校验。视频保留原二进制接口。后端全量 `2331 passed / 13 skipped`、Ruff 通过；无真实 OpenAI 账号/计费/画质或视频厂商验收，详见 `docs/media-generation.md`。
+
+2026-09-25 FR-27 视频适配增量：显式选择 Runway Dev 后，使用独立密钥提交 Gen-4.5 文字生成视频任务，并持久保存任务 ID 与原始 Run/目标路径；相同参数续查，付费创建结果不确定时停止自动重试。完成后对签名结果链接逐跳执行公网 HTTPS 钉住、250 MB 流式上限及 MP4 签名校验，登记来源与 Artifact，下载或登记中断后按租约恢复。后端全量 `2339 passed / 13 skipped`、Ruff 通过；无真实 Runway 账号/计费/视频质量与长时验收，详见 `docs/media-generation.md`。
 
 2026-09-24 FR-20 浏览器复验：真实 Chromium L1 经生产浏览器工具访问无跳转的
 公网 IP 目标，截图、Artifact、Evidence、来源凭证和 Run 关联等 **9 项检查全过**，

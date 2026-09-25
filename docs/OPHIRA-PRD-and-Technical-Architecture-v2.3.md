@@ -357,7 +357,7 @@ Accio 同时也**抬高了 table stakes**：权限四态与审计日志、分层
 - 在真实飞书/Lark 租户验收已实现的回复与 durable identity mapping，再补微信渠道；验收移动控制面已有的配对/设备信任和可选 Web Push，补原生推送、手机端实时进度和插话（FR-24/25）。
 - 用真实 Provider/数据源验证 standing intent 自主 watcher 的长时运行；补齐真实渠道投递（FR-26、§4.16）。
 - 扩展 GUI L1/L2 的真实浏览器回归；L1/L2 smoke acceptance 已于 2026-09-03 通过，2026-09-24 又完成离线真实 Chromium/CDP 的禁止域脚本、私网/同源重定向及恢复子集；公网目标、Service Worker 攻击与更完整矩阵仍需验收（FR-20）。L3 见 P2（FR-42）。
-- 为媒体 MCP 配置并认证真实生成商；补齐视频能力和成品质量验证（FR-27）。
+- 为媒体 MCP 配置并认证真实图像/视频生成商；对现有 Runway 视频适配做真实任务、成品质量与长时故障验证（FR-27）。
 - 更多市场与平台 Skills、合规数据源、物流与汇率工具。
 - 供应商联系、Listing 发布等外部动作的预览—批准—执行闭环。
 - 检索 MCP 降级路径（针对不支持原生 WebSearch/WebFetch 的 Provider）。
@@ -415,7 +415,7 @@ Accio 同时也**抬高了 table stakes**：权限四态与审计日志、分层
 | FR-24 | P1 | IM 渠道 | 群内 @ 触发同一主 Agent Run，安全接收并回帖；支持权限与账本关联 | **部分实现**：飞书入站安全门、Run-bound 官方 reply adapter、durable delivery/retry，以及 signed-body tenant/chat/user → principal/project binding 均已本地实现并测试；尚无真实租户 E2E，微信未实现 |
 | FR-25 | P1 | 移动远程审批与遥控 | 手机远程查看/批准权限、接收推送并发起任务，具备认证配对和设备信任；v2.3 增补：手机上能看到实时进度（当前步骤、截图和产物变化），并能插话（依赖 FR-31） | **部分实现**：项目范围配对、双端验证码批准、私有 cookie、设备过期/撤销、单次持久审批、可选任务发起、运行中插话和可选 Web Push 已有本地闭环；展开运行后按事件游标通过有界长等待更新步骤/SDK 任务清单/产物版本，等待中复验权限，设备专用受控接口预览已校验截图；原生推送、真实手机 HTTPS、长时和大历史性能验收未完成 |
 | FR-26 | P1 | 主动巡检与前瞻意图 | standing intent 带冷却、次数、过期和预算；条件成立才通知 | **已实现（本地代码/离线测试）**：用户授权、持久化调度/恢复、冷却/过期/触发与金额预算、Provider readiness、单主 Agent 条件评估、静默未命中、受控 trigger/inbox 与失败退避已闭环；尚未证明真实 Provider/数据源的判断质量与长时稳定性 |
-| FR-27 | P1 | 图像/视频生成 | 经认证生成商产生媒体，安全落盘为 Artifact，并与来源 Evidence/Run 关联 | **部分实现**：安全通用媒体接入、下载校验和台账关联已有代码/测试；另有官方 OpenAI Image API 的固定端点、单张 PNG 本地适配及离线合约测试。尚无真实密钥/图像质量验收，视频仍只有通用二进制接口，不能宣称真实图像/视频生成闭环；见 `docs/media-generation.md` |
+| FR-27 | P1 | 图像/视频生成 | 经认证生成商产生媒体，安全落盘为 Artifact，并与来源 Evidence/Run 关联 | **部分实现**：安全通用媒体接入和台账关联；官方 OpenAI Image API 单张 PNG、Runway Dev Gen-4.5 文字生成视频任务/续查/安全下载均有本地适配和离线合约测试。真实密钥、计费、成品质量与长时故障验收仍缺，不能宣称真实生成闭环；见 `docs/media-generation.md` |
 | FR-28 | P2 | 结构化追问表单 | Agent 发起结构化问题/选项，用户答案回到同一 Run 并可沉淀约束 | **已实现**（本地代码/测试） |
 | FR-29 | P1 | 计划模式 | 用户可选「先出计划」：Agent 只做只读调研，给出步骤、要用的工具、会产生的对外动作和预计花费；用户批准或修改后在同一会话继续执行；计划阶段不产生任何写入或对外动作（权限层断言）；用 SDK 原生 `plan` 权限模式，不自建状态机，计划只给用户看、不是后端流程（ADR-003 不变） | **本地代码/测试已实现（2026-09-24）**：计划 Run 的 SDK 原生 `plan`、只读工具围栏、无 MCP 装配、审核/修改/批准及精确同会话续行；真端点、计划质量、浏览器与故障矩阵待验收 |
 | FR-30 | P1 | 任务进度清单 | Agent 拆出的步骤实时显示在执行流里并逐项更新状态；清单来自 SDK 原生待办工具的事件（工具名以钉版 0.2.143 的 `claude_code` preset 为准），后端不规定步骤；刷新页面后可由事件回放恢复 | **本地代码/测试已实现**：原生 Task/Todo 事件重建清单，主 Run 过滤及回放测试通过；真实 Provider 调用与刷新后浏览器验收待做 |
@@ -672,7 +672,7 @@ v2.0 增补建议（不改变红线，按需采纳）：
 | `ophira_web` | `search_public_web`、`fetch_page_snapshot`，含 URL/重定向/SSRF 防护 | 认证真实搜索服务与 Provider 降级 E2E | 公开读取低；内容视为不可信数据 |
 | `ophira_browser` | `snapshot_page`、`act_on_page`；OrgPolicy 门禁、L1/L2、安全导航和截图账本；L1/L2 已通过真实浏览器 smoke acceptance | 扩展真实浏览器攻击/恢复回归与实现 L3 | 读取按域策略；动作需治理 |
 | `ophira_automation` | 计划创建/暂停、standing intent 管理/触发、通知写入；自主 watcher 已接入标准单主 Agent Run | 真实 Provider/数据源长时验证与真实渠道投递 | 创建承诺/外发需授权；支线 Agent 禁用 |
-| `ophira_media` | `generate_media` 通用安全接入及 OpenAI Image API 单张 PNG 适配，注册 Artifact/Evidence 关联 | 配置并认证真实图像/视频生成商，补齐视频厂商 | 下载与落盘受大小、类型、URL 和路径约束 |
+| `ophira_media` | `generate_media` 通用安全接入、OpenAI Image API 单张 PNG、Runway Dev 视频任务及 Artifact/Evidence 关联 | 配置并认证真实图像/视频账号及成品质量 | 下载与落盘受大小、类型、URL 和路径约束 |
 | `ophira_presentation` | 证据比较、决策摘要和 Artifact 清单；模型只选已有 ID，服务端关联账本事实并签发 `ui.presentation` | 更多版本化 UI 组件 | 只读；外部文本统一清洗，客户端再做严格 schema/project/origin 校验 |
 | `ophira_commercial_actions` | `read_commercial_target` 通过 host connector 读取并签发 project/Run/SDK session/connector/resource/version/state receipt；`stage_commercial_action` 只接 receipt ID、diff 和 reason，权威字段由服务端补全 | 扩展更多业务垂直 adapter，并在授权 sandbox/test account 做真实 E2E | 高后果；review/apply/cancel 只在 HTTP 人审面。当前首条 HTTPS JSON adapter 仅执行匹配 connector 的 `send_message`，其余保持 `not_executed` |
 

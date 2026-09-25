@@ -184,6 +184,8 @@ class Settings(BaseSettings):
     # its key must never be sent to an operator-configured media URL.
     media_image_provider: Literal["raw_binary", "openai"] = "raw_binary"
     media_openai_api_key: SecretStr | None = None
+    media_video_provider: Literal["raw_binary", "runway"] = "raw_binary"
+    media_runway_api_key: SecretStr | None = None
     channel_webhook_url: str | None = Field(default=None, max_length=2_000)
     feishu_encrypt_key: SecretStr | None = None
     feishu_bot_open_id: str | None = Field(default=None, max_length=160)
