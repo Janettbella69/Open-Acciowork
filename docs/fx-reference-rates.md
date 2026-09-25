@@ -11,7 +11,8 @@ The output is **quote units for one base unit**. The ECB publishes currency unit
 per EUR. For USD to CNY, the tool divides the same-day CNY-per-EUR observation by
 USD-per-EUR and labels the result as a derived cross rate. The output carries both
 basis observations, the observation date, retrieval time, and source URL. Derived
-rates are reported to 12 significant digits. The host
+rates are rounded to the least precise source observation (at most 12 significant
+digits). The host
 adds a source receipt bound to the Run and initialized SDK session; failed reads do
 not receive receipts.
 

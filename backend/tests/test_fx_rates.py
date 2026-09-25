@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 from datetime import UTC, datetime
-from decimal import Decimal
 from pathlib import Path
 
 import httpx
@@ -92,10 +91,8 @@ async def test_cross_rate_uses_same_date_eur_observations_and_fixed_source(
     assert result["retrieved_at"] == NOW.isoformat()
     assert result["rate_type"] == "derived_cross_reference"
     assert result["eur_basis"] == {"USD": "1.1367", "CNY": "7.6302"}
-    assert abs(
-        Decimal(result["quote_per_base"])
-        - Decimal("7.6302") / Decimal("1.1367")
-    ) < Decimal("0.00000000001")
+    assert result["quote_per_base"] == "6.7126"
+    assert result["significant_digits"] == 5
     assert "not transaction rates" in result["usage_note"]
 
 
@@ -123,9 +120,8 @@ async def test_direct_eur_reference_is_reported_without_cross_label(
         now=NOW,
     )
     assert inverse["rate_type"] == "derived_eur_reciprocal"
-    assert abs(
-        Decimal(inverse["quote_per_base"]) - Decimal(1) / Decimal("1.1367")
-    ) < Decimal("0.000000000001")
+    assert inverse["quote_per_base"] == "0.87974"
+    assert inverse["significant_digits"] == 5
 
 
 @pytest.mark.asyncio

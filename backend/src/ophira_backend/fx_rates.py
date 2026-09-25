@@ -159,6 +159,9 @@ async def get_ecb_fx_reference_impl(
     base_per_eur = observations[base][1] if base != "EUR" else Decimal(1)
     quote_per_eur = observations[quote][1] if quote != "EUR" else Decimal(1)
     rate = quote_per_eur / base_per_eur
+    significant_digits = min(
+        12, *(len(observations[currency][1].as_tuple().digits) for currency in required)
+    )
     return {
         "source": "European Central Bank",
         "url": ECB_CSV_URL,
@@ -166,7 +169,8 @@ async def get_ecb_fx_reference_impl(
         "observation_date": observed_on.isoformat(),
         "base_currency": base,
         "quote_currency": quote,
-        "quote_per_base": format(rate, ".12g"),
+        "quote_per_base": format(rate, f".{significant_digits}g"),
+        "significant_digits": significant_digits,
         "eur_basis": {
             base: str(base_per_eur),
             quote: str(quote_per_eur),
