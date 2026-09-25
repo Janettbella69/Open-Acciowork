@@ -61,7 +61,12 @@
 | FR-41 发布网页 | partial（本地）：不可变 HTML 产物版本按校验和暂存，沙箱预览后由项目管理员明确批准；独立 HTTPS 域名公开、无缓存与脚本/表单隔离，持久撤回及项目删除清理；见 `docs/site-publications.md` | deferred：真实公网部署、浏览器/缓存验收；动态脚本和远程资源需要隔离的发布运行时，现仅支持自包含静态页面 |
 | FR-42 L3 桌面 GUI | deferred：未实现 | 桌面壳、OS 授权及 L1/L2 证据/域策略复用未做 |
 
-2026-09-24 自动化：后端全量在文件沙箱内 `2259 passed / 13 skipped / 4 failed`，4 项均为 Unix socket `bind` 权限失败；整个 socket 专项在允许绑定环境中 `9 passed`。FR-11 ECB 汇率专项及来源凭证回归已通过，Ruff 与 `pip check` 通过。前端上次全量 `513 passed / 51 files`、ESLint 与 TypeScript/Vite 通过，本轮未改前端。浏览器工具实例不可用，未完成目视验收；公开 MCP 真握手及汇率工具在线调用均因本机 DNS 解析为非公网地址而安全拒绝，ECB 公开 CSV 已另行获取并通过真实格式解析。未使用付费模型或真实凭据。尚不能声称 PRD 全部功能完成。
+2026-09-24 FR-20 L1 复验：真实 Chromium 经生产浏览器工具访问无跳转的公网 IP
+目标，截图、Artifact、Evidence、来源凭证和 Run 关联等 **9 项检查全过**，
+见 [验收报告](../evals/reports/browser-l1-20260925T021110Z.json)。本机无独立
+Google Chrome，L2 本轮未重跑；真实卖家后台和 Provider 端到端仍待验收。
+
+2026-09-24 自动化：后端全量在文件沙箱内 `2259 passed / 13 skipped / 4 failed`，4 项均为 Unix socket `bind` 权限失败；整个 socket 专项在允许绑定环境中 `9 passed`。FR-11 ECB 汇率专项及来源凭证回归已通过，Ruff 与 `pip check` 通过。前端上次全量 `513 passed / 51 files`、ESLint 与 TypeScript/Vite 通过，本轮未改前端。当时浏览器工具实例不可用，未完成目视验收；公开 MCP 真握手及汇率工具在线调用均因本机 DNS 解析为非公网地址而安全拒绝，ECB 公开 CSV 已另行获取并通过真实格式解析。未使用付费模型或真实凭据。尚不能声称 PRD 全部功能完成。
 
 2026-09-24 FR-37 增量：最终事件专项 `8 passed`，权限/SDK 相关定向 `45 passed`，Ruff 通过。后端全量在最后小范围修正前 `2186 passed / 13 skipped`，socket 专项在允许绑定环境中 `9 passed`。前端全量在最后权限选项调整前 `515 passed / 52 files`；随后事件/定时任务定向 `13 passed`，ESLint 与 TypeScript/Vite 通过；本地桌面和手机 Chromium 已完成页面目视及创建/密钥交互。真实 Provider/邮箱/店铺和公共 HTTPS 仍未验收。
 

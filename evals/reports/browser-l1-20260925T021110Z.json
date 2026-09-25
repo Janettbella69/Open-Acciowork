@@ -1,0 +1,26 @@
+{
+  "kind": "browser_l1_acceptance",
+  "generated_at": "2026-09-25T02:11:10.842557+00:00",
+  "url": "https://8.8.8.8/resolve?name=example.com&type=A",
+  "passed": true,
+  "checks": {
+    "tool_success": true,
+    "browser_level_l1": true,
+    "artifact_id_present": true,
+    "evidence_id_present": true,
+    "evidence_persisted": true,
+    "artifact_persisted": true,
+    "source_receipt_persisted": true,
+    "artifact_links_evidence": true,
+    "screenshot_exists": true
+  },
+  "browser_result": {
+    "artifact_id": "artifact_e5486ba39365479aad7b405a5d40789d",
+    "final_url": "https://8.8.8.8/resolve?name=example.com&type=A",
+    "ok": true,
+    "title": "",
+    "evidence_id": "ev_42a2f50c48b04198997fea1fa8b8af94",
+    "browser_level": "L1",
+    "url": "https://8.8.8.8/resolve?name=example.com&type=A"
+  }
+}
