@@ -46,6 +46,8 @@ export const eventTriggersZh: Record<string, string> = {
   'changed': '配置已变更',
   'Microsoft reported missed notifications or removed the subscription. A mail gap remains unresolved; inspect the mailbox before continuing.': 'Microsoft 报告漏投通知或移除了订阅。邮件缺口尚未核对；继续前请检查邮箱。',
   'Graph registration may have succeeded. Reconcile the exact subscription before trying again.': 'Graph 注册可能已经成功，请先核对精确匹配的订阅，再尝试注册。',
+  'Outlook credentials, mailbox or callback changed. Reconcile the old subscription before registering again; a mail gap may remain.': 'Outlook 凭据、邮箱或回调地址已变更。重新注册前请核对旧订阅；邮件缺口可能仍未处理。',
+  'The previous Graph subscription could not be verified with the current account. Check the old Microsoft app and mailbox for a remaining subscription.': '当前账号无法核实旧 Graph 订阅。请到旧 Microsoft 应用和邮箱检查是否仍有订阅。',
   'Register or renew Outlook subscription': '注册或续订 Outlook 订阅',
   'Stop Outlook subscription': '停止 Outlook 订阅',
   'Outlook subscription registered.': 'Outlook 订阅已注册。',

@@ -133,7 +133,13 @@ create response is retained and never retried automatically. **Reconcile
 Outlook subscription with Graph** lists this app's subscriptions, adopts only
 one exact app/Inbox/callback match, or marks a visible gap when none exists.
 The list API does not return `clientState`, so verified notifications remain
-the delivery proof. Multiple matches require manual review. Stopping
+the delivery proof. Multiple matches require manual review. If Outlook
+credentials, mailbox or callback origin change, the same action removes a
+matching old subscription visible to the current app and records a mail gap
+before allowing fresh registration. When the old app or mailbox is no longer
+accessible, its remote subscription may remain until expiry and must be
+checked in Microsoft Graph. The UI keeps this as an explicit remote warning.
+Stopping
 one trigger removes only its enrollment when another active trigger shares
 the subscription; stopping the last trigger deletes the Graph subscription.
 Stop the subscription before revoking its connector, and inspect any gap before

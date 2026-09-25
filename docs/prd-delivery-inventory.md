@@ -50,7 +50,7 @@
 
 2026-09-25 FR-21 Outlook 主动读取增量：Microsoft Graph 委托 OAuth `offline_access User.Read Mail.Read`、一次性 state/固定 HTTPS 回调、私有刷新令牌与轮换、项目最长 30 天 Inbox 授权/撤销、主 Agent SDK MCP 五封一页纯文本读取及同 Run 来源凭证已接通；逐条复核 Inbox 文件夹，HTML/草稿/非 Inbox 内容拒读，分页链接限定 Graph Inbox 地址。项目导出与删除、管理员中英文 UI 同步接入。合同见 [Outlook 连接器](outlook-connector.md)。模拟 Graph 的 OAuth/范围拒绝/SDK/收据/撤销/长游标/导出删除专项通过；当时后端全量 `2372 passed / 13 skipped`、Ruff 通过；前端全量 `558 passed / 59 files`、ESLint 与构建通过。真实 Microsoft 帐号、公网 HTTPS、Provider Run 和浏览器目视验收仍待完成；后续 FR-37 增量见下。
 
-2026-09-25 FR-37 Outlook 收件触发增量：项目级 Inquiry email 触发器绑定只读 Outlook OAuth 邮箱；邮箱级 Microsoft Graph `created` 订阅、私有 `clientState`、固定 HTTPS 验证回调、快速持久入队、后台读取 Inbox 纯文本并复用 Run 权限/预算/幂等收据；多项目触发器共享订阅，各自登记，六天到期前自动续订。漏投/移除生命周期通知显式显示缺口；不确定注册不自动重复提交，管理员可查询 Graph 精确匹配订阅并接管或显式记录缺口；队列完成后清除邮件正文与项目目标，项目删除等待本项目待投递邮件并披露远端订阅。模拟 Graph 端到端与前端管理测试通过；本批前一版本的后端全量 `2377 passed / 13 skipped`、Ruff 通过，前端全量 `559 passed / 59 files`、ESLint 与构建通过；补充远端核对后专项、Ruff、前端专项/ESLint/构建通过。合同见 [事件触发](event-triggers.md#direct-outlook-inbox-trigger)。Graph delta 缺口补偿、真实 Microsoft 帐号/公开 HTTPS/Provider Run/浏览器目视均未验收。
+2026-09-25 FR-37 Outlook 收件触发增量：项目级 Inquiry email 触发器绑定只读 Outlook OAuth 邮箱；邮箱级 Microsoft Graph `created` 订阅、私有 `clientState`、固定 HTTPS 验证回调、快速持久入队、后台读取 Inbox 纯文本并复用 Run 权限/预算/幂等收据；多项目触发器共享订阅，各自登记，六天到期前自动续订。漏投/移除生命周期通知显式显示缺口；不确定注册不自动重复提交，管理员可查询 Graph 精确匹配订阅并接管或显式记录缺口；凭据/邮箱/回调变更可核对并移除当前应用可见的旧订阅后重建，旧应用无法访问的远端订阅需人工检查；队列完成后清除邮件正文与项目目标，项目删除等待本项目待投递邮件并披露远端订阅。模拟 Graph 端到端与前端管理测试通过；本批前一版本的后端全量 `2377 passed / 13 skipped`、Ruff 通过，前端全量 `559 passed / 59 files`、ESLint 与构建通过；补充远端核对和重配恢复后专项、Ruff、前端专项/ESLint/构建通过。合同见 [事件触发](event-triggers.md#direct-outlook-inbox-trigger)。Graph delta 缺口补偿、真实 Microsoft 帐号/公开 HTTPS/Provider Run/浏览器目视均未验收。
 
 | 要求 | 本轮状态与证据 | 尚需交付 / deferred 原因 |
 |---|---|---|

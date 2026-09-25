@@ -3,17 +3,19 @@
 from __future__ import annotations
 
 import json
+import time
 from datetime import UTC, datetime, timedelta
 
 import httpx
 import pytest
 from fastapi import HTTPException
 from test_auth_api import request_as
-from test_outlook_access import graph_message, setup
+from test_outlook_access import CLIENT_ID, CLIENT_SECRET, graph_message, setup
 
 from ophira_backend.constants import PrincipalRole
 from ophira_backend.event_triggers import EventTriggerCreate
 from ophira_backend.models import PrincipalBinding
+from ophira_backend.outlook import OUTLOOK_SCOPE, OutlookToken
 from ophira_backend.outlook_subscriptions import OutlookNotification
 
 SUBSCRIPTION_ID = "11111111-2222-3333-4444-555555555555"
@@ -267,3 +269,92 @@ async def test_outlook_reconcile_empty_graph_list_keeps_gap_visible(tmp_path):
         assert registered.json()["status"] == "stale"
         assert registered.json()["gap"] is True
         assert attempts == 2
+
+
+@pytest.mark.asyncio
+async def test_outlook_changed_credentials_can_remove_old_subscription_and_register(tmp_path):
+    app, project, owner, _member = setup(tmp_path)
+    trigger = app.state.event_triggers.create(
+        project.id, EventTriggerCreate(
+            name="Outlook quote", kind="inquiry_email", prompt="Review inquiry",
+            max_budget_usd=1, outlook_connector_id="outlook",
+        ), principal=PrincipalBinding.from_context(owner),
+    ).trigger
+    calls = []
+    old_id = SUBSCRIPTION_ID
+    new_id = "22222222-3333-4444-5555-666666666666"
+    callback = "https://events.example.com/api/connectors/outlook/outlook/notifications"
+
+    def graph(request: httpx.Request) -> httpx.Response:
+        calls.append((request.method, request.url.path))
+        if request.method == "POST" and request.url.path == "/v1.0/subscriptions":
+            identifier = old_id if calls.count(("POST", "/v1.0/subscriptions")) == 1 else new_id
+            return httpx.Response(201, json={
+                "id": identifier,
+                "expirationDateTime": (datetime.now(UTC) + timedelta(days=6)).isoformat(),
+            })
+        if request.method == "GET" and request.url.path == "/v1.0/subscriptions":
+            return httpx.Response(200, json={"value": [{
+                "id": old_id, "applicationId": CLIENT_ID,
+                "notificationUrl": callback, "lifecycleNotificationUrl": callback,
+                "resource": "me/mailFolders('inbox')/messages",
+                "changeType": "created",
+                "expirationDateTime": (datetime.now(UTC) + timedelta(days=6)).isoformat(),
+            }]})
+        if request.method == "DELETE" and request.url.path.endswith("/" + old_id):
+            return httpx.Response(204)
+        raise AssertionError(str(request.url))
+
+    app.state.outlook.client = httpx.AsyncClient(transport=httpx.MockTransport(graph))
+    path = f"/api/projects/{project.id}/event-triggers/{trigger.id}/outlook-subscription"
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="https://events.example.com",
+    ) as client:
+        initial = await request_as(client, "POST", path, "owner", PrincipalRole.OWNER)
+        assert initial.status_code == 200
+        connector = app.state.connectors.upsert(
+            "outlook", type="outlook", display_name="Outlook", scope=OUTLOOK_SCOPE,
+            secret=json.dumps({"client_id": CLIENT_ID, "client_secret": CLIENT_SECRET}),
+        )
+        app.state.connectors.vault.set("outlook-oauth-token:outlook", OutlookToken(
+            user_id="user-1", email="inbox@example.com", tenant_id="tenant_acme",
+            connector_revision=connector.revision, refresh_token="new-refresh",
+            access_token="access-private", expires_at=time.time() + 3600,
+        ).model_dump_json())
+        changed = await request_as(client, "GET", path, "owner", PrincipalRole.OWNER)
+        assert changed.json()["status"] == "changed"
+        reconciled = await request_as(
+            client, "POST", path + "/reconcile", "owner", PrincipalRole.OWNER,
+        )
+        assert reconciled.status_code == 200, reconciled.text
+        assert reconciled.json()["status"] == "stale"
+        assert reconciled.json()["gap"] is True
+        registered = await request_as(client, "POST", path, "owner", PrincipalRole.OWNER)
+        assert registered.status_code == 200, registered.text
+        assert registered.json()["subscription_id"] == new_id
+        assert registered.json()["gap"] is True
+        assert calls == [
+            ("POST", "/v1.0/subscriptions"),
+            ("GET", "/v1.0/subscriptions"),
+            ("DELETE", f"/v1.0/subscriptions/{old_id}"),
+            ("POST", "/v1.0/subscriptions"),
+        ]
+        connector = app.state.connectors.upsert(
+            "outlook", type="outlook", display_name="Outlook", scope=OUTLOOK_SCOPE,
+            secret=json.dumps({
+                "client_id": "33333333-4444-5555-6666-777777777777",
+                "client_secret": CLIENT_SECRET,
+            }),
+        )
+        app.state.connectors.vault.set("outlook-oauth-token:outlook", OutlookToken(
+            user_id="user-1", email="inbox@example.com", tenant_id="tenant_acme",
+            connector_revision=connector.revision, refresh_token="third-refresh",
+            access_token="access-private", expires_at=time.time() + 3600,
+        ).model_dump_json())
+        uncertain_remote = await request_as(
+            client, "POST", path + "/reconcile", "owner", PrincipalRole.OWNER,
+        )
+        assert uncertain_remote.status_code == 200
+        assert uncertain_remote.json()["gap"] is True
+        assert uncertain_remote.json()["remote_unverified"] is True
+        assert calls[-1] == ("GET", "/v1.0/subscriptions")

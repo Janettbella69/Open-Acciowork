@@ -48,6 +48,7 @@ class OutlookWatch(BaseModel):
     subscription_id: str | None = None
     expiration_at: datetime | None = None
     gap: bool = False
+    remote_unverified: bool = False
     reauthorize: bool = False
     updated_at: datetime
 
@@ -180,6 +181,7 @@ class OutlookSubscriptions:
             "email": email, "notification_url": self.notification_url(connector_id),
             "status": state,
             "gap": bool(watch and watch.gap and valid),
+            "remote_unverified": bool(watch and watch.remote_unverified and valid),
             "subscription_id": watch.subscription_id if enrolled else None,
             "expiration_at": watch.expiration_at if enrolled else None,
         }
@@ -269,6 +271,7 @@ class OutlookSubscriptions:
                 connector_id=connector_id, connector_revision=token.connector_revision,
                 tenant_id=tenant_id, user_id=token.user_id, email=token.email,
                 notification_url=url, status="attempting", gap=prior.gap if prior else False,
+                remote_unverified=prior.remote_unverified if prior else False,
                 updated_at=datetime.now(UTC),
             )
             assert self.service.connectors.vault is not None
@@ -331,82 +334,129 @@ class OutlookSubscriptions:
             "updated_at": datetime.now(UTC),
         }))
 
+    async def _matching_remote(
+        self, access_token: str, application_id: str, notification_url: str,
+    ) -> list[dict[str, Any]]:
+        url = GRAPH_API + "/subscriptions"
+        found: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for _page in range(10):
+            if url in seen:
+                raise OutlookError("OUTLOOK_SUBSCRIPTION_INVALID", "Graph paging loop", 502)
+            seen.add(url)
+            result = await self.service._json(
+                "GET", url, headers={"Authorization": f"Bearer {access_token}"},
+            )
+            items = result.get("value")
+            if not isinstance(items, list) or len(items) > 1000:
+                raise OutlookError(
+                    "OUTLOOK_SUBSCRIPTION_INVALID", "Graph subscription list is invalid", 502
+                )
+            for item in items:
+                if not isinstance(item, dict):
+                    raise OutlookError(
+                        "OUTLOOK_SUBSCRIPTION_INVALID", "Graph subscription list is invalid",
+                        502,
+                    )
+                if (
+                    item.get("applicationId") == application_id
+                    and item.get("notificationUrl") == notification_url
+                    and item.get("lifecycleNotificationUrl") == notification_url
+                    and isinstance(item.get("resource"), str)
+                    and item["resource"].lstrip("/").casefold()
+                    == "me/mailfolders('inbox')/messages"
+                    and item.get("changeType") == "created"
+                ):
+                    found.append(item)
+            next_url = result.get("@odata.nextLink")
+            if next_url is None:
+                break
+            if not isinstance(next_url, str) or not 1 <= len(next_url) <= 4096:
+                raise OutlookError(
+                    "OUTLOOK_SUBSCRIPTION_INVALID", "Graph subscription cursor is invalid", 502
+                )
+            parts = urlsplit(next_url)
+            if (
+                parts.scheme != "https" or parts.netloc != "graph.microsoft.com"
+                or parts.path != "/v1.0/subscriptions" or parts.fragment
+                or not parts.query or any(ord(char) < 33 for char in next_url)
+            ):
+                raise OutlookError(
+                    "OUTLOOK_SUBSCRIPTION_INVALID", "Graph subscription cursor is invalid", 502
+                )
+            url = next_url
+        else:
+            raise OutlookError(
+                "OUTLOOK_SUBSCRIPTION_INVALID", "Graph subscription list is incomplete", 502
+            )
+        return found
+
     async def reconcile(
         self, connector_id: str, tenant_id: str | None, trigger: EventTrigger,
     ) -> dict[str, Any]:
-        """Resolve an uncertain POST using this app's exact Graph subscription list."""
+        """Resolve a lost POST or explicitly replace a changed connector binding."""
         token = await self.service._access(connector_id, tenant_id)
         _revision, credentials = self.service._connector(connector_id)
         with self._remote_lock(connector_id):
             watch = self._watch(connector_id)
             if (
-                watch is None or watch.status not in {"attempting", "uncertain"}
-                or trigger.outlook_connector_id != connector_id
+                watch is None or trigger.outlook_connector_id != connector_id
                 or self._enrollment(trigger) is None
-                or not self._matches(watch, tenant_id)
+                or watch.tenant_id != tenant_id or token.tenant_id != tenant_id
             ):
                 raise OutlookError(
-                    "OUTLOOK_RECONCILE_INVALID", "No matching uncertain subscription"
+                    "OUTLOOK_RECONCILE_INVALID", "No matching Outlook subscription"
                 )
-            url = GRAPH_API + "/subscriptions"
-            found: list[dict[str, Any]] = []
-            seen: set[str] = set()
-            for _page in range(10):
-                if url in seen:
-                    raise OutlookError("OUTLOOK_SUBSCRIPTION_INVALID", "Graph paging loop", 502)
-                seen.add(url)
-                result = await self.service._json(
-                    "GET", url, headers={"Authorization": f"Bearer {token.access_token}"},
-                )
-                items = result.get("value")
-                if not isinstance(items, list) or len(items) > 1000:
-                    raise OutlookError(
-                        "OUTLOOK_SUBSCRIPTION_INVALID", "Graph subscription list is invalid", 502
-                    )
-                for item in items:
-                    if not isinstance(item, dict):
-                        raise OutlookError(
-                            "OUTLOOK_SUBSCRIPTION_INVALID", "Graph subscription list is invalid",
-                            502,
-                        )
-                    if (
-                        item.get("applicationId") == credentials.client_id
-                        and item.get("notificationUrl") == watch.notification_url
-                        and item.get("lifecycleNotificationUrl") == watch.notification_url
-                        and isinstance(item.get("resource"), str)
-                        and item["resource"].lstrip("/").casefold()
-                        == "me/mailfolders('inbox')/messages"
-                        and item.get("changeType") == "created"
-                    ):
-                        found.append(item)
-                next_url = result.get("@odata.nextLink")
-                if next_url is None:
-                    break
-                if not isinstance(next_url, str) or not 1 <= len(next_url) <= 4096:
-                    raise OutlookError(
-                        "OUTLOOK_SUBSCRIPTION_INVALID", "Graph subscription cursor is invalid",
-                        502,
-                    )
-                parts = urlsplit(next_url)
-                if (
-                    parts.scheme != "https" or parts.netloc != "graph.microsoft.com"
-                    or parts.path != "/v1.0/subscriptions" or parts.fragment
-                    or not parts.query or any(ord(char) < 33 for char in next_url)
-                ):
-                    raise OutlookError(
-                        "OUTLOOK_SUBSCRIPTION_INVALID", "Graph subscription cursor is invalid",
-                        502,
-                    )
-                url = next_url
-            else:
+            same = self._matches(watch, tenant_id)
+            if same and watch.status not in {"attempting", "uncertain"}:
                 raise OutlookError(
-                    "OUTLOOK_SUBSCRIPTION_INVALID", "Graph subscription list is incomplete", 502
+                    "OUTLOOK_RECONCILE_INVALID", "Outlook subscription does not need recovery"
                 )
+            if not same and watch.subscription_id and self._pending_for(watch):
+                raise OutlookError(
+                    "OUTLOOK_QUEUE_PENDING", "Finish queued notifications before recovery"
+                )
+            new_url = self.notification_url(connector_id)
+            if not same and new_url is None:
+                raise OutlookError(
+                    "OUTLOOK_ORIGIN_REQUIRED", "Configure a public HTTPS event origin"
+                )
+            found = await self._matching_remote(
+                token.access_token, credentials.client_id, watch.notification_url,
+            )
             if len(found) > 1:
                 raise OutlookError(
                     "OUTLOOK_SUBSCRIPTION_AMBIGUOUS",
                     "Multiple matching Graph subscriptions require manual review",
                 )
+            if not same:
+                if found:
+                    identifier = found[0].get("id")
+                    if not isinstance(identifier, str) or not _GRAPH_ID.fullmatch(identifier):
+                        raise OutlookError(
+                            "OUTLOOK_SUBSCRIPTION_INVALID", "Graph subscription ID is invalid",
+                            502,
+                        )
+                    try:
+                        await self.service._json(
+                            "DELETE", GRAPH_API + "/subscriptions/" + identifier,
+                            headers={"Authorization": f"Bearer {token.access_token}"},
+                        )
+                    except OutlookError as exc:
+                        if exc.code != "OUTLOOK_NOT_FOUND":
+                            raise
+                updated = OutlookWatch(
+                    connector_id=connector_id, connector_revision=token.connector_revision,
+                    tenant_id=tenant_id, user_id=token.user_id, email=token.email,
+                    notification_url=new_url, status="removed", gap=True,
+                    remote_unverified=not bool(found),
+                    updated_at=datetime.now(UTC),
+                )
+                self._save(updated)
+                self._enroll(trigger, updated)
+                assert self.service.connectors.vault is not None
+                self.service.connectors.vault.delete(_STATE_KEY + connector_id)
+                return self.status(connector_id, tenant_id, trigger)
             if found:
                 remote = found[0]
                 identifier = remote.get("id")

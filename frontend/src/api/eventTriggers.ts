@@ -54,6 +54,7 @@ export type OutlookSubscriptionView = {
   notification_url: string | null
   status: 'unconfigured' | 'not_registered' | 'attempting' | 'uncertain' | 'active' | 'expired' | 'stale' | 'removed' | 'changed'
   gap: boolean
+  remote_unverified: boolean
   subscription_id: string | null
   expiration_at: string | null
 }

@@ -73,7 +73,8 @@ beforeEach(() => {
   vi.mocked(getOutlookSubscription).mockResolvedValue({
     email: 'inbox@example.com',
     notification_url: 'https://events.example.com/api/connectors/outlook/outlook/notifications',
-    status: 'not_registered', gap: false, subscription_id: null, expiration_at: null,
+    status: 'not_registered', gap: false, remote_unverified: false,
+    subscription_id: null, expiration_at: null,
   })
 })
 
@@ -85,13 +86,15 @@ it('creates an Outlook trigger and manages its Graph subscription', async () => 
   vi.mocked(registerOutlookSubscription).mockResolvedValue({
     email: 'inbox@example.com',
     notification_url: 'https://events.example.com/api/connectors/outlook/outlook/notifications',
-    status: 'active', gap: false, subscription_id: 'subscription-1',
+    status: 'active', gap: false, remote_unverified: false,
+    subscription_id: 'subscription-1',
     expiration_at: '2026-09-30T00:00:00Z',
   })
   vi.mocked(stopOutlookSubscription).mockResolvedValue({
     email: 'inbox@example.com',
     notification_url: 'https://events.example.com/api/connectors/outlook/outlook/notifications',
-    status: 'not_registered', gap: false, subscription_id: null, expiration_at: null,
+    status: 'not_registered', gap: false, remote_unverified: false,
+    subscription_id: null, expiration_at: null,
   })
   render(<EventTriggersPanel projects={[project]} />)
   await screen.findByText('No event triggers in this project yet.')
@@ -126,12 +129,14 @@ it('reconciles an uncertain Outlook registration before allowing another attempt
   vi.mocked(getOutlookSubscription).mockResolvedValue({
     email: 'inbox@example.com',
     notification_url: 'https://events.example.com/api/connectors/outlook/outlook/notifications',
-    status: 'uncertain', gap: false, subscription_id: null, expiration_at: null,
+    status: 'uncertain', gap: false, remote_unverified: false,
+    subscription_id: null, expiration_at: null,
   })
   vi.mocked(reconcileOutlookSubscription).mockResolvedValue({
     email: 'inbox@example.com',
     notification_url: 'https://events.example.com/api/connectors/outlook/outlook/notifications',
-    status: 'active', gap: false, subscription_id: 'subscription-1',
+    status: 'active', gap: false, remote_unverified: false,
+    subscription_id: 'subscription-1',
     expiration_at: '2026-09-30T00:00:00Z',
   })
   render(<EventTriggersPanel projects={[project]} />)
@@ -144,6 +149,29 @@ it('reconciles an uncertain Outlook registration before allowing another attempt
     project.id, trigger.id,
   ))
   await screen.findByRole('button', { name: 'Register or renew Outlook subscription' })
+})
+
+it('shows an unresolved remote Outlook subscription after credentials change', async () => {
+  vi.mocked(listEventTriggers).mockResolvedValue([{ ...trigger, outlook_connector_id: 'outlook' }])
+  vi.mocked(getOutlookSubscription).mockResolvedValue({
+    email: 'inbox@example.com',
+    notification_url: 'https://events.example.com/api/connectors/outlook/outlook/notifications',
+    status: 'changed', gap: false, remote_unverified: false,
+    subscription_id: 'subscription-1', expiration_at: '2026-09-30T00:00:00Z',
+  })
+  vi.mocked(reconcileOutlookSubscription).mockResolvedValue({
+    email: 'inbox@example.com',
+    notification_url: 'https://events.example.com/api/connectors/outlook/outlook/notifications',
+    status: 'stale', gap: true, remote_unverified: true,
+    subscription_id: null, expiration_at: null,
+  })
+  render(<EventTriggersPanel projects={[project]} />)
+  await screen.findByText(/Outlook credentials, mailbox or callback changed/)
+  fireEvent.click(screen.getByRole('button', { name: 'Reconcile Outlook subscription with Graph' }))
+  await screen.findByText(/The previous Graph subscription could not be verified/)
+  expect(screen.getByRole('button', {
+    name: 'Register or renew Outlook subscription',
+  })).toBeInTheDocument()
 })
 
 it('creates a Gmail trigger and manages the shared mailbox watch', async () => {
