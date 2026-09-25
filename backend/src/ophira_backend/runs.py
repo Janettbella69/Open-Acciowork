@@ -12,7 +12,7 @@ from functools import wraps
 from typing import Protocol
 
 from .auth import AuthorizationError, ProjectAccessStore, ProjectPermission
-from .channel_delivery import ChannelDeliveryService, FeishuReplyTarget
+from .channel_delivery import ChannelDeliveryService, ChannelReplyTarget
 from .companion import CompanionError, CompanionStore
 from .companion_authorization import authorize_companion_project
 from .constants import (
@@ -522,7 +522,7 @@ class RunManager:
         skill_snapshot: list[dict[str, object]] | None = None,
         max_budget_usd: float | None = None,
         resolve_default_provider: bool = True,
-        channel_reply_target: FeishuReplyTarget | None = None,
+        channel_reply_target: ChannelReplyTarget | None = None,
         principal: PrincipalContext | PrincipalBinding | None = None,
     ) -> RunRecord:
         if (schedule_id is None) != (task_experience_config_hash is None):

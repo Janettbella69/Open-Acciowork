@@ -1,22 +1,24 @@
-"""Durable outbound channel replies for verified IM-originated runs (FR-24).
+"""Durable outbound channel replies for verified IM-originated runs (FR-24/38).
 
 The delivery ledger closes the crash gap between a terminal Agent run and the
-platform acknowledgement.  Feishu credentials and tenant tokens live only in
-the adapter; neither is persisted in this ledger or exposed to the Agent/event
-stream.
+platform acknowledgement. Credentials and tenant tokens live only in adapters;
+neither is persisted in this ledger or exposed to the Agent/event stream.
 """
 
 from __future__ import annotations
 
 import asyncio
+import fcntl
 import hashlib
 import json
 import logging
 import os
 import re
+import secrets
 import threading
 import time
 from collections.abc import Callable
+from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from email.utils import parsedate_to_datetime
 from enum import StrEnum
@@ -98,6 +100,23 @@ class FeishuReplyTarget(BaseModel):
         return self
 
 
+class DingTalkReplyTarget(BaseModel):
+    """Reply scope captured from an authenticated DingTalk Stream callback."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    channel: Literal["dingtalk"] = "dingtalk"
+    event_id: str = Field(min_length=1, max_length=200)
+    message_id: str = Field(min_length=1, max_length=200)
+    chat_id: str = Field(min_length=1, max_length=256)
+    chat_type: Literal["group", "p2p"]
+    sender_staff_id: str = Field(min_length=1, max_length=256)
+    robot_code: str = Field(min_length=1, max_length=160)
+
+
+ChannelReplyTarget = FeishuReplyTarget | DingTalkReplyTarget
+
+
 class DeliveryTransition(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -115,10 +134,10 @@ class ChannelDeliveryRecord(BaseModel):
     schema_version: Literal["1"] = "1"
     id: str = Field(pattern=r"^delivery_[a-f0-9]{40}$")
     idempotency_key: str = Field(min_length=1, max_length=50)
-    channel: Literal["feishu"] = "feishu"
+    channel: Literal["feishu", "dingtalk"] = "feishu"
     run_id: str = Field(min_length=1, max_length=160)
     project_id: str = Field(min_length=1, max_length=160)
-    target: FeishuReplyTarget
+    target: ChannelReplyTarget = Field(discriminator="channel")
     status: DeliveryStatus = DeliveryStatus.PENDING
     content: str | None = Field(default=None, max_length=MAX_CHANNEL_REPLY_CHARS)
     content_hash: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
@@ -130,7 +149,7 @@ class ChannelDeliveryRecord(BaseModel):
     last_attempt_at: datetime | None = None
     delivered_at: datetime | None = None
     external_message_id: str | None = Field(default=None, max_length=200)
-    external_chat_id: str | None = Field(default=None, max_length=200)
+    external_chat_id: str | None = Field(default=None, max_length=256)
     last_error_code: str | None = Field(default=None, max_length=120)
     last_error_detail: str | None = Field(default=None, max_length=500)
     history: list[DeliveryTransition] = Field(min_length=1, max_length=100)
@@ -139,6 +158,8 @@ class ChannelDeliveryRecord(BaseModel):
 
     @model_validator(mode="after")
     def coherent_state(self) -> ChannelDeliveryRecord:
+        if self.channel != self.target.channel:
+            raise ValueError("delivery channel does not match its target")
         timestamps = [self.created_at, self.updated_at]
         timestamps.extend(
             value
@@ -174,7 +195,10 @@ class FeishuReplyResult(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     message_id: str = Field(min_length=1, max_length=200)
-    chat_id: str | None = Field(default=None, max_length=200)
+    chat_id: str | None = Field(default=None, max_length=256)
+
+
+ChannelReplyResult = FeishuReplyResult
 
 
 class ChannelReplyAdapter(Protocol):
@@ -183,7 +207,7 @@ class ChannelReplyAdapter(Protocol):
 
     async def reply(
         self,
-        target: FeishuReplyTarget,
+        target: ChannelReplyTarget,
         text: str,
         *,
         idempotency_key: str,
@@ -198,8 +222,10 @@ def _safe_detail(value: str) -> str:
     return str(redact(value)).replace("\n", " ")[:500]
 
 
-def _delivery_identity(run_id: str, message_id: str) -> tuple[str, str]:
-    digest = hashlib.sha256(f"feishu-reply-v1\0{run_id}\0{message_id}".encode()).hexdigest()
+def _delivery_identity(run_id: str, target: ChannelReplyTarget) -> tuple[str, str]:
+    digest = hashlib.sha256(
+        f"{target.channel}-reply-v1\0{run_id}\0{target.message_id}".encode()
+    ).hexdigest()
     return f"delivery_{digest[:40]}", digest[:48]
 
 
@@ -214,6 +240,55 @@ class ChannelDeliveryStore:
         except OSError:
             pass
         self._lock = threading.RLock()
+        self._lock_state = threading.local()
+
+    @contextmanager
+    def _transaction(self):
+        with self._lock:
+            if getattr(self._lock_state, "depth", 0):
+                self._lock_state.depth += 1
+                try:
+                    yield
+                finally:
+                    self._lock_state.depth -= 1
+                return
+            descriptor = os.open(
+                self.root / ".deliveries.lock",
+                os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW | os.O_CLOEXEC,
+                0o600,
+            )
+            try:
+                fcntl.flock(descriptor, fcntl.LOCK_EX)
+                self._lock_state.depth = 1
+                try:
+                    yield
+                finally:
+                    self._lock_state.depth = 0
+                    fcntl.flock(descriptor, fcntl.LOCK_UN)
+            finally:
+                os.close(descriptor)
+
+    @contextmanager
+    def attempt_lease(self, delivery_id: str):
+        """Keep recovery off an active network attempt in another worker."""
+
+        descriptor = os.open(
+            self.root / f"{self._safe_id(delivery_id)}.attempt.lock",
+            os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW | os.O_CLOEXEC,
+            0o600,
+        )
+        try:
+            try:
+                fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                yield False
+            else:
+                try:
+                    yield True
+                finally:
+                    fcntl.flock(descriptor, fcntl.LOCK_UN)
+        finally:
+            os.close(descriptor)
 
     @staticmethod
     def _safe_id(value: str) -> str:
@@ -230,16 +305,20 @@ class ChannelDeliveryStore:
                 record.project_id, record.run_id,
             )
             path = self._path(record.id)
-            temporary = path.with_suffix(".json.tmp")
-            with temporary.open("w", encoding="utf-8") as handle:
-                handle.write(record.model_dump_json(indent=2) + "\n")
-                handle.flush()
-                os.fsync(handle.fileno())
+            temporary = path.with_name(f".{path.name}.{secrets.token_hex(12)}.tmp")
             try:
-                temporary.chmod(0o600)
-            except OSError:
-                pass
-            os.replace(temporary, path)
+                descriptor = os.open(
+                    temporary,
+                    os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_NOFOLLOW | os.O_CLOEXEC,
+                    0o600,
+                )
+                with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+                    handle.write(record.model_dump_json(indent=2) + "\n")
+                    handle.flush()
+                    os.fsync(handle.fileno())
+                os.replace(temporary, path)
+            finally:
+                temporary.unlink(missing_ok=True)
             try:
                 directory_fd = os.open(self.root, os.O_RDONLY)
                 try:
@@ -252,14 +331,14 @@ class ChannelDeliveryStore:
     def bind_run(
         self,
         run: RunRecord,
-        target: FeishuReplyTarget,
+        target: ChannelReplyTarget,
         *,
         max_attempts: int,
         now: datetime | None = None,
     ) -> ChannelDeliveryRecord:
         moment = (now or utc_now()).astimezone(UTC)
-        delivery_id, idempotency_key = _delivery_identity(run.id, target.message_id)
-        with self._lock:
+        delivery_id, idempotency_key = _delivery_identity(run.id, target)
+        with self._transaction():
             path = self._path(delivery_id)
             if path.exists():
                 existing = self.get(delivery_id)
@@ -273,6 +352,7 @@ class ChannelDeliveryStore:
             record = ChannelDeliveryRecord(
                 id=delivery_id,
                 idempotency_key=idempotency_key,
+                channel=target.channel,
                 run_id=run.id,
                 project_id=run.project_id,
                 target=target,
@@ -296,7 +376,10 @@ class ChannelDeliveryStore:
         if not path.is_file() or path.is_symlink():
             raise DeliveryLedgerError("delivery record not found")
         try:
-            return ChannelDeliveryRecord.model_validate_json(path.read_text(encoding="utf-8"))
+            record = ChannelDeliveryRecord.model_validate_json(path.read_text(encoding="utf-8"))
+            if record.id != delivery_id:
+                raise ValueError("delivery filename does not match its record")
+            return record
         except (OSError, ValueError) as exc:
             raise DeliveryLedgerError("delivery record failed validation") from exc
 
@@ -315,6 +398,8 @@ class ChannelDeliveryStore:
                 if path.is_symlink():
                     raise ValueError("symlink delivery record")
                 record = ChannelDeliveryRecord.model_validate_json(path.read_text(encoding="utf-8"))
+                if path.name != f"{record.id}.json":
+                    raise ValueError("delivery filename does not match its record")
                 if not ProjectLifecycle(self.root.parent).has_deletion(record.project_id):
                     records.append(record)
             except (OSError, ValueError) as exc:
@@ -332,7 +417,7 @@ class ChannelDeliveryStore:
     ) -> ChannelDeliveryRecord:
         normalized = _bounded_reply(content)
         moment = (now or utc_now()).astimezone(UTC)
-        with self._lock:
+        with self._transaction():
             record = self.get(delivery_id)
             if record.content is not None and record.content != normalized:
                 raise DeliveryLedgerError("terminal run result changed after delivery was queued")
@@ -356,7 +441,7 @@ class ChannelDeliveryStore:
         now: datetime | None = None,
     ) -> ChannelDeliveryRecord | None:
         moment = (now or utc_now()).astimezone(UTC)
-        with self._lock:
+        with self._transaction():
             record = self.get(delivery_id)
             eligible = record.status == DeliveryStatus.PENDING or (
                 record.status == DeliveryStatus.FAILED and record.retryable
@@ -367,6 +452,12 @@ class ChannelDeliveryStore:
                 or (record.next_attempt_at is not None and record.next_attempt_at > moment)
             ):
                 return None
+            if (
+                record.channel == "feishu"
+                and record.first_attempt_at is not None
+                and moment - record.first_attempt_at >= FEISHU_IDEMPOTENCY_WINDOW
+            ):
+                return self._terminal_idempotency_expired(record, moment)
             if record.attempt_count >= record.max_attempts:
                 return self._terminal_exhausted(record, moment)
             attempt = record.attempt_count + 1
@@ -401,7 +492,7 @@ class ChannelDeliveryStore:
         now: datetime | None = None,
     ) -> ChannelDeliveryRecord:
         moment = (now or utc_now()).astimezone(UTC)
-        with self._lock:
+        with self._transaction():
             record = self.get(delivery_id)
             if record.status == DeliveryStatus.DELIVERED:
                 return record
@@ -440,7 +531,7 @@ class ChannelDeliveryStore:
         now: datetime | None = None,
     ) -> ChannelDeliveryRecord:
         moment = (now or utc_now()).astimezone(UTC)
-        with self._lock:
+        with self._transaction():
             record = self.get(delivery_id)
             if record.status != DeliveryStatus.ATTEMPTING:
                 raise DeliveryLedgerError("only an attempting delivery can fail")
@@ -474,13 +565,33 @@ class ChannelDeliveryStore:
             return updated
 
     def recover_attempting(self, *, now: datetime | None = None) -> list[ChannelDeliveryRecord]:
-        """Make crash-interrupted attempts retryable while Feishu's UUID remains safe."""
+        """Replay Feishu within its UUID window; quarantine ambiguous DingTalk sends."""
 
         moment = (now or utc_now()).astimezone(UTC)
         recovered: list[ChannelDeliveryRecord] = []
-        with self._lock:
-            for record in self.list():
+        for snapshot in self.list():
+            if snapshot.status != DeliveryStatus.ATTEMPTING:
+                continue
+            with self.attempt_lease(snapshot.id) as available:
+                if not available:
+                    continue
+                record = self.get(snapshot.id)
                 if record.status != DeliveryStatus.ATTEMPTING:
+                    continue
+                if record.channel == "dingtalk":
+                    recovered.append(
+                        self.mark_failed(
+                            record.id,
+                            code="UNCERTAIN_OUTCOME",
+                            detail=(
+                                "DingTalk send was interrupted before acknowledgement; "
+                                "inspect the conversation before a new manual send."
+                            ),
+                            retryable=False,
+                            retry_delay_seconds=None,
+                            now=moment,
+                        )
+                    )
                     continue
                 if (
                     record.first_attempt_at is not None
@@ -544,6 +655,36 @@ class ChannelDeliveryStore:
                         at=moment,
                         attempt=record.attempt_count,
                         code="RETRY_EXHAUSTED",
+                    ),
+                ],
+                "updated_at": moment,
+            }
+        )
+        self._write(updated)
+        return updated
+
+    def _terminal_idempotency_expired(
+        self,
+        record: ChannelDeliveryRecord,
+        moment: datetime,
+    ) -> ChannelDeliveryRecord:
+        updated = record.model_copy(
+            update={
+                "status": DeliveryStatus.FAILED,
+                "retryable": False,
+                "next_attempt_at": None,
+                "last_error_code": "IDEMPOTENCY_WINDOW_EXPIRED",
+                "last_error_detail": (
+                    "Feishu's one-hour deduplication window expired before replay; "
+                    "inspect the conversation before a new manual send."
+                ),
+                "history": [
+                    *record.history,
+                    DeliveryTransition(
+                        status=DeliveryStatus.FAILED,
+                        at=moment,
+                        attempt=record.attempt_count,
+                        code="IDEMPOTENCY_WINDOW_EXPIRED",
                     ),
                 ],
                 "updated_at": moment,
@@ -790,7 +931,7 @@ def _bounded_reply(text: str) -> str:
 
 
 class ChannelDeliveryService:
-    """Queues terminal Run results and retries durable Feishu delivery obligations."""
+    """Queues terminal Run results and dispatches durable channel obligations."""
 
     def __init__(
         self,
@@ -798,6 +939,7 @@ class ChannelDeliveryService:
         store: ChannelDeliveryStore,
         adapter: ChannelReplyAdapter,
         *,
+        dingtalk_adapter: ChannelReplyAdapter | None = None,
         enabled: Callable[[], bool] | None = None,
         max_attempts: int = 4,
         retry_base_seconds: float = 2.0,
@@ -807,6 +949,7 @@ class ChannelDeliveryService:
         self.ledger = ledger
         self.store = store
         self.adapter = adapter
+        self.dingtalk_adapter = dingtalk_adapter
         self.enabled = enabled or (lambda: True)
         self.max_attempts = max_attempts
         self.retry_base_seconds = retry_base_seconds
@@ -818,7 +961,11 @@ class ChannelDeliveryService:
     def configured(self) -> bool:
         return self.adapter.configured
 
-    def bind_run(self, run: RunRecord, target: FeishuReplyTarget) -> ChannelDeliveryRecord:
+    def configured_for(self, channel: Literal["feishu", "dingtalk"]) -> bool:
+        adapter = self.adapter if channel == "feishu" else self.dingtalk_adapter
+        return adapter is not None and adapter.configured
+
+    def bind_run(self, run: RunRecord, target: ChannelReplyTarget) -> ChannelDeliveryRecord:
         return self.store.bind_run(run, target, max_attempts=self.max_attempts)
 
     async def start(self) -> None:
@@ -909,7 +1056,10 @@ class ChannelDeliveryService:
         record = self.store.get(delivery_id)
         try:
             with self.ledger.lifecycle.lease(record.project_id):
-                return await self._attempt_owned(delivery_id, now=now)
+                with self.store.attempt_lease(delivery_id) as available:
+                    if not available:
+                        return self.store.get(delivery_id)
+                    return await self._attempt_owned(delivery_id, now=now)
         except (ProjectUnavailableError, ProjectLifecycleBusyError):
             return record
 
@@ -931,17 +1081,18 @@ class ChannelDeliveryService:
                 retry_delay_seconds=None,
                 now=moment,
             )
-        if not self.adapter.configured:
+        adapter = self.adapter if claimed.channel == "feishu" else self.dingtalk_adapter
+        if adapter is None or not adapter.configured:
             return self.store.mark_failed(
                 delivery_id,
                 code="CHANNEL_NOT_CONFIGURED",
-                detail="Feishu app credentials are not configured.",
+                detail=f"{claimed.channel} app credentials are not configured.",
                 retryable=False,
                 retry_delay_seconds=None,
                 now=moment,
             )
         try:
-            result = await self.adapter.reply(
+            result = await adapter.reply(
                 claimed.target,
                 claimed.content or "",
                 idempotency_key=claimed.idempotency_key,
@@ -965,7 +1116,7 @@ class ChannelDeliveryService:
                 delivery_id,
                 code="ADAPTER_EXCEPTION",
                 detail=f"Channel adapter raised {type(exc).__name__}.",
-                retryable=True,
+                retryable=claimed.channel == "feishu",
                 retry_delay_seconds=min(
                     self.retry_max_seconds,
                     self.retry_base_seconds * (2 ** max(0, claimed.attempt_count - 1)),

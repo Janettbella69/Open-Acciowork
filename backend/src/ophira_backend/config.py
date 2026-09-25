@@ -194,6 +194,12 @@ class Settings(BaseSettings):
     feishu_delivery_retry_base_seconds: float = Field(default=2, ge=0.1, le=3_600)
     feishu_delivery_retry_max_seconds: float = Field(default=60, ge=0.1, le=3_600)
     feishu_delivery_worker_interval_seconds: float = Field(default=5, ge=0.1, le=300)
+    # DingTalk Stream authenticates inbound callbacks with the app credential.
+    # robot_code is matched against each callback before a Run is created.
+    dingtalk_app_key: str | None = Field(default=None, max_length=160)
+    dingtalk_app_secret: SecretStr | None = Field(default=None, max_length=512)
+    dingtalk_robot_code: str | None = Field(default=None, max_length=160)
+    dingtalk_delivery_timeout_seconds: float = Field(default=15, ge=1, le=120)
     # Shared only with the trusted authentication gateway. It is deliberately
     # shadowed out of every Claude Agent SDK worker environment.
     commercial_approval_secret: SecretStr | None = Field(
@@ -232,6 +238,9 @@ class Settings(BaseSettings):
         "feishu_bot_open_id",
         "feishu_app_id",
         "feishu_app_secret",
+        "dingtalk_app_key",
+        "dingtalk_app_secret",
+        "dingtalk_robot_code",
         "push_vapid_private_key",
         "push_vapid_subject",
         mode="before",
@@ -252,6 +261,23 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def trusted_gateway_requires_a_signing_secret(self) -> Settings:
+        dingtalk_fields = (
+            self.dingtalk_app_key,
+            self.dingtalk_app_secret,
+            self.dingtalk_robot_code,
+        )
+        if any(value is not None for value in dingtalk_fields) and not all(
+            value is not None for value in dingtalk_fields
+        ):
+            raise ValueError(
+                "DingTalk Stream requires OPHIRA_DINGTALK_APP_KEY, "
+                "OPHIRA_DINGTALK_APP_SECRET and OPHIRA_DINGTALK_ROBOT_CODE"
+            )
+        if (
+            all(value is not None for value in dingtalk_fields)
+            and self.auth_mode != "trusted_gateway"
+        ):
+            raise ValueError("DingTalk Stream requires trusted_gateway identity bindings")
         if len(self.push_allowed_origins) > 20:
             raise ValueError("at most 20 push service origins may be configured")
         self.push_allowed_origins = [companion_origin(item) for item in self.push_allowed_origins]

@@ -716,6 +716,9 @@ def test_sdk_key_is_passed_to_subprocess_without_entering_events(tmp_path: Path)
     assert options.env["OPHIRA_FEISHU_APP_ID"] == ""
     assert options.env["OPHIRA_FEISHU_APP_SECRET"] == ""
     assert options.env["OPHIRA_FEISHU_ENCRYPT_KEY"] == ""
+    assert options.env["OPHIRA_DINGTALK_APP_KEY"] == ""
+    assert options.env["OPHIRA_DINGTALK_APP_SECRET"] == ""
+    assert options.env["OPHIRA_DINGTALK_ROBOT_CODE"] == ""
     assert ledger.list_events(run.id) == []
 
 
@@ -797,6 +800,9 @@ def test_sdk_uses_anthropic_compatible_gateway_configuration(tmp_path: Path) -> 
         "OPHIRA_FEISHU_APP_ID": "",
         "OPHIRA_FEISHU_APP_SECRET": "",
         "OPHIRA_FEISHU_ENCRYPT_KEY": "",
+        "OPHIRA_DINGTALK_APP_KEY": "",
+        "OPHIRA_DINGTALK_APP_SECRET": "",
+        "OPHIRA_DINGTALK_ROBOT_CODE": "",
         "OPHIRA_PUSH_VAPID_PRIVATE_KEY": "",
     }
     assert ledger.list_events(run.id) == []

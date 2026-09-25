@@ -438,6 +438,26 @@ async def test_expired_ambiguous_attempt_stops_before_duplicate_reply(tmp_path: 
     assert calls == []
 
 
+def test_retryable_feishu_failure_expires_before_a_late_replay(tmp_path: Path) -> None:
+    ledger, run = ledger_run(tmp_path)
+    store = ChannelDeliveryStore(tmp_path / "deliveries")
+    record = store.bind_run(run, target(), max_attempts=4, now=NOW)
+    store.attach_result(record.id, "final", now=NOW)
+    assert store.claim_due(record.id, now=NOW) is not None
+    store.mark_failed(
+        record.id, code="NETWORK_ERROR", detail="unknown outcome", retryable=True,
+        retry_delay_seconds=2, now=NOW,
+    )
+
+    expired = store.claim_due(record.id, now=NOW + FEISHU_IDEMPOTENCY_WINDOW)
+
+    assert expired is not None
+    assert expired.status == DeliveryStatus.FAILED
+    assert expired.retryable is False
+    assert expired.last_error_code == "IDEMPOTENCY_WINDOW_EXPIRED"
+    assert store.due(now=NOW + FEISHU_IDEMPOTENCY_WINDOW) == []
+
+
 @pytest.mark.asyncio
 async def test_unconfigured_and_policy_disabled_delivery_are_honest_terminal_states(
     tmp_path: Path,

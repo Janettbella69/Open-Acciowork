@@ -62,6 +62,7 @@ from .channel_identity import (
     ChannelIdentityError,
     ChannelIdentityIntegrityError,
     ChannelIdentityNotFoundError,
+    DingTalkIdentityBindingCreate,
     FeishuIdentityBinding,
     FeishuIdentityBindingCreate,
     FeishuIdentityBindingStore,
@@ -123,6 +124,8 @@ from .constants import (
 )
 from .conversation_deletion import ConversationDeletionService
 from .conversation_deletion_api import register_conversation_deletion_routes
+from .dingtalk_channel import DingTalkChannel
+from .dingtalk_delivery import DingTalkReplyAdapter
 from .durable_permissions import DurablePermissionConflict
 from .event_triggers import (
     MAX_EVENT_BODY_BYTES,
@@ -377,6 +380,7 @@ def _create_app(
     runtime: AgentRuntime | None = None,
     channel_reply_adapter: ChannelReplyAdapter | None = None,
     push_adapter: WebPushAdapter | None = None,
+    dingtalk_reply_adapter: ChannelReplyAdapter | None = None,
 ) -> FastAPI:
     settings = settings or get_settings()
     ledger = FileLedger(settings.data_dir, ingest_config=IngestConfig.from_settings(settings))
@@ -405,12 +409,18 @@ def _create_app(
         settings.data_dir / "channels" / "feishu-bindings",
         project_access,
     )
+    dingtalk_identity_bindings = FeishuIdentityBindingStore(
+        settings.data_dir / "channels" / "dingtalk-bindings",
+        project_access,
+        channel="dingtalk",
+    )
     channel_replays = ChannelReplayGuard(settings.data_dir / "channels" / "replays.json")
     event_triggers = EventTriggerStore(ledger)
     channel_delivery = ChannelDeliveryService(
         ledger,
         ChannelDeliveryStore(settings.data_dir / "channel-deliveries"),
         channel_reply_adapter or FeishuReplyAdapter(settings),
+        dingtalk_adapter=dingtalk_reply_adapter or DingTalkReplyAdapter(settings),
         enabled=lambda: policy.get().channel_delivery_enabled,
         max_attempts=settings.feishu_delivery_max_attempts,
         retry_base_seconds=settings.feishu_delivery_retry_base_seconds,
@@ -498,6 +508,10 @@ def _create_app(
         companions=companions,
         user_mcp=user_mcp,
     )
+    dingtalk_channel = DingTalkChannel(
+        settings, dingtalk_identity_bindings, channel_replays,
+        channel_delivery, runs, policy,
+    )
     scheduler = ScheduleService(
         ledger,
         runs,
@@ -520,19 +534,23 @@ def _create_app(
         feedback.reconcile_terminal(ledger)
         await channel_delivery.start()
         try:
-            await scheduler.start()
+            await dingtalk_channel.start()
             try:
-                await intent_watcher.start()
+                await scheduler.start()
                 try:
-                    await companion_push.start()
+                    await intent_watcher.start()
                     try:
-                        yield
+                        await companion_push.start()
+                        try:
+                            yield
+                        finally:
+                            await companion_push.stop()
                     finally:
-                        await companion_push.stop()
+                        await intent_watcher.stop()
                 finally:
-                    await intent_watcher.stop()
+                    await scheduler.stop()
             finally:
-                await scheduler.stop()
+                await dingtalk_channel.stop()
         finally:
             try:
                 await runs.stop()
@@ -570,6 +588,8 @@ def _create_app(
     application.state.authenticator = authenticator
     application.state.project_access = project_access
     application.state.channel_identity_bindings = channel_identity_bindings
+    application.state.dingtalk_identity_bindings = dingtalk_identity_bindings
+    application.state.dingtalk_channel = dingtalk_channel
     application.state.event_triggers = event_triggers
     application.state.commercial_actions = commercial_actions
     application.state.commercial_action_adapter = commercial_action_adapter
@@ -2769,7 +2789,7 @@ def _create_app(
         except (LedgerNotFoundError, ValueError) as exc:
             raise HTTPException(status_code=404, detail="Project not found") from exc
 
-    def require_feishu_binding_admin(request: Request) -> PrincipalContext:
+    def require_channel_binding_admin(request: Request) -> PrincipalContext:
         principal = _request_principal(request)
         if principal is None or principal.role not in {
             PrincipalRole.OWNER,
@@ -2789,7 +2809,7 @@ def _create_app(
         request: Request,
         include_revoked: bool = False,
     ) -> list[FeishuIdentityBinding]:
-        principal = require_feishu_binding_admin(request)
+        principal = require_channel_binding_admin(request)
         try:
             return channel_identity_bindings.list_for_tenant(
                 principal.tenant_id,
@@ -2810,7 +2830,7 @@ def _create_app(
         request: Request,
         payload: FeishuIdentityBindingCreate,
     ) -> FeishuIdentityBinding:
-        principal = require_feishu_binding_admin(request)
+        principal = require_channel_binding_admin(request)
         try:
             return channel_identity_bindings.create(payload, actor=principal)
         except ChannelIdentityNotFoundError as exc:
@@ -2836,7 +2856,7 @@ def _create_app(
         request: Request,
         binding_id: str,
     ) -> FeishuIdentityBinding:
-        principal = require_feishu_binding_admin(request)
+        principal = require_channel_binding_admin(request)
         try:
             return channel_identity_bindings.get_for_tenant(
                 binding_id,
@@ -2858,7 +2878,7 @@ def _create_app(
         request: Request,
         binding_id: str,
     ) -> FeishuIdentityBinding:
-        principal = require_feishu_binding_admin(request)
+        principal = require_channel_binding_admin(request)
         try:
             return channel_identity_bindings.revoke(binding_id, actor=principal)
         except ChannelIdentityConflictError as exc:
@@ -2874,6 +2894,93 @@ def _create_app(
             raise HTTPException(
                 status_code=500,
                 detail="Channel identity binding could not be revoked",
+            ) from exc
+
+    @application.get(
+        "/api/channels/dingtalk/bindings",
+        response_model=list[FeishuIdentityBinding],
+    )
+    async def list_dingtalk_identity_bindings(
+        request: Request,
+        include_revoked: bool = False,
+    ) -> list[FeishuIdentityBinding]:
+        principal = require_channel_binding_admin(request)
+        try:
+            return dingtalk_identity_bindings.list_for_tenant(
+                principal.tenant_id, include_revoked=include_revoked,
+            )
+        except ChannelIdentityIntegrityError as exc:
+            raise HTTPException(
+                status_code=500, detail="Channel identity binding integrity validation failed",
+            ) from exc
+
+    @application.post(
+        "/api/channels/dingtalk/bindings",
+        response_model=FeishuIdentityBinding,
+        status_code=status.HTTP_201_CREATED,
+    )
+    async def create_dingtalk_identity_binding(
+        request: Request,
+        payload: DingTalkIdentityBindingCreate,
+    ) -> FeishuIdentityBinding:
+        principal = require_channel_binding_admin(request)
+        try:
+            return dingtalk_identity_bindings.create(payload, actor=principal)
+        except ChannelIdentityNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="Project binding target not found") from exc
+        except (ChannelIdentityConflictError, ChannelIdentityAmbiguousError) as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except AuthorizationError as exc:
+            raise HTTPException(
+                status_code=403,
+                detail="Principal is not authorized to create this channel binding",
+            ) from exc
+        except ChannelIdentityError as exc:
+            raise HTTPException(
+                status_code=500, detail="Channel identity binding could not be persisted",
+            ) from exc
+
+    @application.get(
+        "/api/channels/dingtalk/bindings/{binding_id}",
+        response_model=FeishuIdentityBinding,
+    )
+    async def get_dingtalk_identity_binding(
+        request: Request, binding_id: str,
+    ) -> FeishuIdentityBinding:
+        principal = require_channel_binding_admin(request)
+        try:
+            return dingtalk_identity_bindings.get_for_tenant(
+                binding_id, principal.tenant_id,
+            )
+        except ChannelIdentityNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="Channel binding not found") from exc
+        except ChannelIdentityIntegrityError as exc:
+            raise HTTPException(
+                status_code=500, detail="Channel identity binding integrity validation failed",
+            ) from exc
+
+    @application.delete(
+        "/api/channels/dingtalk/bindings/{binding_id}",
+        response_model=FeishuIdentityBinding,
+    )
+    async def revoke_dingtalk_identity_binding(
+        request: Request, binding_id: str,
+    ) -> FeishuIdentityBinding:
+        principal = require_channel_binding_admin(request)
+        try:
+            return dingtalk_identity_bindings.revoke(binding_id, actor=principal)
+        except ChannelIdentityConflictError as exc:
+            raise HTTPException(status_code=409, detail="Project is busy; retry shortly") from exc
+        except ChannelIdentityNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="Channel binding not found") from exc
+        except AuthorizationError as exc:
+            raise HTTPException(
+                status_code=403,
+                detail="Principal is not authorized to revoke this channel binding",
+            ) from exc
+        except ChannelIdentityIntegrityError as exc:
+            raise HTTPException(
+                status_code=500, detail="Channel identity binding could not be revoked",
             ) from exc
 
     @application.get(
@@ -3519,6 +3626,7 @@ def create_app(
     runtime: AgentRuntime | None = None,
     channel_reply_adapter: ChannelReplyAdapter | None = None,
     push_adapter: WebPushAdapter | None = None,
+    dingtalk_reply_adapter: ChannelReplyAdapter | None = None,
 ) -> FastAPI:
     settings = settings or get_settings()
     # Match FileLedger's established canonical root, including macOS /var
@@ -3528,7 +3636,9 @@ def create_app(
     # Construction also creates/migrates stores and therefore participates in
     # the same lease as the entire serving/startup/shutdown lifespan.
     with data_directory_lease(root):
-        return _create_app(settings, runtime, channel_reply_adapter, push_adapter)
+        return _create_app(
+            settings, runtime, channel_reply_adapter, push_adapter, dingtalk_reply_adapter,
+        )
 
 
 def _parse_last_event_id(value: str | None, run_id: str) -> int:

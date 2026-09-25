@@ -2110,7 +2110,7 @@ class ConstraintAppend(APIModel):
 
 
 class ChannelInbound(APIModel):
-    channel: Literal["feishu", "wechat", "webhook"] = "webhook"
+    channel: Literal["feishu", "dingtalk", "wechat", "webhook"] = "webhook"
     text: str = Field(min_length=1, max_length=40_000)
     project_id: str | None = None
     sender: str = Field(default="channel", max_length=160)

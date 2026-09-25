@@ -278,6 +278,34 @@ query-selected or first-project fallback in trusted mode. This local identity cl
 does not change the `multi_tenant: false` deployment truth or substitute for a
 real-tenant Feishu E2E.
 
+### DingTalk Stream channel (FR-38, local integration)
+
+Install the [official Stream SDK](https://github.com/open-dingtalk/dingtalk-stream-sdk-python)
+with `pip install -e './backend[dev,dingtalk]'`.
+Configure a DingTalk enterprise app with an internal bot, message-send permission,
+and Stream callback mode. Set `OPHIRA_DINGTALK_APP_KEY`,
+`OPHIRA_DINGTALK_APP_SECRET`, and `OPHIRA_DINGTALK_ROBOT_CODE` together. This
+channel requires `trusted_gateway` mode and an administrator-created exact
+corporation/conversation/staff mapping through
+`GET|POST /api/channels/dingtalk/bindings` and
+`GET|DELETE /api/channels/dingtalk/bindings/{binding_id}`. The SDK owns the
+authenticated WebSocket and reconnects; there is no public DingTalk inbound route.
+Only direct text messages and group text messages that @ the bot start a Run.
+The binding's current project role and organization channel policy are checked
+before dispatch. App credentials are excluded from Agent worker environments.
+
+The terminal Run result is sent through the official robot
+[group](https://s.apifox.cn/apidoc/docs-site/467052/api-140274320) or
+[direct](https://s.apifox.cn/apidoc/docs-site/467052/api-140273128)
+message API to the captured conversation/user. A successful OpenAPI response
+records its `processQueryKey` as DingTalk acceptance; real recipient delivery
+still needs tenant verification. Since these send APIs document no idempotency
+field, an interrupted or ambiguous send becomes a terminal `UNCERTAIN_OUTCOME`
+or `NETWORK_ERROR` ledger record. Inspect the conversation before manually
+resending. Local tests cover SDK callback registration, binding/revocation,
+replay, request payloads, and crash recovery. A real DingTalk tenant E2E,
+WeChat, and WeCom remain outstanding.
+
 Configure a model endpoint either via `backend/.env` (see `.env.example`; the values
 bootstrap an `environment` provider profile) or through the Settings page / Provider API,
 which stores profiles in `backend/data/providers/` and keys in the mode-0600 vault at
