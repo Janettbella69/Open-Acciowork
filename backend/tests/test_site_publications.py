@@ -347,9 +347,14 @@ async def test_site_zip_assets_are_pinned_previewed_published_and_revoked(tmp_pa
         assert (await managed("GET", f"{base}/{site_id}/preview")).status_code == 404
         preview_path = f"{base}/{site_id}/preview/"
         preview = await managed("GET", preview_path)
-        assert preview.status_code == 200
-        assert preview.content == SITE_HTML
-        assert "preview/assets/" in preview.headers["content-security-policy"]
+        assert preview.status_code == 307
+        token_path = preview.headers["location"]
+        assert token_path.startswith(f"/api/site-previews/{project_id}/{site_id}/")
+        private_preview = await client.get(token_path)
+        assert private_preview.status_code == 200
+        assert private_preview.content == SITE_HTML
+        assert token_path + "assets/" in private_preview.headers["content-security-policy"]
+        assert "allow-same-origin" not in private_preview.headers["content-security-policy"]
         draft_css = await managed("GET", preview_path + "assets/site.css")
         assert draft_css.content == SITE_CSS
         assert draft_css.headers["content-type"].startswith("text/css")
@@ -359,11 +364,29 @@ async def test_site_zip_assets_are_pinned_previewed_published_and_revoked(tmp_pa
         draft_png = await managed("GET", preview_path + "assets/logo.png")
         assert draft_png.content == SITE_PNG
         assert (await managed("GET", preview_path + "assets/missing.css")).status_code == 404
+        token_js = await client.get(token_path + "assets/site.js", headers={"Origin": "null"})
+        assert token_js.status_code == 200
+        assert token_js.content == SITE_JS
+        assert token_js.headers["access-control-allow-origin"] == "null"
+        assert token_js.headers["vary"] == "Origin"
+        assert (await client.get(
+            token_path + "assets/site.js", headers={"Origin": "https://evil.example"},
+        )).headers.get("access-control-allow-origin") is None
+        assert (await client.get(
+            token_path + "assets/site.css", headers={"Origin": "null"},
+        )).headers.get("access-control-allow-origin") is None
+        altered = token_path[:-2] + ("0" if token_path[-2] != "0" else "1") + "/"
+        assert (await client.get(altered)).status_code == 404
+        assert (await client.get(
+            "https://pages.example.com" + token_path,
+        )).status_code == 404
         approved = await managed("POST", f"{base}/{site_id}/publish", json={
             "expected_revision": 1, "expected_checksum": artifact["checksum"],
             "expected_allow_scripts": True, "confirmation": "publish",
         })
         assert approved.status_code == 200, approved.text
+        assert (await client.get(token_path)).status_code == 404
+        assert (await client.get(token_path + "assets/site.js")).status_code == 404
         page = await client.get(public_url)
         assert page.status_code == 200
         assert page.content == SITE_HTML
@@ -373,6 +396,10 @@ async def test_site_zip_assets_are_pinned_previewed_published_and_revoked(tmp_pa
         assert css.content == SITE_CSS
         assert css.headers["x-content-type-options"] == "nosniff"
         assert (await client.get(public_url + "assets/site.js")).content == SITE_JS
+        public_module = await client.get(
+            public_url + "assets/site.js", headers={"Origin": "null"},
+        )
+        assert public_module.headers["access-control-allow-origin"] == "null"
         assert (await client.get(public_url + "assets/logo.png")).content == SITE_PNG
         assert (await client.get(public_url + "assets/missing.css")).status_code == 404
         assert (await client.get(
@@ -390,6 +417,67 @@ async def test_site_zip_assets_are_pinned_previewed_published_and_revoked(tmp_pa
         })
         assert revoked.status_code == 200
         assert (await client.get(public_url + "assets/site.css")).status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_module_preview_capability_expires_and_is_bound_to_control_host(
+    tmp_path: Path, monkeypatch,
+):
+    app = create_app(Settings(
+        data_dir=tmp_path, auth_mode="trusted_gateway",
+        trusted_gateway_auth_secret=GATEWAY_SECRET,
+        trusted_gateway_tenant_id="tenant_sites",
+        site_public_origin="https://pages.example.com",
+    ), runtime=FakeRuntime())
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="https://gateway.example.com",
+    ) as client:
+        async def managed(method: str, path: str, **kwargs):
+            return await client.request(
+                method, path, headers=gateway_headers(method, path), **kwargs,
+            )
+
+        created = await managed("POST", "/api/projects", json={
+            "name": "Module draft", "objective": "Review modules",
+        })
+        project_id = created.json()["id"]
+        workspace = app.state.ledger.workspace_for_project(project_id)
+        (workspace / "module.zip").write_bytes(site_zip())
+        artifact = app.state.ledger.register_artifact(project_id, "module.zip")
+        base = f"/api/projects/{project_id}/site-publications"
+        staged = await managed("POST", base, json={
+            "artifact_id": artifact.id, "allow_scripts": True,
+        })
+        site_id = staged.json()["publication"]["id"]
+        preview = await managed("GET", f"{base}/{site_id}/preview/")
+        assert preview.status_code == 307
+        token_path = preview.headers["location"]
+        assert (await client.get(token_path)).status_code == 200
+        assert (await client.get(
+            "https://alias.example.com" + token_path,
+        )).status_code == 404
+        expiry_hex = token_path.split("/")[-2].split(".", 1)[0]
+        expires_at = int(expiry_hex, 16)
+        monkeypatch.setattr(
+            "ophira_backend.site_publication_routes.time.time",
+            lambda: expires_at,
+        )
+        assert (await client.get(token_path)).status_code == 404
+        assert (await client.get(token_path + "assets/site.js")).status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_local_only_mode_does_not_expose_preview_capability_path(tmp_path: Path):
+    app = create_app(Settings(data_dir=tmp_path), runtime=FakeRuntime())
+    path = (
+        "/api/site-previews/project_test/site_" + "a" * 32 + "/"
+        + "0" * 16 + "." + "b" * 64 + "/"
+    )
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://127.0.0.1:8000",
+    ) as client:
+        response = await client.get(path, headers={"X-Forwarded-For": "203.0.113.5"})
+        assert response.status_code == 403
 
 
 @pytest.mark.parametrize("entries", [

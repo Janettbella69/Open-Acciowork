@@ -788,6 +788,23 @@ def _create_app(
                 return response
         if not (path == "/api" or path.startswith("/api/")):
             return await call_next(request)
+        # The authenticated bundle preview redirects into a short-lived,
+        # revision-bound read capability. Sandboxed asset requests can have an
+        # opaque origin and lack the control-plane session cookie.
+        if (
+            settings.auth_mode == "trusted_gateway"
+            and settings.site_public_origin is not None
+            and request.method == "GET"
+            and re.fullmatch(
+                r"/api/site-previews/[A-Za-z0-9_-]{1,200}/site_[0-9a-f]{32}/"
+                r"[0-9a-f]{16}\.[0-9a-f]{64}"
+                r"/(?:|assets/[A-Za-z0-9][A-Za-z0-9._-]{0,127})",
+                path,
+            )
+        ):
+            response = await call_next(request)
+            response.headers["Cache-Control"] = "no-store, max-age=0"
+            return response
         # This is a deliberately separate, project-scoped device API. Its cookie
         # is NEVER accepted by the normal control-plane routes below.
         if path == "/api/companion" or path.startswith("/api/companion/"):

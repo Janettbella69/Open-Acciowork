@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import re
+import time
 from urllib.parse import urlsplit
 
 from fastapi import HTTPException, Request, Response
+from fastapi.responses import RedirectResponse
 from starlette.concurrency import run_in_threadpool
 
 from .auth import ProjectPermission
@@ -31,6 +35,8 @@ _PAGE_CSP = (
 _SCRIPT_CSP = _PAGE_CSP.replace("sandbox;", "sandbox allow-scripts;").replace(
     "script-src 'none'", "script-src 'unsafe-inline'",
 )
+PREVIEW_TOKEN_TTL_SECONDS = 300
+_PREVIEW_TOKEN = re.compile(r"[0-9a-f]{16}\.[0-9a-f]{64}")
 
 
 def _page_headers(
@@ -59,25 +65,36 @@ def _page_headers(
     }
 
 
-def _asset_source(request: Request, project_id: str, site_id: str, *, preview: bool) -> str:
+def _asset_source(
+    request: Request, project_id: str, site_id: str, *, preview: bool,
+    preview_token: str | None = None,
+) -> str:
     hostname = request.url.hostname or ""
     if not re.fullmatch(r"[A-Za-z0-9.-]+", hostname):
         raise HTTPException(409, "Site host cannot be used in the asset policy")
     port = request.url.port
     host = hostname + (f":{port}" if port else "")
-    path = (
-        f"/api/projects/{project_id}/site-publications/{site_id}/preview/assets/"
-        if preview else f"/published/{project_id}/{site_id}/assets/"
-    )
+    if preview_token is not None:
+        path = f"/api/site-previews/{project_id}/{site_id}/{preview_token}/assets/"
+    elif preview:
+        path = f"/api/projects/{project_id}/site-publications/{site_id}/preview/assets/"
+    else:
+        path = f"/published/{project_id}/{site_id}/assets/"
     return host + path
 
 
-def _asset_headers() -> dict[str, str]:
-    return {
+def _asset_headers(*, module_cors: bool = False) -> dict[str, str]:
+    headers = {
         "Cache-Control": "no-store, max-age=0",
         "X-Content-Type-Options": "nosniff",
         "Referrer-Policy": "no-referrer",
     }
+    if module_cors:
+        # A sandboxed module has an opaque Origin. The preview capability in
+        # its asset path, not Origin:null, authorizes private draft bytes.
+        headers["Access-Control-Allow-Origin"] = "null"
+        headers["Vary"] = "Origin"
+    return headers
 
 
 def _site_error(exc: Exception) -> HTTPException:
@@ -106,6 +123,56 @@ def register_site_publication_routes(
     def require_configured() -> None:
         if settings.auth_mode != "trusted_gateway" or store.public_origin is None:
             raise HTTPException(409, "Configure a separate public HTTPS site origin")
+
+    def preview_signature(
+        request: Request, project_id: str, site_id: str, revision: int,
+        checksum: str, expires_at: int,
+    ) -> str:
+        configured = settings.trusted_gateway_auth_secret
+        if configured is None:
+            raise HTTPException(404, "Site preview not found")
+        host = request.headers.get("host", "").casefold()
+        message = (
+            f"ophira-site-preview-v1\n{host}\n{project_id}\n{site_id}\n"
+            f"{revision}\n{checksum}\n{expires_at}\n"
+        ).encode()
+        return hmac.new(
+            configured.get_secret_value().encode("utf-8"), message, hashlib.sha256,
+        ).hexdigest()
+
+    def issue_preview_token(request: Request, record) -> str:
+        expires_at = int(time.time()) + PREVIEW_TOKEN_TTL_SECONDS
+        signature = preview_signature(
+            request, record.project_id, record.id, record.revision,
+            record.artifact_checksum, expires_at,
+        )
+        return f"{expires_at:016x}.{signature}"
+
+    def authorized_preview_record(
+        request: Request, project_id: str, site_id: str, token: str,
+    ):
+        if not _PREVIEW_TOKEN.fullmatch(token):
+            raise HTTPException(404, "Site preview not found")
+        expires_at = int(token[:16], 16)
+        now = int(time.time())
+        if expires_at <= now or expires_at > now + PREVIEW_TOKEN_TTL_SECONDS:
+            raise HTTPException(404, "Site preview not found")
+        try:
+            record = store.get(project_id, site_id).publication
+        except Exception as exc:
+            raise _site_error(exc) from exc
+        if (
+            record.state != "draft" or not record.bundle
+            or record.origin != store.public_origin
+        ):
+            raise HTTPException(404, "Site preview not found")
+        signature = preview_signature(
+            request, project_id, site_id, record.revision,
+            record.artifact_checksum, expires_at,
+        )
+        if not hmac.compare_digest(token[17:], signature):
+            raise HTTPException(404, "Site preview not found")
+        return record
 
     @app.get(
         "/api/projects/{project_id}/site-publications",
@@ -173,11 +240,21 @@ def register_site_publication_routes(
     def preview_site(project_id: str, site_id: str, request: Request):
         authorize(request, project_id, ProjectPermission.PROJECT_READ)
         try:
+            record = store.get(project_id, site_id).publication
             raw, allow_scripts, bundle = store.preview(project_id, site_id)
         except Exception as exc:
             raise _site_error(exc) from exc
         if bundle and not request.url.path.endswith("/"):
             raise HTTPException(404, "Use the site bundle preview address")
+        if (
+            settings.auth_mode == "trusted_gateway" and bundle
+            and record.state == "draft" and record.origin == store.public_origin
+        ):
+            token = issue_preview_token(request, record)
+            return RedirectResponse(
+                f"/api/site-previews/{project_id}/{site_id}/{token}/",
+                status_code=307, headers=_asset_headers(),
+            )
         return Response(
             raw, media_type="text/html",
             headers=_page_headers(
@@ -198,6 +275,47 @@ def register_site_publication_routes(
         except Exception as exc:
             raise _site_error(exc) from exc
         return Response(raw, media_type=media_type, headers=_asset_headers())
+
+    @app.get("/api/site-previews/{project_id}/{site_id}/{token}/")
+    def token_preview_site(project_id: str, site_id: str, token: str, request: Request):
+        require_configured()
+        record = authorized_preview_record(request, project_id, site_id, token)
+        try:
+            raw = store.draft_bundle_preview(
+                project_id, site_id, expected_revision=record.revision,
+                expected_checksum=record.artifact_checksum,
+            )
+        except Exception as exc:
+            raise _site_error(exc) from exc
+        return Response(
+            raw, media_type="text/html", headers=_page_headers(
+                preview=True, allow_scripts=record.allow_scripts,
+                asset_source=_asset_source(
+                    request, project_id, site_id, preview=True, preview_token=token,
+                ),
+            ),
+        )
+
+    @app.get("/api/site-previews/{project_id}/{site_id}/{token}/assets/{name}")
+    def token_preview_asset(
+        project_id: str, site_id: str, token: str, name: str, request: Request,
+    ):
+        require_configured()
+        record = authorized_preview_record(request, project_id, site_id, token)
+        media_type = asset_media_type(name)
+        if media_type is None:
+            raise HTTPException(404, "Site asset not found")
+        try:
+            raw = store.draft_bundle_preview(
+                project_id, site_id, expected_revision=record.revision,
+                expected_checksum=record.artifact_checksum, asset_name=name,
+            )
+        except Exception as exc:
+            raise _site_error(exc) from exc
+        module_cors = media_type == "text/javascript" and request.headers.get("origin") == "null"
+        return Response(
+            raw, media_type=media_type, headers=_asset_headers(module_cors=module_cors),
+        )
 
     @app.post(
         "/api/projects/{project_id}/site-publications/{site_id}/publish",
@@ -280,4 +398,7 @@ def register_site_publication_routes(
             raise HTTPException(404, "Page not found") from None
         except (SitePublicationConflict, ProjectLifecycleBusyError, OSError, ValueError):
             raise HTTPException(503, "Page is temporarily unavailable") from None
-        return Response(raw, media_type=media_type, headers=_asset_headers())
+        module_cors = media_type == "text/javascript" and request.headers.get("origin") == "null"
+        return Response(
+            raw, media_type=media_type, headers=_asset_headers(module_cors=module_cors),
+        )

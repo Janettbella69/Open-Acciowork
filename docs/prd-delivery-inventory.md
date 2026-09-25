@@ -58,7 +58,7 @@
 | FR-38 钉钉/企微 | partial（本地）：钉钉官方 Stream SDK 验证回调接入、群 @ /单聊文字门禁、管理员绑定 corp/conversation/staff 至项目与成员、角色即时复验、跨 worker 去重与投递互斥、Run 结果经官方 robot API 回到原会话；企微官方智能机器人 SDK 验证 WebSocket 帧接入、群/单聊文字、bot/conversation/sender 精确绑定、Run 结果经主动发送命令回到会话，断线时未发送结果保持待处理；两者的无幂等字段投递异常停止自动重试并留痕；见 `backend/README.md` | deferred：钉钉及企微真实租户收发/权限/轮换 E2E 与实际送达确认；微信路径仍待确定。PRD 的微信先行顺序尚未满足 |
 | FR-39 插件导入 | partial（本地）：官方插件 ZIP 多 Skill 拆分后复用私有仓库安全扫描和逐件人审；远程 MCP 地址引导至 FR-33 项目审批/逐工具策略，插件子 Agent 与其它可执行组件明确忽略；Anthropic marketing 真包的 8 个 Skill 扫描通过、11 个远程 MCP 地址列出；冷备报告/子 Skill 绑定校验；见 `docs/plugin-imports.md` | deferred：远程 MCP/Provider E2E、认证部署验收和更多真实包兼容性；OAuth、stdio MCP 和 Claude marketplace 安装机制不在当前 FR-33 远程 HTTPS 边界内 |
 | FR-40 语音输入 | partial（本地）：支持浏览器 SpeechRecognition 的手机任务/插话与工作台听写；语言选择、可编辑转写草稿、明确填入确认和原有提交路径；取消、页面隐藏及卸载中止录音，未提供音频上传端点；见 `docs/voice-input.md` | deferred：真实手机麦克风授权/转写质量、Safari/Android 与受限浏览器兼容、HTTPS 部署验收；不支持 Web Speech API 的浏览器目前仍需键盘听写或文字输入 |
-| FR-41 发布网页 | partial（本地）：不可变 HTML 或受限站点 ZIP 产物版本按校验和暂存，沙箱预览后由项目管理员明确批准；独立 HTTPS 域名公开、无缓存与表单隔离，持久撤回及项目删除清理；脚本须显式逐版审批，既有网页仍禁脚本；ZIP 内 CSS/图片/经典 JS 经固定资产路径提供，Chromium 已验证公开页与预览；见 `docs/site-publications.md` | deferred：真实公网部署、缓存与跨浏览器验收；模块脚本须先解决隔离预览的无 Cookie CORS 认证（本机 Chromium 已复现），字体/媒体和第三方远程资源未纳入受限站点包 |
+| FR-41 发布网页 | partial（本地）：不可变 HTML 或受限站点 ZIP 产物版本按校验和暂存，沙箱预览后由项目管理员明确批准；独立 HTTPS 域名公开、无缓存与表单隔离，持久撤回及项目删除清理；脚本须显式逐版审批，既有网页仍禁脚本；ZIP 内 CSS/图片/经典 JS 与模块导入经固定资产路径提供；ZIP 草稿使用五分钟、绑定修订和站点的只读预览地址加载无 Cookie 资源，Chromium 已验证；见 `docs/site-publications.md` | deferred：真实公网部署、缓存与跨浏览器验收；字体/媒体和第三方远程资源未纳入受限站点包，真实站点与长期容量仍待验收 |
 | FR-42 L3 桌面 GUI | partial：macOS 开发版 WebKit 宿主、私有 sidecar、ScreenCaptureKit 系统窗口选择/截图桥；Agent 主线仅在组织策略/精确 App 白名单和 attended Run 下调用，选择、截图和各输入动作逐次人审；截图进 Run receipt/Evidence/Artifact，AXPress、完整值校验的文本替换及有限无修饰按键均绑定最近截图、生成独立 Run receipt；已知浏览器 Bundle 禁止进入 L3；WebView 精确 sidecar 源规则、CSP 和逐帧导航限制已有本机烟测；冻结 Python/SDK CLI 的便携 App 本机复制启动与 ad hoc 签名验收通过 | deferred：真实系统输入与窗口/隐私权限验收、广泛 App 输入兼容、WebView 更完整的攻击/恢复矩阵、Developer ID 签名/公证及干净 Mac 恢复矩阵 |
 
 2026-09-24 FR-20 浏览器复验：真实 Chromium L1 经生产浏览器工具访问无跳转的
@@ -85,6 +85,8 @@ Google Chrome；用户已登录浏览器、真实卖家后台和 Provider 端到
 2026-09-24 FR-41 站点包增量：12 MiB 以内 ZIP 的根目录 `index.html` 与至多 32 个受限 `assets/` CSS/图片/经典 JS 可作为不可变版本暂存和审阅；公开与预览均按固定路径加载，撤回与项目删除使资源失效。真实 Chromium 15 项检查全过（含公开和预览 CSS/图片/JS 渲染、未批准脚本保持静态与外联拒绝），后端全量 `2301 passed / 13 skipped`、前端全量 `540 passed / 56 files`，Ruff、ESLint、TypeScript/Vite 通过。真实公网与缓存、模块脚本和第三方资源、跨浏览器及生产容量仍待验收。
 
 2026-09-24 FR-33 来源凭证增量：当前 Run 快照中仍获批准的远程 MCP 工具，其主 Agent 成功结果在不可信内容清洗后可签发 `tool` 来源凭证，绑定同 Run/session、MCP 端点、工具、连接器修订和调用参数哈希；证据写入复用账本校验，服务端覆盖 Agent 自报的来源。错误、支线、未知和撤销工具无凭证。后端全量 `2302 passed / 13 skipped`，远程 MCP/来源凭证专项 `34 passed`，Ruff 通过；真实端点/Provider、OAuth 和浏览器验收仍待完成。
+
+2026-09-24 FR-41 模块与草稿资源增量：ZIP 草稿预览入口签发五分钟只读地址，绑定站点/修订/校验和/Host；资源无需 Cookie，发布、删除、过期和改 Host 即失效。只有有效地址的 JS 或已发布 JS 对沙箱 `Origin: null` 返回无凭据 CORS，静态与交互页保持原 CSP。真实 Chromium 的页面/资源 18 项检查通过，独立 loopback HTTP 的 307 跟随与模块导入 2 项通过。后端全量在最后本地模式门禁补充前 `2303 passed / 13 skipped`；随后站点发布专项 `11 passed`、全量 Ruff 与差异检查通过。公网代理与缓存、跨浏览器、访问日志脱敏及更多资产类型仍待验收。
 
 2026-09-24 FR-39 插件导入增量：官方格式 ZIP 可拆分多个 Skill，全部预检查后进入私有冻结导入、人审和默认关闭的发布流程；兼容远程 HTTPS MCP 只提供项目配置入口，插件 Agent/钩子不装载。插件报告和 Skill 绑定进入冷备结构校验；MCP-only 包亦固定部署范围。后端全量（排除 socket 专项）在最后真实包解析与崩溃暂存清理修正前 `2209 passed / 13 skipped`，随后插件/冷备专项 `56 passed`、Ruff 和 diff-check 通过。前端全量 `528 passed / 55 files`、ESLint、TypeScript/Vite 构建通过；本地 Chromium 模拟 API 在 1360px/390px 核对报告、审核与 MCP 跳转，无页面错误或横向溢出。Anthropic marketing 插件真包（`da38ec1`）的 8 个 Skill 静态扫描通过，11 个远程 MCP 地址列出，未连接外部 MCP 或调用模型。真实 MCP/Provider、OAuth、身份网关部署及更多官方包兼容性仍需验收。
 

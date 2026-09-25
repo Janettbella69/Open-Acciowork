@@ -232,6 +232,24 @@ class SitePublicationStore:
             record = self._read(project_id, site_id)
             return self._asset(record, name)
 
+    def draft_bundle_preview(
+        self, project_id: str, site_id: str, *, expected_revision: int,
+        expected_checksum: str, asset_name: str | None = None,
+    ) -> bytes:
+        """Read one unchanged site bundle draft through a short-lived capability."""
+        with self.ledger.lifecycle.lease(project_id), self.ledger._lock_for(project_id):
+            record = self._read(project_id, site_id)
+            if (
+                record.state != "draft" or not record.bundle
+                or record.origin != self.public_origin
+                or record.revision != expected_revision
+                or record.artifact_checksum != expected_checksum
+            ):
+                raise LedgerNotFoundError(site_id)
+            if asset_name is not None:
+                return self._asset(record, asset_name)
+            return self._html(record)
+
     def publish(
         self, project_id: str, site_id: str, decision: SitePublicationDecision, *,
         approved_by: str,
