@@ -5,7 +5,9 @@ import base64
 import hashlib
 import json
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from threading import Event
 
 import pytest
 from cryptography.hazmat.primitives import hashes, padding
@@ -16,6 +18,7 @@ from ophira_backend.channel_delivery import FeishuReplyResult
 from ophira_backend.channels import (
     CHANNEL_USER_REQUEST_CLOSE,
     CHANNEL_USER_REQUEST_NOTICE,
+    ChannelError,
     ChannelReplayGuard,
     decrypt_feishu_payload,
     deliver_notification,
@@ -111,6 +114,49 @@ def test_replay_guard_is_durable_and_releasable(tmp_path: Path) -> None:
 
     guard.release(token)
     assert ChannelReplayGuard(path).claim("event-1", now=1002)
+
+
+def test_replay_guard_claim_is_atomic_across_worker_instances(tmp_path: Path) -> None:
+    path = tmp_path / "replays.json"
+    first = ChannelReplayGuard(path)
+    second = ChannelReplayGuard(path)
+    first_read = Event()
+    second_read = Event()
+    release_first = Event()
+    original_read = first._read
+    second_original_read = second._read
+
+    def pause_after_read() -> dict[str, float]:
+        values = original_read()
+        first_read.set()
+        assert release_first.wait(3)
+        return values
+
+    def observe_second_read() -> dict[str, float]:
+        second_read.set()
+        return second_original_read()
+
+    first._read = pause_after_read
+    second._read = observe_second_read
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        pending = pool.submit(first.claim, "same-event", now=1000)
+        try:
+            assert first_read.wait(3)
+            duplicate = pool.submit(second.claim, "same-event", now=1000)
+            second_read.wait(0.25)
+        finally:
+            release_first.set()
+        assert pending.result(timeout=3)
+        assert duplicate.result(timeout=3) is None
+
+
+def test_replay_guard_fails_closed_on_corrupt_state(tmp_path: Path) -> None:
+    path = tmp_path / "replays.json"
+    path.write_text("not-json", encoding="utf-8")
+
+    with pytest.raises(ChannelError, match="replay state"):
+        ChannelReplayGuard(path).claim("new-event")
+    assert path.read_text(encoding="utf-8") == "not-json"
 
 
 def test_group_messages_require_the_configured_bot_mention() -> None:

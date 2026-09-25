@@ -1,18 +1,19 @@
-"""IM channel adapters (FR-24): inbound @mention → same main Agent run.
-
-Feishu/WeChat credentials are optional. Unconfigured channels return a
-structured error rather than pretending a message was delivered.
-"""
+"""Verified Feishu ingress and shared channel replay protection (FR-24)."""
 
 from __future__ import annotations
 
 import base64
+import fcntl
 import hashlib
 import hmac
 import json
+import math
 import os
+import re
+import tempfile
 import threading
 import time
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
@@ -35,7 +36,9 @@ class ChannelError(RuntimeError):
 
 
 FEISHU_SIGNATURE_TOLERANCE_SECONDS = 300
-FEISHU_REPLAY_TTL_SECONDS = 7 * 24 * 60 * 60
+CHANNEL_REPLAY_TTL_SECONDS = 7 * 24 * 60 * 60
+MAX_CHANNEL_REPLAY_ENTRIES = 100_000
+MAX_CHANNEL_REPLAY_BYTES = 12_000_000
 MAX_FEISHU_BODY_BYTES = 1_000_000
 CHANNEL_USER_REQUEST_OPEN = "<OPHIRA_CHANNEL_USER_REQUEST>"
 CHANNEL_USER_REQUEST_CLOSE = "</OPHIRA_CHANNEL_USER_REQUEST>"
@@ -47,52 +50,102 @@ CHANNEL_USER_REQUEST_NOTICE = (
 
 
 class ChannelReplayGuard:
-    """Small durable replay cache; only hashes of signed event identities are stored."""
+    """Durable cross-worker replay cache; only signed-event hashes are stored."""
 
     def __init__(self, path: Path) -> None:
         self.path = path.resolve()
-        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        self.lock_path = self.path.with_name(f"{self.path.name}.lock")
         self._lock = threading.RLock()
+
+    @contextmanager
+    def _transaction(self):
+        with self._lock:
+            descriptor = os.open(
+                self.lock_path,
+                os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW | os.O_CLOEXEC,
+                0o600,
+            )
+            try:
+                fcntl.flock(descriptor, fcntl.LOCK_EX)
+                yield
+            finally:
+                fcntl.flock(descriptor, fcntl.LOCK_UN)
+                os.close(descriptor)
 
     def _read(self) -> dict[str, float]:
         if not self.path.exists():
             return {}
         try:
-            values = json.loads(self.path.read_text(encoding="utf-8"))
-            return {str(key): float(expiry) for key, expiry in values.items()}
-        except (OSError, TypeError, ValueError):
-            return {}
+            if self.path.stat().st_size > MAX_CHANNEL_REPLAY_BYTES:
+                raise ValueError("replay file exceeds its size bound")
+            raw = self.path.read_bytes()
+            if len(raw) > MAX_CHANNEL_REPLAY_BYTES:
+                raise ValueError("replay file exceeds its size bound")
+            values = json.loads(raw)
+            if not isinstance(values, dict) or len(values) > MAX_CHANNEL_REPLAY_ENTRIES:
+                raise ValueError("replay file has an invalid record count")
+            if any(
+                not isinstance(key, str)
+                or re.fullmatch(r"[0-9a-f]{64}", key) is None
+                or type(expiry) not in (int, float)
+                or not math.isfinite(expiry)
+                for key, expiry in values.items()
+            ):
+                raise ValueError("replay file contains an invalid entry")
+            return values
+        except (OSError, TypeError, ValueError) as exc:
+            raise ChannelError(
+                "REPLAY_STATE_UNAVAILABLE", "channel replay state is unavailable"
+            ) from exc
+
+    def _write(self, values: dict[str, float]) -> None:
+        encoded = (json.dumps(values, ensure_ascii=False, sort_keys=True) + "\n").encode()
+        if len(encoded) > MAX_CHANNEL_REPLAY_BYTES:
+            raise ChannelError("REPLAY_STATE_FULL", "channel replay state is full")
+        temporary: Path | None = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="wb", dir=self.path.parent, prefix=f".{self.path.name}.",
+                suffix=".tmp", delete=False,
+            ) as handle:
+                temporary = Path(handle.name)
+                handle.write(encoded)
+                handle.flush()
+                os.fsync(handle.fileno())
+            temporary.chmod(0o600)
+            os.replace(temporary, self.path)
+            directory = os.open(self.path.parent, os.O_RDONLY | os.O_DIRECTORY)
+            try:
+                os.fsync(directory)
+            finally:
+                os.close(directory)
+        finally:
+            if temporary is not None:
+                temporary.unlink(missing_ok=True)
 
     def claim(self, identity: str, *, now: float | None = None) -> str | None:
         current = time.time() if now is None else now
         token = hashlib.sha256(identity.encode("utf-8")).hexdigest()
-        with self._lock:
+        with self._transaction():
             values = {
                 key: expiry for key, expiry in self._read().items() if expiry > current
             }
             if token in values:
                 return None
-            values[token] = current + FEISHU_REPLAY_TTL_SECONDS
-            temporary = self.path.with_suffix(".tmp")
-            temporary.write_text(
-                json.dumps(values, ensure_ascii=False, sort_keys=True) + "\n",
-                encoding="utf-8",
-            )
-            os.replace(temporary, self.path)
+            if len(values) >= MAX_CHANNEL_REPLAY_ENTRIES:
+                raise ChannelError("REPLAY_STATE_FULL", "channel replay state is full")
+            values[token] = current + CHANNEL_REPLAY_TTL_SECONDS
+            self._write(values)
         return token
 
     def release(self, token: str) -> None:
-        with self._lock:
+        with self._transaction():
             values = self._read()
             if token not in values:
                 return
             values.pop(token)
-            temporary = self.path.with_suffix(".tmp")
-            temporary.write_text(
-                json.dumps(values, ensure_ascii=False, sort_keys=True) + "\n",
-                encoding="utf-8",
-            )
-            os.replace(temporary, self.path)
+            self._write(values)
 
 
 def feishu_challenge(payload: dict[str, Any]) -> dict[str, Any] | None:

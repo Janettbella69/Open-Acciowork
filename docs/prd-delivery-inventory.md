@@ -34,7 +34,7 @@
 | FR-21 Connector | delivered：Catalog/Vault/health/revoke、HTTPS JSON send_message；六平台官方入口，TikTok Shop授权店铺/商品与Shopify同组织自有店铺/商品/近期订单只读adapter、项目店铺授权/到期/撤销、主Agent来源凭证与中英文管理员UI；含Shopify的店铺身份配置、同平台Connector关联、独立浏览器授权及数据展示 | deferred：其余邮箱/店铺/CRM/社媒垂直adapter；TikTok Shop OAuth/refresh、Shopify组织外店铺授权、真实授权test-account及模型调用验收/外发全链；API与浏览器数据自动合并 |
 | FR-22 组织治理 | delivered：单部署租户 principal/membership/策略；共享项目成员管理UI与版本冲突保护；持久团队讨论/回复/对象关联/编辑历史/解决状态；可复用项目模板、固定参考版本与来源、核对后创建和中断恢复；组织私有Skill导入人审、固定版本查看/导出、独立启停/恢复、跨进程凭证与冷备恢复 | deferred：真实身份网关联调、租户分区与隔离 runner、长期容量与浏览器目视验收 |
 | FR-23 Web 兜底 | delivered：Serper/Tavily 适配与 SSRF 防护 | deferred：真实配置搜索服务和 Provider 降级 E2E |
-| FR-24 IM | delivered：飞书签名入站/身份绑定/同 Agent/持久回复重试 | deferred：真实飞书/Lark 租户 E2E；微信适配未实现 |
+| FR-24 IM | delivered：飞书签名入站/身份绑定/同 Agent/持久回复重试；重放认领跨 worker 原子化、状态损坏时拒绝 | deferred：真实飞书/Lark 租户 E2E；微信适配未实现 |
 | FR-25 移动 | delivered（本地）：项目范围配对、双端验证码批准、私有 cookie 与设备撤销/过期；单次持久审批、可选任务发起和运行中插话；展开运行后用 20 秒有界长等待与事件游标更新当前步骤、SDK 原生任务清单及产物版本，等待中复验设备/项目权限，并通过设备专用接口预览已校验的运行截图；Web Push 订阅/加密 VAPID/授权复验/持久重试与状态 UI | deferred：真实手机 HTTPS/外部 Push/长期运行、native push 和 OS 防休眠未验收；大事件历史与大截图需性能验收 |
 | FR-26 主动服务 | delivered：授权 standing intent、只读 watcher、预算与持久 claim | deferred：真实数据/Provider 长时判断质量、有效变化触达 |
 | FR-27 媒体 | delivered：安全二进制接入与 Artifact/Evidence | deferred：真实图像/视频厂商适配、授权配置及验收 |
