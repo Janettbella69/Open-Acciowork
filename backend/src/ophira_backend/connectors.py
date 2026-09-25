@@ -25,6 +25,7 @@ from .marketplaces import (
     TIKTOK_SHOP_ORIGIN,
     TIKTOK_SHOP_TYPE,
     parse_tiktok_shop_credentials,
+    tiktok_oauth_vault_keys,
 )
 from .models import Connector, utc_now
 from .outlook import OUTLOOK_SCOPE, outlook_oauth_vault_keys, parse_outlook_credentials
@@ -437,6 +438,12 @@ class ConnectorRegistry:
             )
             self._write(connector)
             if self.vault is not None and (existing is not None or secret is not None) and (
+                type == TIKTOK_SHOP_TYPE
+                or (existing is not None and existing.type == TIKTOK_SHOP_TYPE)
+            ):
+                for key in tiktok_oauth_vault_keys(connector_id):
+                    self.vault.delete(key)
+            if self.vault is not None and (existing is not None or secret is not None) and (
                 type == SHOPIFY_TYPE or (existing is not None and existing.type == SHOPIFY_TYPE)
             ):
                 for key in shopify_oauth_vault_keys(connector_id):
@@ -473,6 +480,9 @@ class ConnectorRegistry:
             })
             # Invalidate old probes before the new credential can become visible.
             self._write(updated)
+            if connector.type == TIKTOK_SHOP_TYPE:
+                for key in tiktok_oauth_vault_keys(connector_id):
+                    self.vault.delete(key)
             if connector.type == SHOPIFY_TYPE:
                 for key in shopify_oauth_vault_keys(connector_id):
                     self.vault.delete(key)
@@ -496,6 +506,9 @@ class ConnectorRegistry:
             self._write(updated)
             if self.vault is not None:
                 self.vault.delete(connector.id)
+                if connector.type == TIKTOK_SHOP_TYPE:
+                    for key in tiktok_oauth_vault_keys(connector_id):
+                        self.vault.delete(key)
                 if connector.type == SHOPIFY_TYPE:
                     for key in shopify_oauth_vault_keys(connector_id):
                         self.vault.delete(key)

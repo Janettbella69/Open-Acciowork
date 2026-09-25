@@ -168,7 +168,7 @@ from .knowledge import (
 from .maintenance import data_directory_lease
 from .marketplace_access import MarketplaceAccessService
 from .marketplace_api import register_marketplace_routes
-from .marketplaces import MarketplaceError
+from .marketplaces import TIKTOK_OAUTH_CALLBACK_RE, MarketplaceError
 from .memory import FileMemoryProvider, MemoryNotFoundError, public_memory_item
 from .models import (
     AgentCreate,
@@ -337,9 +337,16 @@ class _OAuthCallbackAccessLogFilter(logging.Filter):
         if (
             isinstance(args, tuple) and len(args) == 5
             and isinstance(args[2], str)
-            and args[2].split("?", 1)[0] == OAUTH_CALLBACK_PATH
         ):
-            record.args = (*args[:2], OAUTH_CALLBACK_PATH, *args[3:])
+            path = args[2].split("?", 1)[0]
+            if (
+                path == OAUTH_CALLBACK_PATH
+                or SHOPIFY_OAUTH_CALLBACK_RE.fullmatch(path)
+                or TIKTOK_OAUTH_CALLBACK_RE.fullmatch(path)
+                or GMAIL_CALLBACK_RE.fullmatch(path)
+                or OUTLOOK_CALLBACK_RE.fullmatch(path)
+            ):
+                record.args = (*args[:2], path, *args[3:])
         return True
 
 
@@ -865,6 +872,17 @@ def _create_app(
             return await call_next(request)
         if request.method == "GET" and SHOPIFY_OAUTH_CALLBACK_RE.fullmatch(path):
             expected_host = urlsplit(settings.shopify_oauth_public_origin or "").netloc
+            if (
+                settings.auth_mode != "trusted_gateway" or not expected_host
+                or request.headers.get("host", "").casefold() != expected_host.casefold()
+            ):
+                return JSONResponse(status_code=404, content={"detail": "Not found"})
+            response = await call_next(request)
+            response.headers["Cache-Control"] = "no-store"
+            response.headers["Referrer-Policy"] = "no-referrer"
+            return response
+        if request.method == "GET" and TIKTOK_OAUTH_CALLBACK_RE.fullmatch(path):
+            expected_host = urlsplit(settings.tiktok_shop_oauth_public_origin or "").netloc
             if (
                 settings.auth_mode != "trusted_gateway" or not expected_host
                 or request.headers.get("host", "").casefold() != expected_host.casefold()

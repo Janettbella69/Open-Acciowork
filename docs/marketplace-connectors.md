@@ -11,7 +11,8 @@ access or implement OAuth; current API and browser grants remain independent.
 
 ## Platform inventory
 
-Reviewed against official documentation on 2026-09-09 (Shopify on 2026-09-10). Dynamic documentation
+Reviewed against official documentation on 2026-09-09 (Shopify on 2026-09-10,
+TikTok Shop seller authorization on 2026-09-25). Dynamic documentation
 was checked using official indexed pages where the supplied page returned only
 its JavaScript shell. These are documentation checks, not authenticated API tests.
 
@@ -19,7 +20,7 @@ its JavaScript shell. These are documentation checks, not authenticated API test
 | --- | --- | --- | --- |
 | SHEIN | [Developer guide](https://open.sheincorp.com/documents/system/dad0d1c7-be76-4b03-a735-4e23f012bdd9) | Documentation entry and contract investigation | Runtime adapter: full signature rules and applicable seller program still need verification; no authorized account supplied |
 | Temu | [Developer guide](https://partner.temu.com/documentation?menu_code=52ef88bdef1d4527b15f6d303b173e48) | Documentation entry and authorization/signature references | Runtime adapter: region-specific gateway and specific read API contracts remain to be verified; no authorized account supplied |
-| TikTok Shop | [Developer onboarding](https://partner.tiktokshop.com/docv2/page/developer-onboarding) | Seller credential configuration, authorized-shop reads, product pagination, project-specific expiring shop grants, main-Agent read tool and source receipts, administrator grant/revoke UI; offline adapter/API/SDK/UI verification | Live developer/test-shop and model certification, OAuth callback/token exchange and refresh, commercial writes |
+| TikTok Shop | [Developer onboarding](https://partner.tiktokshop.com/docv2/page/developer-onboarding) | Manual seller token or seller authorization code with one-use state, private refresh token and cross-worker refresh; authorized-shop reads, product pagination, project shop grants, main-Agent read tool and source receipts; offline API/UI verification | Live developer/test-shop consent, HTTPS callback and model certification, commercial writes |
 | AliExpress | [Register an application](https://developer.alibaba.com/docs/doc.htm?articleId=120674&docType=1&treeId=727) | Correct platform identification and documentation entry | Runtime adapter: verify current app category, read endpoints, permissions and seller authorization; supplied registration page is dated 2022 |
 | Shopee | [Developer guide](https://open.shopee.cn/developer-guide/12) | Documentation entry | Runtime adapter: supplied guide was inaccessible in this environment; equivalent global guide returned HTTP 403, so no signature or API contract is assumed |
 | Shopify | [App authentication](https://shopify.dev/docs/apps/build/authentication-authorization) | Own-organization client credentials and external-merchant authorization code grant with expiring offline token refresh; shop/product/order reads on GraphQL Admin `2026-07`, project grants, source receipts and `shopify-store-review` Plugin Skill; offline adapter/API/UI verification | Live merchant consent and store E2E (needs app credentials, a public HTTPS callback and a merchant test store); legacy admin-created tokens; commercial writes |
@@ -72,18 +73,52 @@ URL encoding happens after signing. Timestamps use Unix seconds.
 
 ## Configure and use
 
-Open **Plugins → Connectors → TikTok Shop → Configure seller access**. Enter the
-developer app key/secret, an existing **seller** access token and its expiry in
-local time. Check product permission only when the app's seller authorization
-includes it. Save, then select **Read authorized shops**, choose a returned shop,
-and select **Read products**. **Next product page** follows only a returned cursor.
+Open **Plugins → Connectors → TikTok Shop → Configure seller access**. Choose
+**Seller authorization with refresh** or **Existing seller token**. Check product
+permission only when the app's seller authorization includes it. After setup,
+select **Read authorized shops**, choose a returned shop, and select **Read
+products**. **Next product page** follows only a returned cursor.
+
+### Seller authorization with refresh
+
+1. Deploy in trusted-gateway mode with
+   `OPHIRA_TIKTOK_SHOP_OAUTH_PUBLIC_ORIGIN=https://work.example.com`, an
+   operator-owned public HTTPS origin. Route the exact callback path shown in
+   the connector card to the backend without a gateway identity assertion, and
+   register that callback URL in TikTok Shop Partner Center. The callback
+   accepts only that host and validates a one-use, ten-minute state.
+2. Copy the **seller** authorization link from Partner Center. It must be an
+   HTTPS `services.tiktokshop.com` or `services.{region}.tiktokshop.com`
+   `/open/authorize?service_id=...` link. Enter it with the app key and secret,
+   select the supported read permissions, and save. Select **Authorize TikTok
+   Shop seller**, then follow the generated link to have the seller consent.
+3. The backend exchanges the one-use code with TikTok Shop's separate auth
+   service. It requires `user_type: 0` and the configured read permissions in
+   `granted_scopes`, then keeps access and refresh tokens only in the server
+   vault. Reads refresh an expiring token under a cross-worker lock and reject
+   seller identity changes or reduced permissions. Read the authorized shops
+   before granting project access. Reauthorize if the seller revokes access or
+   the refresh token expires.
+
+The [official creator authorization guide](https://partner.tiktokshop.com/docv2/page/678e3a362dccb8030ea6f98c)
+distinguishes seller links from creator links and documents the shared token
+exchange/refresh host and grant parameters. The exact seller consent link comes
+from your Partner Center app rather than a generated region guess. A live seller
+consent, HTTPS callback and API read still need to be verified with an authorized
+test shop.
+
+### Existing seller token
+
+Enter the developer app key/secret, an existing **seller** access token and its
+expiry in local time. Save, then read authorized shops to verify that token.
 
 The [test-token guide](https://partner.tiktokshop.com/docv2/page/generate-test-access-token)
 describes the external token acquisition process. Its `access_token_expire_in`
 field is an **absolute Unix expiration timestamp**, despite its name. OPHIRA
 stores this as `access_token_expires_at`; it does not add the value to the current
-time. Refresh tokens are not collected in this implementation. A token with
-30 seconds or less remaining is rejected before a credentialed call.
+time. Manually configured tokens are not refreshed; a token with 30 seconds or
+less remaining is rejected before a credentialed call. Seller OAuth tokens use
+the same absolute expiry field and refresh before expiry.
 
 Alternatively, the operator may set `OPHIRA_CONNECTOR_TIKTOK_SHOP_KEY` to a JSON
 bundle with `app_key`, `app_secret`, `access_token`, `access_token_expires_at` and
@@ -92,6 +127,8 @@ must also include each required permission. Vault material takes precedence over
 the environment. Revocation disables both sources; reconnect requires an explicit
 configuration save. Local revocation does not revoke the app at TikTok; a request
 already sent may complete remotely, but its response is withheld after local revoke.
+Local revocation also erases the pending state and OAuth tokens from the vault;
+remove the service in TikTok Shop Seller Center if remote access must end.
 
 Saving credentials proves storage only. A successful shop read confirms that
 request at that time; it does not prove product permission or future availability.

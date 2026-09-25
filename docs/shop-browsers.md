@@ -21,12 +21,13 @@ flowchart LR
 
 - 店铺身份配置支持 SHEIN、Temu、TikTok Shop、AliExpress、Shopee、Shopify 及其他平台。
   Shopify 已可在前端选择、创建、显示与编辑，并可选关联同平台 Connector。
-- TikTok Shop 已有手动配置卖家 Token、授权店铺与商品分页读取、项目授权和主 Agent
-  来源凭证能力；OAuth 回调、Token 交换/刷新及平台商业写入仍待交付。
+- TikTok Shop 已有手动卖家 Token 或卖家授权码/自动刷新、授权店铺与商品分页读取、
+  项目授权和主 Agent 来源凭证能力；真实卖家同意与平台商业写入仍待交付。
 - Shopify 已有同一 Dev Dashboard 组织内自有店铺的 client credentials grant、店铺/
   商品/近期订单只读接口、项目授权、主 Agent 来源凭证及店铺体检 Skill。这些是已有的
   Connector 能力，本轮补齐的身份选择与配置界面不增加 API 权限或新的平台适配。
-  真实店铺联调仍未验收；组织外店铺授权及商业写入尚未实现，详见平台清单。
+  组织外商家授权码与可刷新令牌也已本地实现。真实店铺联调和商业写入仍未验收，
+  详见平台清单。
 - SHEIN、Temu、AliExpress、Shopee 已有官方文档入口，运行时 API adapter 仍未交付。
   保存这些平台的店铺身份不能证明已接通其 API 或兼容其真实登录流程。
 

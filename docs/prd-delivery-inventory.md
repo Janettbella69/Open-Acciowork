@@ -31,7 +31,7 @@
 | FR-18 恢复 | delivered：保存产物、错误分类、重试与重启恢复；Run 起点的完整可支持工作区快照、Bash 修改恢复、人工变更预览/确认/结果重试、中断目录切换修复、真实进程退出与冷备往返；同项目执行与产物收尾租约；owner/admin 人工保留清单、过期预览和未引用恢复点删除、额外目录清理、已执行审阅归档及无引用内容快照回收 | deferred：真实 SDK 故障注入、生产/跨宿主恢复、自动保留期限与归档二次清理、大容量性能及浏览器目视验收 |
 | FR-19 Deep Research | delivered：输入框内显式开关发起（默认关闭、运行中锁定）；三种原生只读研究单元的一次新建/同 Run 续接约束；共享预算/取消/原始截止时间；运行中资源 UI、来源包与主 Agent 去重落账；真实 DeepSeek 合成来源上的三单元并行/来源复核/证据合并与报告验收 | deferred：开放互联网研究质量、真实取消/耗尽/长时墙钟故障矩阵、其他 Provider 与浏览器目视验收 |
 | FR-20 GUI | delivered：L1/L2 真实浏览器 smoke；项目独立店铺 profile、用户登录确认、当前页观察引用、主Agent页面动作/报表下载与来源/产物落账、真实Chromium离线链路；L1/L2 离线真实 Chromium/CDP 的禁止域脚本、私网重定向、同源重定向、恢复和 L2 原标签页保留回归 | deferred：真实卖家后台/验证码/风控兼容性和模型联调；更广泛的真实攻击/恢复矩阵及真实 DNS/公网目标复核；L3 输入动作与 OS 权限真机验收归 FR-42 |
-| FR-21 Connector | partial（本地）：Catalog/Vault/health/revoke、HTTPS JSON send_message；六平台官方入口，TikTok Shop授权店铺/商品与Shopify同组织及组织外商家店铺/商品/近期订单只读adapter；Shopify组织外商家授权码、一次性state/HMAC回调、限时离线令牌及跨worker刷新本地闭环；Gmail 只读 OAuth/私有刷新令牌、项目邮箱限时授权/撤销、主 Agent Inbox 有界检索/MCP 来源凭证及管理员 UI；Outlook 委托只读 OAuth/刷新令牌、项目授权、主 Agent Inbox 有界纯文本分页、来源凭证及管理员 UI；项目店铺授权/到期/撤销、主 Agent 来源凭证与管理员 UI | deferred：CRM/社媒等垂直adapter、Gmail/Outlook 真账号 OAuth 与模型调用验证、Outlook Graph 订阅真实服务验收及缺口补偿、TikTok Shop OAuth/refresh、真实Shopify商家同意与授权 test-account/模型调用验收/外发全链；API与浏览器数据自动合并 |
+| FR-21 Connector | partial（本地）：Catalog/Vault/health/revoke、HTTPS JSON send_message；六平台官方入口，TikTok Shop授权店铺/商品与Shopify同组织及组织外商家店铺/商品/近期订单只读adapter；TikTok Shop卖家授权码、一次性state、卖家身份/权限校验及跨worker刷新本地闭环；Shopify组织外商家授权码、一次性state/HMAC回调、限时离线令牌及跨worker刷新本地闭环；Gmail 只读 OAuth/私有刷新令牌、项目邮箱限时授权/撤销、主 Agent Inbox 有界检索/MCP 来源凭证及管理员 UI；Outlook 委托只读 OAuth/刷新令牌、项目授权、主 Agent Inbox 有界纯文本分页、来源凭证及管理员 UI；项目店铺授权/到期/撤销、主 Agent 来源凭证与管理员 UI | deferred：CRM/社媒等垂直adapter、Gmail/Outlook 真账号 OAuth 与模型调用验证、Outlook Graph 订阅真实服务验收及缺口补偿、TikTok Shop 真实卖家同意/HTTPS 回调/模型调用验收、真实Shopify商家同意与授权 test-account/模型调用验收/外发全链；API与浏览器数据自动合并 |
 | FR-22 组织治理 | delivered：单部署租户 principal/membership/策略；共享项目成员管理UI与版本冲突保护；持久团队讨论/回复/对象关联/编辑历史/解决状态；可复用项目模板、固定参考版本与来源、核对后创建和中断恢复；组织私有Skill导入人审、固定版本查看/导出、独立启停/恢复、跨进程凭证与冷备恢复 | deferred：真实身份网关联调、租户分区与隔离 runner、长期容量与浏览器目视验收 |
 | FR-23 Web 兜底 | delivered：Serper/Tavily 适配与 SSRF 防护 | deferred：真实配置搜索服务和 Provider 降级 E2E |
 | FR-24 IM | delivered：飞书签名入站/身份绑定/同 Agent/持久回复重试；重放认领跨 worker 原子化、状态损坏时拒绝 | deferred：真实飞书/Lark 租户 E2E；微信适配未实现 |
@@ -1235,3 +1235,17 @@ Ruff、ESLint、TypeScript、Vite 构建及 `git diff --check` 通过。另以�
 未执行真实 SDK 故障注入、
 浏览器目视、生产跨宿主恢复或大容量性能验收。自动保留期限和归档二次清理仍 deferred；
 完整 PRD 继续保持未完成。
+
+## 2026-09-25：FR-21 TikTok Shop 卖家授权与续期本地闭环
+
+管理员可配置 Partner Center 的卖家授权链接、App key/secret 与只读权限，取得一次性
+state 链接并在固定 HTTPS 回调中交换授权码。回调验证 host、state、连接器修订、卖家
+`user_type: 0` 和实际授予的权限；访问与刷新令牌仅存保险库。店铺读取在令牌到期前
+按连接器跨 worker 加锁刷新，并拒绝身份变更或权限缩减。凭据重配、撤销时删除待授权
+状态和令牌。既有手动卖家令牌配置仍可用；Uvicorn 的 OAuth 回调访问日志去掉查询参数。
+
+验证：后端全套 **2392 passed / 13 skipped**，前端全套 **562 passed**，Ruff、
+ESLint、TypeScript/Vite 构建与 `git diff --check` 通过。令牌交换、回调安全边界、
+重复回调、跨实例并发刷新、权限缩减和撤销均由离线夹具验证。当前没有已授权的
+TikTok Shop 开发者应用、测试卖家店铺或公网 HTTPS 回调，所以真实商家同意、令牌
+响应和 Agent 模型调用仍未验收；FR-21 与完整 PRD 保持部分完成。

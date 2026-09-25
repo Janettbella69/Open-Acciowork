@@ -1234,6 +1234,20 @@ export function startShopifyOAuth(id: string): Promise<{ authorization_url: stri
   return request(`/api/connectors/${encodeURIComponent(id)}/shopify-oauth/start`, { method: 'POST' })
 }
 
+export type TikTokShopOAuthStatus = {
+  auth_mode: 'manual_token' | 'seller_oauth'
+  authorized: boolean
+  callback_url: string | null
+}
+
+export function getTikTokShopOAuthStatus(id: string): Promise<TikTokShopOAuthStatus> {
+  return request<TikTokShopOAuthStatus>(`/api/connectors/${encodeURIComponent(id)}/tiktok-shop-oauth`)
+}
+
+export function startTikTokShopOAuth(id: string): Promise<{ authorization_url: string; callback_url: string }> {
+  return request(`/api/connectors/${encodeURIComponent(id)}/tiktok-shop-oauth/start`, { method: 'POST' })
+}
+
 export function getMarketplaceAccess(projectId: string): Promise<MarketplaceAccess> {
   return request<MarketplaceAccess>(`/api/projects/${encodeURIComponent(projectId)}/marketplace-access`)
 }

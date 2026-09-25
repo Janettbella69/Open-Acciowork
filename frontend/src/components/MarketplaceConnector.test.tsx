@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Connector } from '../api/types'
 import type { MarketplaceRead } from '../api/marketplaces'
@@ -7,9 +7,10 @@ import MarketplaceConnector from './MarketplaceConnector'
 
 vi.mock('../api/client', () => ({
   readMarketplace: vi.fn(), upsertConnector: vi.fn(), revokeConnector: vi.fn(),
+  getTikTokShopOAuthStatus: vi.fn(), startTikTokShopOAuth: vi.fn(),
   errorMessage: (error: unknown) => error instanceof Error ? error.message : 'unknown error',
 }))
-import { readMarketplace, revokeConnector, upsertConnector } from '../api/client'
+import { getTikTokShopOAuthStatus, readMarketplace, revokeConnector, startTikTokShopOAuth, upsertConnector } from '../api/client'
 
 const connector: Connector = {
   id: 'tiktok_shop', type: 'tiktok_shop', display_name: 'TikTok Shop',
@@ -35,6 +36,13 @@ beforeEach(() => {
   vi.mocked(readMarketplace).mockResolvedValue(shops)
   vi.mocked(upsertConnector).mockResolvedValue(connector)
   vi.mocked(revokeConnector).mockResolvedValue({ ...connector, enabled: false })
+  vi.mocked(getTikTokShopOAuthStatus).mockResolvedValue({
+    auth_mode: 'manual_token', authorized: false, callback_url: null,
+  })
+  vi.mocked(startTikTokShopOAuth).mockResolvedValue({
+    authorization_url: 'https://services.tiktokshop.com/open/authorize?service_id=123&state=secret',
+    callback_url: 'https://oauth.example.com/api/connectors/tiktok_shop/tiktok-shop-oauth/callback',
+  })
 })
 
 describe('MarketplaceConnector', () => {
@@ -84,6 +92,33 @@ describe('MarketplaceConnector', () => {
     expect(onChange).toHaveBeenCalledWith(connector)
   })
 
+  it('stores seller OAuth app settings and opens the one-time authorization link', async () => {
+    vi.mocked(getTikTokShopOAuthStatus).mockResolvedValue({
+      auth_mode: 'seller_oauth', authorized: false,
+      callback_url: 'https://oauth.example.com/api/connectors/tiktok_shop/tiktok-shop-oauth/callback',
+    })
+    render(<MarketplaceConnector connector={connector} onChange={vi.fn()} />)
+    await screen.findByText('Seller authorization required')
+    fireEvent.click(screen.getByText('Configure seller access'))
+    fireEvent.change(screen.getByLabelText('App key'), { target: { value: 'app-key' } })
+    fireEvent.change(screen.getByLabelText('App secret'), { target: { value: 'test-secret' } })
+    fireEvent.change(screen.getByLabelText('Seller authorization link from Partner Center'), {
+      target: { value: 'https://services.tiktokshop.com/open/authorize?service_id=123' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Save seller credentials' }))
+    await screen.findByText('App credentials saved. Authorize the seller next.')
+    const [, saved] = vi.mocked(upsertConnector).mock.calls[0]
+    expect(JSON.parse(saved.secret!)).toEqual({
+      auth_mode: 'seller_oauth', app_key: 'app-key', app_secret: 'test-secret',
+      authorization_url: 'https://services.tiktokshop.com/open/authorize?service_id=123',
+    })
+    expect(screen.queryByLabelText('Seller access token')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Authorize TikTok Shop seller' }))
+    expect(await screen.findByRole('link', { name: 'Continue to TikTok Shop authorization' }))
+      .toHaveAttribute('href', 'https://services.tiktokshop.com/open/authorize?service_id=123&state=secret')
+    expect(startTikTokShopOAuth).toHaveBeenCalledWith('tiktok_shop')
+  })
+
   it('disables product reads without configured permission and clears data on revoke', async () => {
     const onChange = vi.fn()
     render(<MarketplaceConnector connector={{ ...connector, scope: 'seller.authorization.info' }} onChange={onChange} />)
@@ -115,8 +150,9 @@ describe('MarketplaceConnector', () => {
     expect(screen.queryByText('Tea kettle')).not.toBeInTheDocument()
   })
 
-  it('offers reconnect after revoke and translates the seller flow', () => {
+  it('offers reconnect after revoke and translates the seller flow', async () => {
     render(<I18nContext.Provider value="zh-CN"><MarketplaceConnector connector={{ ...connector, enabled: false }} onChange={vi.fn()} /></I18nContext.Provider>)
+    await act(async () => {})
     expect(screen.getByText('重新配置商家授权')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '读取已授权店铺' })).toBeDisabled()
     expect(screen.getByLabelText('商家 Access token')).toHaveAttribute('type', 'password')

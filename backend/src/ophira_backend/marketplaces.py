@@ -9,15 +9,19 @@ See docs/marketplace-connectors.md for source versions and acceptance limits.
 from __future__ import annotations
 
 import asyncio
+import fcntl
 import hashlib
 import hmac
 import ipaddress
 import json
+import os
 import re
+import secrets
 import time
 from collections.abc import Callable
+from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Any, Literal
-from urllib.parse import urlencode
+from urllib.parse import parse_qsl, urlencode, urlsplit
 
 import httpx
 from pydantic import (
@@ -35,7 +39,7 @@ from .untrusted import UntrustedSource, sanitize_untrusted_text
 from .web_tools import pin_public_http_url
 
 if TYPE_CHECKING:
-    from .connectors import ConnectorRegistry
+    from .connectors import CommercialConnectorRuntime, ConnectorRegistry
     from .web_tools import PinnedPublicDestination
 
 TIKTOK_SHOP_TYPE = "tiktok_shop"
@@ -45,6 +49,17 @@ TIKTOK_SHOPS_PATH = "/authorization/202309/shops"
 TIKTOK_PRODUCTS_PATH = "/product/202502/products/search"
 TIKTOK_AUTH_SCOPE = "seller.authorization.info"
 TIKTOK_PRODUCT_SCOPE = "seller.product.basic"
+TIKTOK_OAUTH_ORIGIN = "https://auth.tiktok-shops.com"
+TIKTOK_TOKEN_PATH = "/api/v2/token/get"
+TIKTOK_REFRESH_PATH = "/api/v2/token/refresh"
+TIKTOK_OAUTH_CALLBACK_PATH = "/api/connectors/{connector_id}/tiktok-shop-oauth/callback"
+TIKTOK_OAUTH_CALLBACK_RE = re.compile(
+    TIKTOK_OAUTH_CALLBACK_PATH.replace("{connector_id}", r"[A-Za-z0-9_-]+")
+)
+_TIKTOK_PENDING_PREFIX = "tiktok-shop-oauth-pending:"
+_TIKTOK_TOKEN_PREFIX = "tiktok-shop-oauth-token:"
+_TIKTOK_STATE_SECONDS = 600
+_TIKTOK_REFRESH_MARGIN = 60
 MAX_MARKETPLACE_RESPONSE_BYTES = 2 * 1024 * 1024
 
 MARKETPLACE_GUIDES = [
@@ -112,14 +127,65 @@ class TikTokShopCredentials(BaseModel):
         return self
 
 
-def parse_tiktok_shop_credentials(raw: str) -> TikTokShopCredentials:
+def check_tiktok_seller_authorization_url(value: str) -> bool:
+    """Accept only the seller authorization link copied from Partner Center."""
+    if len(value) > 500 or any(ord(char) < 33 or ord(char) > 126 for char in value):
+        return False
+    try:
+        parts = urlsplit(value)
+        pairs = parse_qsl(parts.query, strict_parsing=True, max_num_fields=2)
+    except ValueError:
+        return False
+    host = parts.hostname or ""
+    return bool(
+        parts.scheme == "https"
+        and parts.netloc == host
+        and re.fullmatch(r"services(?:\.[a-z]{2,8})?\.tiktokshop\.com", host)
+        and parts.path == "/open/authorize"
+        and not parts.fragment
+        and len(pairs) == 1
+        and pairs[0][0] == "service_id"
+        and re.fullmatch(r"[0-9]{1,40}", pairs[0][1])
+    )
+
+
+class TikTokShopOAuthCredentials(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True, frozen=True)
+
+    auth_mode: Literal["seller_oauth"]
+    app_key: SecretStr = Field(min_length=1, max_length=160)
+    app_secret: SecretStr = Field(min_length=1, max_length=512)
+    authorization_url: str = Field(min_length=1, max_length=500)
+
+    @model_validator(mode="after")
+    def validate_seller_app(self) -> TikTokShopOAuthCredentials:
+        if not check_tiktok_seller_authorization_url(self.authorization_url):
+            raise ValueError("invalid seller authorization link")
+        for value in (self.app_key, self.app_secret):
+            if not re.fullmatch(r"[A-Za-z0-9_.~:+/=-]+", value.get_secret_value()):
+                raise ValueError("invalid credential encoding")
+        return self
+
+
+def parse_tiktok_shop_credentials(
+    raw: str,
+) -> TikTokShopCredentials | TikTokShopOAuthCredentials:
     try:
         if len(raw) > 8000:
             raise ValueError("too large")
-        return TikTokShopCredentials.model_validate_json(raw)
-    except (ValidationError, ValueError):
+        payload = json.loads(raw)
+        if not isinstance(payload, dict):
+            raise ValueError("invalid")
+        if payload.get("auth_mode") == "seller_oauth":
+            return TikTokShopOAuthCredentials.model_validate(payload)
+        return TikTokShopCredentials.model_validate(payload)
+    except (ValidationError, ValueError, TypeError, RecursionError):
         # Pydantic errors include input_value, so never relay their text.
         raise ValueError("TikTok Shop requires a valid seller credential bundle") from None
+
+
+def tiktok_oauth_vault_keys(connector_id: str) -> tuple[str, str]:
+    return _TIKTOK_PENDING_PREFIX + connector_id, _TIKTOK_TOKEN_PREFIX + connector_id
 
 
 ProductStatus = Literal[
@@ -234,6 +300,342 @@ class TikTokShopReader:
         self.transport_factory = transport_factory or default_marketplace_transport
         self.clock = clock
 
+    @asynccontextmanager
+    async def _oauth_lock(self, connector_id: str):
+        safe_id = self.connectors._safe_id(connector_id)
+        descriptor = os.open(
+            self.connectors.root / f".tiktok-shop-oauth-{safe_id}.lock",
+            os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW | os.O_CLOEXEC,
+            0o600,
+        )
+        acquired = False
+        try:
+            while not acquired:
+                try:
+                    fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    acquired = True
+                except BlockingIOError:
+                    await asyncio.sleep(0.05)
+            yield
+        finally:
+            if acquired:
+                fcntl.flock(descriptor, fcntl.LOCK_UN)
+            os.close(descriptor)
+
+    def _oauth_runtime(
+        self, connector_id: str,
+    ) -> tuple[CommercialConnectorRuntime, TikTokShopOAuthCredentials]:
+        runtime = self.connectors.require_tiktok_shop_runtime(connector_id)
+        credentials = parse_tiktok_shop_credentials(runtime.credential.get_secret_value())
+        if not isinstance(credentials, TikTokShopOAuthCredentials):
+            raise MarketplaceError(
+                "MARKETPLACE_OAUTH_NOT_CONFIGURED", "Configure seller authorization first.",
+            )
+        if self.connectors.vault is None:
+            raise MarketplaceError(
+                "MARKETPLACE_OAUTH_NOT_CONFIGURED", "Connector vault is unavailable.",
+            )
+        return runtime, credentials
+
+    def oauth_status(self, connector_id: str, public_origin: str | None) -> dict[str, Any]:
+        connector_id = self.connectors._safe_id(connector_id)
+        callback_url = (
+            public_origin + TIKTOK_OAUTH_CALLBACK_PATH.format(connector_id=connector_id)
+            if public_origin else None
+        )
+        try:
+            runtime, _credentials = self._oauth_runtime(connector_id)
+            token = self._stored_oauth_token(connector_id, runtime)
+            authorized = (
+                token["refresh_expires_at"] > self.clock() + _TIKTOK_REFRESH_MARGIN
+                and set(runtime.connector.scope.split()).issubset(token["scopes"])
+            )
+            mode = "seller_oauth"
+        except RuntimeError:
+            try:
+                runtime = self.connectors.require_tiktok_shop_runtime(connector_id)
+                mode = (
+                    "seller_oauth" if isinstance(
+                        parse_tiktok_shop_credentials(runtime.credential.get_secret_value()),
+                        TikTokShopOAuthCredentials,
+                    ) else "manual_token"
+                )
+            except (RuntimeError, ValueError):
+                mode = "manual_token"
+            authorized = False
+        return {"auth_mode": mode, "authorized": authorized, "callback_url": callback_url}
+
+    def begin_oauth(self, connector_id: str, public_origin: str) -> dict[str, str]:
+        connector_id = self.connectors._safe_id(connector_id)
+        runtime, credentials = self._oauth_runtime(connector_id)
+        if TIKTOK_AUTH_SCOPE not in runtime.connector.scope.split():
+            raise MarketplaceError(
+                "MARKETPLACE_SCOPE_REQUIRED", "Configure seller shop read permission first.",
+            )
+        state = secrets.token_urlsafe(32)
+        pending_key, _ = tiktok_oauth_vault_keys(connector_id)
+        with self.connectors._transaction():
+            if self.connectors.require_tiktok_shop_runtime(connector_id) != runtime:
+                raise MarketplaceError(
+                    "MARKETPLACE_CONFIGURATION_CHANGED", "TikTok Shop connector changed.",
+                )
+            self.connectors.vault.set(pending_key, json.dumps({
+                "state_hash": hashlib.sha256(state.encode("ascii")).hexdigest(),
+                "revision": runtime.connector.revision,
+                "expires_at": self.clock() + _TIKTOK_STATE_SECONDS,
+            }))
+        separator = "&" if "?" in credentials.authorization_url else "?"
+        return {
+            "authorization_url": (
+                credentials.authorization_url + separator + urlencode({"state": state})
+            ),
+            "callback_url": public_origin + TIKTOK_OAUTH_CALLBACK_PATH.format(
+                connector_id=connector_id,
+            ),
+        }
+
+    async def complete_oauth(self, connector_id: str, raw_query: bytes) -> None:
+        connector_id = self.connectors._safe_id(connector_id)
+        runtime, credentials = self._oauth_runtime(connector_id)
+        try:
+            if len(raw_query) > 16_000:
+                raise ValueError
+            pairs = parse_qsl(
+                raw_query.decode("ascii"), keep_blank_values=True, strict_parsing=True,
+                max_num_fields=20, encoding="utf-8", errors="strict",
+            )
+            values = dict(pairs)
+            state = values.get("state", "")
+            if (
+                len(values) != len(pairs) or not 32 <= len(state) <= 128
+                or not state.isascii()
+                or ("app_key" in values
+                    and values["app_key"] != credentials.app_key.get_secret_value())
+            ):
+                raise ValueError
+        except (UnicodeError, ValueError):
+            raise MarketplaceError(
+                "MARKETPLACE_OAUTH_INVALID", "Invalid TikTok Shop authorization callback.", 403,
+            ) from None
+        pending_key, token_key = tiktok_oauth_vault_keys(connector_id)
+        with self.connectors._transaction():
+            raw_pending = self.connectors.vault.get(pending_key)
+            try:
+                pending = json.loads(raw_pending or "")
+                valid = (
+                    isinstance(pending, dict)
+                    and pending.get("revision") == runtime.connector.revision
+                    and type(pending.get("expires_at")) in (int, float)
+                    and pending["expires_at"] > self.clock()
+                    and hmac.compare_digest(
+                        str(pending.get("state_hash", "")),
+                        hashlib.sha256(state.encode("ascii")).hexdigest(),
+                    )
+                    and self.connectors.require_tiktok_shop_runtime(connector_id) == runtime
+                )
+            except (TypeError, ValueError):
+                valid = False
+            if not valid:
+                raise MarketplaceError(
+                    "MARKETPLACE_OAUTH_INVALID", "TikTok Shop authorization expired or changed.",
+                    403,
+                )
+            self.connectors.vault.delete(pending_key)
+        if values.get("error"):
+            raise MarketplaceError(
+                "MARKETPLACE_OAUTH_DENIED", "TikTok Shop authorization was declined.", 403,
+            )
+        code = values.get("code", "")
+        if not 1 <= len(code) <= 8_000 or any(ord(char) < 33 for char in code):
+            raise MarketplaceError(
+                "MARKETPLACE_OAUTH_INVALID", "Invalid TikTok Shop authorization code.", 403,
+            )
+
+        def check_current() -> None:
+            if self.connectors.require_tiktok_shop_runtime(connector_id) != runtime:
+                raise MarketplaceError(
+                    "MARKETPLACE_CONFIGURATION_CHANGED", "TikTok Shop connector changed.",
+                )
+
+        async with self._oauth_lock(connector_id):
+            record = await self._exchange_oauth_token(
+                TIKTOK_TOKEN_PATH, credentials, "auth_code", code, check_current,
+            )
+            if not set(runtime.connector.scope.split()).issubset(record["scopes"]):
+                raise MarketplaceError(
+                    "MARKETPLACE_SCOPE_REQUIRED",
+                    "TikTok Shop did not grant the configured seller read permissions.", 403,
+                )
+            with self.connectors._transaction():
+                check_current()
+                if self.connectors.vault.has(pending_key):
+                    raise MarketplaceError(
+                        "MARKETPLACE_CONFIGURATION_CHANGED", "Seller authorization restarted.",
+                    )
+                self.connectors.vault.set(token_key, json.dumps({
+                    **record, "scopes": sorted(record["scopes"]),
+                    "revision": runtime.connector.revision,
+                }))
+
+    def _stored_oauth_token(
+        self, connector_id: str, runtime: CommercialConnectorRuntime,
+    ) -> dict[str, Any]:
+        assert self.connectors.vault is not None
+        _, token_key = tiktok_oauth_vault_keys(connector_id)
+        raw = self.connectors.vault.get(token_key)
+        try:
+            record = json.loads(raw or "")
+            if (
+                not isinstance(record, dict)
+                or record.get("revision") != runtime.connector.revision
+                or not all(
+                    isinstance(record.get(name), str)
+                    and 1 <= len(record[name]) <= 4096
+                    and re.fullmatch(r"[A-Za-z0-9_.~:+/=-]+", record[name])
+                    for name in ("access_token", "refresh_token", "open_id")
+                )
+                or any(
+                    type(record.get(name)) is not int
+                    or not 0 < record[name] < 100_000_000_000
+                    for name in ("expires_at", "refresh_expires_at")
+                )
+                or not isinstance(record.get("scopes"), list)
+                or not 1 <= len(record["scopes"]) <= 200
+                or not all(
+                    isinstance(scope, str)
+                    and re.fullmatch(r"[A-Za-z0-9_.:-]{1,160}", scope)
+                    for scope in record["scopes"]
+                )
+            ):
+                raise ValueError
+            return record
+        except (TypeError, ValueError, RecursionError):
+            raise MarketplaceError(
+                "MARKETPLACE_OAUTH_REQUIRED", "Authorize this TikTok Shop seller first.",
+            ) from None
+
+    async def _exchange_oauth_token(
+        self, path: str, credentials: TikTokShopOAuthCredentials,
+        token_field: str, token_value: str, check_current: Callable[[], None],
+    ) -> dict[str, Any]:
+        query = urlencode({
+            "app_key": credentials.app_key.get_secret_value(),
+            "app_secret": credentials.app_secret.get_secret_value(),
+            token_field: token_value,
+            "grant_type": "authorized_code" if token_field == "auth_code" else "refresh_token",
+        })
+        try:
+            async with asyncio.timeout(30):
+                destination = await pin_marketplace_destination(TIKTOK_OAUTH_ORIGIN + path)
+                check_current()
+                wire_request = httpx.Request(
+                    "GET", destination.request_url + "?" + query,
+                    headers={
+                        "Host": destination.host_header,
+                        "Accept": "application/json", "Accept-Encoding": "identity",
+                    },
+                    extensions={
+                        "sni_hostname": destination.sni_hostname,
+                        "timeout": {"connect": 10.0, "read": 15.0, "write": 10.0, "pool": 5.0},
+                    },
+                )
+                content, _ = await send_marketplace_request(
+                    self.transport_factory, wire_request,
+                    lambda status: MarketplaceError(
+                        "MARKETPLACE_OAUTH_REJECTED",
+                        "TikTok Shop refused the seller token. Reauthorize the seller.",
+                        403 if status in {400, 401, 403} else 502,
+                    ),
+                )
+                check_current()
+        except (TimeoutError, httpx.HTTPError, OSError):
+            raise MarketplaceError(
+                "MARKETPLACE_NETWORK_FAILED", "TikTok Shop authorization request failed.", 502,
+            ) from None
+        try:
+            payload = json.loads(content)
+            if not isinstance(payload, dict) or type(payload.get("code")) is not int:
+                raise ValueError
+            if payload["code"] != 0:
+                raise MarketplaceError(
+                    "MARKETPLACE_OAUTH_REJECTED",
+                    "TikTok Shop refused the seller token. Reauthorize the seller.", 403,
+                )
+            data = payload["data"]
+            if not isinstance(data, dict) or type(data.get("user_type")) is not int:
+                raise ValueError
+            if data["user_type"] != 0:
+                raise MarketplaceError(
+                    "MARKETPLACE_OAUTH_INVALID",
+                    "TikTok Shop returned a non-seller authorization.", 403,
+                )
+            scopes = data["granted_scopes"]
+            if (
+                not isinstance(scopes, list) or not 1 <= len(scopes) <= 200
+                or not all(
+                    isinstance(scope, str)
+                    and re.fullmatch(r"[A-Za-z0-9_.:-]{1,160}", scope)
+                    for scope in scopes
+                )
+            ):
+                raise ValueError
+            record = {
+                "access_token": data["access_token"],
+                "refresh_token": data["refresh_token"],
+                "open_id": data["open_id"],
+                "expires_at": data["access_token_expire_in"],
+                "refresh_expires_at": data["refresh_token_expire_in"],
+                "scopes": sorted(set(scopes)),
+            }
+            if (
+                not all(
+                    isinstance(record[name], str)
+                    and 1 <= len(record[name]) <= 4096
+                    and re.fullmatch(r"[A-Za-z0-9_.~:+/=-]+", record[name])
+                    for name in ("access_token", "refresh_token", "open_id")
+                )
+                or any(
+                    type(record[name]) is not int
+                    or not self.clock() + _TIKTOK_REFRESH_MARGIN < record[name]
+                    or record[name] >= 100_000_000_000
+                    for name in ("expires_at", "refresh_expires_at")
+                )
+            ):
+                raise ValueError
+            return record
+        except (KeyError, TypeError, ValueError, RecursionError):
+            raise _protocol_error() from None
+
+    async def _oauth_access_token(
+        self, connector_id: str, runtime: CommercialConnectorRuntime,
+        credentials: TikTokShopOAuthCredentials, check_current: Callable[[], None],
+    ) -> dict[str, Any]:
+        _, token_key = tiktok_oauth_vault_keys(connector_id)
+        async with self._oauth_lock(connector_id):
+            check_current()
+            record = self._stored_oauth_token(connector_id, runtime)
+            if record["expires_at"] <= self.clock() + _TIKTOK_REFRESH_MARGIN:
+                if record["refresh_expires_at"] <= self.clock() + _TIKTOK_REFRESH_MARGIN:
+                    raise MarketplaceError(
+                        "MARKETPLACE_OAUTH_REQUIRED",
+                        "TikTok Shop authorization expired. Reauthorize the seller.",
+                    )
+                replacement = await self._exchange_oauth_token(
+                    TIKTOK_REFRESH_PATH, credentials, "refresh_token",
+                    record["refresh_token"], check_current,
+                )
+                if replacement["open_id"] != record["open_id"]:
+                    raise MarketplaceError(
+                        "MARKETPLACE_OAUTH_INVALID", "TikTok Shop seller identity changed.", 403,
+                    )
+                with self.connectors._transaction():
+                    check_current()
+                    self.connectors.vault.set(token_key, json.dumps({
+                        **replacement, "revision": runtime.connector.revision,
+                    }))
+                record = replacement
+            return record
+
     def identity_parts(self, connector_id: str) -> list[str | None]:
         runtime = self.connectors.require_tiktok_shop_runtime(connector_id)
         credentials = parse_tiktok_shop_credentials(runtime.credential.get_secret_value())
@@ -254,11 +656,9 @@ class TikTokShopReader:
         if authorize is not None:
             authorize()
         runtime = self.connectors.require_tiktok_shop_runtime(connector_id)
-        credentials = parse_tiktok_shop_credentials(runtime.credential.get_secret_value())
-        private_values = {
-            secret.get_secret_value()
-            for secret in (credentials.app_key, credentials.app_secret, credentials.access_token)
-        }
+        configured_credentials = parse_tiktok_shop_credentials(
+            runtime.credential.get_secret_value(),
+        )
         if request.operation == "orders":
             raise MarketplaceError(
                 "MARKETPLACE_OPERATION_UNSUPPORTED", "TikTok Shop order reads are not available.",
@@ -276,7 +676,7 @@ class TikTokShopReader:
                 "Required seller read permissions are not configured.",
             )
 
-        def check_current() -> None:
+        def check_configuration() -> None:
             if authorize is not None:
                 authorize()
             current = self.connectors.require_tiktok_shop_runtime(connector_id)
@@ -286,13 +686,42 @@ class TikTokShopReader:
                     "The connector changed during the request. Read again with current settings.",
                     409,
                 )
-            if credentials.access_token_expires_at <= self.clock() + 30:
-                raise MarketplaceError(
-                    "MARKETPLACE_TOKEN_EXPIRED", "Replace the expired seller access token.",
-                )
 
         try:
             async with asyncio.timeout(30):
+                if isinstance(configured_credentials, TikTokShopOAuthCredentials):
+                    token = await self._oauth_access_token(
+                        connector_id, runtime, configured_credentials, check_configuration,
+                    )
+                    if not required.issubset(set(token["scopes"])):
+                        raise MarketplaceError(
+                            "MARKETPLACE_SCOPE_REQUIRED",
+                            "TikTok Shop no longer grants the required seller read permissions.",
+                            403,
+                        )
+                    credentials = TikTokShopCredentials(
+                        app_key=configured_credentials.app_key,
+                        app_secret=configured_credentials.app_secret,
+                        access_token=SecretStr(token["access_token"]),
+                        access_token_expires_at=token["expires_at"],
+                    )
+                else:
+                    credentials = configured_credentials
+                private_values = {
+                    secret.get_secret_value()
+                    for secret in (
+                        credentials.app_key, credentials.app_secret, credentials.access_token,
+                    )
+                }
+
+                def check_current() -> None:
+                    check_configuration()
+                    if credentials.access_token_expires_at <= self.clock() + 30:
+                        raise MarketplaceError(
+                            "MARKETPLACE_TOKEN_EXPIRED",
+                            "The seller access token expired. Reauthorize or read again.",
+                        )
+
                 check_current()
                 shops_payload = await self._request(
                     credentials, "GET", TIKTOK_SHOPS_PATH, {}, b"", check_current, private_values,

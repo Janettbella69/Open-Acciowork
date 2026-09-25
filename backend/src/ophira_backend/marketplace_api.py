@@ -18,8 +18,10 @@ from .marketplace_access import (
 )
 from .marketplaces import (
     MARKETPLACE_GUIDES,
+    TIKTOK_OAUTH_CALLBACK_PATH,
     MarketplaceError,
     MarketplaceReadRequest,
+    TikTokShopReader,
 )
 from .models import PrincipalContext
 from .shopify import SHOPIFY_OAUTH_CALLBACK_PATH, ShopifyReader
@@ -44,6 +46,15 @@ def register_marketplace_routes(
             raise HTTPException(404, f"{exc.code}: {exc}") from None
         if not isinstance(adapter, ShopifyReader):
             raise HTTPException(404, "Shopify connector not found")
+        return adapter
+
+    def tiktok_reader(connector_id: str) -> TikTokShopReader:
+        try:
+            adapter = reader.adapter(connector_id)
+        except ConnectorUnavailableError as exc:
+            raise HTTPException(404, f"{exc.code}: {exc}") from None
+        if not isinstance(adapter, TikTokShopReader):
+            raise HTTPException(404, "TikTok Shop connector not found")
         return adapter
 
     def require_tenant_admin(request: Request) -> None:
@@ -81,6 +92,40 @@ def register_marketplace_routes(
         )
         return RedirectResponse(
             "/app/plugins/connectors?shopify=connected", status_code=303,
+            headers={"Cache-Control": "no-store", "Referrer-Policy": "no-referrer"},
+        )
+
+    @application.get("/api/connectors/{connector_id}/tiktok-shop-oauth")
+    async def tiktok_oauth_status(connector_id: str, request: Request, response: Response):
+        require_tenant_admin(request)
+        response.headers["Cache-Control"] = "no-store"
+        return tiktok_reader(connector_id).oauth_status(
+            connector_id, marketplace_access.settings.tiktok_shop_oauth_public_origin,
+        )
+
+    @application.post("/api/connectors/{connector_id}/tiktok-shop-oauth/start")
+    async def start_tiktok_oauth(connector_id: str, request: Request, response: Response):
+        require_tenant_admin(request)
+        settings = marketplace_access.settings
+        if (
+            settings.auth_mode != "trusted_gateway"
+            or settings.tiktok_shop_oauth_public_origin is None
+        ):
+            raise HTTPException(409, "Configure OPHIRA_TIKTOK_SHOP_OAUTH_PUBLIC_ORIGIN first")
+        result = tiktok_reader(connector_id).begin_oauth(
+            connector_id, settings.tiktok_shop_oauth_public_origin,
+        )
+        response.headers["Cache-Control"] = "no-store"
+        response.headers["Referrer-Policy"] = "no-referrer"
+        return result
+
+    @application.get(TIKTOK_OAUTH_CALLBACK_PATH)
+    async def complete_tiktok_oauth(connector_id: str, request: Request):
+        await tiktok_reader(connector_id).complete_oauth(
+            connector_id, request.scope.get("query_string", b""),
+        )
+        return RedirectResponse(
+            "/app/plugins/connectors?tiktok_shop=connected", status_code=303,
             headers={"Cache-Control": "no-store", "Referrer-Policy": "no-referrer"},
         )
 

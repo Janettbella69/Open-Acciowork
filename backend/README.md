@@ -42,6 +42,12 @@ Shopify external-merchant OAuth requires trusted-gateway mode and
 this backend without a gateway identity header, and register the displayed callback
 URL in the Shopify app. See [merchant authorization setup](../docs/marketplace-connectors.md).
 
+TikTok Shop seller OAuth requires trusted-gateway mode and
+`OPHIRA_TIKTOK_SHOP_OAUTH_PUBLIC_ORIGIN=https://work.example.com`. Route the exact
+`/api/connectors/{connector_id}/tiktok-shop-oauth/callback` path from that HTTPS host
+to this backend without a gateway identity header, and register the displayed callback
+URL in Partner Center. See [seller authorization setup](../docs/marketplace-connectors.md).
+
 For media drafts, the optional [OpenAI image and Runway video adapters](../docs/media-generation.md)
 use separate operator keys and keep the Claude Agent SDK as the sole Agent runtime.
 The authenticated raw-binary media endpoint remains available for either kind.
