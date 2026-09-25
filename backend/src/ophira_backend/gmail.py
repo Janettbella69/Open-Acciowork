@@ -519,9 +519,10 @@ class GmailService:
                 "body_truncated": len(body) > 3500,
             })
         return {
-            "mailbox": token.email, "query": query, "messages": messages,
+            "mailbox": token.email, "query": query, "page_size": page_size,
+            "request_page_token": page_token, "messages": messages,
             "next_page_token": next_page,
-            "source_url": GMAIL_API + "/messages?" + urlencode(params),
+            "source_url": GMAIL_API + "/messages",
         }
 
     def push_url(self, connector_id: str) -> str | None:

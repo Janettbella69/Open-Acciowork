@@ -252,6 +252,38 @@ async def test_gmail_revocation_during_upstream_read_prevents_receipt(tmp_path):
     assert app.state.ledger.list_tool_receipts(project.id) == []
 
 
+@pytest.mark.asyncio
+async def test_max_length_gmail_page_token_still_has_a_replayable_receipt(tmp_path):
+    app, project, owner, member = setup(tmp_path)
+    access = app.state.gmail_access
+    granted = access.grant(
+        project.id, GmailGrantRequest(expected_revision=0, connector_id="gmail"), owner,
+    )
+    run = app.state.ledger.create_run(project.id, "Read next page", principal=member)
+    run = app.state.ledger.update_run(
+        run.id, sdk_session_id="sdk-gmail", status=RunStatus.RUNNING,
+    )
+    page_token = "a" * 2048
+
+    def google(request):
+        assert request.url.params["pageToken"] == page_token
+        return httpx.Response(200, json={"messages": []})
+
+    app.state.gmail.client = httpx.AsyncClient(transport=httpx.MockTransport(google))
+    observed = await access.read_for_run(project.id, run.id, GmailAgentRequest(
+        operation="messages", grant_id=granted["grants"][0]["id"],
+        page_token=page_token,
+    ))
+    assert observed["observation"]["request_page_token"] == page_token
+    replay = app.state.ledger.verify_tool_receipt(
+        project.id, observed["source_receipt"]["id"],
+        run_id=run.id, session_id=run.sdk_session_id,
+    )
+    assert replay.receipt.canonical_source == (
+        "https://gmail.googleapis.com/gmail/v1/users/me/messages"
+    )
+
+
 def test_gmail_grant_is_exported_and_deleted_with_its_project(tmp_path):
     app, project, owner, _member = setup(tmp_path)
     granted = app.state.gmail_access.grant(

@@ -33,7 +33,8 @@ The main Agent uses `mcp__ophira_ledger__read_gmail`:
 - Each message page carries a `source_receipt.id` tied to the running SDK
   session. `record_evidence` can use it; reading alone does not write an
   Evidence claim. The receipt records the exact sanitized page, mailbox grant,
-  retrieval time, and Gmail list URL. Project export includes the grant record;
+  retrieval time, fixed Gmail list path, and requested search/page parameters.
+  Project export includes the grant record;
   project deletion removes it.
 
 The service checks the Run's current project, principal membership, SDK session,
