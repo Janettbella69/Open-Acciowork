@@ -14,7 +14,7 @@ Implementation contract for PRD v2.2 §3.9. The PRD and AGENTS.md remain the arc
 | Durable intent, cross-worker exclusion, same-operation recovery | Delivered: real dual-worker HTTP crash after native deletion, peer exclusion and same-ID recovery |
 | Block deleted Run/session revival and preserve project provenance | Delivered: deleted Run reads/resume fail; project checkpoints, exports and cold backup/restore use content-free provenance |
 | Real HTTP and bilingual browser verification | Delivered: EN/ZH at 320/400/1280 px, retained other conversation, local draft/files and refreshable progress |
-| Historical backups, external copies, physical-media erasure | Restore CLI can compare the latest local project/conversation deletion register before publishing; backups and external copies are not erased |
+| Historical backups, external copies, physical-media erasure | Restore CLI can compare current project/conversation records and memory tombstones before publishing; backups and external copies are not erased |
 
 ## Product boundary
 

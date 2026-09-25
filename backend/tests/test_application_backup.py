@@ -998,8 +998,8 @@ def test_restore_cli_reconciles_a_matching_current_directory(
     result = json.loads(capsys.readouterr().out)
     assert result["passed"] is True
     assert result["deletion_reconciliation"] == {
-        "scope": "project_and_conversation",
-        "project_deletions": 0, "conversation_deletions": 0,
+        "scope": "project_conversation_memory",
+        "project_deletions": 0, "conversation_deletions": 0, "memory_deletions": 0,
     }
     assert target.is_dir()
 
@@ -1055,8 +1055,8 @@ def test_restore_rejects_backup_older_than_a_completed_project_deletion(source, 
     recovered = tmp_path / "recent-restore"
     result = backup.restore_backup(recent, recovered, current_data_dir=data)
     assert result["deletion_reconciliation"] == {
-        "scope": "project_and_conversation",
-        "project_deletions": 1, "conversation_deletions": 0,
+        "scope": "project_conversation_memory",
+        "project_deletions": 1, "conversation_deletions": 0, "memory_deletions": 0,
     }
     assert not (recovered / "data/projects" / removed.id).exists()
 
@@ -1093,6 +1093,80 @@ def test_restore_rejects_backup_older_than_a_completed_conversation_deletion(
         recent, tmp_path / "recent-restore", current_data_dir=data,
     )
     assert result["deletion_reconciliation"]["conversation_deletions"] == 1
+
+
+def test_restore_rejects_backup_older_than_a_memory_deletion(source, tmp_path):
+    from ophira_backend.constants import MemoryKind, MemoryScope, MemorySource
+    from ophira_backend.memory import FileMemoryProvider
+
+    data, plugin, *_ = source
+    memory = FileMemoryProvider(data / "memory", agents_root=data / "agents")
+    item = memory.propose(
+        scope=MemoryScope.USER, scope_id="owner", text="private erased fact",
+        kind=MemoryKind.FACT, source=MemorySource.USER, created_by="owner",
+    )
+    old = make_backup(source, tmp_path)
+    memory.delete(item.id, deleted_by="owner", reason="remove this fact")
+    with pytest.raises(BackupError, match="deletion_register_mismatch"):
+        backup.restore_backup(old, tmp_path / "old-restore", current_data_dir=data)
+    assert not (tmp_path / "old-restore").exists()
+
+    recent = tmp_path / "recent-backup"
+    backup.create_backup(data, plugin, recent)
+    recovered = tmp_path / "recent-restore"
+    result = backup.restore_backup(recent, recovered, current_data_dir=data)
+    assert result["deletion_reconciliation"]["memory_deletions"] == 1
+    assert b"private erased fact" not in (
+        recovered / "data/memory/user/owner/items.json"
+    ).read_bytes()
+
+
+@pytest.mark.parametrize("residue", [
+    "items", "history", "agent_mirror", "items_staging", "history_staging",
+    "agent_staging",
+])
+def test_cold_backup_rejects_memory_content_left_after_tombstone(
+    source, tmp_path, residue,
+):
+    from ophira_backend.constants import MemoryKind, MemoryScope, MemorySource
+    from ophira_backend.memory import FileMemoryProvider
+
+    data, plugin, *_ = source
+    scope = MemoryScope.AGENT if residue.startswith("agent_") else MemoryScope.USER
+    scope_id = "agent_fixture" if scope == MemoryScope.AGENT else "owner"
+    if scope == MemoryScope.AGENT:
+        core = data / "agents" / scope_id
+        core.mkdir(parents=True)
+        (core / "MEMORY.md").write_text("# Memory\n")
+    memory = FileMemoryProvider(data / "memory", agents_root=data / "agents")
+    item = memory.propose(
+        scope=scope, scope_id=scope_id, text="private erased fact",
+        kind=MemoryKind.FACT, source=MemorySource.USER, created_by="owner",
+    )
+    memory.delete(item.id, deleted_by="owner", reason="remove this fact")
+    directory = data / "memory" / scope.value / scope_id
+    if residue == "items":
+        (directory / "items.json").write_text(json.dumps([item.model_dump(mode="json")]))
+    elif residue == "history":
+        (directory / "history.jsonl").write_text(json.dumps({
+            "action": "propose", "item": item.model_dump(mode="json"),
+        }) + "\n")
+    elif residue == "agent_mirror":
+        (data / "agents" / scope_id / "MEMORY.md").write_text(
+            f"# Memory\n<!-- mem:{item.id} --> private erased fact\n"
+        )
+    elif residue == "items_staging":
+        (directory / ".ophira-memory-items.json-candidate").write_text(item.text)
+    elif residue == "history_staging":
+        (directory / ".ophira-memory-history.jsonl-candidate").write_text(item.text)
+    else:
+        (data / "agents" / scope_id / ".ophira-memory-MEMORY.md-candidate").write_text(
+            item.text
+        )
+    target = tmp_path / "unsafe-backup"
+    with pytest.raises(BackupError, match="memory_deletion_scrub_incomplete"):
+        backup.create_backup(data, plugin, target)
+    assert not target.exists()
 
 
 def test_cli_rejects_invalid_private_record_without_printing_contents(source, tmp_path):

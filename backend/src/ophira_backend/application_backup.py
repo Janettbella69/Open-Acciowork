@@ -27,7 +27,7 @@ from .plugin_import_backup import inspect_plugin_imports
 from .project_comments import MAX_COMMENT_BYTES, CommentLedger
 from .project_deletion_proofs import load_deletion_proofs
 from .project_template_backup import inspect_project_templates
-from .skill_proposal_files import directory_fd, read_relative
+from .skill_proposal_files import directory_fd, read_relative, relative_parts
 from .skill_proposals import SkillProposalService
 from .skill_repository_backup import inspect_skill_imports
 from .skills import CONTENT_HASH_PATTERN, TENANT_PLUGIN_NAMESPACE, SkillRegistry
@@ -54,6 +54,7 @@ DEFAULT_LIMITS = BackupLimits()
 DELETION_LIMITS = BackupLimits(
     files=20_000, entries=40_000, total_bytes=512 * 1024 * 1024,
 )
+MAX_MEMORY_TOMBSTONES = 100_000
 
 
 def implementation() -> dict[str, str]:
@@ -434,8 +435,109 @@ def create_backup(
                 remove_staging(stage)
 
 
+def _memory_deletion_register(data: Path) -> dict:
+    """Capture content-free tombstones and reject unfinished memory scrubs."""
+    from .constants import MemoryScope
+    from .models import MemoryTombstone
+
+    root = data / "memory"
+    if not root.exists() and not root.is_symlink():
+        return {"files": [], "tombstones": 0}
+    inventory = tree_inventory(root, DEFAULT_LIMITS)
+    files = {row["path"]: row for row in inventory["files"]}
+    staging_scopes = set()
+    for candidate in files:
+        directory, _, name = candidate.rpartition("/")
+        if name in {"items.json.tmp", "history.jsonl.tmp"} or name.startswith((
+            ".ophira-memory-items.json-", ".ophira-memory-history.jsonl-",
+        )):
+            staging_scopes.add(directory)
+    tombstone_files = []
+    total = 0
+    seen_ids = set()
+    for path, row in files.items():
+        if path.rsplit("/", 1)[-1] != "tombstones.jsonl":
+            continue
+        parts = relative_parts(path)
+        if len(parts) != 3 or parts[0] not in {scope.value for scope in MemoryScope}:
+            raise BackupError("memory_deletion_register_invalid")
+        raw = read_relative(root, path, DEFAULT_LIMITS.file_bytes)
+        if not raw.endswith(b"\n") or raw.count(b"\n") + total > MAX_MEMORY_TOMBSTONES:
+            raise BackupError("memory_deletion_register_invalid")
+        deleted_ids = set()
+        try:
+            for line in raw.splitlines():
+                tombstone = MemoryTombstone.model_validate_json(line)
+                if (
+                    tombstone.scope.value != parts[0]
+                    or tombstone.scope_id != parts[1]
+                    or tombstone.memory_id in seen_ids
+                ):
+                    raise ValueError("memory deletion scope or identity mismatch")
+                deleted_ids.add(tombstone.memory_id)
+                seen_ids.add(tombstone.memory_id)
+        except ValueError:
+            raise BackupError("memory_deletion_register_invalid") from None
+        total += len(deleted_ids)
+        prefix = f"{parts[0]}/{parts[1]}/"
+        if prefix[:-1] in staging_scopes:
+            raise BackupError("memory_deletion_scrub_incomplete")
+        items_path = prefix + "items.json"
+        if items_path in files:
+            try:
+                items = parse_json(read_relative(root, items_path, DEFAULT_LIMITS.file_bytes))
+                if not isinstance(items, list) or any(
+                    not isinstance(item, dict) or not isinstance(item.get("id"), str)
+                    for item in items
+                ):
+                    raise ValueError("invalid memory items")
+            except ValueError:
+                raise BackupError("memory_deletion_register_invalid") from None
+            if any(item["id"] in deleted_ids for item in items):
+                raise BackupError("memory_deletion_scrub_incomplete")
+        history_path = prefix + "history.jsonl"
+        if history_path in files:
+            history_deleted = False
+            try:
+                history = read_relative(root, history_path, DEFAULT_LIMITS.file_bytes)
+                for line in history.splitlines():
+                    entry = parse_json(line)
+                    if (
+                        not isinstance(entry, dict)
+                        or not isinstance(entry.get("item"), dict)
+                        or not isinstance(entry["item"].get("id"), str)
+                    ):
+                        raise ValueError("invalid memory history")
+                    if entry["item"].get("id") in deleted_ids:
+                        history_deleted = True
+            except ValueError:
+                raise BackupError("memory_deletion_register_invalid") from None
+            if history_deleted:
+                raise BackupError("memory_deletion_scrub_incomplete")
+        if parts[0] == MemoryScope.AGENT.value:
+            agent_directory = data / "agents" / parts[1]
+            if agent_directory.exists() or agent_directory.is_symlink():
+                with directory_fd(agent_directory) as descriptor:
+                    names = os.listdir(descriptor)
+                if (
+                    len(names) > DEFAULT_LIMITS.entries
+                    or any(name.startswith(".ophira-memory-MEMORY.md-") for name in names)
+                ):
+                    raise BackupError("memory_deletion_scrub_incomplete")
+            try:
+                mirror = read_relative(
+                    data, f"agents/{parts[1]}/MEMORY.md", DEFAULT_LIMITS.file_bytes,
+                )
+            except FileNotFoundError:
+                mirror = b""
+            if any(f"<!-- mem:{identifier} -->".encode() in mirror for identifier in deleted_ids):
+                raise BackupError("memory_deletion_scrub_incomplete")
+        tombstone_files.append(row)
+    return {"files": tombstone_files, "tombstones": total}
+
+
 def _deletion_register(data: Path) -> dict:
-    """Read only the committed project and conversation deletion stores."""
+    """Read committed project, conversation, and memory deletion records."""
     from .conversation_deletion_state import ConversationDeletionStates
     from .project_deletion_proofs import deleted_project_ids
     from .project_lifecycle import ProjectLifecycle
@@ -484,6 +586,7 @@ def _deletion_register(data: Path) -> dict:
         "inventory": inventories,
         "project_deletions": len(project_ids),
         "conversation_deletions": conversation_count,
+        "memory": _memory_deletion_register(data),
     }
 
 
@@ -545,12 +648,16 @@ def _restore_backup(
         if current_data_dir is not None:
             current = _deletion_register(current_data_dir)
             recovered = _deletion_register(restored / "data")
-            if current["inventory"] != recovered["inventory"]:
+            if (
+                current["inventory"] != recovered["inventory"]
+                or current["memory"]["files"] != recovered["memory"]["files"]
+            ):
                 raise BackupError("deletion_register_mismatch")
             reconciliation = {
-                "scope": "project_and_conversation",
+                "scope": "project_conversation_memory",
                 "project_deletions": current["project_deletions"],
                 "conversation_deletions": current["conversation_deletions"],
+                "memory_deletions": current["memory"]["tombstones"],
             }
         sync_directories(restored)
         publish_exclusive(restored, target)

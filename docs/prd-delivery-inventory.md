@@ -143,7 +143,7 @@ Google Chrome；用户已登录浏览器、真实卖家后台和 Provider 端到
 | §4.16 任务经验 | delivered：专属工具与版本/来源账本、创建时配置指纹、低信任检索注入、容量/事务恢复与人工停用UI；deferred：真实Provider自主调用及长期判断质量 |
 | §4.12 事件 | delivered：有真实Run归属的evidence.added/decision.recorded、artifact.registered/updated、memory.proposed；实时产物刷新、固定版本下载、记忆审核入口、持久幂等补发与完整SSE尾部消费；deferred：无Run项目变更和 schedule/preflight 细分事件 |
 | §3.9 / §4.10 | delivered：自动调度跨进程抢占与事件汇总恢复；Bash 工作区快照与人审恢复、跨进程目录切换修复；deferred：其余事件故障矩阵、生产恢复/容量与性能、CPU/内存/进程/输出限制 |
-| §3.9 数据主权 | delivered：操作者CLI完整数据目录冷备份与新目录恢复，覆盖项目账本/提案/Registry/工作区检查点一致性；恢复时须提供最新数据目录核对项目/会话删除登记，或显式承认无法对账；项目工作文件恢复UI；项目owner/admin审核清单后导出文件、应用可见会话、来源与相关账本ZIP。本地交付：项目及独立会话删除审核/API/UI、跨域擦除与原操作恢复，见project-deletion-design.md与conversation-deletion.md；Provider 密钥可由租户管理员独立导出/撤销，见provider-credentials.md；连接器和项目 MCP 的本地密钥仓凭据可按权限独立导出、经现有撤销路径删除，见connector-mcp-credentials.md；关闭窗口后的店铺浏览器持久 profile 可独立导出/删除，见shop-browsers.md；deferred：主机环境变量与平台远端凭据的删除对账、全应用恢复UI、其他数据域与历史备份的删除登记对账、跨宿主可信登记交付及生产灾备、真实卖家登录和生产隔离验收；项目ZIP不含运行时会话、凭据和浏览器登录资料 |
+| §3.9 数据主权 | delivered：操作者CLI完整数据目录冷备份与新目录恢复，覆盖项目账本/提案/Registry/工作区检查点一致性；恢复时须提供最新数据目录核对项目/会话删除登记及记忆墓碑，或显式承认无法对账；项目工作文件恢复UI；项目owner/admin审核清单后导出文件、应用可见会话、来源与相关账本ZIP。本地交付：项目及独立会话删除审核/API/UI、跨域擦除与原操作恢复，见project-deletion-design.md与conversation-deletion.md；Provider 密钥可由租户管理员独立导出/撤销，见provider-credentials.md；连接器和项目 MCP 的本地密钥仓凭据可按权限独立导出、经现有撤销路径删除，见connector-mcp-credentials.md；关闭窗口后的店铺浏览器持久 profile 可独立导出/删除，见shop-browsers.md；deferred：主机环境变量与平台远端凭据的删除对账、全应用恢复UI、凭据与历史备份的删除登记对账、跨宿主可信登记交付及生产灾备、真实卖家登录和生产隔离验收；项目ZIP不含运行时会话、凭据和浏览器登录资料 |
 | §3.9 性能 | delivered：本地ASGI单/4并发各100样本，创建/首事件持久化/离线task取消P95基线；deferred：真实SDK进程、网络/SSE运输、多worker与生产负载验收 |
 | §3.9 / §3.10 | delivered：项目范围按Provider/model/Skill/tool/错误的有界指标汇总；deferred：业务成功指标、区域与数据流披露 |
 | §3.11 / §6.6 | deferred：当前 L2 基线、人亲自标注的 gold、judge 校准与 TPR/TNR 门槛；不能由 AI 伪造标注 |
@@ -1284,3 +1284,15 @@ profile 代次的未加密 ZIP，或独立删除全部代次和残留会话文�
 双重选择、匹配、旧快照复活拒绝、未完成删除和运行中目录租约拒绝。本批未改前端。
 该门禁不擦除旧备份，也不覆盖记忆、凭据或外部副本的历史删除对账；跨宿主可信登记、
 旧版恢复程序与生产灾备验收仍 deferred。完整 PRD 仍未完成。
+
+## 2026-09-25：§3.9 记忆删除墓碑的冷备恢复对账
+
+冷备创建及恢复现校验记忆删除墓碑，拒绝墓碑对应的正文、历史、Agent 记忆镜像或
+中断清理留下的私有暂存文件。提供最新且已停机的数据目录时，恢复会逐项比较
+当前目录与候选快照的记忆墓碑文件、权限和哈希；旧快照缺少删除记录则拒绝发布。
+正常记忆更新不参与这一相等比较，恢复结果单列记忆删除数量。
+
+验证：后端全套 **2428 passed / 14 skipped**，冷备、记忆治理与并发删除、项目/会话
+删除相关专项 **120 passed**，Ruff 和 `git diff --check` 通过。本批未改前端。
+凭据撤销登记、历史备份擦除、跨宿主可信登记和生产灾备验收仍 deferred；
+完整 PRD 仍未完成。
