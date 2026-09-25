@@ -73,9 +73,11 @@ export function getSitePublications(projectId: string, signal?: AbortSignal): Pr
   })
 }
 
-export function stageSitePublication(projectId: string, artifactId: string): Promise<SitePublicationView> {
+export function stageSitePublication(
+  projectId: string, artifactId: string, allowScripts: boolean,
+): Promise<SitePublicationView> {
   return request(`/api/projects/${encodeURIComponent(projectId)}/site-publications`, {
-    method: 'POST', body: JSON.stringify({ artifact_id: artifactId }), cache: 'no-store',
+    method: 'POST', body: JSON.stringify({ artifact_id: artifactId, allow_scripts: allowScripts }), cache: 'no-store',
   })
 }
 
@@ -84,6 +86,7 @@ export function publishSitePublication(projectId: string, view: SitePublicationV
   return request(`/api/projects/${encodeURIComponent(projectId)}/site-publications/${encodeURIComponent(item.id)}/publish`, {
     method: 'POST', cache: 'no-store', body: JSON.stringify({
       expected_revision: item.revision, expected_checksum: item.artifact_checksum,
+      expected_allow_scripts: item.allow_scripts,
       confirmation: 'publish',
     }),
   })

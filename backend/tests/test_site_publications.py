@@ -204,7 +204,7 @@ def test_project_deletion_withdraws_owned_publication(tmp_path: Path):
             confirmation="publish",
         ), approved_by="local-operator",
     )
-    assert sites.public_html(project.id, published.publication.id) == HTML
+    assert sites.public_html(project.id, published.publication.id) == (HTML, False)
     deletion = ProjectDeletionService(ledger, ProjectAccessStore(tmp_path / "auth" / "projects"))
     preview = deletion.preview(project.id, None)
     assert preview.can_delete
@@ -214,3 +214,59 @@ def test_project_deletion_withdraws_owned_publication(tmp_path: Path):
     ), None)
     assert result.status == "deleted"
     assert not (tmp_path / "projects" / project.id).exists()
+
+
+@pytest.mark.asyncio
+async def test_interactive_page_requires_explicit_script_review(tmp_path: Path):
+    settings = Settings(
+        data_dir=tmp_path, auth_mode="trusted_gateway",
+        trusted_gateway_auth_secret=GATEWAY_SECRET,
+        trusted_gateway_tenant_id="tenant_sites",
+        site_public_origin="https://pages.example.com",
+    )
+    app = create_app(settings, runtime=FakeRuntime())
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="https://gateway.example.com",
+    ) as client:
+        async def managed(method: str, path: str, **kwargs):
+            return await client.request(
+                method, path, headers=gateway_headers(method, path), **kwargs,
+            )
+
+        created = await managed(
+            "POST", "/api/projects", json={"name": "Interactive", "objective": "Page"},
+        )
+        project_id = created.json()["id"]
+        workspace = app.state.ledger.workspace_for_project(project_id)
+        (workspace / "landing.html").write_bytes(HTML)
+        artifact = app.state.ledger.register_artifact(project_id, "landing.html")
+        base = f"/api/projects/{project_id}/site-publications"
+        staged = await managed("POST", base, json={
+            "artifact_id": artifact.id, "allow_scripts": True,
+        })
+        assert staged.status_code == 201, staged.text
+        record = staged.json()["publication"]
+        assert record["allow_scripts"] is True
+        site_id = record["id"]
+        preview = await managed("GET", f"{base}/{site_id}/preview")
+        assert "sandbox allow-scripts" in preview.headers["content-security-policy"]
+        assert "script-src 'unsafe-inline'" in preview.headers["content-security-policy"]
+        assert "connect-src 'none'" in preview.headers["content-security-policy"]
+        assert "form-action 'none'" in preview.headers["content-security-policy"]
+        assert "allow-same-origin" not in preview.headers["content-security-policy"]
+        rejected = await managed("POST", f"{base}/{site_id}/publish", json={
+            "expected_revision": 1, "expected_checksum": artifact.checksum,
+            "confirmation": "publish",
+        })
+        assert rejected.status_code == 409
+        approved = await managed("POST", f"{base}/{site_id}/publish", json={
+            "expected_revision": 1, "expected_checksum": artifact.checksum,
+            "expected_allow_scripts": True, "confirmation": "publish",
+        })
+        assert approved.status_code == 200, approved.text
+        page = await client.get(approved.json()["public_url"])
+        assert page.status_code == 200
+        assert page.content == HTML
+        assert "sandbox allow-scripts" in page.headers["content-security-policy"]
+        assert "script-src 'unsafe-inline'" in page.headers["content-security-policy"]
+        assert "allow-same-origin" not in page.headers["content-security-policy"]

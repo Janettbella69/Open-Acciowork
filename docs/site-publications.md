@@ -12,6 +12,9 @@ control-plane host. Keep the normal authenticated API on its own host. Publish
 directly from **Project files → Published pages** in the workspace.
 
 Select an immutable saved `.html` or `.htm` artifact version of at most 512 KiB.
+For an interactive page, explicitly select **Run inline scripts** when staging.
+The script setting is frozen into the draft and included in the approval check.
+Existing publications and new drafts without this choice keep scripts disabled.
 Staging records its exact artifact ID and SHA-256 without making it public. A
 project administrator reviews the sandboxed preview and exact hash, explicitly
 approves publication, and can withdraw the page later. A changed artifact creates
@@ -20,18 +23,23 @@ withdrawal states are durable, so the list can reconcile a lost HTTP response.
 Project deletion removes the owned publication records and artifact snapshots,
 making their public URLs unavailable.
 
-The public response contains the exact saved UTF-8 HTML. It sets `Cache-Control:
-no-store`, a no-script [CSP sandbox](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Content-Security-Policy/sandbox),
-and a policy that allows inline CSS and data images while blocking scripts,
-forms, remote resources, framing, and origin privileges. This supports static
-landing pages and site prototypes made from self-contained HTML. Pages that need
-JavaScript or external assets require a separately isolated publishing runtime;
-this implementation does not claim that capability.
+The public response contains the exact saved UTF-8 HTML and sets `Cache-Control:
+no-store`. Static pages keep the no-script [CSP sandbox](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Content-Security-Policy/sandbox).
+Explicitly reviewed interactive pages use `sandbox allow-scripts` with an opaque
+origin, allowing inline JavaScript and event handlers while denying origin
+storage, forms, framing, remote scripts, background requests, and remote assets.
+The review iframe uses the matching script mode and another sandbox layer.
+Neither mode allows `allow-same-origin` or access to control-plane APIs. A
+public top-level page can still link or navigate visitors to another site, so
+the administrator must review the HTML and its scripts before approval.
+Self-contained HTML can include inline CSS and data images. External assets
+and hosted JavaScript bundles are not supported yet.
 
 Local API tests cover staging, explicit approval, byte pinning across artifact
 edits, host separation, withdrawal, and project deletion. Chromium review at
 1360px and 390px uses a local simulated gateway to exercise staging and
-approval; the browser CSP check confirms that inline CSS renders while script
-execution and origin storage fail. Real public HTTPS routing, CDN behavior,
-browser compatibility, and a live generated page remain deployment acceptance
-work.
+approval. Real Chromium with actual ASGI responses verifies that old static
+pages keep scripts inert; an opted-in page and its review iframe run inline
+scripts, while storage and background network attempts are blocked. Real public
+HTTPS routing, CDN behavior, wider browser compatibility, and a live generated
+page remain deployment acceptance work.

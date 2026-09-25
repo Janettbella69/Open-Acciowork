@@ -30,11 +30,13 @@ class SitePublicationConflict(SitePublicationError):
 
 class SitePublicationStage(APIModel):
     artifact_id: str = Field(pattern=r"^artifact_[0-9a-f]{32}$")
+    allow_scripts: bool = False
 
 
 class SitePublicationDecision(APIModel):
     expected_revision: int = Field(ge=1)
     expected_checksum: str = Field(pattern=r"^[0-9a-f]{64}$")
+    expected_allow_scripts: bool = False
     confirmation: Literal["publish"]
 
 
@@ -50,6 +52,7 @@ class SitePublication(APIModel):
     artifact_name: str = Field(min_length=1, max_length=255)
     artifact_checksum: str = Field(pattern=r"^[0-9a-f]{64}$")
     size_bytes: int = Field(ge=1, le=MAX_SITE_HTML_BYTES)
+    allow_scripts: bool = False
     origin: str = Field(max_length=500)
     state: Literal["draft", "published", "revoked"]
     revision: int = Field(ge=1)
@@ -157,6 +160,7 @@ class SitePublicationStore:
 
     def stage(
         self, project_id: str, artifact_id: str, *, created_by: str,
+        allow_scripts: bool = False,
     ) -> SitePublicationView:
         if self.public_origin is None:
             raise SitePublicationConflict("Configure a public site origin first")
@@ -173,16 +177,17 @@ class SitePublicationStore:
                 id=new_id("site"), project_id=project_id,
                 artifact_id=artifact.id, artifact_name=artifact.name,
                 artifact_checksum=artifact.checksum, size_bytes=artifact.size_bytes,
+                allow_scripts=allow_scripts,
                 origin=self.public_origin, state="draft", revision=1,
                 created_by=created_by, created_at=utc_now(),
             )
             self.ledger._atomic_write(self._path(project_id, record.id), record)
             return self._view(record)
 
-    def preview(self, project_id: str, site_id: str) -> bytes:
+    def preview(self, project_id: str, site_id: str) -> tuple[bytes, bool]:
         with self.ledger.lifecycle.lease(project_id), self.ledger._lock_for(project_id):
             record = self._read(project_id, site_id)
-            return self._html(record)
+            return self._html(record), record.allow_scripts
 
     def publish(
         self, project_id: str, site_id: str, decision: SitePublicationDecision, *,
@@ -195,6 +200,7 @@ class SitePublicationStore:
             if (
                 self.public_origin is None or record.origin != self.public_origin
                 or record.artifact_checksum != decision.expected_checksum
+                or record.allow_scripts != decision.expected_allow_scripts
             ):
                 raise SitePublicationConflict("Site origin or reviewed HTML changed")
             self._validate_html(record.artifact_name, self._html(record))
@@ -220,9 +226,9 @@ class SitePublicationStore:
             self.ledger._atomic_write(self._path(project_id, site_id), updated)
             return self._view(updated)
 
-    def public_html(self, project_id: str, site_id: str) -> bytes:
+    def public_html(self, project_id: str, site_id: str) -> tuple[bytes, bool]:
         with self.ledger.lifecycle.lease(project_id), self.ledger._lock_for(project_id):
             record = self._read(project_id, site_id)
             if record.state != "published" or record.origin != self.public_origin:
                 raise LedgerNotFoundError(site_id)
-            return self._html(record)
+            return self._html(record), record.allow_scripts

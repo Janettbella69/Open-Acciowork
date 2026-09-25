@@ -28,7 +28,7 @@ const draft: SitePublicationView = {
   publication: {
     id: 'site_' + 'c'.repeat(32), project_id: 'project_1', artifact_id: artifact.id,
     artifact_name: artifact.name, artifact_checksum: artifact.checksum,
-    size_bytes: artifact.size_bytes, origin: 'https://pages.example.com',
+    size_bytes: artifact.size_bytes, allow_scripts: false, origin: 'https://pages.example.com',
     state: 'draft', revision: 1, created_by: 'owner@example.com',
     created_at: '2026-09-24T00:00:00Z', published_by: null,
     published_at: null, revoked_by: null, revoked_at: null,
@@ -62,7 +62,7 @@ it('stages a pinned artifact, requires human review, then publishes and withdraw
   const { container } = render(<SitePublicationsPanel projectId="project_1" artifacts={[artifact]} />)
   fireEvent.click(screen.getByRole('button', { name: 'Published pages · 0' }))
   fireEvent.click(await screen.findByRole('button', { name: 'Stage this HTML version' }))
-  await waitFor(() => expect(stageSitePublication).toHaveBeenCalledWith('project_1', artifact.id))
+  await waitFor(() => expect(stageSitePublication).toHaveBeenCalledWith('project_1', artifact.id, false))
   const approve = await screen.findByRole('button', { name: 'Approve and publish page' })
   expect(approve).toBeDisabled()
   expect(container.querySelector('iframe')).toHaveAttribute(
@@ -82,6 +82,24 @@ it('stages a pinned artifact, requires human review, then publishes and withdraw
   fireEvent.click(screen.getByRole('button', { name: 'Confirm withdrawal' }))
   await waitFor(() => expect(revokeSitePublication).toHaveBeenCalledWith('project_1', published))
   expect(await screen.findByText('This page is no longer public.')).toBeInTheDocument()
+})
+
+it('stages interactive scripts only after an explicit choice and shows the matching preview mode', async () => {
+  const interactive = { ...draft, publication: { ...draft.publication, allow_scripts: true } }
+  vi.mocked(stageSitePublication).mockResolvedValue(interactive)
+  render(<SitePublicationsPanel projectId="project_1" artifacts={[artifact]} />)
+  fireEvent.click(screen.getByRole('button', { name: 'Published pages · 0' }))
+  fireEvent.click(await screen.findByRole('checkbox', {
+    name: 'Run inline scripts in an isolated page (no storage or background requests).',
+  }))
+  fireEvent.click(screen.getByRole('button', { name: 'Stage this HTML version' }))
+  await waitFor(() => expect(stageSitePublication).toHaveBeenCalledWith('project_1', artifact.id, true))
+  expect(screen.getByTitle('Page draft preview')).toHaveAttribute('sandbox', 'allow-scripts')
+  fireEvent.click(screen.getByRole('checkbox', {
+    name: 'I reviewed this exact HTML version and approve its scripts running publicly.',
+  }))
+  fireEvent.click(screen.getByRole('button', { name: 'Approve and publish page' }))
+  await waitFor(() => expect(publishSitePublication).toHaveBeenCalledWith('project_1', interactive))
 })
 
 it('does not offer staging when no public site origin is configured', async () => {

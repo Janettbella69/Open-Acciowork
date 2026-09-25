@@ -26,13 +26,18 @@ _PAGE_CSP = (
     "img-src data:; font-src data:; connect-src 'none'; frame-src 'none'; "
     "object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
 )
-_PREVIEW_CSP = _PAGE_CSP.replace("frame-ancestors 'none'", "frame-ancestors 'self'")
+_SCRIPT_CSP = _PAGE_CSP.replace("sandbox;", "sandbox allow-scripts;").replace(
+    "script-src 'none'", "script-src 'unsafe-inline'",
+)
 
 
-def _page_headers(*, preview: bool = False) -> dict[str, str]:
+def _page_headers(*, preview: bool = False, allow_scripts: bool = False) -> dict[str, str]:
+    csp = _SCRIPT_CSP if allow_scripts else _PAGE_CSP
+    if preview:
+        csp = csp.replace("frame-ancestors 'none'", "frame-ancestors 'self'")
     return {
         "Cache-Control": "no-store, max-age=0",
-        "Content-Security-Policy": _PREVIEW_CSP if preview else _PAGE_CSP,
+        "Content-Security-Policy": csp,
         "X-Content-Type-Options": "nosniff",
         "X-Frame-Options": "SAMEORIGIN" if preview else "DENY",
         "Referrer-Policy": "no-referrer",
@@ -111,7 +116,8 @@ def register_site_publication_routes(
             raise HTTPException(422, "Invalid site draft request") from exc
         try:
             return await run_in_threadpool(
-                store.stage, project_id, payload.artifact_id, created_by=actor,
+                store.stage, project_id, payload.artifact_id,
+                created_by=actor, allow_scripts=payload.allow_scripts,
             )
         except Exception as exc:
             raise _site_error(exc) from exc
@@ -131,10 +137,13 @@ def register_site_publication_routes(
     def preview_site(project_id: str, site_id: str, request: Request):
         authorize(request, project_id, ProjectPermission.PROJECT_READ)
         try:
-            raw = store.preview(project_id, site_id)
+            raw, allow_scripts = store.preview(project_id, site_id)
         except Exception as exc:
             raise _site_error(exc) from exc
-        return Response(raw, media_type="text/html", headers=_page_headers(preview=True))
+        return Response(
+            raw, media_type="text/html",
+            headers=_page_headers(preview=True, allow_scripts=allow_scripts),
+        )
 
     @app.post(
         "/api/projects/{project_id}/site-publications/{site_id}/publish",
@@ -186,9 +195,11 @@ def register_site_publication_routes(
         if request.headers.get("host", "").casefold() != expected_host:
             raise HTTPException(404, "Page not found")
         try:
-            raw = store.public_html(project_id, site_id)
+            raw, allow_scripts = store.public_html(project_id, site_id)
         except (LedgerNotFoundError, ProjectUnavailableError, FileNotFoundError):
             raise HTTPException(404, "Page not found") from None
         except (SitePublicationConflict, ProjectLifecycleBusyError, OSError, ValueError):
             raise HTTPException(503, "Page is temporarily unavailable") from None
-        return Response(raw, media_type="text/html", headers=_page_headers())
+        return Response(
+            raw, media_type="text/html", headers=_page_headers(allow_scripts=allow_scripts),
+        )

@@ -19,6 +19,7 @@ export default function SitePublicationsPanel({ projectId, artifacts }: {
   const [open, setOpen] = useState(false)
   const [catalog, setCatalog] = useState<SitePublicationCatalog | null>(null)
   const [artifactId, setArtifactId] = useState('')
+  const [allowScripts, setAllowScripts] = useState(false)
   const [selectedId, setSelectedId] = useState('')
   const [reviewed, setReviewed] = useState(false)
   const [revokeId, setRevokeId] = useState('')
@@ -61,7 +62,7 @@ export default function SitePublicationsPanel({ projectId, artifacts }: {
     if (!chosenArtifactId || !catalog?.can_stage || busy) return
     setBusy(true); setError(''); setNotice('')
     try {
-      const view = await stageSitePublication(projectId, chosenArtifactId)
+      const view = await stageSitePublication(projectId, chosenArtifactId, allowScripts)
       replace(view)
       setSelectedId(view.publication.id)
       setReviewed(false)
@@ -119,7 +120,7 @@ export default function SitePublicationsPanel({ projectId, artifacts }: {
       {!catalog && !error && <p role="status">{t('Loading page publications…')}</p>}
       {catalog && <>
         <p>{t('Publish a saved HTML version after reviewing it. Public pages can be withdrawn.')}</p>
-        <p>{t('Public pages allow inline CSS and embedded data images. Scripts, forms, and remote resources are blocked.')}</p>
+        <p>{t('Public pages allow inline CSS and embedded data images. Forms and remote resources are blocked.')}</p>
         {!catalog.public_origin && <p>{t('Configure a separate public HTTPS site origin to publish pages.')}</p>}
         {catalog.public_origin && catalog.can_stage && <div className="site-publications-stage">
           <label>{t('Saved HTML version')}
@@ -129,6 +130,9 @@ export default function SitePublicationsPanel({ projectId, artifacts }: {
               </option>)}
             </select>
           </label>
+          <label className="site-publications-confirm"><input type="checkbox" checked={allowScripts}
+            disabled={busy} onChange={(event) => setAllowScripts(event.target.checked)} />
+            {t('Run inline scripts in an isolated page (no storage or background requests).')}</label>
           <button type="button" disabled={busy || !chosenArtifactId} onClick={() => void stage()}>
             {t('Stage this HTML version')}
           </button>
@@ -142,20 +146,22 @@ export default function SitePublicationsPanel({ projectId, artifacts }: {
             <button type="button" aria-expanded={selectedId === item.id}
               onClick={() => { setSelectedId(selectedId === item.id ? '' : item.id); setReviewed(false); setRevokeId('') }}>
               <strong>{item.artifact_name}</strong>
-              <span>{t({ draft: 'Draft', published: 'Published', revoked: 'Withdrawn' }[item.state])} · {item.artifact_checksum.slice(0, 12)}</span>
+              <span>{t({ draft: 'Draft', published: 'Published', revoked: 'Withdrawn' }[item.state])} · {item.artifact_checksum.slice(0, 12)} · {item.allow_scripts ? t('Interactive scripts') : t('Static page')}</span>
             </button>
             {selected?.publication.id === item.id && <div className="site-publications-detail">
               <p>{t('Exact saved version')}: <code>{item.artifact_checksum}</code></p>
               <p>{t('Public address')}: <code>{view.public_url}</code></p>
               {item.state === 'draft' && <>
-                <iframe title={t('Page draft preview')} sandbox=""
+                <iframe title={t('Page draft preview')} sandbox={item.allow_scripts ? 'allow-scripts' : ''}
                   referrerPolicy="no-referrer"
                   src={sitePublicationPreviewUrl(projectId, item.id)} />
                 <p>{t('Review the preview and exact SHA-256 before approving publication.')}</p>
                 {catalog.can_publish ? <>
                   <label className="site-publications-confirm"><input type="checkbox" checked={reviewed}
                     disabled={busy} onChange={(event) => setReviewed(event.target.checked)} />
-                    {t('I reviewed this exact HTML version and approve making it public.')}</label>
+                    {item.allow_scripts
+                      ? t('I reviewed this exact HTML version and approve its scripts running publicly.')
+                      : t('I reviewed this exact HTML version and approve making it public.')}</label>
                   <button type="button" disabled={!reviewed || busy}
                     onClick={() => void publish(view)}>{t('Approve and publish page')}</button>
                 </> : <p>{t('A project administrator must approve publication.')}</p>}
