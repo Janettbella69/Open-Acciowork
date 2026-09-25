@@ -118,6 +118,7 @@ from .shop_browser import ShopBrowserService
 from .skill_proposals import SkillProposalService
 from .skills import SkillRegistry, SkillRuntimeView
 from .source_receipts import (
+    RemoteMcpReceiptSource,
     attach_source_receipts,
     model_visible_source_receipt_context,
 )
@@ -1725,6 +1726,22 @@ class ClaudeAgentRuntime:
                 if run.mode == RunMode.PLAN:
                     receipt_context = None
                 else:
+                    remote_mcp_source = None
+                    if tool_name.startswith("mcp__user_") and not input_data.get("agent_id"):
+                        for connector in self._remote_connectors(run).values():
+                            for reviewed_tool in connector.tools:
+                                if (reviewed_tool.policy != "deny"
+                                        and connector.tool_name(reviewed_tool.name) == tool_name):
+                                    remote_mcp_source = RemoteMcpReceiptSource(
+                                        connector_id=connector.id,
+                                        connector_name=connector.name,
+                                        connector_revision=connector.revision,
+                                        endpoint_url=connector.url,
+                                        remote_tool_name=reviewed_tool.name,
+                                    )
+                                    break
+                            if remote_mcp_source is not None:
+                                break
                     receipt_attachment = attach_source_receipts(
                         self.ledger,
                         run_id,
@@ -1732,6 +1749,7 @@ class ClaudeAgentRuntime:
                         tool_input,
                         tool_response,
                         delegated=bool(input_data.get("agent_id")),
+                        remote_mcp_source=remote_mcp_source,
                     )
                     tool_response = receipt_attachment.tool_response
                     receipt_context = model_visible_source_receipt_context(

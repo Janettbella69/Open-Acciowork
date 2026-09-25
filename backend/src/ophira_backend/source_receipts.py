@@ -1,4 +1,4 @@
-"""Host-side SourceObservation/ToolReceipt issuance for external reads.
+"""Host-side SourceObservation/ToolReceipt issuance for external tool results.
 
 The Agent never receives an issuance tool.  The SDK PostToolUse host hook calls this
 module after the shared untrusted-data sanitizer has replaced the model-visible tool
@@ -88,6 +88,17 @@ class SourceReceiptAttachment:
     receipt_ids: tuple[str, ...] = ()
 
 
+@dataclass(frozen=True)
+class RemoteMcpReceiptSource:
+    """Host-validated connector identity from this Run's reviewed snapshot."""
+
+    connector_id: str
+    connector_name: str
+    connector_revision: int
+    endpoint_url: str
+    remote_tool_name: str
+
+
 def model_visible_source_receipt_context(receipt_ids: tuple[str, ...]) -> str | None:
     """Build bounded, host-trusted provenance context for the model.
 
@@ -106,8 +117,8 @@ def model_visible_source_receipt_context(receipt_ids: tuple[str, ...]) -> str | 
     suffix = f" ({omitted} additional receipt IDs omitted)" if omitted else ""
     return (
         "OPHIRA host provenance (trusted metadata, not external content): "
-        f"this completed external read minted source_receipt.id values: {rendered}{suffix}. "
-        "When recording web/tool Evidence derived from this read, pass one exact value "
+        f"this completed external tool result minted source_receipt.id values: {rendered}{suffix}. "
+        "When recording web/tool Evidence derived from this result, pass one exact value "
         "above as receipt_id. These IDs do not make the external content trusted."
     )
 
@@ -263,7 +274,22 @@ def _strip_untrusted_receipt_claims(value: Any) -> Any:
     if isinstance(value, list):
         return [_strip_untrusted_receipt_claims(item) for item in value]
     if isinstance(value, str):
-        return _UNTRUSTED_RECEIPT_LINE.sub("", value).rstrip()
+        cleaned = _UNTRUSTED_RECEIPT_LINE.sub("", value).rstrip()
+        # MCP servers commonly return JSON inside a text content block. Strip
+        # provenance-shaped fields there too, without changing ordinary text.
+        if cleaned.lstrip().startswith(("{", "[")):
+            try:
+                decoded = json.loads(cleaned)
+            except ValueError:
+                pass
+            else:
+                if isinstance(decoded, (dict, list)):
+                    stripped = _strip_untrusted_receipt_claims(decoded)
+                    if stripped != decoded:
+                        return json.dumps(
+                            stripped, ensure_ascii=False, separators=(",", ":")
+                        )
+        return cleaned
     return value
 
 
@@ -490,18 +516,22 @@ def attach_source_receipts(
     sanitized_tool_response: Any,
     *,
     delegated: bool,
+    remote_mcp_source: RemoteMcpReceiptSource | None = None,
 ) -> SourceReceiptAttachment:
-    """Attach server-issued receipt IDs to a sanitized external-read result.
+    """Attach server-issued receipt IDs to a sanitized external tool result.
 
     Delegated scratch reads intentionally return unchanged: seeing an object in a
     branch does not expand the main Agent's writable provenance set.
     """
 
-    if tool_name not in RECEIPT_WEB_TOOLS:
+    is_remote_mcp = tool_name.startswith("mcp__user_")
+    if tool_name not in RECEIPT_WEB_TOOLS and not is_remote_mcp:
         return SourceReceiptAttachment(sanitized_tool_response)
     sanitized_tool_response = _strip_untrusted_receipt_claims(
         copy.deepcopy(sanitized_tool_response)
     )
+    if is_remote_mcp and remote_mcp_source is None:
+        return SourceReceiptAttachment(sanitized_tool_response)
     if delegated:
         return SourceReceiptAttachment(sanitized_tool_response)
     try:
@@ -513,6 +543,54 @@ def attach_source_receipts(
         # response unreceipted makes later Evidence recording fail closed without
         # converting a useful read into a fabricated trusted observation.
         return SourceReceiptAttachment(sanitized_tool_response)
+
+    if remote_mcp_source is not None:
+        if (
+            tool_name != f"mcp__user_{remote_mcp_source.connector_id}__"
+            f"{remote_mcp_source.remote_tool_name}"
+            or not isinstance(sanitized_tool_response, (dict, list, str))
+            or not sanitized_tool_response
+            or (
+                isinstance(sanitized_tool_response, dict)
+                and (sanitized_tool_response.get("isError") is True
+                     or sanitized_tool_response.get("is_error") is True)
+            )
+        ):
+            return SourceReceiptAttachment(sanitized_tool_response)
+        try:
+            input_hash = hashlib.sha256(
+                json.dumps(
+                    tool_input, ensure_ascii=False, allow_nan=False,
+                    sort_keys=True, separators=(",", ":"),
+                ).encode("utf-8")
+            ).hexdigest()
+            receipt = ledger.issue_tool_receipt(
+                run.project_id,
+                run.id,
+                tool=tool_name,
+                source_type=EvidenceSourceType.TOOL,
+                canonical_source=remote_mcp_source.endpoint_url,
+                payload=sanitized_tool_response,
+                object_type="remote_mcp_tool_result",
+                object_key=(
+                    f"{remote_mcp_source.connector_id}/"
+                    f"{remote_mcp_source.remote_tool_name}/"
+                    f"{remote_mcp_source.connector_revision}"
+                ),
+                object_metadata={
+                    "title": (
+                        f"{remote_mcp_source.connector_name}: "
+                        f"{remote_mcp_source.remote_tool_name}"
+                    ),
+                    "connector_id": remote_mcp_source.connector_id,
+                    "connector_revision": remote_mcp_source.connector_revision,
+                    "remote_tool_name": remote_mcp_source.remote_tool_name,
+                    "input_hash": input_hash,
+                },
+            )
+        except (SourceReceiptError, TypeError, ValueError):
+            return SourceReceiptAttachment(sanitized_tool_response)
+        return SourceReceiptAttachment(sanitized_tool_response, (receipt.id,))
 
     issued_receipt_ids: list[str] = []
 

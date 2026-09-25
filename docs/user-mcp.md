@@ -20,7 +20,13 @@ time**, or **deny**. Ask decisions use the existing durable SDK approval path an
 cannot create persistent grants. The native `PreToolUse` hook denies unknown,
 revoked, changed, policy-blocked, and subagent calls. `PostToolUse` sanitizes
 remote results, attaches the untrusted-data notice, and replaces the
-model-visible result. A Run records a credential-free snapshot of reviewed
+model-visible result. A non-error main-Agent result from a still-approved tool
+also receives a host-issued `tool` source receipt. The receipt binds the exact
+sanitized result to the Run/session, reviewed connector revision, tool name,
+endpoint URL, and a hash of the call arguments. The Agent can record evidence
+with that receipt; the endpoint identifies the MCP server, not the original
+source of any claim the server returned. Failed, delegated, unknown, or revoked
+tool calls receive no receipt. A Run records a credential-free snapshot of reviewed
 connectors. The SDK receives eligible servers through `mcp_servers` as
 in-process MCP gateways, with `strict_mcp_config=True` and `setting_sources=[]`.
 The Claude Code worker receives neither remote URL nor bearer token. Every
@@ -57,3 +63,6 @@ compaction, and standing-intent Runs receive no user MCP servers.
   and a real Provider run still need acceptance testing.
 - OAuth authorization and token refresh are not implemented; the advanced form
   accepts a user-supplied bearer token only.
+- Remote MCP receipts prove what the reviewed server returned to this Run after
+  sanitization. They do not verify the server's underlying sources or factual
+  claims. Live server and Provider acceptance remains pending.

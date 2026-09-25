@@ -50,7 +50,7 @@
 | FR-30 任务进度 | delivered（本地）：钉版 SDK 原生 Task/Todo 工具允许与事件回放清单；主 Run/失败过滤测试 | deferred：真实 Provider 产出任务清单、浏览器刷新验收 |
 | FR-31 运行中插话 | delivered（本地代码/离线测试，2026-09-24）：用户消息先入 Run 事件序列，支持当前 SDK 流会话发送、排到下一轮及中断后替换；跨 worker 由持有会话的进程接收，具备 SDK session 的交互 Run 在实时投递不可用时自动启动同会话下一 Run；请求幂等、投递不确定/设备授权撤销状态、原 Run 回放和续行跳转、桌面及获准发起任务的配对手机入口均已覆盖 | deferred：真实 Provider 的中途插话/打断语义、浏览器与手机 HTTPS 目视验收；SDK 写入与持久确认之间的崩溃窗口只能标为不确定，不能盲目重试 |
 | FR-32 并行任务列表 | delivered（本地列表）：新任务不取消旧 Run；授权过滤列表展示独立 Run 状态、审批、预算、已报告的 SDK 费用和结果，精确 Run 跳转 | deferred：运行中的可靠实时花费、真实多个 SDK Run 并发、预算熔断与浏览器验收 |
-| FR-33 用户 MCP/连接器 | partial（本地）：项目级目录首项一键添加+在线工具清单审查、进阶 HTTPS/Bearer 配置、组织主机白名单、逐工具允许/每次询问/禁止、撤销、Run 快照与 SDK 显式装配；运行期经每次地址钉住的受控 MCP 网关，外部输出不可信过滤；MCP Python SDK 2.2 自动协商 2026-07-28 无握手协议及旧版回退，同一 Run 复用旧版有状态 HTTP 会话、不同 Run 隔离，离线 HTTP 和进程内测试覆盖；见 `docs/user-mcp.md` | deferred：真实 MCP/Provider E2E、OAuth、更多已验证目录项、公开状态型服务器及浏览器目视验收，见 `docs/user-mcp.md` |
+| FR-33 用户 MCP/连接器 | partial（本地）：项目级目录首项一键添加+在线工具清单审查、进阶 HTTPS/Bearer 配置、组织主机白名单、逐工具允许/每次询问/禁止、撤销、Run 快照与 SDK 显式装配；运行期经每次地址钉住的受控 MCP 网关，外部输出不可信过滤；主 Agent 当前批准工具的清洗后结果可签发同 Run/session 的 `tool` 来源凭证，写入证据时由账本复核；MCP Python SDK 2.2 自动协商 2026-07-28 无握手协议及旧版回退，同一 Run 复用旧版有状态 HTTP 会话、不同 Run 隔离，离线 HTTP 和进程内测试覆盖；见 `docs/user-mcp.md` | deferred：真实 MCP/Provider E2E、OAuth、更多已验证目录项、公开状态型服务器及浏览器目视验收，见 `docs/user-mcp.md` |
 | FR-34 上下文压缩 | delivered（本地代码/离线测试，2026-09-24）：钉版 SDK `get_context_usage()` 采样有效窗口占用并随 Run 事件回放；原生压缩边界事件提示自动/手动压缩、崩溃后修复 epoch 并强制完整业务上下文刷新；用户可在已完成会话启动独立无工具 `/compact` Run，只有 SDK 手动边界确认才算成功，账本及产物不被压缩 Run 改写 | deferred：真实 Provider 用量/手动与自动压缩语义、长时采样及浏览器目视验收；SDK 不提供用量时显示未知，不从累计 token 推算 |
 | FR-35 会话检索 | delivered（本地）：项目内有界 Run 提问、用户插话、主 Agent 回复与结果检索，RUN_READ 校验、只读 MCP、Run ID 回放及截断提示 | deferred：大历史性能/覆盖、浏览器与真实会话质量验收 |
 | FR-36 首次引导 | delivered（本地）：示例任务、模型选择及设置页密钥/条款/预检/返回步骤 | deferred：新用户可用性测试和实际 Provider 配置 E2E |
@@ -83,6 +83,8 @@ Google Chrome；用户已登录浏览器、真实卖家后台和 Provider 端到
 2026-09-24 FR-41 内联交互增量：草稿可逐版本显式启用内联脚本，管理员审批请求绑定该模式；既有/默认发布仍为禁脚本。Chromium 从真实 ASGI 响应验证 8 项：旧页脚本无效、交互页与预览脚本可运行、Cookie/本地存储/后台请求/表单提交及预览父页面读取受阻。后端全量 `2296 passed / 13 skipped`（含 socket 专项），前端全量 `539 passed / 56 files`，Ruff、ESLint 与 TypeScript/Vite 构建通过。公网 HTTPS、其他浏览器、外部资产发布及真实用户页面仍待验收。
 
 2026-09-24 FR-41 站点包增量：12 MiB 以内 ZIP 的根目录 `index.html` 与至多 32 个受限 `assets/` CSS/图片/经典 JS 可作为不可变版本暂存和审阅；公开与预览均按固定路径加载，撤回与项目删除使资源失效。真实 Chromium 15 项检查全过（含公开和预览 CSS/图片/JS 渲染、未批准脚本保持静态与外联拒绝），后端全量 `2301 passed / 13 skipped`、前端全量 `540 passed / 56 files`，Ruff、ESLint、TypeScript/Vite 通过。真实公网与缓存、模块脚本和第三方资源、跨浏览器及生产容量仍待验收。
+
+2026-09-24 FR-33 来源凭证增量：当前 Run 快照中仍获批准的远程 MCP 工具，其主 Agent 成功结果在不可信内容清洗后可签发 `tool` 来源凭证，绑定同 Run/session、MCP 端点、工具、连接器修订和调用参数哈希；证据写入复用账本校验，服务端覆盖 Agent 自报的来源。错误、支线、未知和撤销工具无凭证。后端全量 `2302 passed / 13 skipped`，远程 MCP/来源凭证专项 `34 passed`，Ruff 通过；真实端点/Provider、OAuth 和浏览器验收仍待完成。
 
 2026-09-24 FR-39 插件导入增量：官方格式 ZIP 可拆分多个 Skill，全部预检查后进入私有冻结导入、人审和默认关闭的发布流程；兼容远程 HTTPS MCP 只提供项目配置入口，插件 Agent/钩子不装载。插件报告和 Skill 绑定进入冷备结构校验；MCP-only 包亦固定部署范围。后端全量（排除 socket 专项）在最后真实包解析与崩溃暂存清理修正前 `2209 passed / 13 skipped`，随后插件/冷备专项 `56 passed`、Ruff 和 diff-check 通过。前端全量 `528 passed / 55 files`、ESLint、TypeScript/Vite 构建通过；本地 Chromium 模拟 API 在 1360px/390px 核对报告、审核与 MCP 跳转，无页面错误或横向溢出。Anthropic marketing 插件真包（`da38ec1`）的 8 个 Skill 静态扫描通过，11 个远程 MCP 地址列出，未连接外部 MCP 或调用模型。真实 MCP/Provider、OAuth、身份网关部署及更多官方包兼容性仍需验收。
 
