@@ -83,8 +83,19 @@ PYTHONPATH=backend/src .venv/bin/python backend/scripts/run_browser_l2_e2e.py \
 The archived 2026-09-03 L1 and L2 reports both passed and live at
 `evals/reports/browser-l1-20260903T093547Z.json` and
 `evals/reports/browser-l2-20260903T093647Z.json`. They prove the real-browser smoke
-path and durable capture linkage; redirect/Service-Worker attack cases remain covered
-by deterministic tests. L3 has a macOS native host with single-window capture
+path and durable capture linkage. A separate offline real-Chromium regression
+exercises both L1 and L2 with a fixed in-process target transport:
+
+```bash
+.venv/bin/python backend/scripts/run_browser_security_e2e.py
+```
+
+It checks denied-domain scripts, private-address redirects, allowed redirects,
+Service Worker refusal in L1, failure recovery, and preservation of the user's
+pre-existing L2 tab. Chromium and CDP interception run normally; DNS, public
+network access, and the target server are fixtures. The DNS-pinning contract and
+other attack cases still have separate deterministic tests. L3 has a macOS native
+host with single-window capture
 and bounded Accessibility press, text replacement, and key paths; real system
 permissions and native input remain to be exercised on a controlled app.
 

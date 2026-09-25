@@ -30,7 +30,7 @@
 | FR-17 可观测性 | delivered：trace、三层日志、脱敏、类型化卡片；项目范围Provider/模型/Skill/MCP/错误分组指标与工作区面板 | deferred：细分事件与生产指标/性能验收 |
 | FR-18 恢复 | delivered：保存产物、错误分类、重试与重启恢复；Run 起点的完整可支持工作区快照、Bash 修改恢复、人工变更预览/确认/结果重试、中断目录切换修复、真实进程退出与冷备往返；同项目执行与产物收尾租约 | deferred：真实 SDK 故障注入、生产/跨宿主恢复、容量保留管理、性能与浏览器目视验收 |
 | FR-19 Deep Research | delivered：输入框内显式开关发起（默认关闭、运行中锁定）；三种原生只读研究单元的一次新建/同 Run 续接约束；共享预算/取消/原始截止时间；运行中资源 UI、来源包与主 Agent 去重落账；真实 DeepSeek 合成来源上的三单元并行/来源复核/证据合并与报告验收 | deferred：开放互联网研究质量、真实取消/耗尽/长时墙钟故障矩阵、其他 Provider 与浏览器目视验收 |
-| FR-20 GUI | delivered：L1/L2 真实浏览器 smoke；项目独立店铺 profile、用户登录确认、当前页观察引用、主Agent页面动作/报表下载与来源/产物落账、真实Chromium离线链路 | deferred：真实卖家后台/验证码/风控兼容性和模型联调；真实攻击/恢复矩阵；L3 输入动作与 OS 权限真机验收归 FR-42 |
+| FR-20 GUI | delivered：L1/L2 真实浏览器 smoke；项目独立店铺 profile、用户登录确认、当前页观察引用、主Agent页面动作/报表下载与来源/产物落账、真实Chromium离线链路；L1/L2 离线真实 Chromium/CDP 的禁止域脚本、私网重定向、同源重定向、恢复和 L2 原标签页保留回归 | deferred：真实卖家后台/验证码/风控兼容性和模型联调；更广泛的真实攻击/恢复矩阵及真实 DNS/公网目标复核；L3 输入动作与 OS 权限真机验收归 FR-42 |
 | FR-21 Connector | delivered：Catalog/Vault/health/revoke、HTTPS JSON send_message；六平台官方入口，TikTok Shop授权店铺/商品与Shopify同组织自有店铺/商品/近期订单只读adapter、项目店铺授权/到期/撤销、主Agent来源凭证与中英文管理员UI；含Shopify的店铺身份配置、同平台Connector关联、独立浏览器授权及数据展示 | deferred：其余邮箱/店铺/CRM/社媒垂直adapter；TikTok Shop OAuth/refresh、Shopify组织外店铺授权、真实授权test-account及模型调用验收/外发全链；API与浏览器数据自动合并 |
 | FR-22 组织治理 | delivered：单部署租户 principal/membership/策略；共享项目成员管理UI与版本冲突保护；持久团队讨论/回复/对象关联/编辑历史/解决状态；可复用项目模板、固定参考版本与来源、核对后创建和中断恢复；组织私有Skill导入人审、固定版本查看/导出、独立启停/恢复、跨进程凭证与冷备恢复 | deferred：真实身份网关联调、租户分区与隔离 runner、长期容量与浏览器目视验收 |
 | FR-23 Web 兜底 | delivered：Serper/Tavily 适配与 SSRF 防护 | deferred：真实配置搜索服务和 Provider 降级 E2E |
@@ -1151,3 +1151,17 @@ FR-42 与完整 PRD 保持未完成。
 同源跳转后的外部重定向；外部接收端请求数为零，同源原生状态 API 返回 200。
 该验证不覆盖所有 WebKit 版本、外部 OS 浏览器行为或完整攻击/恢复矩阵。
 真实窗口输入、系统权限、独立 Python 打包签名等 FR-42 项仍未完成；完整 PRD 未完成。
+
+## 2026-09-24：FR-20 L1/L2 真实 Chromium 离线安全回归
+
+新增可重复运行的 `backend/scripts/run_browser_security_e2e.py`。它使用生产
+`_playwright_capture`、真实 Chromium 和 CDP 请求拦截，给公网目标运输层注入固定的
+进程内页面与重定向响应；没有外部网络、卖家账号或模型调用。L1/L2 均验证禁止域脚本
+在发出前拒绝、同源 302 可继续、私有地址 302 被拒，以及拒绝后能继续使用浏览器。
+L1 验证 Service Worker 注册未产生 worker 脚本请求；L2 验证原有用户标签页没有被关闭
+或改写。
+
+本机结果 **10/10 checks passed**；既有 `test_browser_security.py` **31 passed**，
+Ruff 通过。公网 DNS 固定/私网拒绝仍由单元合约覆盖，本轮真实浏览器测试的运输层为
+夹具，不能据此声称真实公网重定向、恶意 Service Worker 全矩阵或商家后台兼容验收。
+FR-20 与完整 PRD 仍未全部完成。

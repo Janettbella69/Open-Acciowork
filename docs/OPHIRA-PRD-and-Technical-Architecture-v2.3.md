@@ -356,7 +356,7 @@ Accio 同时也**抬高了 table stakes**：权限四态与审计日志、分层
 
 - 在真实飞书/Lark 租户验收已实现的回复与 durable identity mapping，再补微信渠道；验收移动控制面已有的配对/设备信任和可选 Web Push，补原生推送、手机端实时进度和插话（FR-24/25）。
 - 用真实 Provider/数据源验证 standing intent 自主 watcher 的长时运行；补齐真实渠道投递（FR-26、§4.16）。
-- 扩展 GUI L1/L2 的真实浏览器回归；L1/L2 smoke acceptance 已于 2026-09-03 通过，重定向/Service Worker 等攻击矩阵当前主要由确定性测试覆盖（FR-20）。L3 见 P2（FR-42）。
+- 扩展 GUI L1/L2 的真实浏览器回归；L1/L2 smoke acceptance 已于 2026-09-03 通过，2026-09-24 又完成离线真实 Chromium/CDP 的禁止域脚本、私网/同源重定向及恢复子集；公网目标、Service Worker 攻击与更完整矩阵仍需验收（FR-20）。L3 见 P2（FR-42）。
 - 为媒体 MCP 配置并认证真实生成商；补齐视频能力和成品质量验证（FR-27）。
 - 更多市场与平台 Skills、合规数据源、物流与汇率工具。
 - 供应商联系、Listing 发布等外部动作的预览—批准—执行闭环。
@@ -408,7 +408,7 @@ Accio 同时也**抬高了 table stakes**：权限四态与审计日志、分层
 | FR-17 | P0 | 运行可观测性 | 事件带项目/Run/Trace/Session 关联；记录工具、授权、资源和错误且不暴露私有思维链 | **已实现**（本地代码/测试）：每次运行显示 SDK 估算花费（不是厂商账单），另有项目近 7/30 天运行指标面板 |
 | FR-18 | P0 | 错误恢复 | 失败保留证据与产物，可重试/分支恢复，并分类 Provider/MCP/权限/网络错误 | **已实现**（本地代码/测试）：含运行前工作区快照、Bash 修改恢复，经人确认后恢复 |
 | FR-19 | P0/Beta | Deep Research | 显式启用恰好 3 个只读研究子代理；共享主 Run 预算、统一取消、墙钟时限；不设轮数上限；仅主 Agent 写最终台账 | **已实现**（本地代码/测试）：输入框显式开关、运行中资源面板（共享预算、已报告花费、剩余预算）；真实 DeepSeek 合成来源上的三单元验收已通过，开放互联网研究质量未验收 |
-| FR-20 | P1 | GUI 操作（L1/L2） | L1 独立 profile；L2 只接已启用且健康的 loopback Chrome CDP；域策略/SSRF/重定向防护；动作与截图进 Artifact/Evidence | **部分实现**：L1/L2 后端安全和账本路径已有测试，并于 2026-09-03 分别通过真实 Chromium/Chrome-CDP smoke acceptance；项目独立店铺 profile、用户登录确认、页面动作与来源落账已实现；攻击边界主要仍由确定性测试覆盖。L3 拆为 FR-42（P2） |
+| FR-20 | P1 | GUI 操作（L1/L2） | L1 独立 profile；L2 只接已启用且健康的 loopback Chrome CDP；域策略/SSRF/重定向防护；动作与截图进 Artifact/Evidence | **部分实现**：L1/L2 后端安全和账本路径已有测试，并于 2026-09-03 分别通过真实 Chromium/Chrome-CDP smoke acceptance；项目独立店铺 profile、用户登录确认、页面动作与来源落账已实现；2026-09-24 离线真实 Chromium/CDP 的禁止域脚本、私网/同源重定向和失败恢复子集通过，公网目标与更完整攻击矩阵仍未验收。L3 拆为 FR-42（P2） |
 | FR-21 | P1 | 连接器管理 | 管理能力、范围、凭据、健康状态与撤销；业务适配器按授权接入 | **部分实现**：catalog、vault、health/revoke、Chrome CDP，以及首个受 review/apply 治理的 HTTPS JSON `send_message` adapter 已本地实现；尚无授权 test-account 真实外发；TikTok Shop、Shopify 店铺只读 adapter 已本地实现，Gmail、社媒等垂直 adapter 仍没有 |
 | FR-22 | P2 | 组织治理 | 组织策略约束 Provider、Skill、浏览器、域和渠道，运行仍由一个主 Agent 负责 | **部分实现**：OrgPolicy、request-bound trusted-gateway principal、持久项目 membership/role 与 Provider/Skill/browser/channel 运行时门禁已有代码/测试；当前仅为单 deployment tenant，全球 store 未物理分租户且 `multi_tenant=false`。v2.3 按个人使用场景改为 P2 |
 | FR-23 | P0 | Web 能力降级 | 原生 Web 不可用时可走安全检索/抓取 MCP；能力等级显式呈现 | **部分实现**：Web MCP 有 URL/重定向/SSRF 防护与测试；真实搜索服务配置和 Provider 降级 E2E 未验证 |
@@ -844,7 +844,7 @@ Prompt Injection 防线维持 v1.1：外部内容一律标记为不可信数据�
 | ✅ 本地实现 | 运行时边界 | Claude SDK 单主 Agent；普通模式可极少调用原生只读支线；支线写账本/自动化承诺代码级拒绝；Deep Research 3 个只读子代理，共享预算、统一取消、墙钟时限且无轮数上限 |
 | ✅ 本地实现 | 治理与账本 | 路径/删除/授权策略、OrgPolicy、Evidence/Decision/Artifact 来源 Run 关联、失效联动、事件脱敏及审计均有自动化测试 |
 | 🚧 部分实现 | Provider | Registry、Vault、隔离环境、预检、设置 UI 和错误分类已实现；2026-09-04 DeepSeek 真端点核心合约与 Green Path 3 连过，vision/无效凭据快速失败仍降级，其他厂商尚未逐一验证 |
-| 🚧 部分实现 | Browser | L1/L2 后端、域策略、SSRF/重定向防护、截图证据与 Chrome Connector 门禁已实现；2026-09-03 真实 Chromium/Chrome-CDP smoke acceptance 均通过；攻击边界仍主要靠确定性测试；L3 拆为 FR-42（P2），单窗口截图与有限输入开发版部分实现 |
+| 🚧 部分实现 | Browser | L1/L2 后端、域策略、SSRF/重定向防护、截图证据与 Chrome Connector 门禁已实现；2026-09-03 真实 Chromium/Chrome-CDP smoke acceptance 均通过；2026-09-24 离线真实 Chromium/CDP 安全回归 10/10 检查通过，公网/商家站点和更广泛攻击矩阵仍待验收；L3 拆为 FR-42（P2），单窗口截图与有限输入开发版部分实现 |
 | 🚧 部分实现 | Connectors/Channels | Connector catalog/vault/health/revoke、首个 HTTPS JSON `send_message` adapter、飞书安全入站、Run-bound 回复和 durable identity mapping 已本地实现；真实商业 test account 与真实飞书租户 E2E 均未完成，微信未实现 |
 | 🚧 部分实现 | Commercial actions | Host read receipt → server-hydrated stage → 独立 reviewer → apply/cancel、可信网关 tenant/principal/project role、策略版本/外部版本重检、跨进程原子审计、稳定幂等键和 execution receipt 已实现；匹配的 `send_message` 可走 HTTPS JSON adapter，重试/并发/双击/成功后本地落账失败恢复均有离线测试。仍未在授权 sandbox/test account 对真实第三方 endpoint 完成 E2E，其他商业 operation/connector 仍诚实停在 `not_executed` |
 | 🚧 部分实现 | 主动与移动 | Scheduler、自动化 MCP、standing intent 自主 watcher/恢复/预算/静默未命中、Inbox 和项目范围移动配对/设备撤销存在；真实 Provider/数据源长时质量、手机 HTTPS 验收和原生推送未完成；可选 Web Push 已实现 |
@@ -887,7 +887,7 @@ Prompt Injection 防线维持 v1.1：外部内容一律标记为不可信数据�
 1. **P0-1（已完成：DeepSeek）**：有合法资格的真实 Provider 已跑固定 Green Path，3 连过 bundle 归档于 `evals/reports/greenpath-20260904T082202Z/`；其他 Provider 仍按上架节奏独立验收。
 2. **P0-2（已完成：当前固定链路）**：3 轮均验证文件/Web/Skill/MCP/Bash/Write/Edit、权限 ask/deny/continue、SSE 重连与会话恢复；普通模式无支线 Agent 事件。
 3. **P0-3（已完成：DeepSeek 首批报告）**：`provider-contract-deepseek-20260904.{json,md}` 记录模型身份、工具、Web/视觉能力、错误行为、费用与会话能力；七项核心通过，vision 和无效凭据快速失败明确降级。
-4. **P0-4**：L1/L2 真实浏览器 smoke acceptance 已通过；下一步把重定向、Service Worker、域策略与清理等确定性攻击用例扩展为真实回归。L3 另行实现，不能借 L1/L2 的结果宣称三级完成。
+4. **P0-4**：L1/L2 真实浏览器 smoke acceptance 已通过；离线真实 Chromium/CDP 已覆盖禁止域资源、私网/同源重定向及失败后清理/恢复子集。下一步继续扩大 Service Worker、弹窗、真实公网重定向与恶意站点矩阵；L3 另行实现，不能借 L1/L2 的结果宣称三级完成。
 5. **P0-5**：对 DOCX/XLSX/PPTX 增加 LibreOffice 渲染/目视 QA；当前不可变 Skill 快照的发现与调用已有真实 Provider 证明，回滚后重跑仍待专项验收。
 
 完成门槛（不变）：同一主 Agent 在隔离样例项目中搜索网页、读文件、运行计算脚本、写/改产物、调用 Skill/MCP，并按要求请求授权；过程中没有普通 Client SDK 或工作流框架。
