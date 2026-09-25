@@ -59,7 +59,7 @@
 | FR-39 插件导入 | partial（本地）：官方插件 ZIP 多 Skill 拆分后复用私有仓库安全扫描和逐件人审；远程 MCP 地址引导至 FR-33 项目审批/逐工具策略，插件子 Agent 与其它可执行组件明确忽略；Anthropic marketing 真包的 8 个 Skill 扫描通过、11 个远程 MCP 地址列出；冷备报告/子 Skill 绑定校验；见 `docs/plugin-imports.md` | deferred：远程 MCP/Provider E2E、认证部署验收和更多真实包兼容性；OAuth、stdio MCP 和 Claude marketplace 安装机制不在当前 FR-33 远程 HTTPS 边界内 |
 | FR-40 语音输入 | partial（本地）：支持浏览器 SpeechRecognition 的手机任务/插话与工作台听写；语言选择、可编辑转写草稿、明确填入确认和原有提交路径；取消、页面隐藏及卸载中止录音，未提供音频上传端点；见 `docs/voice-input.md` | deferred：真实手机麦克风授权/转写质量、Safari/Android 与受限浏览器兼容、HTTPS 部署验收；不支持 Web Speech API 的浏览器目前仍需键盘听写或文字输入 |
 | FR-41 发布网页 | partial（本地）：不可变 HTML 产物版本按校验和暂存，沙箱预览后由项目管理员明确批准；独立 HTTPS 域名公开、无缓存与脚本/表单隔离，持久撤回及项目删除清理；见 `docs/site-publications.md` | deferred：真实公网部署、浏览器/缓存验收；动态脚本和远程资源需要隔离的发布运行时，现仅支持自包含静态页面 |
-| FR-42 L3 桌面 GUI | deferred：未实现 | 桌面壳、OS 授权及 L1/L2 证据/域策略复用未做 |
+| FR-42 L3 桌面 GUI | delivered：macOS 开发版原生 WebKit 宿主、Python sidecar 与私有 loopback 会话门禁 | deferred：OS 截图/动作桥、每步人审与证据/域策略复用、独立 Python 打包签名及系统权限真机验收 |
 
 2026-09-24 FR-20 浏览器复验：真实 Chromium L1 经生产浏览器工具访问无跳转的
 公网 IP 目标，截图、Artifact、Evidence、来源凭证和 Run 关联等 **9 项检查全过**，
@@ -1054,3 +1054,21 @@ Ruff、ESLint、TypeScript/Vite、eval tools **59 passed**、Snapshot **61/61** 
 无 Run 人工变更、schedule/preflight 细分事件、生产负载与外部服务验收仍 deferred。
 PRD §4.12 已同步本轮实现边界；完整 PRD 仍未全部完成。原有未跟踪的部署目录和两份
 评审/对标文档均不纳入本轮提交。
+
+## 2026-09-24：macOS 桌面宿主与私有 sidecar
+
+FR-42 的桌面承载层已有开发版：AppKit/WebKit 打开同源构建版工作台，启动现有 Python
+后端而非重写 Agent 内核；256-bit 随机会话令牌仅经父子进程管道交接，WebKit 使用
+HttpOnly、SameSite=Strict cookie。外层 ASGI 门禁在 API、健康检查和静态资源之前核对
+loopback 客户端、精确 Host/Origin、Fetch Site 和令牌。侧车随宿主管道 EOF 退出，
+避免宿主异常终止后留下可访问的本地服务。
+
+验证：后端桌面/认证/配置相关 **15 passed**；全后端 Ruff 通过；前端 TypeScript/Vite
+构建通过（既有大包警告）；Swift 桌面 App 构建及真实 macOS 进程启动通过。
+真实 sidecar HTTP：无令牌 API 401、私有健康探针 200、cookie 工作台 200；
+AppKit/WebKit 实际加载页面，宿主结束后单个子进程自行退出。测试使用临时数据目录，
+没有读取真实项目数据或凭据，也没有模型调用。
+
+这不是 L3 完成：原生屏幕选择/Accessibility 动作桥、逐步人审、截图证据与组织域策略
+联动、独立 Python 运行时打包签名及系统权限真机验收仍 deferred。开发版使用仓库
+`.venv`；[构建与范围说明](../desktop/macos/README.md)。
