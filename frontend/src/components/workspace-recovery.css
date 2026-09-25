@@ -17,3 +17,11 @@
 .recovery-confirm { display: flex; align-items: flex-start; gap: 8px; margin: 16px 0; padding: 12px; background: #fffaf0; border-left: 3px solid #b39248; }
 .recovery-confirm input { margin: 3px 0 0; flex-shrink: 0; }
 .recovery-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 12px 0; }
+.workspace-retention { margin-top: 20px; border-top: 1px solid #e1e5e0; padding-top: 12px; }
+.workspace-retention > button { width: 100%; text-align: left; font-weight: 600; }
+.workspace-retention > div { padding-top: 12px; }
+.workspace-retention h5 { font-size: 14px; margin: 18px 0 8px; }
+.recovery-retention-list { max-height: 340px; overflow: auto; }
+.recovery-retention-list li { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 0; border-bottom: 1px solid #e1e5e0; }
+.recovery-retention-list li > div { flex: 1; min-width: 160px; }
+.recovery-retention-confirm { padding: 12px; margin-top: 14px; border: 1px solid #d9caa8; border-radius: 6px; background: #fffaf0; }

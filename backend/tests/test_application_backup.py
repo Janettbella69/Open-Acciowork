@@ -406,6 +406,42 @@ def test_cold_backup_preserves_recoverable_workspaces_and_applied_history(source
     )
 
 
+def test_cold_backup_accepts_discarded_copy_and_archived_review(source, tmp_path):
+    from test_workspace_checkpoints import options, retention_options
+
+    from ophira_backend.workspace_checkpoints import WorkspaceCheckpoints
+
+    _, _, ledger, _, _, project, *_ = source
+    service, point = checkpoint(source)
+    (ledger.workspace_for_project(project.id) / "later.txt").write_bytes(b"later")
+    preview = service.preview(project.id, point.id, **options())
+    applied = service.apply(project.id, preview.id, **options())
+    row = service.retention(project.id, authorize=lambda: None).reviews[0]
+    service.discard_retained_copy(
+        project.id, preview.id, expected_fingerprint=row.fingerprint, **retention_options(),
+    )
+    row = service.retention(project.id, authorize=lambda: None).reviews[0]
+    service.archive_review(
+        project.id, preview.id, expected_fingerprint=row.fingerprint,
+        archived_by="admin", **retention_options(),
+    )
+    service.delete_checkpoint(
+        project.id, point.id, expected_fingerprint=point.fingerprint,
+        **retention_options(),
+    )
+    safety = service.load(project.id, applied.safety_checkpoint_id)
+    service.delete_checkpoint(
+        project.id, safety.id, expected_fingerprint=safety.fingerprint,
+        **retention_options(),
+    )
+    archive = make_backup(source, tmp_path)
+    destination = tmp_path / "restored"
+    backup.restore_backup(archive, destination)
+    restored = WorkspaceCheckpoints(FileLedger(destination / "data"))
+    assert restored.retention(project.id, authorize=lambda: None).archived_reviews == 1
+    assert restored.get_restore(project.id, preview.id).archived_by == "admin"
+
+
 def test_cold_backup_rejects_damaged_checkpoint_only_blob(source, tmp_path):
     from ophira_backend.artifact_files import snapshot_relative
 

@@ -46,7 +46,7 @@ import type { KnowledgeSearch } from './knowledge'
 import type { MarketplaceAccess, MarketplaceGuide, MarketplaceRead, MarketplaceReadInput } from './marketplaces'
 import type { ProjectShop, ShopData, ShopIdentityInput } from './shops'
 import type { ArtifactTextUpdate, ArtifactTextView } from './artifacts'
-import type { WorkspaceCheckpoint, WorkspaceRestore } from './workspaceRecovery'
+import type { WorkspaceCheckpoint, WorkspaceRestore, WorkspaceRetention } from './workspaceRecovery'
 import type { RunResources } from './runResources'
 import type { SessionSearch } from './sessionSearch'
 import type { TaskOverview } from './taskOverview'
@@ -254,6 +254,23 @@ export function applyWorkspaceRestore(projectId: string, restoreId: string, sign
 
 export function getWorkspaceRestore(projectId: string, restoreId: string, signal?: AbortSignal): Promise<WorkspaceRestore> {
   return request(`/api/projects/${encodeURIComponent(projectId)}/workspace/restores/${encodeURIComponent(restoreId)}`, { signal })
+}
+
+export function getWorkspaceRetention(projectId: string, signal?: AbortSignal): Promise<WorkspaceRetention> {
+  return request(`/api/projects/${encodeURIComponent(projectId)}/workspace/retention`, { signal, cache: 'no-store' })
+}
+
+export function changeWorkspaceRetention(
+  projectId: string, kind: 'checkpoint' | 'review' | 'copy' | 'archive' | 'blobs', id: string,
+  fingerprint: string, signal?: AbortSignal,
+): Promise<WorkspaceRetention> {
+  const suffix = kind === 'blobs' ? 'snapshots/reclaim'
+    : kind === 'checkpoint' ? `checkpoints/${encodeURIComponent(id)}/delete`
+    : `restores/${encodeURIComponent(id)}/${kind === 'review' ? 'delete' : kind === 'copy' ? 'discard-copy' : 'archive'}`
+  return request(`/api/projects/${encodeURIComponent(projectId)}/workspace/retention/${suffix}`, {
+    method: 'POST', body: JSON.stringify({ expected_fingerprint: fingerprint, confirm_delete: true }),
+    signal, cache: 'no-store',
+  })
 }
 
 class ApiError extends Error {

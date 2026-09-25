@@ -5,6 +5,7 @@ import {
 } from '../api/client'
 import type { WorkspaceCheckpoint, WorkspaceRestore } from '../api/workspaceRecovery'
 import { useT } from '../i18n'
+import WorkspaceRetentionPanel from './WorkspaceRetentionPanel'
 import './workspace-recovery.css'
 
 type Props = { projectId: string; onChanged: () => void }
@@ -96,6 +97,7 @@ function Recovery({ projectId, onChanged }: Props) {
           </div>
           <button type="button" disabled={busy} onClick={() => void preview(point.id)}>{t('Review file changes')}</button>
         </li>)}</ul>
+        <WorkspaceRetentionPanel projectId={projectId} onChanged={() => void load()} />
       </> : view.state === 'applied' ? <>
         <p role="status">{t('Files restored. The previous workspace is saved as a recovery point.')}</p>
         <button type="button" disabled={busy} onClick={back}>{t('Back to recovery points')}</button>

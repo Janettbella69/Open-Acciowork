@@ -10,10 +10,12 @@ from .workspace_checkpoints import (
     CheckpointSummary,
     RestoreApplyRequest,
     RestorePreviewRequest,
+    RetentionDeleteRequest,
     WorkspaceBusyError,
     WorkspaceCheckpoints,
     WorkspaceRecoveryError,
     WorkspaceRestoreView,
+    WorkspaceRetentionView,
 )
 
 
@@ -23,13 +25,14 @@ def register_workspace_recovery_routes(
     service = WorkspaceCheckpoints(ledger)
     app.state.workspace_checkpoints = service
 
-    def authorization(request, project_id, *, write=False):
+    def authorization(request, project_id, *, write=False, manage=False):
         principal = getattr(request.state, "principal", None)
 
         def authorize():
             authorize_project(
                 project_id, principal,
-                ProjectPermission.PROJECT_WRITE if write else ProjectPermission.PROJECT_READ,
+                (ProjectPermission.PROJECT_DELETE if manage else
+                 ProjectPermission.PROJECT_WRITE if write else ProjectPermission.PROJECT_READ),
             )
 
         authorize()
@@ -110,3 +113,106 @@ def register_workspace_recovery_routes(
             principal_session_id=principal.session_id if principal else None,
             authorize=authorize, assert_idle=lambda: assert_idle(project_id),
         )))
+
+    @app.get(
+        "/api/projects/{project_id}/workspace/retention", response_model=WorkspaceRetentionView,
+    )
+    async def retention(project_id: str, request: Request, response: Response):
+        _, authorize = authorization(request, project_id, manage=True)
+        return await result(response, authorize, lambda: service.retention(
+            project_id, authorize=authorize,
+        ))
+
+    @app.post(
+        "/api/projects/{project_id}/workspace/retention/checkpoints/{checkpoint_id}/delete",
+        response_model=WorkspaceRetentionView,
+    )
+    async def delete_checkpoint(
+        project_id: str, checkpoint_id: str, request: Request, response: Response,
+    ):
+        _, authorize = authorization(request, project_id, manage=True)
+        data = await payload(request, RetentionDeleteRequest)
+
+        def operation():
+            service.delete_checkpoint(
+                project_id, checkpoint_id, expected_fingerprint=data.expected_fingerprint,
+                authorize=authorize, assert_idle=lambda: assert_idle(project_id),
+            )
+            return service.retention(project_id, authorize=authorize)
+
+        return await result(response, authorize, operation)
+
+    @app.post(
+        "/api/projects/{project_id}/workspace/retention/restores/{restore_id}/delete",
+        response_model=WorkspaceRetentionView,
+    )
+    async def delete_expired_review(
+        project_id: str, restore_id: str, request: Request, response: Response,
+    ):
+        _, authorize = authorization(request, project_id, manage=True)
+        data = await payload(request, RetentionDeleteRequest)
+
+        def operation():
+            service.delete_expired_review(
+                project_id, restore_id, expected_fingerprint=data.expected_fingerprint,
+                authorize=authorize, assert_idle=lambda: assert_idle(project_id),
+            )
+            return service.retention(project_id, authorize=authorize)
+
+        return await result(response, authorize, operation)
+
+    @app.post(
+        "/api/projects/{project_id}/workspace/retention/restores/{restore_id}/discard-copy",
+        response_model=WorkspaceRetentionView,
+    )
+    async def discard_retained_copy(
+        project_id: str, restore_id: str, request: Request, response: Response,
+    ):
+        _, authorize = authorization(request, project_id, manage=True)
+        data = await payload(request, RetentionDeleteRequest)
+
+        def operation():
+            service.discard_retained_copy(
+                project_id, restore_id, expected_fingerprint=data.expected_fingerprint,
+                authorize=authorize, assert_idle=lambda: assert_idle(project_id),
+            )
+            return service.retention(project_id, authorize=authorize)
+
+        return await result(response, authorize, operation)
+
+    @app.post(
+        "/api/projects/{project_id}/workspace/retention/restores/{restore_id}/archive",
+        response_model=WorkspaceRetentionView,
+    )
+    async def archive_review(
+        project_id: str, restore_id: str, request: Request, response: Response,
+    ):
+        principal, authorize = authorization(request, project_id, manage=True)
+        data = await payload(request, RetentionDeleteRequest)
+
+        def operation():
+            service.archive_review(
+                project_id, restore_id, expected_fingerprint=data.expected_fingerprint,
+                archived_by=principal.principal_id if principal else local_operator_id,
+                authorize=authorize, assert_idle=lambda: assert_idle(project_id),
+            )
+            return service.retention(project_id, authorize=authorize)
+
+        return await result(response, authorize, operation)
+
+    @app.post(
+        "/api/projects/{project_id}/workspace/retention/snapshots/reclaim",
+        response_model=WorkspaceRetentionView,
+    )
+    async def reclaim_snapshots(project_id: str, request: Request, response: Response):
+        _, authorize = authorization(request, project_id, manage=True)
+        data = await payload(request, RetentionDeleteRequest)
+
+        def operation():
+            service.reclaim_snapshots(
+                project_id, expected_fingerprint=data.expected_fingerprint,
+                authorize=authorize, assert_idle=lambda: assert_idle(project_id),
+            )
+            return service.retention(project_id, authorize=authorize)
+
+        return await result(response, authorize, operation)

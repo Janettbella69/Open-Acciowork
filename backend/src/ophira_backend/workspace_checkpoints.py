@@ -10,6 +10,7 @@ import fcntl
 import hashlib
 import json
 import os
+import re
 import stat
 from collections.abc import Callable
 from contextlib import contextmanager
@@ -19,7 +20,13 @@ from typing import Literal
 
 from pydantic import Field, field_validator
 
-from .artifact_files import MAX_ARTIFACT_BYTES, freeze_artifact, read_snapshot
+from .artifact_files import (
+    MAX_ARTIFACT_BYTES,
+    MAX_ARTIFACT_HISTORY_FILES,
+    SNAPSHOT_DIRECTORY,
+    freeze_artifact,
+    read_snapshot,
+)
 from .backup_files import (
     BackupLimits,
     publish_exclusive,
@@ -36,8 +43,11 @@ LIMITS = BackupLimits(
 )
 MAX_CHECKPOINTS = 500
 MAX_RESTORES = 1000
+MAX_ARCHIVED_RESTORES = 100_000
 MAX_RETAINED_BYTES = 2_000_000_000
 PENDING_RESTORE = "pending-workspace-restore.json"
+PENDING_RETENTION = "pending-workspace-retention.json"
+PENDING_ARCHIVE = "pending-workspace-review-archive.json"
 
 
 class WorkspaceRecoveryError(ValueError):
@@ -118,6 +128,9 @@ class WorkspaceRestore(APIModel):
     removes_files: int = Field(ge=0, le=LIMITS.files)
     safety_checkpoint_id: str | None = None
     retained_bytes: int = Field(default=0, ge=0, le=MAX_RETAINED_BYTES)
+    retained_discarded_at: datetime | None = None
+    archived_at: datetime | None = None
+    archived_by: str | None = None
     before_device: int | None = None
     before_inode: int | None = None
     staged_device: int | None = None
@@ -140,6 +153,76 @@ class RestoreApplyRequest(APIModel):
         return value
 
 
+class RetentionDeleteRequest(APIModel):
+    expected_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
+    confirm_delete: Literal[True]
+
+    @field_validator("confirm_delete", mode="before")
+    @classmethod
+    def explicit_boolean(cls, value):
+        if value is not True:
+            raise ValueError("History deletion must be explicitly confirmed.")
+        return value
+
+
+class RetentionCheckpoint(APIModel):
+    id: str
+    run_id: str | None
+    kind: Literal["run_start", "before_restore"]
+    created_at: datetime
+    files: int
+    total_bytes: int
+    fingerprint: str
+    referenced_by_reviews: int
+
+
+class RetentionReview(APIModel):
+    id: str
+    checkpoint_id: str
+    state: Literal["preview", "applying", "applied"]
+    created_at: datetime
+    expires_at: datetime
+    fingerprint: str
+    retained_bytes: int
+    retained_discarded_at: datetime | None
+    can_delete: bool
+    can_archive: bool
+
+
+class WorkspaceRetentionView(APIModel):
+    project_id: str
+    checkpoint_limit: int
+    review_limit: int
+    retained_bytes_limit: int
+    retained_bytes: int
+    archived_reviews: int
+    snapshot_files: int
+    snapshot_bytes: int
+    reclaimable_files: int
+    reclaimable_bytes: int
+    reclaim_fingerprint: str
+    checkpoints: list[RetentionCheckpoint]
+    reviews: list[RetentionReview]
+
+
+class RetentionDiscardIntent(APIModel):
+    restore_id: str
+    project_id: str
+    current_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
+    safety_checkpoint_id: str
+    retained_bytes: int = Field(ge=0, le=MAX_RETAINED_BYTES)
+    retained_device: int
+    retained_inode: int
+
+
+class RetentionArchiveIntent(APIModel):
+    restore_id: str
+    project_id: str
+    expected_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
+    archived_at: datetime
+    archived_by: str
+
+
 class WorkspaceRestoreView(APIModel):
     id: str
     project_id: str
@@ -151,6 +234,7 @@ class WorkspaceRestoreView(APIModel):
     removes_files: int
     safety_checkpoint_id: str | None
     applied_at: datetime | None
+    archived_at: datetime | None = None
 
     @classmethod
     def of(cls, value: WorkspaceRestore):
@@ -277,7 +361,7 @@ class WorkspaceCheckpoints:
 
     def _ids(self, project_id: str, name: str, limit: int) -> list[str]:
         directory = self._root(project_id) / name
-        if not directory.exists():
+        if not directory.exists() and not directory.is_symlink():
             return []
         with directory_fd(directory) as fd:
             names = os.listdir(fd)
@@ -296,6 +380,226 @@ class WorkspaceCheckpoints:
                     created_at=item.created_at, files=len(item.files), total_bytes=item.total_bytes,
                 ))
             return sorted(summaries, key=lambda item: item.created_at, reverse=True)
+
+    def retention(
+        self, project_id: str, *, authorize: Callable[[], None],
+    ) -> WorkspaceRetentionView:
+        with workspace_lease(self.ledger, project_id), self.ledger._lock_for(project_id):
+            authorize()
+            self.recover(project_id)
+            self._recover_edit(project_id)
+            reviews = [self.get_restore(project_id, identifier) for identifier in
+                       self._ids(project_id, "workspace-restores", MAX_RESTORES)]
+            references: dict[str, int] = {}
+            for review in reviews:
+                for identifier in (review.checkpoint_id, review.safety_checkpoint_id):
+                    if identifier:
+                        references[identifier] = references.get(identifier, 0) + 1
+            checkpoints = [self.load(project_id, identifier) for identifier in
+                           self._ids(project_id, "workspace-checkpoints", MAX_CHECKPOINTS)]
+            snapshots, reclaimable, reclaim_fingerprint = self._snapshot_inventory(
+                project_id, checkpoints,
+            )
+            now = utc_now()
+            result = WorkspaceRetentionView(
+                project_id=project_id, checkpoint_limit=MAX_CHECKPOINTS,
+                review_limit=MAX_RESTORES, retained_bytes_limit=MAX_RETAINED_BYTES,
+                retained_bytes=sum(review.retained_bytes for review in reviews),
+                archived_reviews=len(self._ids(
+                    project_id, "workspace-restores-archive", MAX_ARCHIVED_RESTORES,
+                )),
+                snapshot_files=len(snapshots),
+                snapshot_bytes=sum(row["size"] for row in snapshots),
+                reclaimable_files=len(reclaimable),
+                reclaimable_bytes=sum(row["size"] for row in reclaimable),
+                reclaim_fingerprint=reclaim_fingerprint,
+                checkpoints=sorted((RetentionCheckpoint(
+                    id=item.id, run_id=item.run_id, kind=item.kind,
+                    created_at=item.created_at, files=len(item.files),
+                    total_bytes=item.total_bytes, fingerprint=item.fingerprint,
+                    referenced_by_reviews=references.get(item.id, 0),
+                ) for item in checkpoints), key=lambda item: item.created_at, reverse=True),
+                reviews=sorted((RetentionReview(
+                    id=item.id, checkpoint_id=item.checkpoint_id, state=item.state,
+                    created_at=item.created_at, expires_at=item.expires_at,
+                    fingerprint=self._record_fingerprint(item),
+                    retained_bytes=item.retained_bytes,
+                    retained_discarded_at=item.retained_discarded_at,
+                    can_delete=item.state == "preview" and item.expires_at <= now,
+                    can_archive=item.state == "applied" and item.retained_discarded_at is not None,
+                ) for item in reviews), key=lambda item: item.created_at, reverse=True),
+            )
+            authorize()
+            return result
+
+    def _snapshot_inventory(
+        self, project_id: str, checkpoints: list[WorkspaceCheckpoint],
+    ) -> tuple[list[dict], list[dict], str]:
+        root = self._root(project_id)
+        directory = root / SNAPSHOT_DIRECTORY
+        if not directory.exists() and not directory.is_symlink():
+            snapshots: list[dict] = []
+        else:
+            snapshots = []
+            with directory_fd(directory) as fd, os.scandir(fd) as entries:
+                for entry in entries:
+                    if entry.name.startswith(".staging-"):
+                        continue
+                    info = entry.stat(follow_symlinks=False)
+                    if (not re.fullmatch(r"[0-9a-f]{64}", entry.name)
+                            or not stat.S_ISREG(info.st_mode) or info.st_nlink != 1):
+                        raise WorkspaceRecoveryError("Artifact history contains an unsafe entry.")
+                    snapshots.append({
+                        "checksum": entry.name, "size": info.st_size,
+                        "device": info.st_dev, "inode": info.st_ino,
+                    })
+            if len(snapshots) > MAX_ARTIFACT_HISTORY_FILES:
+                raise WorkspaceRecoveryError("Artifact history file limit reached.")
+            snapshots.sort(key=lambda row: row["checksum"])
+        references = {
+            artifact.checksum for artifact in self.ledger.get_project(project_id).artifacts
+            if artifact.content_storage == "snapshot"
+        }
+        references.update(row.sha256 for point in checkpoints for row in point.files)
+        reclaimable = [row for row in snapshots if row["checksum"] not in references]
+        digest = hashlib.sha256(json.dumps(
+            reclaimable, sort_keys=True, separators=(",", ":"),
+        ).encode()).hexdigest()
+        return snapshots, reclaimable, digest
+
+    def reclaim_snapshots(
+        self, project_id: str, *, expected_fingerprint: str,
+        authorize: Callable[[], None], assert_idle: Callable[[], None],
+    ) -> None:
+        with workspace_lease(self.ledger, project_id), self.ledger._lock_for(project_id):
+            authorize()
+            assert_idle()
+            self.recover(project_id)
+            self._recover_edit(project_id)
+            checkpoints = [self.load(project_id, identifier) for identifier in
+                           self._ids(project_id, "workspace-checkpoints", MAX_CHECKPOINTS)]
+            _, reclaimable, digest = self._snapshot_inventory(project_id, checkpoints)
+            if digest != expected_fingerprint:
+                raise WorkspaceRecoveryError("Snapshot storage changed. Review retention again.")
+            authorize()
+            assert_idle()
+            directory = self._root(project_id) / SNAPSHOT_DIRECTORY
+            if not directory.exists() and not directory.is_symlink():
+                return
+            with directory_fd(directory) as fd:
+                for row in reclaimable:
+                    info = os.stat(row["checksum"], dir_fd=fd, follow_symlinks=False)
+                    if (not stat.S_ISREG(info.st_mode) or info.st_nlink != 1
+                            or (info.st_size, info.st_dev, info.st_ino) != (
+                                row["size"], row["device"], row["inode"],
+                            )):
+                        raise WorkspaceRecoveryError("Snapshot storage changed during deletion.")
+                    os.unlink(row["checksum"], dir_fd=fd)
+                os.fsync(fd)
+
+    def delete_checkpoint(
+        self, project_id: str, checkpoint_id: str, *, expected_fingerprint: str,
+        authorize: Callable[[], None], assert_idle: Callable[[], None],
+    ) -> None:
+        with workspace_lease(self.ledger, project_id), self.ledger._lock_for(project_id):
+            authorize()
+            assert_idle()
+            self.recover(project_id)
+            item = self.load(project_id, checkpoint_id)
+            if item.fingerprint != expected_fingerprint:
+                raise WorkspaceRecoveryError("Recovery point changed. Review retention again.")
+            for identifier in self._ids(project_id, "workspace-restores", MAX_RESTORES):
+                review = self.get_restore(project_id, identifier)
+                if item.id in (review.checkpoint_id, review.safety_checkpoint_id):
+                    raise WorkspaceRecoveryError("Recovery point is used by a saved review.")
+            authorize()
+            assert_idle()
+            self._unlink_record(project_id, "workspace-checkpoints", item.id)
+
+    def delete_expired_review(
+        self, project_id: str, restore_id: str, *, expected_fingerprint: str,
+        authorize: Callable[[], None], assert_idle: Callable[[], None],
+    ) -> None:
+        with workspace_lease(self.ledger, project_id), self.ledger._lock_for(project_id):
+            authorize()
+            assert_idle()
+            self.recover(project_id)
+            review = self.get_restore(project_id, restore_id)
+            if self._record_fingerprint(review) != expected_fingerprint:
+                raise WorkspaceRecoveryError("Recovery review changed. Review retention again.")
+            if review.state != "preview" or review.expires_at > utc_now():
+                raise WorkspaceRecoveryError("Only expired, unused reviews can be deleted.")
+            authorize()
+            assert_idle()
+            self._unlink_record(project_id, "workspace-restores", review.id)
+
+    def discard_retained_copy(
+        self, project_id: str, restore_id: str, *, expected_fingerprint: str,
+        authorize: Callable[[], None], assert_idle: Callable[[], None],
+    ) -> None:
+        with workspace_lease(self.ledger, project_id), self.ledger._lock_for(project_id):
+            authorize()
+            assert_idle()
+            self.recover(project_id)
+            review = self.get_restore(project_id, restore_id)
+            if self._record_fingerprint(review) != expected_fingerprint:
+                raise WorkspaceRecoveryError("Recovery review changed. Review retention again.")
+            if review.state != "applied" or review.retained_discarded_at is not None:
+                raise WorkspaceRecoveryError("This recovery has no retained workspace copy.")
+            safety = self.load(project_id, review.safety_checkpoint_id or "")
+            if safety.fingerprint != review.current_fingerprint:
+                raise WorkspaceRecoveryError("Recovery safety point failed verification.")
+            root = self._root(project_id)
+            retained = root / f"workspace-retained-{review.id}"
+            identity = self._identity(retained)
+            if (identity is None
+                    or fingerprint(tree_inventory(retained, LIMITS)) != safety.fingerprint):
+                raise WorkspaceRecoveryError("Retained workspace copy failed verification.")
+            authorize()
+            assert_idle()
+            self._write(root / PENDING_RETENTION, RetentionDiscardIntent(
+                restore_id=review.id, project_id=project_id,
+                current_fingerprint=review.current_fingerprint,
+                safety_checkpoint_id=safety.id, retained_bytes=review.retained_bytes,
+                retained_device=identity[0], retained_inode=identity[1],
+            ))
+            self._recover_discard(project_id)
+
+    def archive_review(
+        self, project_id: str, restore_id: str, *, expected_fingerprint: str,
+        archived_by: str, authorize: Callable[[], None], assert_idle: Callable[[], None],
+    ) -> None:
+        with workspace_lease(self.ledger, project_id), self.ledger._lock_for(project_id):
+            authorize()
+            assert_idle()
+            self.recover(project_id)
+            review = self._read(project_id, "workspace-restores", restore_id, WorkspaceRestore)
+            if self._record_fingerprint(review) != expected_fingerprint:
+                raise WorkspaceRecoveryError("Recovery review changed. Review retention again.")
+            if review.state != "applied" or review.retained_discarded_at is None:
+                raise WorkspaceRecoveryError(
+                    "Discard the retained folder before archiving a review.",
+                )
+            if len(self._ids(
+                project_id, "workspace-restores-archive", MAX_ARCHIVED_RESTORES,
+            )) >= MAX_ARCHIVED_RESTORES:
+                raise WorkspaceRecoveryError("Recovery review archive limit reached.")
+            authorize()
+            assert_idle()
+            self._write(self._root(project_id) / PENDING_ARCHIVE, RetentionArchiveIntent(
+                restore_id=review.id, project_id=project_id,
+                expected_fingerprint=expected_fingerprint,
+                archived_at=utc_now(), archived_by=archived_by,
+            ))
+            self._recover_archive(project_id)
+
+    def _record_fingerprint(self, value: APIModel) -> str:
+        return hashlib.sha256(self.ledger._dump(value).encode()).hexdigest()
+
+    def _unlink_record(self, project_id: str, directory: str, identifier: str) -> None:
+        with directory_fd(self._root(project_id) / directory) as fd:
+            os.unlink(f"{self.ledger._safe_id(identifier)}.json", dir_fd=fd)
+            os.fsync(fd)
 
     def _write(self, path: Path, value: APIModel) -> None:
         if len(self.ledger._dump(value).encode()) + 1 > LIMITS.manifest_bytes:
@@ -368,7 +672,12 @@ class WorkspaceCheckpoints:
         recover_pending_edit(self.ledger, project_id)
 
     def get_restore(self, project_id: str, restore_id: str) -> WorkspaceRestore:
-        return self._read(project_id, "workspace-restores", restore_id, WorkspaceRestore)
+        try:
+            return self._read(project_id, "workspace-restores", restore_id, WorkspaceRestore)
+        except FileNotFoundError:
+            return self._read(
+                project_id, "workspace-restores-archive", restore_id, WorkspaceRestore,
+            )
 
     def _save_restore(self, value: WorkspaceRestore) -> None:
         directory = self._directory(value.project_id, "workspace-restores")
@@ -534,6 +843,8 @@ class WorkspaceCheckpoints:
                     raise WorkspaceRecoveryError("Unknown recovery staging directory.") from None
                 self._identity(stage)
                 remove_staging(stage)
+            self._recover_discard(project_id)
+            self._recover_archive(project_id)
             return
         value = WorkspaceRestore.model_validate_json(raw)
         identifier = self.ledger._safe_id(value.id)
@@ -593,9 +904,97 @@ class WorkspaceCheckpoints:
         value.applied_at = value.applied_at or utc_now()
         self._save_restore(value)
         self._clear_pending(root)
+        self._recover_discard(project_id)
+        self._recover_archive(project_id)
+
+    def _recover_discard(self, project_id: str) -> None:
+        root = self._root(project_id)
+        try:
+            raw = read_relative(root, PENDING_RETENTION, 1024)
+        except FileNotFoundError:
+            return
+        intent = RetentionDiscardIntent.model_validate_json(raw)
+        if intent.project_id != project_id:
+            raise WorkspaceRecoveryError("Retained-copy deletion does not match this project.")
+        review = self.get_restore(project_id, intent.restore_id)
+        if (review.state != "applied"
+                or review.current_fingerprint != intent.current_fingerprint
+                or review.safety_checkpoint_id != intent.safety_checkpoint_id):
+            raise WorkspaceRecoveryError("Retained-copy deletion authorization changed.")
+        safety = self.load(project_id, intent.safety_checkpoint_id)
+        if safety.fingerprint != intent.current_fingerprint:
+            raise WorkspaceRecoveryError("Recovery safety point failed verification.")
+        retained = root / f"workspace-retained-{self.ledger._safe_id(review.id)}"
+        identity = self._identity(retained)
+        if review.retained_discarded_at is not None:
+            if identity is not None or review.retained_bytes != 0:
+                raise WorkspaceRecoveryError("Retained-copy deletion state is inconsistent.")
+            self._clear_pending(root, PENDING_RETENTION)
+            return
+        if review.retained_bytes != intent.retained_bytes:
+            raise WorkspaceRecoveryError("Retained-copy deletion size changed.")
+        if identity is not None:
+            if identity != (intent.retained_device, intent.retained_inode):
+                raise WorkspaceRecoveryError("Retained workspace identity changed.")
+            remove_staging(retained)
+            with directory_fd(root) as fd:
+                os.fsync(fd)
+        review.retained_bytes = 0
+        review.retained_discarded_at = utc_now()
+        self._save_restore(review)
+        self._clear_pending(root, PENDING_RETENTION)
+
+    def _recover_archive(self, project_id: str) -> None:
+        root = self._root(project_id)
+        try:
+            raw = read_relative(root, PENDING_ARCHIVE, 1024)
+        except FileNotFoundError:
+            return
+        intent = RetentionArchiveIntent.model_validate_json(raw)
+        if intent.project_id != project_id:
+            raise WorkspaceRecoveryError("Recovery review archive does not match this project.")
+        try:
+            active = self._read(
+                project_id, "workspace-restores", intent.restore_id, WorkspaceRestore,
+            )
+        except FileNotFoundError:
+            active = None
+        try:
+            archived = self._read(
+                project_id, "workspace-restores-archive", intent.restore_id,
+                WorkspaceRestore,
+            )
+        except FileNotFoundError:
+            archived = None
+        if active is not None and (
+            self._record_fingerprint(active) != intent.expected_fingerprint
+            or active.state != "applied" or active.retained_discarded_at is None
+            or active.archived_at is not None
+        ):
+            raise WorkspaceRecoveryError("Recovery review changed during archiving.")
+        if archived is not None:
+            original = archived.model_copy(update={"archived_at": None, "archived_by": None})
+            if (archived.state != "applied" or archived.retained_discarded_at is None
+                    or archived.archived_at != intent.archived_at
+                    or archived.archived_by != intent.archived_by
+                    or self._record_fingerprint(original) != intent.expected_fingerprint):
+                raise WorkspaceRecoveryError("Recovery review archive failed verification.")
+        elif active is not None:
+            archived = active.model_copy(update={
+                "archived_at": intent.archived_at, "archived_by": intent.archived_by,
+            })
+            self._write(
+                self._directory(project_id, "workspace-restores-archive")
+                / f"{archived.id}.json", archived,
+            )
+        else:
+            raise WorkspaceRecoveryError("Recovery review archive is incomplete.")
+        if active is not None:
+            self._unlink_record(project_id, "workspace-restores", active.id)
+        self._clear_pending(root, PENDING_ARCHIVE)
 
     @staticmethod
-    def _clear_pending(root: Path) -> None:
+    def _clear_pending(root: Path, name: str = PENDING_RESTORE) -> None:
         with directory_fd(root) as fd:
-            os.unlink(PENDING_RESTORE, dir_fd=fd)
+            os.unlink(name, dir_fd=fd)
             os.fsync(fd)

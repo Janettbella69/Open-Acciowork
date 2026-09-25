@@ -16,7 +16,9 @@ from ophira_backend.models import ProjectCreate, utc_now
 from ophira_backend.storage import FileLedger
 from ophira_backend.workspace_checkpoints import (
     LIMITS,
+    PENDING_ARCHIVE,
     PENDING_RESTORE,
+    PENDING_RETENTION,
     WorkspaceBusyError,
     WorkspaceCheckpoints,
     WorkspaceRecoveryError,
@@ -52,6 +54,10 @@ def review(source, **kwargs):
 def options(**kwargs):
     return {"created_by": "editor", "principal_session_id": "session",
             "authorize": lambda: None, "assert_idle": lambda: None, **kwargs}
+
+
+def retention_options():
+    return {"authorize": lambda: None, "assert_idle": lambda: None}
 
 
 def change_workspace(source):
@@ -95,6 +101,177 @@ def test_exact_tree_restore_retains_newer_work_and_version_provenance(source):
     undo = service.preview(project_id, result.safety_checkpoint_id, **options())
     service.apply(project_id, undo.id, **options())
     assert tree_inventory(workspace, LIMITS) == before
+
+
+def test_retention_only_deletes_expired_reviews_and_unreferenced_points(source):
+    ledger, project_id, service, point, _ = source
+    def authorize():
+        pass
+    preview = review(source)
+    inventory = service.retention(project_id, authorize=authorize)
+    assert inventory.checkpoints[0].referenced_by_reviews == 1
+    with pytest.raises(WorkspaceRecoveryError, match="used by a saved review"):
+        service.delete_checkpoint(
+            project_id, point.id, expected_fingerprint=point.fingerprint, **retention_options(),
+        )
+    with pytest.raises(WorkspaceRecoveryError, match="Only expired"):
+        service.delete_expired_review(
+            project_id, preview.id, expected_fingerprint=inventory.reviews[0].fingerprint,
+            **retention_options(),
+        )
+    preview.expires_at = utc_now() - timedelta(seconds=1)
+    service._save_restore(preview)
+    inventory = service.retention(project_id, authorize=authorize)
+    assert inventory.reviews[0].can_delete
+    with pytest.raises(WorkspaceRecoveryError, match="changed"):
+        service.delete_expired_review(
+            project_id, preview.id, expected_fingerprint="0" * 64, **retention_options(),
+        )
+    service.delete_expired_review(
+        project_id, preview.id, expected_fingerprint=inventory.reviews[0].fingerprint,
+        **retention_options(),
+    )
+    inventory = service.retention(project_id, authorize=authorize)
+    assert inventory.reviews == [] and inventory.checkpoints[0].referenced_by_reviews == 0
+    service.delete_checkpoint(
+        project_id, point.id, expected_fingerprint=point.fingerprint, **retention_options(),
+    )
+    inventory = service.retention(project_id, authorize=authorize)
+    assert inventory.checkpoints == [] and inventory.reclaimable_files >= 2
+    service.reclaim_snapshots(
+        project_id, expected_fingerprint=inventory.reclaim_fingerprint,
+        **retention_options(),
+    )
+    assert service.retention(project_id, authorize=authorize).reclaimable_files == 0
+    assert ledger.get_run(point.run_id).id == point.run_id
+
+
+def test_retained_copy_discard_keeps_safety_checkpoint_and_recovers_interruption(
+    source, monkeypatch,
+):
+    ledger, project_id, service, _, _ = source
+    workspace = change_workspace(source)
+    preview = review(source)
+    applied = service.apply(project_id, preview.id, **options())
+    retention = service.retention(project_id, authorize=lambda: None)
+    review_item = retention.reviews[0]
+    assert retention.retained_bytes == applied.retained_bytes > 0
+    retained = workspace.parent / f"workspace-retained-{preview.id}"
+
+    def interrupted(path):
+        (path / "report.md").unlink()
+        raise OSError("interrupted during deletion")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(recovery, "remove_staging", interrupted)
+        with pytest.raises(OSError, match="interrupted"):
+            service.discard_retained_copy(
+                project_id, preview.id, expected_fingerprint=review_item.fingerprint,
+                **retention_options(),
+            )
+    assert (workspace.parent / PENDING_RETENTION).exists()
+    assert retained.exists()
+    restarted = WorkspaceCheckpoints(FileLedger(ledger.root))
+    result = restarted.retention(project_id, authorize=lambda: None)
+    assert result.retained_bytes == 0
+    assert result.reviews[0].retained_discarded_at is not None
+    assert not retained.exists() and not (workspace.parent / PENDING_RETENTION).exists()
+    assert restarted.load(project_id, applied.safety_checkpoint_id).fingerprint == (
+        applied.current_fingerprint
+    )
+    undo = restarted.preview(project_id, applied.safety_checkpoint_id, **options())
+    restarted.apply(project_id, undo.id, **options())
+    assert (workspace / "created.txt").read_bytes() == b"Keep in recovery copy"
+
+
+def test_applied_review_and_safety_point_cannot_be_pruned(source):
+    _, project_id, service, point, _ = source
+    change_workspace(source)
+    preview = review(source)
+    applied = service.apply(project_id, preview.id, **options())
+    retention = service.retention(project_id, authorize=lambda: None)
+    with pytest.raises(WorkspaceRecoveryError, match="Only expired"):
+        service.delete_expired_review(
+            project_id, applied.id, expected_fingerprint=retention.reviews[0].fingerprint,
+            **retention_options(),
+        )
+    with pytest.raises(WorkspaceRecoveryError, match="used by a saved review"):
+        service.delete_checkpoint(
+            project_id, point.id, expected_fingerprint=point.fingerprint, **retention_options(),
+        )
+    safety = service.load(project_id, applied.safety_checkpoint_id)
+    with pytest.raises(WorkspaceRecoveryError, match="used by a saved review"):
+        service.delete_checkpoint(
+            project_id, safety.id, expected_fingerprint=safety.fingerprint, **retention_options(),
+        )
+
+
+def test_applied_review_archive_preserves_result_and_releases_active_limits(source, monkeypatch):
+    ledger, project_id, service, point, _ = source
+    change_workspace(source)
+    preview = review(source)
+    applied = service.apply(project_id, preview.id, **options())
+    row = service.retention(project_id, authorize=lambda: None).reviews[0]
+    with pytest.raises(WorkspaceRecoveryError, match="Discard the retained folder"):
+        service.archive_review(
+            project_id, preview.id, expected_fingerprint=row.fingerprint,
+            archived_by="admin", **retention_options(),
+        )
+    service.discard_retained_copy(
+        project_id, preview.id, expected_fingerprint=row.fingerprint, **retention_options(),
+    )
+    row = service.retention(project_id, authorize=lambda: None).reviews[0]
+    assert row.can_archive
+    def interrupted(*args):
+        raise OSError("interrupted after archive write")
+
+    with monkeypatch.context() as patch:
+        patch.setattr(service, "_unlink_record", interrupted)
+        with pytest.raises(OSError, match="interrupted"):
+            service.archive_review(
+                project_id, preview.id, expected_fingerprint=row.fingerprint,
+                archived_by="admin", **retention_options(),
+            )
+    assert (ledger._project_path(project_id).parent / PENDING_ARCHIVE).exists()
+    restarted = WorkspaceCheckpoints(FileLedger(ledger.root))
+    inventory = restarted.retention(project_id, authorize=lambda: None)
+    assert inventory.reviews == [] and inventory.archived_reviews == 1
+    assert restarted.get_restore(project_id, preview.id).archived_at is not None
+    assert restarted.apply(project_id, preview.id, **options()).state == "applied"
+    assert not (ledger._project_path(project_id).parent / PENDING_ARCHIVE).exists()
+    restarted.delete_checkpoint(
+        project_id, point.id, expected_fingerprint=point.fingerprint, **retention_options(),
+    )
+    safety = restarted.load(project_id, applied.safety_checkpoint_id)
+    restarted.delete_checkpoint(
+        project_id, safety.id, expected_fingerprint=safety.fingerprint, **retention_options(),
+    )
+    assert restarted.get_restore(project_id, preview.id).state == "applied"
+
+
+def test_snapshot_reclaim_keeps_artifacts_and_recovery_points(source):
+    ledger, project_id, service, point, first = source
+    root = ledger._project_path(project_id).parent
+    orphan = recovery.freeze_artifact(root, b"orphan snapshot")
+    inventory = service.retention(project_id, authorize=lambda: None)
+    assert inventory.reclaimable_files == 1
+    assert inventory.reclaimable_bytes == len(b"orphan snapshot")
+    later = recovery.freeze_artifact(root, b"later orphan")
+    with pytest.raises(WorkspaceRecoveryError, match="changed"):
+        service.reclaim_snapshots(
+            project_id, expected_fingerprint=inventory.reclaim_fingerprint,
+            **retention_options(),
+        )
+    inventory = service.retention(project_id, authorize=lambda: None)
+    service.reclaim_snapshots(
+        project_id, expected_fingerprint=inventory.reclaim_fingerprint,
+        **retention_options(),
+    )
+    assert not (root / snapshot_relative(orphan)).exists()
+    assert not (root / snapshot_relative(later)).exists()
+    assert service.retention(project_id, authorize=lambda: None).reclaimable_files == 0
+    assert ledger.capture_artifact(project_id, first.id)[1]
+    assert service.load(project_id, point.id).fingerprint == point.fingerprint
 
 
 def test_file_directory_replacement_and_hidden_files_are_included(source):

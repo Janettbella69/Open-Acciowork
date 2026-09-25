@@ -33,10 +33,20 @@ from .skill_repository_backup import inspect_skill_imports
 from .skills import CONTENT_HASH_PATTERN, TENANT_PLUGIN_NAMESPACE, SkillRegistry
 from .storage import FileLedger, LedgerNotFoundError
 from .workspace_checkpoints import (
+    LIMITS as WORKSPACE_LIMITS,
+)
+from .workspace_checkpoints import (
+    MAX_ARCHIVED_RESTORES,
     MAX_CHECKPOINTS,
     MAX_RESTORES,
+    PENDING_ARCHIVE,
     PENDING_RESTORE,
+    PENDING_RETENTION,
     WorkspaceCheckpoints,
+    WorkspaceRestore,
+)
+from .workspace_checkpoints import (
+    fingerprint as workspace_fingerprint,
 )
 
 FORMAT = "ophira-application-cold-backup"
@@ -84,7 +94,10 @@ def inspect_application(data: Path, plugin: Path) -> dict:
         project = ledger.get_project(directory.name)
         if project.id != directory.name:
             raise BackupError("project_identity_mismatch")
-        if (directory / PENDING_RESTORE).exists() or list(directory.glob("workspace-stage-*")):
+        if ((directory / PENDING_RESTORE).exists()
+                or (directory / PENDING_RETENTION).exists()
+                or (directory / PENDING_ARCHIVE).exists()
+                or list(directory.glob("workspace-stage-*"))):
             # Pending swaps bind actual directory inodes. Finish them on the
             # original host before copying; never replay them in a cold restore.
             raise BackupError("pending_workspace_restore")
@@ -100,8 +113,11 @@ def inspect_application(data: Path, plugin: Path) -> dict:
                 for row in item.files:
                     if len(read_snapshot(directory, row.sha256)) != row.size:
                         raise ValueError("snapshot size mismatch")
-            for identifier in checkpoints._ids(project.id, "workspace-restores", MAX_RESTORES):
+            active_reviews = checkpoints._ids(project.id, "workspace-restores", MAX_RESTORES)
+            for identifier in active_reviews:
                 item = checkpoints.get_restore(project.id, identifier)
+                if item.archived_at is not None:
+                    raise ValueError("active recovery review is archived")
                 target = checkpoints.load(project.id, item.checkpoint_id)
                 if target.fingerprint != item.target_fingerprint or item.state == "applying":
                     raise ValueError("invalid recovery target")
@@ -109,6 +125,29 @@ def inspect_application(data: Path, plugin: Path) -> dict:
                     safety = checkpoints.load(project.id, item.safety_checkpoint_id or "")
                     if safety.fingerprint != item.current_fingerprint:
                         raise ValueError("invalid recovery safety copy")
+                    retained = directory / f"workspace-retained-{item.id}"
+                    if item.retained_discarded_at is None:
+                        if (not retained.is_dir()
+                                or workspace_fingerprint(tree_inventory(
+                                    retained, WORKSPACE_LIMITS,
+                                )) != safety.fingerprint
+                                or item.retained_bytes != safety.total_bytes):
+                            raise ValueError("invalid retained workspace copy")
+                    elif (retained.exists() or retained.is_symlink()
+                          or item.retained_bytes != 0):
+                        raise ValueError("discarded workspace copy still present")
+            for identifier in checkpoints._ids(
+                project.id, "workspace-restores-archive", MAX_ARCHIVED_RESTORES,
+            ):
+                item = checkpoints._read(
+                    project.id, "workspace-restores-archive", identifier, WorkspaceRestore,
+                )
+                if (identifier in active_reviews or item.state != "applied"
+                        or item.archived_at is None or item.archived_by is None
+                        or item.retained_discarded_at is None or item.retained_bytes != 0
+                        or (directory / f"workspace-retained-{identifier}").exists()
+                        or (directory / f"workspace-retained-{identifier}").is_symlink()):
+                    raise ValueError("invalid archived recovery review")
         except (LedgerNotFoundError, OSError, ValueError) as exc:
             raise BackupError("workspace_checkpoint_invalid") from exc
         for artifact in project.artifacts:
