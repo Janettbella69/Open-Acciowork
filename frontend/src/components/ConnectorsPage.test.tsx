@@ -8,6 +8,8 @@ vi.mock('../api/client', () => ({
   listMarketplaceGuides: vi.fn(),
   checkConnectorHealth: vi.fn(),
   upsertConnector: vi.fn(),
+  getShopifyOAuthStatus: vi.fn(),
+  startShopifyOAuth: vi.fn(),
   revokeConnector: vi.fn(),
   listProjects: vi.fn(),
   listUserMcpCatalog: vi.fn(),
@@ -20,7 +22,7 @@ vi.mock('../api/client', () => ({
   errorMessage: (error: unknown) => error instanceof Error ? error.message : 'unknown error',
 }))
 
-import { checkConnectorHealth, listConnectors, listMarketplaceGuides, listProjects, revokeConnector } from '../api/client'
+import { checkConnectorHealth, getShopifyOAuthStatus, listConnectors, listMarketplaceGuides, listProjects, revokeConnector } from '../api/client'
 
 const connector: Connector = {
   id: 'connector_gmail',
@@ -44,6 +46,9 @@ beforeEach(() => {
   vi.mocked(listConnectors).mockResolvedValue([connector, shopify])
   vi.mocked(listMarketplaceGuides).mockResolvedValue([])
   vi.mocked(listProjects).mockResolvedValue([])
+  vi.mocked(getShopifyOAuthStatus).mockResolvedValue({
+    auth_mode: 'client_credentials', authorized: false, callback_url: null,
+  })
   vi.mocked(checkConnectorHealth).mockResolvedValue({
     ...connector,
     health: 'ok',

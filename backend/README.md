@@ -31,6 +31,12 @@ administrators register, verify, and remove subscriptions from **Event triggers*
 the connector must hold a Shopify app client ID/secret with `read_orders` granted.
 See [event trigger setup](../docs/event-triggers.md).
 
+Shopify external-merchant OAuth requires trusted-gateway mode and
+`OPHIRA_SHOPIFY_OAUTH_PUBLIC_ORIGIN=https://work.example.com`. Route the exact
+`/api/connectors/{connector_id}/shopify-oauth/callback` path from that HTTPS host to
+this backend without a gateway identity header, and register the displayed callback
+URL in the Shopify app. See [merchant authorization setup](../docs/marketplace-connectors.md).
+
 Publishing a saved HTML artifact requires trusted-gateway mode and a separate
 `OPHIRA_SITE_PUBLIC_ORIGIN=https://pages.example.com`. Route only `/published/`
 from that host to the backend; the management API remains on its own host. A

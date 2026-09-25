@@ -31,7 +31,7 @@
 | FR-18 恢复 | delivered：保存产物、错误分类、重试与重启恢复；Run 起点的完整可支持工作区快照、Bash 修改恢复、人工变更预览/确认/结果重试、中断目录切换修复、真实进程退出与冷备往返；同项目执行与产物收尾租约 | deferred：真实 SDK 故障注入、生产/跨宿主恢复、容量保留管理、性能与浏览器目视验收 |
 | FR-19 Deep Research | delivered：输入框内显式开关发起（默认关闭、运行中锁定）；三种原生只读研究单元的一次新建/同 Run 续接约束；共享预算/取消/原始截止时间；运行中资源 UI、来源包与主 Agent 去重落账；真实 DeepSeek 合成来源上的三单元并行/来源复核/证据合并与报告验收 | deferred：开放互联网研究质量、真实取消/耗尽/长时墙钟故障矩阵、其他 Provider 与浏览器目视验收 |
 | FR-20 GUI | delivered：L1/L2 真实浏览器 smoke；项目独立店铺 profile、用户登录确认、当前页观察引用、主Agent页面动作/报表下载与来源/产物落账、真实Chromium离线链路；L1/L2 离线真实 Chromium/CDP 的禁止域脚本、私网重定向、同源重定向、恢复和 L2 原标签页保留回归 | deferred：真实卖家后台/验证码/风控兼容性和模型联调；更广泛的真实攻击/恢复矩阵及真实 DNS/公网目标复核；L3 输入动作与 OS 权限真机验收归 FR-42 |
-| FR-21 Connector | delivered：Catalog/Vault/health/revoke、HTTPS JSON send_message；六平台官方入口，TikTok Shop授权店铺/商品与Shopify同组织自有店铺/商品/近期订单只读adapter、项目店铺授权/到期/撤销、主Agent来源凭证与中英文管理员UI；含Shopify的店铺身份配置、同平台Connector关联、独立浏览器授权及数据展示 | deferred：其余邮箱/店铺/CRM/社媒垂直adapter；TikTok Shop OAuth/refresh、Shopify组织外店铺授权、真实授权test-account及模型调用验收/外发全链；API与浏览器数据自动合并 |
+| FR-21 Connector | delivered：Catalog/Vault/health/revoke、HTTPS JSON send_message；六平台官方入口，TikTok Shop授权店铺/商品与Shopify同组织及组织外商家店铺/商品/近期订单只读adapter；Shopify组织外商家授权码、一次性state/HMAC回调、限时离线令牌及跨worker刷新本地闭环；项目店铺授权/到期/撤销、主Agent来源凭证与中英文管理员UI；含Shopify的店铺身份配置、同平台Connector关联、独立浏览器授权及数据展示 | deferred：其余邮箱/店铺/CRM/社媒垂直adapter；TikTok Shop OAuth/refresh、真实Shopify商家同意与授权test-account/模型调用验收/外发全链；API与浏览器数据自动合并 |
 | FR-22 组织治理 | delivered：单部署租户 principal/membership/策略；共享项目成员管理UI与版本冲突保护；持久团队讨论/回复/对象关联/编辑历史/解决状态；可复用项目模板、固定参考版本与来源、核对后创建和中断恢复；组织私有Skill导入人审、固定版本查看/导出、独立启停/恢复、跨进程凭证与冷备恢复 | deferred：真实身份网关联调、租户分区与隔离 runner、长期容量与浏览器目视验收 |
 | FR-23 Web 兜底 | delivered：Serper/Tavily 适配与 SSRF 防护 | deferred：真实配置搜索服务和 Provider 降级 E2E |
 | FR-24 IM | delivered：飞书签名入站/身份绑定/同 Agent/持久回复重试；重放认领跨 worker 原子化、状态损坏时拒绝 | deferred：真实飞书/Lark 租户 E2E；微信适配未实现 |
@@ -60,6 +60,8 @@
 | FR-40 语音输入 | partial（本地）：支持浏览器 SpeechRecognition 的手机任务/插话与工作台听写；语言选择、可编辑转写草稿、明确填入确认和原有提交路径；取消、页面隐藏及卸载中止录音，未提供音频上传端点；见 `docs/voice-input.md` | deferred：真实手机麦克风授权/转写质量、Safari/Android 与受限浏览器兼容、HTTPS 部署验收；不支持 Web Speech API 的浏览器目前仍需键盘听写或文字输入 |
 | FR-41 发布网页 | partial（本地）：不可变 HTML 或受限站点 ZIP 产物版本按校验和暂存，沙箱预览后由项目管理员明确批准；独立 HTTPS 域名公开、无缓存与表单隔离，持久撤回及项目删除清理；脚本须显式逐版审批，既有网页仍禁脚本；ZIP 内 CSS/图片/经典 JS 与模块导入经固定资产路径提供；ZIP 草稿使用五分钟、绑定修订和站点的只读预览地址加载无 Cookie 资源，Chromium 已验证；见 `docs/site-publications.md` | deferred：真实公网部署、缓存与跨浏览器验收；字体/媒体和第三方远程资源未纳入受限站点包，真实站点与长期容量仍待验收 |
 | FR-42 L3 桌面 GUI | partial：macOS 开发版 WebKit 宿主、私有 sidecar、ScreenCaptureKit 系统窗口选择/截图桥；Agent 主线仅在组织策略/精确 App 白名单和 attended Run 下调用，选择、截图和各输入动作逐次人审；截图进 Run receipt/Evidence/Artifact，AXPress、完整值校验的文本替换及有限无修饰按键均绑定最近截图、生成独立 Run receipt；已知浏览器 Bundle 禁止进入 L3；WebView 精确 sidecar 源规则、CSP 和逐帧导航限制已有本机烟测；冻结 Python/SDK CLI 的便携 App 本机复制启动与 ad hoc 签名验收通过 | deferred：真实系统输入与窗口/隐私权限验收、广泛 App 输入兼容、WebView 更完整的攻击/恢复矩阵、Developer ID 签名/公证及干净 Mac 恢复矩阵 |
+
+2026-09-25 FR-21 Shopify 商家授权增量：同组织 client credentials 保留；组织外商家可经管理员发起的授权码同意页、十分钟一次性 state、Shopify HMAC 与固定店铺校验取得限时离线令牌。令牌只存连接器私有 vault，按官方 refresh_token 流程提前刷新，并用跨 worker 文件锁串行化轮换；重配/撤销删除 state 与令牌。后端全量 `2319 passed / 13 skipped`；最后两处失效保护后 Shopify 与控制面基准定向 `65 passed`，Ruff 通过。前端全量 `546 passed / 56 files`、ESLint 与 TypeScript/Vite 构建通过。Browser 技能返回空可用浏览器列表，故未做页面目视；真实 Shopify 商家授权、HTTPS 网关、Admin API 和模型 Run 验收仍未完成。
 
 2026-09-24 FR-20 浏览器复验：真实 Chromium L1 经生产浏览器工具访问无跳转的
 公网 IP 目标，截图、Artifact、Evidence、来源凭证和 Run 关联等 **9 项检查全过**，

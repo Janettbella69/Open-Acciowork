@@ -73,8 +73,7 @@ MARKETPLACE_GUIDES = [
     },
     {
         "type": SHOPIFY_TYPE, "name": "Shopify", "read_adapter": True,
-        "documentation_url": "https://shopify.dev/docs/apps/build/authentication-authorization/"
-        "client-credentials-grant",
+        "documentation_url": "https://shopify.dev/docs/apps/build/authentication-authorization",
     },
 ]
 

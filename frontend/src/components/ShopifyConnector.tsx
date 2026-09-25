@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-import { errorMessage, readMarketplace, revokeConnector, upsertConnector } from '../api/client'
+import { errorMessage, getShopifyOAuthStatus, readMarketplace, revokeConnector, startShopifyOAuth, upsertConnector } from '../api/client'
+import type { ShopifyOAuthStatus } from '../api/client'
 import type { Connector } from '../api/types'
 import type { MarketplaceRead } from '../api/marketplaces'
 import { useT } from '../i18n'
@@ -26,6 +27,9 @@ export default function ShopifyConnector({ connector, onChange }: Props) {
   const [store, setStore] = useState(connector.endpoint ? connector.endpoint.replace(/^https:\/\//, '') : '')
   const [clientId, setClientId] = useState('')
   const [clientSecret, setClientSecret] = useState('')
+  const [authMode, setAuthMode] = useState<ShopifyOAuthStatus['auth_mode']>('client_credentials')
+  const [oauthStatus, setOAuthStatus] = useState<ShopifyOAuthStatus | null>(null)
+  const [authorizationUrl, setAuthorizationUrl] = useState('')
   // Older catalog records carry no Shopify scope; product reads are the useful default.
   const [allowProducts, setAllowProducts] = useState(configured.includes(PRODUCT_SCOPE) || !configured.includes(ORDER_SCOPE))
   const [allowOrders, setAllowOrders] = useState(configured.includes(ORDER_SCOPE))
@@ -36,11 +40,18 @@ export default function ShopifyConnector({ connector, onChange }: Props) {
   const [page, setPage] = useState<MarketplaceRead | null>(null)
   const pending = useRef(false)
   const mounted = useRef(true)
+  const modeTouched = useRef(false)
 
   useEffect(() => {
     mounted.current = true
+    void getShopifyOAuthStatus(connector.id).then((status) => {
+      if (mounted.current) {
+        setOAuthStatus(status)
+        if (!modeTouched.current) setAuthMode(status.auth_mode)
+      }
+    }).catch((reason) => { if (mounted.current) setError(errorMessage(reason)) })
     return () => { mounted.current = false }
-  }, [])
+  }, [connector.id])
 
   const act = async (action: () => Promise<void>) => {
     if (pending.current) return
@@ -68,12 +79,25 @@ export default function ShopifyConnector({ connector, onChange }: Props) {
       type: connector.type, display_name: connector.display_name, endpoint,
       secret_env: connector.secret_env,
       scope: [allowProducts && PRODUCT_SCOPE, allowOrders && ORDER_SCOPE].filter(Boolean).join(' '),
-      secret: JSON.stringify({ client_id: clientId.trim(), client_secret: clientSecret.trim() }),
+      secret: JSON.stringify({
+        client_id: clientId.trim(), client_secret: clientSecret.trim(), auth_mode: authMode,
+      }),
     })
     if (!mounted.current) return
     setClientId(''); setClientSecret(''); setStore(endpoint.replace(/^https:\/\//, ''))
+    setOAuthStatus((current) => ({
+      auth_mode: authMode, authorized: false, callback_url: current?.callback_url ?? null,
+    }))
+    setAuthorizationUrl('')
     onChange(updated)
-    setNotice(t('Credentials saved. Read the store to verify access.'))
+    setNotice(t(authMode === 'merchant_oauth'
+      ? 'Credentials saved. Authorize the merchant store next.'
+      : 'Credentials saved. Read the store to verify access.'))
+  })
+
+  const authorizeMerchant = () => act(async () => {
+    const result = await startShopifyOAuth(connector.id)
+    if (mounted.current) setAuthorizationUrl(result.authorization_url)
   })
 
   const loadShop = () => act(async () => {
@@ -98,6 +122,8 @@ export default function ShopifyConnector({ connector, onChange }: Props) {
     const updated = await revokeConnector(connector.id)
     if (!mounted.current) return
     setClientId(''); setClientSecret('')
+    setAuthorizationUrl('')
+    setOAuthStatus((current) => current ? { ...current, authorized: false } : null)
     onChange(updated)
   })
 
@@ -111,16 +137,25 @@ export default function ShopifyConnector({ connector, onChange }: Props) {
     <article className="marketplace-connector" data-enabled={connector.enabled ? 'true' : 'false'}>
       <div className="connector-copy">
         <header><h3>{connector.display_name}</h3><span>{t(connector.enabled ? 'Store read access' : 'Revoked')}</span></header>
-        <p>{t('Read your own Shopify store: shop details, products and recent orders. Customer names, emails and addresses are never requested, and nothing is written to the store.')}</p>
+        <p>{t('Read an authorized Shopify store: shop details, products and recent orders. Customer names, emails and addresses are never requested, and nothing is written to the store.')}</p>
         <details>
           <summary>{t(connector.enabled ? 'Configure store access' : 'Reconnect store access')}</summary>
           <ol>
             <li>{t('In the Shopify Dev Dashboard, create an app and release a version with the read_products scope. Add read_orders to read orders.')}</li>
-            <li>{t('Install the app on this store. The app and the store must belong to the same Dev Dashboard organization.')}</li>
-            <li>{t('Copy the Client ID and Client secret from the app Settings page. OPHIRA requests 24-hour access tokens itself and keeps them only in memory.')}</li>
+            <li>{t(authMode === 'merchant_oauth'
+              ? 'Add the callback URL below in the app settings, then ask the merchant to approve access.'
+              : 'Install the app on this store. The app and the store must belong to the same Dev Dashboard organization.')}</li>
+            <li>{t(authMode === 'merchant_oauth'
+              ? 'Copy the Client ID and Client secret. Merchant access uses a renewable expiring offline token kept in the server vault.'
+              : 'Copy the Client ID and Client secret from the app Settings page. OPHIRA requests 24-hour access tokens itself and keeps them only in memory.')}</li>
           </ol>
+          {oauthStatus?.callback_url && <p>{t('Shopify OAuth callback URL')}: <code>{oauthStatus.callback_url}</code></p>}
           <form onSubmit={(event) => { event.preventDefault(); void save() }}>
             <fieldset disabled={busy}>
+              <label>{t('Store authorization method')}<select value={authMode} onChange={(event) => { modeTouched.current = true; setAuthMode(event.target.value as ShopifyOAuthStatus['auth_mode']); setAuthorizationUrl('') }}>
+                <option value="client_credentials">{t('My organization’s store')}</option>
+                <option value="merchant_oauth">{t('External merchant store')}</option>
+              </select></label>
               <label>{t('Store address')}<input type="text" autoComplete="off" required maxLength={255} placeholder="your-store.myshopify.com" value={store} onChange={(event) => setStore(event.target.value)} /></label>
               <label>{t('Client ID')}<input type="password" autoComplete="off" required maxLength={255} value={clientId} onChange={(event) => setClientId(event.target.value)} /></label>
               <label>{t('Client secret')}<input type="password" autoComplete="new-password" required maxLength={512} value={clientSecret} onChange={(event) => setClientSecret(event.target.value)} /></label>
@@ -131,10 +166,13 @@ export default function ShopifyConnector({ connector, onChange }: Props) {
           </form>
         </details>
         <div className="marketplace-toolbar">
+          {authMode === 'merchant_oauth' && <button type="button" disabled={busy || !connector.enabled || oauthStatus?.auth_mode !== 'merchant_oauth'} onClick={() => void authorizeMerchant()}>{t('Authorize merchant store')}</button>}
           <button type="button" disabled={busy || !connector.enabled} onClick={() => void loadShop()}>{t('Read store')}</button>
           <button type="button" disabled={busy || !connector.enabled} onClick={() => void revoke()}>{t('Revoke')}</button>
           {busy && <span role="status">{t('Working…')}</span>}
         </div>
+        {authMode === 'merchant_oauth' && <p>{t(oauthStatus?.authorized ? 'Merchant authorization active' : 'Merchant authorization required')}</p>}
+        {authorizationUrl && <p><a href={authorizationUrl} referrerPolicy="no-referrer">{t('Continue to Shopify authorization')}</a></p>}
         {error && <p className="connectors-error" role="alert">{error}</p>}
         {notice && <p role="status">{notice}</p>}
         {storeShop && shop && (

@@ -275,7 +275,7 @@ from .session_search import (
 )
 from .shop_browser import ShopBrowserService
 from .shop_browser_api import register_shop_browser_routes
-from .shopify import ShopifyReader, parse_shopify_credentials
+from .shopify import SHOPIFY_OAUTH_CALLBACK_RE, ShopifyReader, parse_shopify_credentials
 from .site_publication_routes import register_site_publication_routes
 from .site_publications import SitePublicationStore
 from .skill_proposal_routes import register_skill_proposal_routes
@@ -827,6 +827,17 @@ def _create_app(
                 return response
         if not (path == "/api" or path.startswith("/api/")):
             return await call_next(request)
+        if request.method == "GET" and SHOPIFY_OAUTH_CALLBACK_RE.fullmatch(path):
+            expected_host = urlsplit(settings.shopify_oauth_public_origin or "").netloc
+            if (
+                settings.auth_mode != "trusted_gateway" or not expected_host
+                or request.headers.get("host", "").casefold() != expected_host.casefold()
+            ):
+                return JSONResponse(status_code=404, content={"detail": "Not found"})
+            response = await call_next(request)
+            response.headers["Cache-Control"] = "no-store"
+            response.headers["Referrer-Policy"] = "no-referrer"
+            return response
         if path in {OAUTH_CALLBACK_PATH, OAUTH_COMPLETE_PATH, OAUTH_METADATA_PATH} and (
             request.method == "GET"
         ):

@@ -5,7 +5,7 @@ from collections.abc import Callable
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 
 from .auth import AuthenticationError, AuthorizationError, ProjectPermission
 from .connectors import ConnectorUnavailableError
@@ -21,6 +21,7 @@ from .marketplaces import (
     MarketplaceReadRequest,
 )
 from .models import PrincipalContext
+from .shopify import SHOPIFY_OAUTH_CALLBACK_PATH, ShopifyReader
 from .storage import LedgerNotFoundError
 
 
@@ -34,6 +35,53 @@ def register_marketplace_routes(
     reader = marketplace_access.reader
     application.state.marketplace_reader = reader
     application.state.marketplace_access = marketplace_access
+
+    def shopify_reader(connector_id: str) -> ShopifyReader:
+        try:
+            adapter = reader.adapter(connector_id)
+        except ConnectorUnavailableError as exc:
+            raise HTTPException(404, f"{exc.code}: {exc}") from None
+        if not isinstance(adapter, ShopifyReader):
+            raise HTTPException(404, "Shopify connector not found")
+        return adapter
+
+    def require_tenant_admin(request: Request) -> None:
+        principal = getattr(request.state, "principal", None)
+        if principal is not None and principal.role not in {
+            PrincipalRole.OWNER, PrincipalRole.ADMIN,
+        }:
+            raise HTTPException(403, "Tenant administrator required")
+
+    @application.get("/api/connectors/{connector_id}/shopify-oauth")
+    async def shopify_oauth_status(connector_id: str, request: Request, response: Response):
+        require_tenant_admin(request)
+        response.headers["Cache-Control"] = "no-store"
+        return shopify_reader(connector_id).oauth_status(
+            connector_id, marketplace_access.settings.shopify_oauth_public_origin,
+        )
+
+    @application.post("/api/connectors/{connector_id}/shopify-oauth/start")
+    async def start_shopify_oauth(connector_id: str, request: Request, response: Response):
+        require_tenant_admin(request)
+        settings = marketplace_access.settings
+        if settings.auth_mode != "trusted_gateway" or settings.shopify_oauth_public_origin is None:
+            raise HTTPException(409, "Configure OPHIRA_SHOPIFY_OAUTH_PUBLIC_ORIGIN first")
+        result = shopify_reader(connector_id).begin_oauth(
+            connector_id, settings.shopify_oauth_public_origin,
+        )
+        response.headers["Cache-Control"] = "no-store"
+        response.headers["Referrer-Policy"] = "no-referrer"
+        return result
+
+    @application.get(SHOPIFY_OAUTH_CALLBACK_PATH)
+    async def complete_shopify_oauth(connector_id: str, request: Request):
+        await shopify_reader(connector_id).complete_oauth(
+            connector_id, request.scope.get("query_string", b""),
+        )
+        return RedirectResponse(
+            "/app/plugins/connectors?shopify=connected", status_code=303,
+            headers={"Cache-Control": "no-store", "Referrer-Policy": "no-referrer"},
+        )
 
     @application.exception_handler(MarketplaceError)
     async def marketplace_failure(_request: Request, exc: MarketplaceError):
@@ -119,11 +167,7 @@ def register_marketplace_routes(
     ) -> dict:
         # Deliberate POST for a user-triggered credentialed read. Also enforce the
         # role here, independently of the shared connector administration guard.
-        principal = getattr(request.state, "principal", None)
-        if principal is not None and principal.role not in {
-            PrincipalRole.OWNER, PrincipalRole.ADMIN,
-        }:
-            raise HTTPException(status_code=403, detail="Tenant administrator required")
+        require_tenant_admin(request)
         headers = {"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"}
         try:
             result = await reader.read(connector_id, payload)

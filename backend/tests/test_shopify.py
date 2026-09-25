@@ -1,9 +1,14 @@
 from __future__ import annotations
 
+import asyncio
+import hashlib
+import hmac
 import json
 import logging
+from datetime import UTC, datetime
 from pathlib import Path
-from urllib.parse import parse_qs
+from urllib.parse import parse_qs, urlencode, urlsplit
+from uuid import uuid4
 
 import httpx
 import pytest
@@ -14,10 +19,10 @@ from test_marketplaces import CREDENTIALS as TIKTOK_CREDENTIALS
 from test_marketplaces import Body
 
 from ophira_backend import marketplaces, web_tools
-from ophira_backend.auth import AuthorizationError
+from ophira_backend.auth import AuthorizationError, build_gateway_assertion_headers
 from ophira_backend.config import Settings
 from ophira_backend.connectors import ConnectorRegistry, ConnectorUnavailableError
-from ophira_backend.constants import RunStatus
+from ophira_backend.constants import PrincipalRole, RunStatus
 from ophira_backend.main import create_app
 from ophira_backend.marketplace_access import (
     MarketplaceAgentRequest,
@@ -41,6 +46,7 @@ from ophira_backend.shopify import (
     ShopifyReader,
     check_shopify_store_endpoint,
     parse_shopify_credentials,
+    shopify_oauth_vault_keys,
 )
 
 STORE = "https://skate-demo.myshopify.com"
@@ -48,6 +54,7 @@ CREDENTIALS = {
     "client_id": "client-id-0123456789abcdef", "client_secret": "shpss_test-secret-0123456789",
 }
 TOKEN = "shpat-access-token-0123456789abcdef"
+MERCHANT_REFRESH = "shprt-refresh-token-0123456789abcdef"
 SHOP_ID = "74185244861"
 SHOP_GID = f"gid://shopify/Shop/{SHOP_ID}"
 SHOP_NODE = {
@@ -126,6 +133,7 @@ def test_store_address_must_be_an_exact_myshopify_origin(endpoint):
 @pytest.mark.parametrize("changes", [
     {"client_secret": "short"}, {"client_id": "client-id\r\nx-forged: 0123456789"},
     {"access_token": "never-accepted"}, {"client_id": 123456789012345678},
+    {"auth_mode": "unverified"},
 ])
 def test_invalid_credentials_are_rejected_without_reflecting_input(changes):
     with pytest.raises(ValueError) as caught:
@@ -547,3 +555,184 @@ async def test_production_routes_save_and_read_shopify_without_exposing_secrets(
         listing = await client.get("/api/connectors")
     for private in (TOKEN, CREDENTIALS["client_secret"], CREDENTIALS["client_id"]):
         assert private not in rejected.text + saved.text + result.text + listing.text
+
+
+def merchant_token_response(
+    access=TOKEN, refresh=MERCHANT_REFRESH, scope="read_products,read_orders",
+):
+    return httpx.Response(200, stream=Body(json.dumps({
+        "access_token": access, "refresh_token": refresh, "scope": scope,
+        "expires_in": 3600, "refresh_token_expires_in": 7_776_000,
+    }).encode()))
+
+
+def signed_shopify_callback(authorization_url: str, *, shop="skate-demo.myshopify.com", **changes):
+    state = parse_qs(urlsplit(authorization_url).query)["state"][0]
+    values = {
+        "code": "one-time-shopify-code", "shop": shop,
+        "state": state, "timestamp": "1800000000",
+    }
+    values.update(changes)
+    message = "&".join(f"{key}={value}" for key, value in sorted(values.items()))
+    values["hmac"] = hmac.new(
+        CREDENTIALS["client_secret"].encode(), message.encode(), hashlib.sha256,
+    ).hexdigest()
+    return urlencode(values).encode()
+
+
+async def test_merchant_oauth_persists_rotates_and_revokes_tokens(registry):
+    credentials = {**CREDENTIALS, "auth_mode": "merchant_oauth"}
+    registry.upsert(
+        SHOPIFY_TYPE, type=SHOPIFY_TYPE, display_name="Shopify",
+        scope="read_products read_orders", endpoint=STORE, secret=json.dumps(credentials),
+    )
+    now = [1_800_000_000.0]
+    exchanges = []
+    rotated = "shpat-rotated-token-0123456789abcdef"
+    next_refresh = "shprt-next-refresh-0123456789abcdef"
+
+    def handler(request):
+        if request.url.path == SHOPIFY_TOKEN_PATH:
+            body = parse_qs(request.content.decode())
+            exchanges.append(body)
+            assert request.headers["host"] == "skate-demo.myshopify.com"
+            assert request.extensions["sni_hostname"] == "skate-demo.myshopify.com"
+            if "code" in body:
+                assert body["expiring"] == ["1"]
+                assert "grant_type" not in body
+                return merchant_token_response()
+            assert body["grant_type"] == ["refresh_token"]
+            assert body["refresh_token"] == [MERCHANT_REFRESH]
+            return merchant_token_response(rotated, next_refresh)
+        assert request.headers["x-shopify-access-token"] in {TOKEN, rotated}
+        return default_handler(request)
+
+    shopify = reader(registry, handler, clock=lambda: now[0])
+    with pytest.raises(MarketplaceError) as caught:
+        await shopify.read(SHOPIFY_TYPE, MarketplaceReadRequest(operation="authorized_shops"))
+    assert caught.value.code == "MARKETPLACE_OAUTH_REQUIRED"
+    assert exchanges == []
+    started = shopify.begin_oauth(SHOPIFY_TYPE, "https://oauth.example.com")
+    params = parse_qs(urlsplit(started["authorization_url"]).query)
+    assert params["redirect_uri"] == [started["callback_url"]]
+    assert params["scope"] == ["read_products,read_orders"]
+    tampered = signed_shopify_callback(started["authorization_url"]).replace(
+        b"one-time-shopify-code", b"stolen-shopify-code",
+    )
+    with pytest.raises(MarketplaceError) as caught:
+        await shopify.complete_oauth(SHOPIFY_TYPE, tampered)
+    assert caught.value.code == "MARKETPLACE_OAUTH_INVALID"
+    bad_shop = signed_shopify_callback(started["authorization_url"], shop="other.myshopify.com")
+    with pytest.raises(MarketplaceError) as caught:
+        await shopify.complete_oauth(SHOPIFY_TYPE, bad_shop)
+    assert caught.value.code == "MARKETPLACE_OAUTH_INVALID"
+    assert exchanges == []
+    callback = signed_shopify_callback(started["authorization_url"])
+    await shopify.complete_oauth(SHOPIFY_TYPE, callback)
+    assert shopify.oauth_status(SHOPIFY_TYPE, "https://oauth.example.com")["authorized"]
+    with pytest.raises(MarketplaceError):
+        await shopify.complete_oauth(SHOPIFY_TYPE, callback)
+    observed = await shopify.read(
+        SHOPIFY_TYPE, MarketplaceReadRequest(operation="authorized_shops"),
+    )
+    assert observed["shops"][0]["id"] == SHOP_ID
+    assert TOKEN not in json.dumps(observed)
+    assert len(exchanges) == 1
+
+    now[0] += 3_550
+    another_worker = reader(registry, handler, clock=lambda: now[0])
+    pages = await asyncio.gather(
+        another_worker.read(
+            SHOPIFY_TYPE, MarketplaceReadRequest(operation="products", shop_id=SHOP_ID),
+        ),
+        shopify.read(
+            SHOPIFY_TYPE, MarketplaceReadRequest(operation="products", shop_id=SHOP_ID),
+        ),
+    )
+    assert all(page["products"][0]["id"] == "901" for page in pages)
+    assert len(exchanges) == 2
+    assert registry.vault is not None
+    registry.revoke(SHOPIFY_TYPE)
+    assert all(not registry.vault.has(key) for key in shopify_oauth_vault_keys(SHOPIFY_TYPE))
+    with pytest.raises(ConnectorUnavailableError):
+        await another_worker.read(
+            SHOPIFY_TYPE, MarketplaceReadRequest(operation="authorized_shops"),
+        )
+
+
+async def test_merchant_oauth_reconfigure_invalidates_pending_state_and_missing_scope(registry):
+    credentials = {**CREDENTIALS, "auth_mode": "merchant_oauth"}
+    registry.upsert(
+        SHOPIFY_TYPE, type=SHOPIFY_TYPE, display_name="Shopify",
+        scope="read_products read_orders", endpoint=STORE, secret=json.dumps(credentials),
+    )
+    calls = []
+
+    def handler(request):
+        calls.append(request)
+        return merchant_token_response(scope="read_products")
+
+    shopify = reader(registry, handler)
+    started = shopify.begin_oauth(SHOPIFY_TYPE, "https://oauth.example.com")
+    callback = signed_shopify_callback(started["authorization_url"])
+    registry.upsert(
+        SHOPIFY_TYPE, type=SHOPIFY_TYPE, display_name="Shopify",
+        scope="read_products read_orders", endpoint=STORE, secret=json.dumps(credentials),
+    )
+    with pytest.raises(MarketplaceError) as caught:
+        await shopify.complete_oauth(SHOPIFY_TYPE, callback)
+    assert caught.value.code == "MARKETPLACE_OAUTH_INVALID"
+    assert calls == []
+
+    started = shopify.begin_oauth(SHOPIFY_TYPE, "https://oauth.example.com")
+    with pytest.raises(MarketplaceError) as caught:
+        await shopify.complete_oauth(
+            SHOPIFY_TYPE, signed_shopify_callback(started["authorization_url"]),
+        )
+    assert caught.value.code == "MARKETPLACE_SCOPE_REQUIRED"
+    assert len(calls) == 1
+    assert not shopify.oauth_status(SHOPIFY_TYPE, "https://oauth.example.com")["authorized"]
+
+
+async def test_merchant_oauth_callback_requires_public_host_and_one_time_state(
+    tmp_path, monkeypatch,
+):
+    monkeypatch.setattr(web_tools, "_resolve_ips", lambda _host: ["93.184.216.34"])
+    secret = "shopify-gateway-secret-0123456789-abcdef"
+    app = create_app(Settings(
+        _env_file=None, data_dir=tmp_path, auth_mode="trusted_gateway",
+        trusted_gateway_auth_secret=secret, trusted_gateway_tenant_id="tenant_shopify",
+        shopify_oauth_public_origin="https://oauth.example.com",
+    ), runtime=FakeRuntime())
+    app.state.connectors.upsert(
+        SHOPIFY_TYPE, type=SHOPIFY_TYPE, display_name="Shopify", scope="read_products",
+        endpoint=STORE, secret=json.dumps({**CREDENTIALS, "auth_mode": "merchant_oauth"}),
+    )
+    app.state.marketplace_reader.transport_factory = lambda: httpx.MockTransport(
+        lambda request: merchant_token_response(scope="read_products")
+    )
+    start_path = "/api/connectors/shopify/shopify-oauth/start"
+    headers = build_gateway_assertion_headers(
+        secret, method="POST", path=start_path, tenant_id="tenant_shopify",
+        principal_id="owner@example.com", role=PrincipalRole.OWNER,
+        session_id="gateway_session_shopify_owner",
+        issued_at=datetime.now(UTC), nonce=f"nonce_{uuid4().hex}",
+    )
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="https://work.example.com",
+    ) as client:
+        without_auth = await client.post(start_path)
+        assert without_auth.status_code != 200
+        started = await client.post(start_path, headers=headers)
+        assert started.status_code == 200, started.text
+        callback = started.json()["callback_url"]
+        assert callback == "https://oauth.example.com/api/connectors/shopify/shopify-oauth/callback"
+        query = signed_shopify_callback(started.json()["authorization_url"]).decode()
+        wrong_host = await client.get(f"{callback.removeprefix('https://oauth.example.com')}?{query}")
+        assert wrong_host.status_code == 404
+        completed = await client.get(callback + "?" + query, follow_redirects=False)
+        assert completed.status_code == 303, completed.text
+        assert completed.headers["location"] == "/app/plugins/connectors?shopify=connected"
+        replay = await client.get(callback + "?" + query, follow_redirects=False)
+        assert replay.status_code == 403
+        assert TOKEN not in started.text + completed.text + replay.text

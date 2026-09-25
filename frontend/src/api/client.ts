@@ -1016,6 +1016,20 @@ export function readMarketplace(id: string, input: MarketplaceReadInput): Promis
   })
 }
 
+export type ShopifyOAuthStatus = {
+  auth_mode: 'client_credentials' | 'merchant_oauth'
+  authorized: boolean
+  callback_url: string | null
+}
+
+export function getShopifyOAuthStatus(id: string): Promise<ShopifyOAuthStatus> {
+  return request<ShopifyOAuthStatus>(`/api/connectors/${encodeURIComponent(id)}/shopify-oauth`)
+}
+
+export function startShopifyOAuth(id: string): Promise<{ authorization_url: string; callback_url: string }> {
+  return request(`/api/connectors/${encodeURIComponent(id)}/shopify-oauth/start`, { method: 'POST' })
+}
+
 export function getMarketplaceAccess(projectId: string): Promise<MarketplaceAccess> {
   return request<MarketplaceAccess>(`/api/projects/${encodeURIComponent(projectId)}/marketplace-access`)
 }

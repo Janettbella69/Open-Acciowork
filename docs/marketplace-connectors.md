@@ -22,7 +22,7 @@ its JavaScript shell. These are documentation checks, not authenticated API test
 | TikTok Shop | [Developer onboarding](https://partner.tiktokshop.com/docv2/page/developer-onboarding) | Seller credential configuration, authorized-shop reads, product pagination, project-specific expiring shop grants, main-Agent read tool and source receipts, administrator grant/revoke UI; offline adapter/API/SDK/UI verification | Live developer/test-shop and model certification, OAuth callback/token exchange and refresh, commercial writes |
 | AliExpress | [Register an application](https://developer.alibaba.com/docs/doc.htm?articleId=120674&docType=1&treeId=727) | Correct platform identification and documentation entry | Runtime adapter: verify current app category, read endpoints, permissions and seller authorization; supplied registration page is dated 2022 |
 | Shopee | [Developer guide](https://open.shopee.cn/developer-guide/12) | Documentation entry | Runtime adapter: supplied guide was inaccessible in this environment; equivalent global guide returned HTTP 403, so no signature or API contract is assumed |
-| Shopify | [Client credentials grant](https://shopify.dev/docs/apps/build/authentication-authorization/client-credentials-grant) | Store address and Dev Dashboard app credentials, in-memory 24-hour token exchange, shop/product/order reads on GraphQL Admin `2026-07`, project grants, main-Agent reads with source receipts, `shopify-store-review` Plugin Skill; offline adapter/API/UI verification | Live store E2E (needs the operator's app credentials); stores outside the app's Dev Dashboard organization (authorization code grant); legacy admin-created tokens; commercial writes |
+| Shopify | [App authentication](https://shopify.dev/docs/apps/build/authentication-authorization) | Own-organization client credentials and external-merchant authorization code grant with expiring offline token refresh; shop/product/order reads on GraphQL Admin `2026-07`, project grants, source receipts and `shopify-store-review` Plugin Skill; offline adapter/API/UI verification | Live merchant consent and store E2E (needs app credentials, a public HTTPS callback and a merchant test store); legacy admin-created tokens; commercial writes |
 
 The Alibaba-hosted link describes **AliExpress**, not Alibaba.com International
 or 1688. The existing legacy `alibaba` connector record is preserved; its combined
@@ -101,14 +101,18 @@ when supplied, and `data_scope: authorized_seller_data`.
 
 ## Shopify read contract
 
-Shopify is read through a Dev Dashboard app installed on the operator's own store.
+Shopify is read through a Dev Dashboard app installed on the selected store.
 Since 2026-01-01 new custom apps can no longer be created in the Shopify admin, so
 OPHIRA does not accept a pasted Admin API token. It stores the app's **client ID and
-client secret** and uses the client credentials grant:
+client secret**. An app reading its own Dev Dashboard organization's store uses the
+[client credentials grant](https://shopify.dev/docs/apps/build/authentication-authorization/client-credentials-grant).
+An external merchant uses the [standalone app authorization code grant](https://shopify.dev/docs/apps/build/authentication-authorization/authenticate-standalone-apps):
 
 | Step | Official contract | Local handling |
 | --- | --- | --- |
-| Token | `POST https://{store}.myshopify.com/admin/oauth/access_token`, form fields `grant_type=client_credentials`, `client_id`, `client_secret` | Token (`expires_in` 86399) kept only in process memory, reused until 60 seconds before expiry, dropped after HTTP 401; never persisted, logged or returned |
+| Own-organization token | `POST https://{store}.myshopify.com/admin/oauth/access_token`, form fields `grant_type=client_credentials`, `client_id`, `client_secret` | Token (`expires_in` 86399) kept only in process memory, reused until 60 seconds before expiry, dropped after HTTP 401; never persisted, logged or returned |
+| Merchant authorization | `GET /admin/oauth/authorize` with exact registered redirect URI, requested read scopes and a random state; callback HMAC verified with app secret; `POST /admin/oauth/access_token` with code and `expiring=1` | Authenticated administrator starts a ten-minute, one-use state bound to the connector revision and exact store. The public callback has a configured host, checks state, HMAC and store, then exchanges the code through pinned HTTPS. No Agent tool can start or complete authorization. |
+| Merchant refresh | `POST /admin/oauth/access_token` with `grant_type=refresh_token` and rotating refresh token | Access and refresh tokens live only in the private 0600 connector vault, bound to connector revision/store; multiworker refresh uses a per-connector file lock and refreshes 60 seconds early. Reconfigure/revoke erases them. A terminal 400/401 refresh or GraphQL 401 requires merchant reauthorization. |
 | Shop | [`shop`](https://shopify.dev/docs/api/admin-graphql/2026-07/queries/shop): `id name myshopifyDomain currencyCode shopAddress { countryCodeV2 }` | Domain must equal the configured store; the result lists `granted_scopes` from the token response |
 | Products | [`products`](https://shopify.dev/docs/api/admin-graphql/2026-07/queries/products)`(first, after, query, sortKey: UPDATED_AT, reverse: true)` | `read_products` must be allowed on the connector **and** granted to the app; filters ACTIVE, DRAFT, ARCHIVED, UNLISTED |
 | Orders | [`orders`](https://shopify.dev/docs/api/admin-graphql/2026-07/queries/orders)`(first, after, sortKey: CREATED_AT, reverse: true)` | `read_orders` allowed and granted; fields limited to order name, created/cancelled time, test flag, financial/fulfillment status, item quantity and current total; `order_window` is `last_60_days` unless `read_all_orders` is granted |
@@ -127,7 +131,7 @@ requests use the same pinned DNS, TLS/SNI, no-redirect, 2 MiB and 30-second boun
 TikTok Shop, and configuration or revocation is rechecked before sending and after each
 response. A token exchanged while the connector was revoked or changed is not cached.
 
-### Configure Shopify
+### Configure an own-organization Shopify store
 
 1. In the Shopify admin open **Settings → Apps → Develop apps → Build apps in Dev
    Dashboard**, then **Create app → Start from Dev Dashboard**.
@@ -143,6 +147,28 @@ response. A token exchanged while the connector was revoked or changed is not ca
 Alternatively set `OPHIRA_CONNECTOR_SHOPIFY_KEY` to a JSON object with `client_id` and
 `client_secret` after saving the store address. A Shopify project grant requires product
 reads to be allowed; order reads follow the connector setting and the app's granted scopes.
+
+### Authorize an external merchant store
+
+1. Deploy in trusted-gateway mode and set
+   `OPHIRA_SHOPIFY_OAUTH_PUBLIC_ORIGIN=https://work.example.com` to an operator-owned
+   public HTTPS origin. Route the exact
+   `/api/connectors/{connector_id}/shopify-oauth/callback` path to the backend without
+   the gateway identity header. The callback requires that host and verifies Shopify's
+   HMAC and the short-lived, one-use state. Register the exact callback URL shown on the
+   connector card in the Shopify Dev Dashboard app settings.
+2. Select **External merchant store**, enter the merchant's exact store address and the
+   app Client ID/secret, select read scopes and save. Select **Authorize merchant store**,
+   then follow **Continue to Shopify authorization** and have the merchant approve.
+   The browser returns to **Plugins → Connectors**. Select **Read store** to confirm
+   the specific store and granted scopes before granting a project access.
+3. When the app is uninstalled, scopes are removed or refresh fails terminally,
+   authorize again. Local revoke removes the vaulted token but cannot uninstall the
+   remote app; remove the app in Shopify if remote access must also end.
+
+This implementation is verified with offline Shopify-shaped responses and the API/UI
+contracts. A real Shopify app, merchant consent, callback deployment and live GraphQL
+request remain external acceptance work.
 
 ## Boundaries and verification
 

@@ -7,11 +7,12 @@ import ShopifyConnector from './ShopifyConnector'
 
 vi.mock('../api/client', () => ({
   readMarketplace: vi.fn(), upsertConnector: vi.fn(), revokeConnector: vi.fn(),
+  getShopifyOAuthStatus: vi.fn(), startShopifyOAuth: vi.fn(),
   listProjects: vi.fn(), getMarketplaceAccess: vi.fn(), grantMarketplaceAccess: vi.fn(),
   revokeMarketplaceAccess: vi.fn(),
   errorMessage: (error: unknown) => error instanceof Error ? error.message : 'unknown error',
 }))
-import { readMarketplace, revokeConnector, upsertConnector } from '../api/client'
+import { getShopifyOAuthStatus, readMarketplace, revokeConnector, startShopifyOAuth, upsertConnector } from '../api/client'
 
 const connector: Connector = {
   id: 'shopify', type: 'shopify', display_name: 'Shopify', scope: 'read_products read_orders',
@@ -47,6 +48,13 @@ beforeEach(() => {
   vi.mocked(readMarketplace).mockResolvedValue(shop)
   vi.mocked(upsertConnector).mockResolvedValue(connector)
   vi.mocked(revokeConnector).mockResolvedValue({ ...connector, enabled: false })
+  vi.mocked(getShopifyOAuthStatus).mockResolvedValue({
+    auth_mode: 'client_credentials', authorized: false, callback_url: null,
+  })
+  vi.mocked(startShopifyOAuth).mockResolvedValue({
+    authorization_url: 'https://skate-demo.myshopify.com/admin/oauth/authorize?state=test',
+    callback_url: 'https://work.example.com/api/connectors/shopify/shopify-oauth/callback',
+  })
 })
 
 describe('ShopifyConnector', () => {
@@ -63,12 +71,33 @@ describe('ShopifyConnector', () => {
     expect(saved.scope).toBe('read_products')
     expect(JSON.parse(saved.secret!)).toEqual({
       client_id: 'client-id-0123456789abcdef', client_secret: 'shpss_test-secret-0123456789',
+      auth_mode: 'client_credentials',
     })
     expect(screen.getByLabelText('Client secret')).toHaveValue('')
     expect(screen.getByLabelText('Client ID')).toHaveValue('')
     expect(screen.getByLabelText('Store address')).toHaveValue('skate-demo.myshopify.com')
     expect(readMarketplace).not.toHaveBeenCalled()
     expect(onChange).toHaveBeenCalledWith(connector)
+  })
+
+  it('saves external merchant mode and offers the registered Shopify consent URL', async () => {
+    vi.mocked(getShopifyOAuthStatus).mockResolvedValue({
+      auth_mode: 'client_credentials', authorized: false,
+      callback_url: 'https://work.example.com/api/connectors/shopify/shopify-oauth/callback',
+    })
+    render(<ShopifyConnector connector={connector} onChange={vi.fn()} />)
+    await screen.findByText(/Shopify OAuth callback URL/)
+    fillCredentials('skate-demo')
+    fireEvent.change(screen.getByLabelText('Store authorization method'), { target: { value: 'merchant_oauth' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save store credentials' }))
+    await screen.findByText('Credentials saved. Authorize the merchant store next.')
+    expect(JSON.parse(vi.mocked(upsertConnector).mock.calls[0][1].secret!)).toMatchObject({
+      auth_mode: 'merchant_oauth',
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Authorize merchant store' }))
+    const link = await screen.findByRole('link', { name: 'Continue to Shopify authorization' })
+    expect(link).toHaveAttribute('href', 'https://skate-demo.myshopify.com/admin/oauth/authorize?state=test')
+    expect(link).toHaveAttribute('referrerpolicy', 'no-referrer')
   })
 
   it('rejects an address that is not a Shopify store before calling the API', async () => {
@@ -131,8 +160,9 @@ describe('ShopifyConnector', () => {
     expect(screen.queryByText(/Request ID/)).not.toBeInTheDocument()
   })
 
-  it('offers reconnect after revoke and translates the store flow', () => {
+  it('offers reconnect after revoke and translates the store flow', async () => {
     render(<I18nContext.Provider value="zh-CN"><ShopifyConnector connector={{ ...connector, enabled: false }} onChange={vi.fn()} /></I18nContext.Provider>)
+    await waitFor(() => expect(getShopifyOAuthStatus).toHaveBeenCalled())
     expect(screen.getByText('重新配置店铺授权')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '读取店铺' })).toBeDisabled()
     expect(screen.getByLabelText('应用 Client secret')).toHaveAttribute('type', 'password')

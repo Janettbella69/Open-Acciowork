@@ -31,6 +31,7 @@ from .shopify import (
     SHOPIFY_DEFAULT_SCOPE,
     check_shopify_store_endpoint,
     parse_shopify_credentials,
+    shopify_oauth_vault_keys,
 )
 
 CONNECTOR_CATALOG: list[dict[str, str | None]] = [
@@ -425,6 +426,11 @@ class ConnectorRegistry:
                 created_at=existing.created_at if existing else utc_now(),
             )
             self._write(connector)
+            if self.vault is not None and (existing is not None or secret is not None) and (
+                type == SHOPIFY_TYPE or (existing is not None and existing.type == SHOPIFY_TYPE)
+            ):
+                for key in shopify_oauth_vault_keys(connector_id):
+                    self.vault.delete(key)
             if secret and self.vault is not None:
                 self.vault.set(connector.id, secret)
         return connector
@@ -443,6 +449,9 @@ class ConnectorRegistry:
             })
             # Invalidate old probes before the new credential can become visible.
             self._write(updated)
+            if connector.type == SHOPIFY_TYPE:
+                for key in shopify_oauth_vault_keys(connector_id):
+                    self.vault.delete(key)
             self.vault.set(connector.id, secret)
             return updated
 
@@ -457,6 +466,9 @@ class ConnectorRegistry:
             self._write(updated)
             if self.vault is not None:
                 self.vault.delete(connector.id)
+                if connector.type == SHOPIFY_TYPE:
+                    for key in shopify_oauth_vault_keys(connector_id):
+                        self.vault.delete(key)
         return updated
 
     def health_check(

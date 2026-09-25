@@ -118,8 +118,8 @@ describe('UserMcpPanel', () => {
       target: { value: oauthServer.oauth_issuer },
     })
     expect(screen.getByLabelText('Bearer token (optional)')).toBeDisabled()
-    expect(screen.getByText('https://gateway.example.com/api/mcp/oauth/callback')).toBeInTheDocument()
-    expect(screen.getByText('https://gateway.example.com/api/mcp/oauth/client-metadata')).toBeInTheDocument()
+    expect(await screen.findByText('https://gateway.example.com/api/mcp/oauth/callback')).toBeInTheDocument()
+    expect(await screen.findByText('https://gateway.example.com/api/mcp/oauth/client-metadata')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Save for review' }))
     await waitFor(() => expect(saveUserMcp).toHaveBeenCalledWith('project_one', 'sales_mcp', {
       name: 'Sales MCP', url: oauthServer.url, oauth_issuer: oauthServer.oauth_issuer,
