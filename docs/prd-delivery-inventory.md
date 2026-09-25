@@ -50,7 +50,7 @@
 | FR-30 任务进度 | delivered（本地）：钉版 SDK 原生 Task/Todo 工具允许与事件回放清单；主 Run/失败过滤测试 | deferred：真实 Provider 产出任务清单、浏览器刷新验收 |
 | FR-31 运行中插话 | delivered（本地代码/离线测试，2026-09-24）：用户消息先入 Run 事件序列，支持当前 SDK 流会话发送、排到下一轮及中断后替换；跨 worker 由持有会话的进程接收，具备 SDK session 的交互 Run 在实时投递不可用时自动启动同会话下一 Run；请求幂等、投递不确定/设备授权撤销状态、原 Run 回放和续行跳转、桌面及获准发起任务的配对手机入口均已覆盖 | deferred：真实 Provider 的中途插话/打断语义、浏览器与手机 HTTPS 目视验收；SDK 写入与持久确认之间的崩溃窗口只能标为不确定，不能盲目重试 |
 | FR-32 并行任务列表 | delivered（本地列表）：新任务不取消旧 Run；授权过滤列表展示独立 Run 状态、审批、预算、已报告的 SDK 费用和结果，精确 Run 跳转 | deferred：运行中的可靠实时花费、真实多个 SDK Run 并发、预算熔断与浏览器验收 |
-| FR-33 用户 MCP/连接器 | partial（本地）：项目级目录首项一键添加+在线工具清单审查、进阶 HTTPS/Bearer 配置、组织主机白名单、逐工具允许/每次询问/禁止、撤销、Run 快照与 SDK 显式装配；运行期经每次地址钉住的受控 MCP 网关，外部输出不可信过滤；MCP Python SDK 2.2 自动协商 2026-07-28 无握手协议及旧版回退，离线 HTTP 和进程内测试均覆盖；见 `docs/user-mcp.md` | deferred：真实 MCP/Provider E2E、OAuth、更多已验证目录项、状态型服务器兼容与浏览器目视验收；网关运行期仍为逐调用新会话，见 `docs/user-mcp.md` |
+| FR-33 用户 MCP/连接器 | partial（本地）：项目级目录首项一键添加+在线工具清单审查、进阶 HTTPS/Bearer 配置、组织主机白名单、逐工具允许/每次询问/禁止、撤销、Run 快照与 SDK 显式装配；运行期经每次地址钉住的受控 MCP 网关，外部输出不可信过滤；MCP Python SDK 2.2 自动协商 2026-07-28 无握手协议及旧版回退，同一 Run 复用旧版有状态 HTTP 会话、不同 Run 隔离，离线 HTTP 和进程内测试覆盖；见 `docs/user-mcp.md` | deferred：真实 MCP/Provider E2E、OAuth、更多已验证目录项、公开状态型服务器及浏览器目视验收，见 `docs/user-mcp.md` |
 | FR-34 上下文压缩 | delivered（本地代码/离线测试，2026-09-24）：钉版 SDK `get_context_usage()` 采样有效窗口占用并随 Run 事件回放；原生压缩边界事件提示自动/手动压缩、崩溃后修复 epoch 并强制完整业务上下文刷新；用户可在已完成会话启动独立无工具 `/compact` Run，只有 SDK 手动边界确认才算成功，账本及产物不被压缩 Run 改写 | deferred：真实 Provider 用量/手动与自动压缩语义、长时采样及浏览器目视验收；SDK 不提供用量时显示未知，不从累计 token 推算 |
 | FR-35 会话检索 | delivered（本地）：项目内有界 Run 提问、用户插话、主 Agent 回复与结果检索，RUN_READ 校验、只读 MCP、Run ID 回放及截断提示 | deferred：大历史性能/覆盖、浏览器与真实会话质量验收 |
 | FR-36 首次引导 | delivered（本地）：示例任务、模型选择及设置页密钥/条款/预检/返回步骤 | deferred：新用户可用性测试和实际 Provider 配置 E2E |

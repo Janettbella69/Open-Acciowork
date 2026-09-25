@@ -24,10 +24,12 @@ model-visible result. A Run records a credential-free snapshot of reviewed
 connectors. The SDK receives eligible servers through `mcp_servers` as
 in-process MCP gateways, with `strict_mcp_config=True` and `setting_sources=[]`.
 The Claude Code worker receives neither remote URL nor bearer token. Every
-runtime `tools/call` opens a pinned, redirect-free HTTPS connection, checks that
-the remote tool schema still matches the reviewed version, and returns only the
-reviewed tool output. Remote tool descriptions are replaced with neutral tool
-text and instruction-like schema descriptions are removed. Plan, maintenance
+runtime `tools/call` uses a pinned, redirect-free HTTPS connection. Calls in
+one Run share a remote MCP session, while separate Runs have separate sessions;
+every call checks that the remote tool schema still matches the reviewed
+version and returns only the reviewed tool output. Remote tool descriptions
+are replaced with neutral text and instruction-like schema descriptions are
+removed. Plan, maintenance
 compaction, and standing-intent Runs receive no user MCP servers.
 
 ## Current limits
@@ -42,9 +44,10 @@ compaction, and standing-intent Runs receive no user MCP servers.
   (including outside the filesystem sandbox).
 - Production deployments still need their normal outbound network policy for
   the Provider, browser, and other tools. The user MCP gateway itself pins and
-  checks every remote request. Live compatibility of stateful remote servers
-  needs acceptance testing; the gateway currently starts a fresh MCP session
-  for each tool call.
+  checks every remote request. A legacy stateful HTTP server has passed offline
+  protocol tests with one session per Run, but live compatibility with public
+  stateful servers still needs acceptance testing. A failed tool call is never
+  retried automatically; a later call can open a new session.
 - The gateway uses MCP Python SDK 2.2 with automatic version negotiation for
   the [2026-07-28 handshake-free protocol](https://modelcontextprotocol.io/specification/2026-07-28/basic/versioning)
   and older servers, following the [official v2 migration

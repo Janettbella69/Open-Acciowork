@@ -252,7 +252,7 @@ async def test_version_negotiated_http_review_and_call_use_pinned_transport(
 
     remote = Server("remote", on_list_tools=list_tools, on_call_tool=call_tool)
     app = remote.streamable_http_app(
-        json_response=True, stateless_http=True,
+        json_response=True, stateless_http=not force_legacy,
         transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
     )
 
@@ -299,9 +299,47 @@ async def test_version_negotiated_http_review_and_call_use_pinned_transport(
         result = await service._invoke_remote(
             reviewed, reviewed.tools[0], {"text": "verified"}
         )
+        scope_start = len(observed_requests)
+        async with service.run_scope() as scope:
+            gateway = service.sdk_server(reviewed, run_scope=scope)["instance"]
+            async with Client(gateway) as gateway_client:
+                first = await gateway_client.call_tool("echo", {"text": "first"})
+                second = await gateway_client.call_tool("echo", {"text": "second"})
+        first_scope_end = len(observed_requests)
+        async with service.run_scope() as next_scope:
+            gateway = service.sdk_server(reviewed, run_scope=next_scope)["instance"]
+            async with Client(gateway) as gateway_client:
+                next_run = await gateway_client.call_tool("echo", {"text": "next run"})
+                before_revoke = len(observed_requests)
+                service.revoke("project_one", item.id)
+                blocked = await gateway_client.call_tool("echo", {"text": "blocked"})
+                assert blocked.is_error
+                assert len(observed_requests) == before_revoke
 
     assert result.content[0].text == "verified"
     assert result.structured_content == {"value": "verified"}
+    assert first.structured_content == {"value": "first"}
+    assert second.structured_content == {"value": "second"}
+    assert next_run.structured_content == {"value": "next run"}
+    scoped_requests = observed_requests[scope_start:first_scope_end]
+    methods = [
+        json.loads(await request.aread()).get("method")
+        for request in scoped_requests if request.method == "POST"
+    ]
+    assert methods.count("initialize" if force_legacy else "server/discover") == 1
+    if force_legacy:
+        session_ids = {
+            request.headers["Mcp-Session-Id"]
+            for request in scoped_requests if "Mcp-Session-Id" in request.headers
+        }
+        assert len(session_ids) == 1
+        next_session_ids = {
+            request.headers["Mcp-Session-Id"]
+            for request in observed_requests[first_scope_end:]
+            if "Mcp-Session-Id" in request.headers
+        }
+        assert len(next_session_ids) == 1
+        assert next_session_ids != session_ids
     assert len(negotiated_versions) >= 3
     assert set(negotiated_versions) == {expected_version}
     assert observed_requests
@@ -422,6 +460,35 @@ async def test_sdk_gateway_exposes_reviewed_tools_and_pins_call_authority(
         blocked = await client.call_tool("search_docs", {"query": "market"})
         assert blocked.is_error
         assert len(calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_runtime_closes_remote_run_scope_if_sdk_startup_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _ledger, run, runtime = build_runtime(tmp_path)
+    service = registry(tmp_path)
+    scope = service.run_scope()
+    runtime.user_mcp = service
+    runtime._require_provider = lambda _run: None
+    runtime.durable_resume_supported = False
+    monkeypatch.setattr(service, "run_scope", lambda: scope)
+
+    class FailingClient:
+        def __init__(self, *, options):
+            assert options.strict_mcp_config
+
+        async def __aenter__(self):
+            assert scope._active
+            raise RuntimeError("SDK startup failed")
+
+        async def __aexit__(self, *_exc):
+            pass
+
+    monkeypatch.setattr("ophira_backend.sdk_adapter.ClaudeSDKClient", FailingClient)
+    with pytest.raises(RuntimeError, match="SDK startup failed"):
+        await runtime.run(run)
+    assert not scope._active
 
 
 @pytest.mark.asyncio

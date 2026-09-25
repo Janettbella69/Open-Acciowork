@@ -9,7 +9,7 @@ import os
 import re
 import tempfile
 import threading
-from contextlib import contextmanager
+from contextlib import AsyncExitStack, contextmanager
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal
@@ -229,6 +229,149 @@ async def discover_remote_tools(url: str, bearer_token: str | None) -> list[User
         raise UserMcpRemoteError("Remote MCP handshake or tool review failed") from exc
 
 
+class _RemoteMcpSession:
+    """Own a remote Client in one task so its AnyIO cancel scope stays valid."""
+
+    def __init__(self, registry: UserMcpRegistry, pinned: UserMcpConnector) -> None:
+        self.registry = registry
+        self.pinned = pinned
+        self._requests: asyncio.Queue[
+            tuple[UserMcpTool, dict[str, Any], asyncio.Future[CallToolResult]] | None
+        ] = asyncio.Queue(maxsize=16)
+        self._task: asyncio.Task[None] | None = None
+        self._closed = False
+
+    async def _connect(self, stack: AsyncExitStack) -> Client:
+        credential = self.registry.vault.get(self.registry._vault_id(
+            self.pinned.project_id, self.pinned.id,
+        ))
+        if self.pinned.credential_configured and credential is None:
+            raise UserMcpConflictError("Remote MCP credential is unavailable")
+        headers = {"Authorization": f"Bearer {credential}"} if credential else {}
+        http_client = await stack.enter_async_context(httpx2.AsyncClient(
+            transport=_PinnedMcpTransport(self.pinned.url), headers=headers,
+            follow_redirects=False, timeout=httpx2.Timeout(8, read=60), trust_env=False,
+        ))
+        return await stack.enter_async_context(Client(
+            streamable_http_client(self.pinned.url, http_client=http_client)
+        ))
+
+    async def _serve(self) -> None:
+        stack: AsyncExitStack | None = None
+        client: Client | None = None
+        try:
+            while (request := await self._requests.get()) is not None:
+                reviewed_tool, arguments, future = request
+                if future.cancelled():
+                    continue
+                try:
+                    if not self.registry._current_authorized(self.pinned):
+                        raise UserMcpConflictError("Remote MCP connector is no longer approved")
+                    async with asyncio.timeout(75):
+                        if client is None:
+                            stack = AsyncExitStack()
+                            client = await self._connect(stack)
+                        observed = await _read_tool_manifest(client)
+                        matching = next(
+                            (tool for tool in observed if tool.name == reviewed_tool.name), None,
+                        )
+                        if matching is None or matching.input_schema != reviewed_tool.input_schema:
+                            raise UserMcpConflictError("Remote MCP tool changed since review")
+                        if not self.registry._current_authorized(self.pinned):
+                            raise UserMcpConflictError("Remote MCP connector is no longer approved")
+                        result = await client.call_tool(reviewed_tool.name, arguments)
+                    if not future.done():
+                        future.set_result(result)
+                except BaseException as exc:
+                    if not future.done():
+                        if isinstance(exc, asyncio.CancelledError):
+                            future.cancel()
+                        else:
+                            future.set_exception(exc)
+                    # Do not retry a possibly executed call. The next queued
+                    # call may reconnect after this failed session closes.
+                    closing_stack, stack = stack, None
+                    client = None
+                    if closing_stack is not None:
+                        await closing_stack.aclose()
+                    if isinstance(exc, asyncio.CancelledError):
+                        raise
+        finally:
+            if stack is not None:
+                await stack.aclose()
+            while not self._requests.empty():
+                pending = self._requests.get_nowait()
+                if pending is not None and not pending[2].done():
+                    pending[2].cancel()
+
+    async def call(
+        self, reviewed_tool: UserMcpTool, arguments: dict[str, Any],
+    ) -> CallToolResult:
+        if self._closed:
+            raise UserMcpConflictError("Remote MCP Run session is unavailable")
+        if self._task is None or self._task.done():
+            self._task = asyncio.create_task(self._serve(), name="ophira:remote-mcp-session")
+        future: asyncio.Future[CallToolResult] = asyncio.get_running_loop().create_future()
+        try:
+            self._requests.put_nowait((reviewed_tool, arguments, future))
+        except asyncio.QueueFull as exc:
+            future.cancel()
+            raise UserMcpConflictError("Remote MCP Run has too many pending calls") from exc
+        return await future
+
+    async def aclose(self) -> None:
+        self._closed = True
+        if self._task is None:
+            return
+        try:
+            self._requests.put_nowait(None)
+        except asyncio.QueueFull:
+            self._task.cancel()
+        try:
+            await asyncio.wait({self._task}, timeout=2)
+        finally:
+            if not self._task.done():
+                self._task.cancel()
+            await asyncio.gather(self._task, return_exceptions=True)
+
+
+class UserMcpRunScope:
+    """Own remote sessions for exactly one SDK Run, including its subturns."""
+
+    def __init__(self, registry: UserMcpRegistry) -> None:
+        self.registry = registry
+        self._sessions: dict[str, _RemoteMcpSession] = {}
+        self._active = False
+
+    async def __aenter__(self) -> UserMcpRunScope:
+        self._active = True
+        return self
+
+    async def __aexit__(self, *_exc: object) -> None:
+        self._active = False
+        try:
+            await asyncio.gather(
+                *(session.aclose() for session in self._sessions.values()),
+                return_exceptions=True,
+            )
+        finally:
+            self._sessions.clear()
+
+    async def call(
+        self, pinned: UserMcpConnector, reviewed_tool: UserMcpTool,
+        arguments: dict[str, Any],
+    ) -> CallToolResult:
+        if not self._active:
+            raise UserMcpConflictError("Remote MCP Run session is unavailable")
+        session = self._sessions.get(pinned.id)
+        if session is None:
+            session = _RemoteMcpSession(self.registry, pinned)
+            self._sessions[pinned.id] = session
+        elif session.pinned != pinned:
+            raise UserMcpConflictError("Remote MCP connector changed during Run")
+        return await session.call(reviewed_tool, arguments)
+
+
 class UserMcpRegistry:
     def __init__(self, root: Path, vault: FileSecretVault, policy: OrgPolicyStore) -> None:
         self.root = root.resolve()
@@ -255,6 +398,9 @@ class UserMcpRegistry:
 
     def _vault_id(self, project_id: str, connector_id: str) -> str:
         return f"{self._project(project_id)}:{self._id(connector_id)}"
+
+    def run_scope(self) -> UserMcpRunScope:
+        return UserMcpRunScope(self)
 
     @contextmanager
     def _transaction(self, project_id: str):
@@ -474,27 +620,12 @@ class UserMcpRegistry:
         self, pinned: UserMcpConnector, reviewed_tool: UserMcpTool,
         arguments: dict[str, Any],
     ) -> CallToolResult:
-        credential = self.vault.get(self._vault_id(pinned.project_id, pinned.id))
-        if pinned.credential_configured and credential is None:
-            raise UserMcpConflictError("Remote MCP credential is unavailable")
-        headers = {"Authorization": f"Bearer {credential}"} if credential else {}
-        async with httpx2.AsyncClient(
-            transport=_PinnedMcpTransport(pinned.url), headers=headers,
-            follow_redirects=False, timeout=httpx2.Timeout(8, read=60), trust_env=False,
-        ) as http_client:
-            async with asyncio.timeout(75):
-                async with Client(
-                    streamable_http_client(pinned.url, http_client=http_client)
-                ) as client:
-                    observed = await _read_tool_manifest(client)
-                    matching = next(
-                        (tool for tool in observed if tool.name == reviewed_tool.name), None,
-                    )
-                    if matching is None or matching.input_schema != reviewed_tool.input_schema:
-                        raise UserMcpConflictError("Remote MCP tool changed since review")
-                    return await client.call_tool(reviewed_tool.name, arguments)
+        async with self.run_scope() as scope:
+            return await scope.call(pinned, reviewed_tool, arguments)
 
-    def sdk_server(self, item: UserMcpConnector) -> dict:
+    def sdk_server(
+        self, item: UserMcpConnector, *, run_scope: UserMcpRunScope | None = None,
+    ) -> dict:
         """Register reviewed remote tools as an in-process SDK MCP gateway.
 
         The Claude Code worker never receives the remote URL or bearer token.
@@ -531,6 +662,8 @@ class UserMcpRegistry:
                     isError=True,
                 )
             try:
+                if run_scope is not None:
+                    return await run_scope.call(item, reviewed, params.arguments or {})
                 return await self._invoke_remote(item, reviewed, params.arguments or {})
             except Exception:
                 # Remote exception text can contain tool-output injections or

@@ -629,7 +629,7 @@ async def test_deep_research_wall_clock_timeout_cancels_session(
     runtime._build_options = lambda _run, **_kwargs: object()  # type: ignore[method-assign,return-value]
     cleaned_up = asyncio.Event()
 
-    async def slow_session(_run, _options) -> None:
+    async def slow_session(_run, _options, **_kwargs) -> None:
         try:
             await asyncio.Event().wait()
         finally:
@@ -673,7 +673,7 @@ async def test_runtime_holds_the_skill_cache_lease_until_sdk_session_exit(
         lambda snapshot: TrackedLease(snapshot),
     )
 
-    async def session(_run, options) -> None:
+    async def session(_run, options, **_kwargs) -> None:
         assert state["active"] is True
         assert options.plugins
 

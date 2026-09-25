@@ -124,7 +124,7 @@ from .untrusted import (
     UntrustedSource,
     sanitize_untrusted_tool_output,
 )
-from .user_mcp import UserMcpConnector, UserMcpRegistry
+from .user_mcp import UserMcpConnector, UserMcpRegistry, UserMcpRunScope
 
 
 class AgentRunError(RuntimeError):
@@ -383,15 +383,18 @@ class ClaudeAgentRuntime:
                 raise AgentRunError("Deep Research exceeded its original wall-clock limit.")
         snapshot = self._policy_skill_snapshot(run.skill_snapshot)
         self._prepare_context(run, snapshot)
+        mcp_scope = self.user_mcp.run_scope() if self.user_mcp is not None else None
         try:
             with self.skills.runtime_snapshot_lease(snapshot) as skill_view:
-                options = self._build_options(run, skill_view=skill_view)
+                options = self._build_options(
+                    run, skill_view=skill_view, user_mcp_scope=mcp_scope,
+                )
                 if run.mode != RunMode.DEEP_RESEARCH:
-                    await self._run_sdk_session(run, options)
+                    await self._run_sdk_session(run, options, user_mcp_scope=mcp_scope)
                     return
 
                 task = asyncio.create_task(
-                    self._run_sdk_session(run, options),
+                    self._run_sdk_session(run, options, user_mcp_scope=mcp_scope),
                     name=f"ophira:deep-research:{run.id}",
                 )
                 try:
@@ -424,6 +427,8 @@ class ClaudeAgentRuntime:
         self,
         run: RunRecord,
         options: ClaudeAgentOptions,
+        *,
+        user_mcp_scope: UserMcpRunScope | None = None,
     ) -> None:
         pending = self.permissions.durable.active(run)
         if (pending is not None and pending.state == "resolved"
@@ -431,6 +436,8 @@ class ClaudeAgentRuntime:
             raise AgentRunError("Native deferred replay requires a verified startup approval gate.")
         result_error: str | None = None
         async with AsyncExitStack() as stack:
+            if user_mcp_scope is not None:
+                await stack.enter_async_context(user_mcp_scope)
             if self.durable_resume_supported:
                 bridge = await stack.enter_async_context(NativeHookBridge(
                     self._permission_hook(
@@ -940,6 +947,7 @@ class ClaudeAgentRuntime:
         run: RunRecord,
         *,
         skill_view: SkillRuntimeView | None = None,
+        user_mcp_scope: UserMcpRunScope | None = None,
     ) -> ClaudeAgentOptions:
         agent = self.ledger.get_agent(run.agent_id) if run.agent_id else None
         workspace = self.ledger.workspace_for_project(run.project_id).resolve()
@@ -1125,7 +1133,9 @@ class ClaudeAgentRuntime:
         if self.user_mcp is not None:
             for connector in remote_connectors.values():
                 if any(item.policy != "deny" for item in connector.tools):
-                    mcp_servers[connector.server_name] = self.user_mcp.sdk_server(connector)
+                    mcp_servers[connector.server_name] = self.user_mcp.sdk_server(
+                        connector, run_scope=user_mcp_scope,
+                    )
         unattended_intent = run.standing_intent_id is not None
         event_run = run.event_trigger_id is not None
         return ClaudeAgentOptions(
