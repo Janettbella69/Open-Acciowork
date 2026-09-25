@@ -28,6 +28,7 @@ import type {
   StandingIntent,
   Notification,
   OrgPolicy,
+  DesktopStatus,
   PermissionGrant,
   PendingPermissionView,
   FeedbackCreate,
@@ -827,6 +828,10 @@ export function resumeIntent(id: string): Promise<StandingIntent> {
 
 export function getOrgPolicy(): Promise<OrgPolicy> {
   return request<OrgPolicy>('/api/org/policy')
+}
+
+export function getDesktopStatus(): Promise<DesktopStatus> {
+  return request<DesktopStatus>('/api/desktop/status')
 }
 
 export function saveOrgPolicy(policy: OrgPolicy): Promise<OrgPolicy> {

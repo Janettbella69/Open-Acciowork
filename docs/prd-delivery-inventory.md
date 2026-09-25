@@ -1083,6 +1083,8 @@ macOS 宿主与 sidecar 使用现有私有匿名管道交换限长 JSON 命令�
 默认关闭，已知浏览器 Bundle 转由 URL/域策略保护的 L1/L2 路径处理。PNG 经尺寸、
 格式和字节上限校验后，进入项目工作区并生成 Run/session 绑定 receipt、Evidence、
 Artifact。设置页使用后端组织策略，移除了此前无执行效力的浏览器本地电脑控制开关。
+后续安全修正使桌面入口对 WebSocket fail closed；设置页显示可刷新原生宿主与 macOS
+屏幕录制/辅助功能授权状态，Web 形态则明确显示宿主不可用。
 
 验证：后端定向最终 **65 passed**；全量在最后一项软链接防护测试加入前，于默认沙箱下
 **2278 passed / 13 skipped**，

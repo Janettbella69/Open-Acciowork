@@ -40,7 +40,9 @@ with the URL/domain-gated L1/L2 tools.
 
 The native command channel uses the already-private parent/child pipes. There
 is no native-command HTTP route. The cookie-protected `/api/desktop/status`
-reports the host's Screen Recording and Accessibility permission state. macOS
+reports the host's Screen Recording and Accessibility permission state; the
+organization settings page displays and refreshes it. Desktop ingress rejects
+WebSocket connections. macOS
 may ask for Screen Recording access when selecting or capturing a window.
 Approval inside OPHIRA does not grant macOS privacy permission.
 

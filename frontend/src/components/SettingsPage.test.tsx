@@ -11,6 +11,7 @@ vi.mock('../api/client', () => ({
   listMemory: vi.fn(),
   decideMemory: vi.fn(),
   correctMemory: vi.fn(),
+  getDesktopStatus: vi.fn(),
   getOrgPolicy: vi.fn(),
   saveOrgPolicy: vi.fn(),
   listPermissionGrants: vi.fn(),
@@ -21,6 +22,7 @@ vi.mock('../api/client', () => ({
 import {
   correctMemory,
   decideMemory,
+  getDesktopStatus,
   getOrgPolicy,
   listMemory,
   listPermissionGrants,
@@ -131,6 +133,7 @@ beforeEach(() => {
     checked_at: '2026-08-20T12:00:00Z',
   })
   vi.mocked(getOrgPolicy).mockResolvedValue(orgPolicy)
+  vi.mocked(getDesktopStatus).mockRejectedValue(new Error('Desktop host unavailable'))
   vi.mocked(saveOrgPolicy).mockImplementation(async (policy) => policy)
   vi.mocked(listPermissionGrants).mockResolvedValue([])
   vi.mocked(decideMemory).mockImplementation(async (id, decision) => ({
@@ -293,11 +296,32 @@ describe('SettingsPage · provider management', () => {
 })
 
 describe('SettingsPage · organization policy and grants', () => {
+  it('shows live macOS permission status and refreshes it', async () => {
+    stubLocalStorage()
+    vi.mocked(getDesktopStatus).mockResolvedValueOnce({
+      platform: 'macos', screen_recording_authorized: true,
+      accessibility_authorized: false,
+    })
+    render(<SettingsPage />)
+
+    expect(await screen.findByText(/Screen Recording: Granted · Accessibility: Not granted/))
+      .toBeInTheDocument()
+    vi.mocked(getDesktopStatus).mockResolvedValueOnce({
+      platform: 'macos', screen_recording_authorized: true,
+      accessibility_authorized: true,
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh status' }))
+    expect(await screen.findByText(/Screen Recording: Granted · Accessibility: Granted/))
+      .toBeInTheDocument()
+  })
+
   it('saves native desktop controls as organization policy', async () => {
     stubLocalStorage()
     render(<SettingsPage />)
 
     const apps = await screen.findByRole('textbox', { name: 'Approved desktop app bundle IDs' })
+    expect(screen.getByText('Open the macOS desktop app to check system permissions.'))
+      .toBeInTheDocument()
     fireEvent.change(apps, { target: { value: 'com.apple.TextEdit\ncom.microsoft.Excel' } })
     fireEvent.click(screen.getByRole('button', { name: 'Save apps' }))
     await waitFor(() => expect(saveOrgPolicy).toHaveBeenCalledWith({

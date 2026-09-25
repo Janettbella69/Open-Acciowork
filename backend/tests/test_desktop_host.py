@@ -112,3 +112,46 @@ async def test_native_status_requires_desktop_cookie(tmp_path: Path) -> None:
         assert response.json() == {"platform": "macos", "accessibility_authorized": False}
         assert response.headers["cache-control"] == "no-store"
         assert (await client.post("/api/desktop/status")).status_code == 405
+
+
+@pytest.mark.asyncio
+async def test_native_status_reports_disconnected_bridge(tmp_path: Path) -> None:
+    from ophira_backend.desktop_bridge import DesktopBridgeError
+
+    class Bridge:
+        async def request(self, *_args, **_kwargs):
+            raise DesktopBridgeError("disconnected")
+
+    app = desktop_app(tmp_path)
+    app.bridge = Bridge()  # type: ignore[assignment]
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url=ORIGIN,
+        cookies={DESKTOP_COOKIE_NAME: TOKEN},
+    ) as client:
+        response = await client.get("/api/desktop/status")
+        assert response.status_code == 503
+        assert response.json() == {"detail": "native desktop host is unavailable"}
+        assert response.headers["cache-control"] == "no-store"
+
+
+@pytest.mark.asyncio
+async def test_desktop_rejects_websocket_before_reaching_api(tmp_path: Path) -> None:
+    app = desktop_app(tmp_path)
+    sent: list[dict] = []
+
+    async def receive() -> dict:
+        return {"type": "websocket.connect"}
+
+    async def send(message: dict) -> None:
+        sent.append(message)
+
+    await app({
+        "type": "websocket",
+        "asgi": {"version": "3.0"},
+        "path": "/api/runs/secret",
+        "headers": [],
+        "scheme": "ws",
+        "client": ("127.0.0.1", 5000),
+        "server": ("127.0.0.1", PORT),
+    }, receive, send)
+    assert sent == [{"type": "websocket.close", "code": 1008}]

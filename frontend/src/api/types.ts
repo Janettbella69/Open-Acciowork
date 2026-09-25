@@ -632,6 +632,12 @@ export type OrgPolicy = {
   updated_at: string
 }
 
+export type DesktopStatus = {
+  platform: 'macos'
+  screen_recording_authorized: boolean
+  accessibility_authorized: boolean
+}
+
 export type UserMcpTool = { name: string; policy: 'allow' | 'ask' | 'deny' }
 export type UserMcpConnector = {
   id: string

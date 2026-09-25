@@ -61,8 +61,12 @@ class DesktopHost:
         self.static = Starlette(routes=[Mount("/", app=StaticFiles(directory=ui_dir, html=True))])
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        if scope["type"] != "http":
+        if scope["type"] == "lifespan":
             await self.api(scope, receive, send)
+            return
+        if scope["type"] != "http":
+            if scope["type"] == "websocket":
+                await send({"type": "websocket.close", "code": 1008})
             return
         request = Request(scope)
         client = request.client

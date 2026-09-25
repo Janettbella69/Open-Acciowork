@@ -5,8 +5,8 @@ import ProviderSettings from './ProviderSettings'
 import './settings-page.css'
 import { languageChangedEvent, useT } from '../i18n'
 import { loadLocalSettings, saveLocalSettings, type LocalSettings } from '../localSettings'
-import { errorMessage, getOrgPolicy, listPermissionGrants, revokePermissionGrant, saveOrgPolicy } from '../api/client'
-import type { OrgPolicy, PermissionGrant } from '../api/types'
+import { errorMessage, getDesktopStatus, getOrgPolicy, listPermissionGrants, revokePermissionGrant, saveOrgPolicy } from '../api/client'
+import type { DesktopStatus, OrgPolicy, PermissionGrant } from '../api/types'
 
 function ToggleRow({
   title,
@@ -40,6 +40,8 @@ function OrgPolicyPanel() {
   const [revokingGrant, setRevokingGrant] = useState('')
   const [mcpHostsDraft, setMcpHostsDraft] = useState('')
   const [desktopBundlesDraft, setDesktopBundlesDraft] = useState('')
+  const [desktopStatus, setDesktopStatus] = useState<DesktopStatus | null>(null)
+  const [checkingDesktop, setCheckingDesktop] = useState(false)
   const revokingGrantRef = useRef('')
   const policyRef = useRef<OrgPolicy | null>(null)
   const confirmedPolicyRef = useRef<OrgPolicy | null>(null)
@@ -48,8 +50,8 @@ function OrgPolicyPanel() {
 
   useEffect(() => {
     let active = true
-    void Promise.allSettled([getOrgPolicy(), listPermissionGrants()])
-      .then(([policyResult, grantResult]) => {
+    void Promise.allSettled([getOrgPolicy(), listPermissionGrants(), getDesktopStatus()])
+      .then(([policyResult, grantResult, desktopResult]) => {
         if (!active) return
         const failures: string[] = []
         if (policyResult.status === 'fulfilled') {
@@ -66,11 +68,23 @@ function OrgPolicyPanel() {
         } else {
           failures.push(errorMessage(grantResult.reason))
         }
+        if (desktopResult.status === 'fulfilled') setDesktopStatus(desktopResult.value)
         setError(failures.join(' · '))
         setLoading(false)
       })
     return () => { active = false }
   }, [])
+
+  const refreshDesktopStatus = async () => {
+    setCheckingDesktop(true)
+    try {
+      setDesktopStatus(await getDesktopStatus())
+    } catch {
+      setDesktopStatus(null)
+    } finally {
+      setCheckingDesktop(false)
+    }
+  }
 
   const save = (changes: Partial<OrgPolicy>) => {
     const current = policyRef.current
@@ -154,6 +168,15 @@ function OrgPolicyPanel() {
               <textarea aria-label={t('Approved desktop app bundle IDs')} value={desktopBundlesDraft} onChange={(event) => setDesktopBundlesDraft(event.target.value)} rows={4} placeholder="com.apple.TextEdit" disabled={savingPolicy} />
               <button type="button" disabled={savingPolicy} onClick={() => save({ allowed_desktop_bundle_ids: [...new Set(desktopBundlesDraft.split(/\s+/).map((item) => item.trim().toLowerCase()).filter(Boolean))] })}>{t('Save apps')}</button>
             </div>
+          </div>
+          <div className="settings-row settings-mcp-hosts">
+            <span>
+              <strong>{t('Native desktop host')}</strong>
+              <small>{desktopStatus
+                ? `${t('Screen Recording')}: ${t(desktopStatus.screen_recording_authorized ? 'Granted' : 'Not granted')} · ${t('Accessibility')}: ${t(desktopStatus.accessibility_authorized ? 'Granted' : 'Not granted')}`
+                : t('Open the macOS desktop app to check system permissions.')}</small>
+            </span>
+            <button type="button" disabled={checkingDesktop} onClick={() => void refreshDesktopStatus()}>{t('Refresh status')}</button>
           </div>
           <label className="settings-row settings-toggle-row">
             <span><strong>{t('Channel delivery')}</strong><small>{t('Push inbox notifications to the configured IM webhook.')}</small></span>
