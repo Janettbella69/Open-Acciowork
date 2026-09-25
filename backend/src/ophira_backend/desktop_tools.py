@@ -55,7 +55,8 @@ def build_desktop_tools(service: DesktopControl, project_id: str, run_id: str):
         "snapshot_window",
         "Capture the previously user-selected native window as a source-linked screenshot. "
         "Use the exact selection_id from select_window. Every capture requires human approval. "
-        "The screenshot becomes an Artifact, Evidence, and a Run-bound source receipt.",
+        "The screenshot becomes an Artifact, Evidence, and a Run-bound source receipt. "
+        "Read the returned screenshot_path image before choosing any press coordinates.",
         {
             "type": "object",
             "properties": {
@@ -89,7 +90,71 @@ def build_desktop_tools(service: DesktopControl, project_id: str, run_id: str):
                 "error": "Desktop window capture could not be recorded.",
             }, is_error=True)
 
-    return [select_window, snapshot_window]
+    @tool(
+        "press_window_control",
+        "Press an accessible control inside the user-selected native window at a point "
+        "from its most recent screenshot. Only controls that expose macOS AXPress are supported. "
+        "Use the exact screenshot receipt and pixel coordinates, plus the control's "
+        "exact visible label for human approval. Each press needs separate approval; "
+        "read the screenshot image first and capture again afterward. "
+        "An uncertain outcome must never be retried without a fresh observation.",
+        {
+            "type": "object",
+            "properties": {
+                "selection_id": {"type": "string", "pattern": "^window_[a-f0-9]{32}$"},
+                "capture_receipt_id": {
+                    "type": "string", "pattern": "^receipt_[A-Za-z0-9_-]{20,}$",
+                },
+                "x": {"type": "integer", "minimum": 0},
+                "y": {"type": "integer", "minimum": 0},
+                "expected_label": {"type": "string", "minLength": 1, "maxLength": 120},
+            },
+            "required": [
+                "selection_id", "capture_receipt_id", "x", "y", "expected_label",
+            ],
+            "additionalProperties": False,
+        },
+    )
+    async def press_window_control(args: dict[str, Any]) -> dict[str, Any]:
+        try:
+            action = await service.press_window_control(
+                project_id, run_id,
+                args["selection_id"], args["capture_receipt_id"],
+                args["x"], args["y"], args["expected_label"],
+            )
+            return _result(
+                {"note": UNTRUSTED_DATA_NOTICE, **action}, is_error=not action["ok"],
+            )
+        except DesktopControlError as exc:
+            uncertain = exc.code in {
+                "DESKTOP_WINDOW_CHANGED", "DESKTOP_NATIVE_RESPONSE_INVALID",
+            }
+            return _result({
+                "ok": False,
+                "error_code": exc.code,
+                "error": str(exc),
+                "outcome": "uncertain" if uncertain else "not_sent",
+                "next_step": "Capture a fresh screenshot before any retry." if uncertain else None,
+            }, is_error=True)
+        except DesktopBridgeError:
+            return _result({
+                "ok": False,
+                "error_code": "DESKTOP_ACTION_UNCERTAIN",
+                "error": "The native host did not confirm whether the press occurred.",
+                "outcome": "uncertain",
+                "next_step": "Capture a fresh screenshot before any retry.",
+            }, is_error=True)
+        except Exception:
+            logger.exception("Desktop press result could not be recorded")
+            return _result({
+                "ok": False,
+                "error_code": "DESKTOP_ACTION_UNCERTAIN",
+                "error": "The press may have occurred, but its result could not be recorded.",
+                "outcome": "uncertain",
+                "next_step": "Capture a fresh screenshot before any retry.",
+            }, is_error=True)
+
+    return [select_window, snapshot_window, press_window_control]
 
 
 def build_desktop_mcp_server(service: DesktopControl, project_id: str, run_id: str):

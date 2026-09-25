@@ -59,7 +59,7 @@
 | FR-39 插件导入 | partial（本地）：官方插件 ZIP 多 Skill 拆分后复用私有仓库安全扫描和逐件人审；远程 MCP 地址引导至 FR-33 项目审批/逐工具策略，插件子 Agent 与其它可执行组件明确忽略；Anthropic marketing 真包的 8 个 Skill 扫描通过、11 个远程 MCP 地址列出；冷备报告/子 Skill 绑定校验；见 `docs/plugin-imports.md` | deferred：远程 MCP/Provider E2E、认证部署验收和更多真实包兼容性；OAuth、stdio MCP 和 Claude marketplace 安装机制不在当前 FR-33 远程 HTTPS 边界内 |
 | FR-40 语音输入 | partial（本地）：支持浏览器 SpeechRecognition 的手机任务/插话与工作台听写；语言选择、可编辑转写草稿、明确填入确认和原有提交路径；取消、页面隐藏及卸载中止录音，未提供音频上传端点；见 `docs/voice-input.md` | deferred：真实手机麦克风授权/转写质量、Safari/Android 与受限浏览器兼容、HTTPS 部署验收；不支持 Web Speech API 的浏览器目前仍需键盘听写或文字输入 |
 | FR-41 发布网页 | partial（本地）：不可变 HTML 产物版本按校验和暂存，沙箱预览后由项目管理员明确批准；独立 HTTPS 域名公开、无缓存与脚本/表单隔离，持久撤回及项目删除清理；见 `docs/site-publications.md` | deferred：真实公网部署、浏览器/缓存验收；动态脚本和远程资源需要隔离的发布运行时，现仅支持自包含静态页面 |
-| FR-42 L3 桌面 GUI | delivered：macOS 开发版 WebKit 宿主、私有 sidecar、ScreenCaptureKit 系统窗口选择/截图桥；Agent 主线仅在组织策略/精确 App 白名单和 attended Run 下调用，选择和截图逐次人审，PNG 连到 Run receipt/Evidence/Artifact；已知浏览器 Bundle 禁止进入 L3 | deferred：Accessibility 输入动作、真实系统窗口/隐私权限验收、嵌入式 WebView 完整域策略、独立 Python 打包签名与恢复矩阵 |
+| FR-42 L3 桌面 GUI | delivered：macOS 开发版 WebKit 宿主、私有 sidecar、ScreenCaptureKit 系统窗口选择/截图桥；Agent 主线仅在组织策略/精确 App 白名单和 attended Run 下调用，选择、截图和 AXPress 逐次人审；截图进 Run receipt/Evidence/Artifact，按最近截图与精确标签执行的辅助功能按压有独立 Run receipt；已知浏览器 Bundle 禁止进入 L3 | deferred：AXPress 真实系统动作验收、文字/按键动作、真实系统窗口/隐私权限验收、嵌入式 WebView 完整域策略、独立 Python 打包签名与恢复矩阵 |
 
 2026-09-24 FR-20 浏览器复验：真实 Chromium L1 经生产浏览器工具访问无跳转的
 公网 IP 目标，截图、Artifact、Evidence、来源凭证和 Run 关联等 **9 项检查全过**，
@@ -1095,3 +1095,22 @@ sidecar 自行退出。窗口选择与截图的成功/拒绝路径目前使用�
 PNG 和假原生桥验证；尚未在系统选择器中选择真实窗口，也未验收 Screen Recording
 授权、取消和应用切换。Accessibility 输入动作、嵌入式 WebView 的完整域策略和
 独立 Python 打包签名仍 deferred；FR-42 与完整 PRD 未完成。
+
+## 2026-09-24：FR-42 有界辅助功能按压增量
+
+主 Agent 新增 `press_window_control`：必须处于同一 attended Run，引用最新截图
+receipt、截图内像素坐标和精确可见控件标签；沿用组织开关及精确 Bundle 白名单，
+每次按压由 SDK 权限钩子单独请求人工批准，不能转为持久授权或交给子代理。
+Python 与原生宿主都把截图令牌限定在选定窗口和 120 秒内；新截图开始时旧令牌失效，
+即使新截图失败也不能复用；动作送出后令牌立即失效。原生层重核窗口 ID、PID、Bundle、
+边界及辅助功能窗口，再以坐标
+命中的控件、精确标签、允许的控件角色和 `AXPress` 能力执行。动作落独立 Run receipt，
+回链截图 receipt；系统或管道结果不确定时要求重新截图，不能盲目重试。
+
+验证：后端桌面/SDK/架构定向 **46 passed**；后端全量除沙箱禁用 Unix socket 的
+9 项外 **2281 passed / 13 skipped**，这 9 项在上一增量曾于允许 socket 的环境
+**9 passed**，本轮未修改它们；Ruff 通过。前端全量 **538 passed / 56 files**，
+ESLint 与 TypeScript/Vite 构建通过；Swift 宿主构建通过。真实 WebKit→sidecar→原生状态往返
+在隔离临时目录通过，但截图与按压路径仍只覆盖合成桥测试和原生编译。
+尚未在真实系统窗口上验收 `AXPress`、屏幕录制与辅助功能权限，也未实现文字/按键动作、
+独立打包签名及完整域策略；FR-42 与完整 PRD 仍未完成。

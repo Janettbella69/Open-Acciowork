@@ -17,7 +17,7 @@ from uuid import uuid4
 
 _MAX_REQUEST_BYTES = 16_384
 _MAX_RESPONSE_BYTES = 24_000_000
-_OPERATIONS = frozenset({"status", "select_window", "snapshot"})
+_OPERATIONS = frozenset({"status", "select_window", "snapshot", "press"})
 
 
 class DesktopBridgeError(RuntimeError):

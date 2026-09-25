@@ -18,7 +18,9 @@ fi
 
 mkdir -p "${contents}/MacOS" "${contents}/Resources/backend"
 swiftc -framework AppKit -framework WebKit -framework Security \
-  "${script_dir}/OphiraDesktop.swift" -o "${contents}/MacOS/OPHIRA"
+  "${script_dir}/OphiraDesktop.swift" \
+  "${script_dir}/DesktopAccessibility.swift" \
+  -o "${contents}/MacOS/OPHIRA"
 rsync -a --delete "${repo_dir}/frontend/dist/" "${contents}/Resources/ui/"
 rsync -a --delete --delete-excluded --exclude '__pycache__/' --exclude '*.pyc' \
   "${repo_dir}/backend/src/" "${contents}/Resources/backend/src/"

@@ -159,7 +159,7 @@ function OrgPolicyPanel() {
             <input type="checkbox" role="switch" checked={policy.browser_enabled} disabled={savingPolicy} onChange={(event) => save({ browser_enabled: event.target.checked })} />
           </label>
           <label className="settings-row settings-toggle-row">
-            <span><strong>{t('Native desktop capture')}</strong><small>{t('Allow approved native apps on this Mac. Every window selection and screenshot asks again; browsers use L1/L2 domain checks.')}</small></span>
+            <span><strong>{t('Native desktop control')}</strong><small>{t('Allow approved native apps on this Mac. Every selection, screenshot, and accessible press asks again; browsers use L1/L2 domain checks.')}</small></span>
             <input type="checkbox" role="switch" checked={policy.computer_control_enabled} disabled={savingPolicy} onChange={(event) => save({ computer_control_enabled: event.target.checked })} />
           </label>
           <div className="settings-row settings-mcp-hosts">

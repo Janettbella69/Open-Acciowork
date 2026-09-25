@@ -37,6 +37,16 @@ private struct NativeRequest: Decodable {
     let id: String
     let op: String
     let run_id: String?
+    let args: NativeArguments?
+}
+
+private struct NativeArguments: Decodable {
+    let capture_token: String?
+    let x: Int?
+    let y: Int?
+    let width: Int?
+    let height: Int?
+    let expected_label: String?
 }
 
 private final class ReadyState: @unchecked Sendable {
@@ -69,6 +79,8 @@ private final class DesktopApplication: NSObject, NSApplicationDelegate,
     private var selectedWindow: SCWindow?
     private var selectedFilter: SCContentFilter?
     private var selectedRunID: String?
+    private var lastCapture: NativeCapture?
+    private var activeCaptureRequestID: String?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         DispatchQueue.global(qos: .userInitiated).async {
@@ -289,6 +301,9 @@ private final class DesktopApplication: NSObject, NSApplicationDelegate,
             selectWindow(for: runID, requestID: request.id)
         } else if request.op == "snapshot", let runID = request.run_id {
             snapshotWindow(for: runID, requestID: request.id)
+        } else if request.op == "press", let runID = request.run_id,
+                  let args = request.args {
+            pressWindowControl(for: runID, requestID: request.id, args: args)
         } else {
             reply(to: request.id, error: "unsupported native operation")
         }
@@ -302,6 +317,8 @@ private final class DesktopApplication: NSObject, NSApplicationDelegate,
         selectedWindow = nil
         selectedFilter = nil
         selectedRunID = nil
+        lastCapture = nil
+        activeCaptureRequestID = nil
         pendingPickerRequestID = requestID
         pendingPickerRunID = runID
         let picker = SCContentSharingPicker.shared
@@ -373,6 +390,8 @@ private final class DesktopApplication: NSObject, NSApplicationDelegate,
             reply(to: requestID, error: "select a window for this Run first")
             return
         }
+        lastCapture = nil
+        activeCaptureRequestID = requestID
         Task {
             do {
                 let content = try await SCShareableContent.excludingDesktopWindows(
@@ -394,6 +413,12 @@ private final class DesktopApplication: NSObject, NSApplicationDelegate,
                 let scale = min(1.0, 2560.0 / Double(width), 1600.0 / Double(height))
                 configuration.width = max(1, Int(Double(width) * scale))
                 configuration.height = max(1, Int(Double(height) * scale))
+                let processID = applicationProcessID(current)
+                guard let beforeBounds = DesktopAccessibility.windowBounds(
+                    windowID: current.windowID, processID: processID
+                ) else {
+                    throw DesktopError.startupFailed
+                }
                 let image = try await SCScreenshotManager.captureImage(
                     contentFilter: selectedFilter, configuration: configuration
                 )
@@ -402,6 +427,29 @@ private final class DesktopApplication: NSObject, NSApplicationDelegate,
                 ), png.count <= 12_000_000 else {
                     throw DesktopError.startupFailed
                 }
+                guard let bounds = DesktopAccessibility.windowBounds(
+                    windowID: current.windowID,
+                    processID: processID
+                ), bounds == beforeBounds,
+                   activeCaptureRequestID == requestID,
+                   selectedRunID == runID,
+                   self.selectedWindow?.windowID == current.windowID,
+                   self.selectedWindow?.owningApplication?.processID == processID else {
+                    throw DesktopError.startupFailed
+                }
+                let capture = NativeCapture(
+                    runID: runID,
+                    token: UUID().uuidString.replacingOccurrences(of: "-", with: "").lowercased(),
+                    windowID: current.windowID,
+                    processID: processID,
+                    bundleID: bundleID,
+                    imageWidth: image.width,
+                    imageHeight: image.height,
+                    bounds: bounds,
+                    capturedAt: Date()
+                )
+                activeCaptureRequestID = nil
+                lastCapture = capture
                 reply(to: requestID, result: [
                     "window_id": Int(current.windowID),
                     "bundle_id": bundleID,
@@ -414,9 +462,49 @@ private final class DesktopApplication: NSObject, NSApplicationDelegate,
                         "height": current.frame.height,
                     ],
                     "image_base64": png.base64EncodedString(),
+                    "capture_token": capture.token,
                 ])
             } catch {
+                if activeCaptureRequestID == requestID {
+                    activeCaptureRequestID = nil
+                }
                 reply(to: requestID, error: "selected window capture is unavailable")
+            }
+        }
+    }
+
+    private func applicationProcessID(_ window: SCWindow) -> pid_t {
+        window.owningApplication?.processID ?? 0
+    }
+
+    private func pressWindowControl(
+        for runID: String, requestID: String, args: NativeArguments
+    ) {
+        guard selectedRunID == runID,
+              let capture = lastCapture,
+              capture.runID == runID,
+              let token = args.capture_token, token == capture.token,
+              let x = args.x, let y = args.y,
+              let width = args.width, let height = args.height,
+              let label = args.expected_label,
+              width == capture.imageWidth, height == capture.imageHeight,
+              x >= 0, y >= 0, x < width, y < height,
+              !label.isEmpty, label.count <= 120,
+              Date().timeIntervalSince(capture.capturedAt) <= 120 else {
+            reply(to: requestID, error: "a fresh matching window screenshot is required")
+            return
+        }
+        // An error after dispatch may mean the target acted. Invalidate this
+        // screenshot first so the same press cannot be replayed blindly.
+        lastCapture = nil
+        Task {
+            do {
+                let result = try await DesktopAccessibility.press(
+                    capture: capture, x: x, y: y, expectedLabel: label
+                )
+                reply(to: requestID, result: result)
+            } catch {
+                reply(to: requestID, error: "selected window is not ready for AXPress")
             }
         }
     }
@@ -495,10 +583,14 @@ private final class DesktopApplication: NSObject, NSApplicationDelegate,
     }
 }
 
-MainActor.assumeIsolated {
-    let application = NSApplication.shared
-    let delegate = DesktopApplication()
-    application.delegate = delegate
-    application.setActivationPolicy(.regular)
-    application.run()
+@main
+@MainActor
+private enum DesktopMain {
+    static func main() {
+        let application = NSApplication.shared
+        let delegate = DesktopApplication()
+        application.delegate = delegate
+        application.setActivationPolicy(.regular)
+        application.run()
+    }
 }

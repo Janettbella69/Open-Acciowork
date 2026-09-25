@@ -369,6 +369,7 @@ TOOL_SNAPSHOT_PAGE = "mcp__ophira_browser__snapshot_page"
 TOOL_ACT_ON_PAGE = "mcp__ophira_browser__act_on_page"
 TOOL_SELECT_DESKTOP_WINDOW = "mcp__ophira_desktop__select_window"
 TOOL_SNAPSHOT_DESKTOP = "mcp__ophira_desktop__snapshot_window"
+TOOL_PRESS_DESKTOP = "mcp__ophira_desktop__press_window_control"
 TOOL_GENERATE_MEDIA = "mcp__ophira_media__generate_media"
 TOOL_PRESENT_EVIDENCE_COMPARISON = (
     "mcp__ophira_presentation__present_evidence_comparison"
@@ -432,6 +433,7 @@ BROWSER_TOOL_NAMES = [
 DESKTOP_TOOL_NAMES = [
     TOOL_SELECT_DESKTOP_WINDOW,
     TOOL_SNAPSHOT_DESKTOP,
+    TOOL_PRESS_DESKTOP,
 ]
 
 MEDIA_TOOL_NAMES = [

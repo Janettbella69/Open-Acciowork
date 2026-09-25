@@ -24,6 +24,7 @@ from ophira_backend.constants import (
     PRESENTATION_MCP_SERVER_NAME,
     TOOL_GET_PROJECT_CONTEXT,
     TOOL_PRESENT_EVIDENCE_COMPARISON,
+    TOOL_PRESS_DESKTOP,
     TOOL_SELECT_DESKTOP_WINDOW,
     TOOL_SNAPSHOT_DESKTOP,
     EventType,
@@ -171,13 +172,16 @@ async def test_desktop_tools_require_native_host_org_policy_and_each_invocation(
     assert DESKTOP_MCP_SERVER_NAME in options.mcp_servers
     assert TOOL_SELECT_DESKTOP_WINDOW not in options.allowed_tools
     assert TOOL_SNAPSHOT_DESKTOP not in options.allowed_tools
+    assert TOOL_PRESS_DESKTOP not in options.allowed_tools
     subagent_callback = await options.can_use_tool(
         TOOL_SNAPSHOT_DESKTOP, {"selection_id": "window_" + "a" * 32},
         SimpleNamespace(agent_id="researcher", tool_use_id="desktop_1"),
     )
     assert subagent_callback.behavior == "deny"
     hook = runtime._hook(run.id, ledger.workspace_for_project(run.project_id))
-    for tool_name in (TOOL_SELECT_DESKTOP_WINDOW, TOOL_SNAPSHOT_DESKTOP):
+    for tool_name in (
+        TOOL_SELECT_DESKTOP_WINDOW, TOOL_SNAPSHOT_DESKTOP, TOOL_PRESS_DESKTOP,
+    ):
         decision = await hook(
             {"hook_event_name": "PreToolUse", "tool_name": tool_name, "tool_input": {}},
             None, None,

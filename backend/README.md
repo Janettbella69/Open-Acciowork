@@ -84,7 +84,9 @@ The archived 2026-09-03 L1 and L2 reports both passed and live at
 `evals/reports/browser-l1-20260903T093547Z.json` and
 `evals/reports/browser-l2-20260903T093647Z.json`. They prove the real-browser smoke
 path and durable capture linkage; redirect/Service-Worker attack cases remain covered
-by deterministic tests, and L3 OS-level computer use is not implemented.
+by deterministic tests. L3 has a macOS native host with single-window capture
+and a bounded Accessibility press path; real system permissions and native
+input remain to be exercised on a controlled app.
 
 Register and verify the local Chrome bridge through the connector API (Chrome
 must already be listening on the chosen loopback port):
