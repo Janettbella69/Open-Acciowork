@@ -34,6 +34,14 @@
 .connectors-registry > div:first-child > span { color: var(--ophira-green); font-size: var(--ophira-type-small); font-weight: 750; letter-spacing: 0.06em; text-transform: uppercase; }
 .connectors-registry h2 { margin: 7px 0 0; font-size: 26px; font-weight: 680; letter-spacing: -0.03em; }
 .connectors-error { margin: 20px 0 0; border: 1px solid #edd2cd; border-radius: 12px; padding: 14px 16px; color: #963a2e; background: #fff4f2; }
+.connector-credential-management { display: grid; gap: 10px; margin-top: 22px; border: 1px solid #dce4de; border-radius: 16px; padding: 20px; background: #f7faf8; }
+.connector-credential-management h3 { margin: 0; font-size: 18px; }
+.connector-credential-management > p, .connector-credential-row p { margin: 0; color: #606d65; line-height: 1.5; }
+.connector-credential-row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 14px; border-top: 1px solid #e0e8e2; padding-top: 10px; }
+.connector-credential-row > span { flex: 1 1 160px; font-weight: 650; }
+.connector-credential-row p { flex: 1 1 100%; }
+.connector-credential-row button { min-height: 40px; border: 1px solid #cfd9d3; border-radius: 999px; padding: 0 14px; color: #255342; background: #fff; font-weight: 700; }
+.connector-credential-row button:disabled { opacity: .5; }
 .connectors-list { display: grid; margin-top: 22px; gap: 12px; }
 .connectors-list > article { display: grid; min-height: 150px; grid-template-columns: 58px minmax(0, 1fr) auto; align-items: center; border: 1px solid #e0e1e2; border-radius: 18px; padding: 22px 24px; gap: 20px; background: #fff; }
 .connectors-list > article[data-enabled='false'] { background: #fafafa; }

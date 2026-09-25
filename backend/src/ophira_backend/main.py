@@ -96,7 +96,12 @@ from .commercial_adapters import HttpsJsonMessageAdapter
 from .companion import CompanionStore
 from .companion_routes import register_companion_routes, validate_companion_request
 from .config import Settings, get_settings
-from .connectors import ConnectorNotFoundError, ConnectorRegistry, ConnectorUnavailableError
+from .connectors import (
+    ConnectorCredentialUnavailableError,
+    ConnectorNotFoundError,
+    ConnectorRegistry,
+    ConnectorUnavailableError,
+)
 from .constants import (
     STREAM_END_EVENT,
     USER_SCOPE_ID,
@@ -183,6 +188,7 @@ from .models import (
     Connector,
     ConnectorUpsert,
     ConstraintAppend,
+    CredentialActionRequest,
     EventActor,
     Evidence,
     EvidenceStatusChange,
@@ -2216,6 +2222,37 @@ def _create_app(
             raise HTTPException(409, str(exc)) from exc
 
     @application.post(
+        "/api/projects/{project_id}/mcp/{connector_id}/credential/export",
+    )
+    async def export_user_mcp_credential(
+        request: Request, project_id: str, connector_id: str,
+        payload: CredentialActionRequest,
+    ) -> Response:
+        require_project_authorization(
+            project_id, _request_principal(request), ProjectPermission.PROJECT_EXPORT,
+        )
+        if payload.confirmation != "export":
+            raise HTTPException(400, "Confirm MCP credential export")
+        try:
+            exported = user_mcp.export_credential(project_id, connector_id)
+        except KeyError as exc:
+            raise HTTPException(404, "MCP connector not found") from exc
+        except UserMcpConflictError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(400, "Invalid MCP connector ID") from exc
+        return Response(
+            json.dumps(exported, ensure_ascii=False), media_type="application/json",
+            headers={
+                "Cache-Control": "no-store",
+                "Content-Disposition": (
+                    f'attachment; filename="ophira-mcp-{project_id}-{connector_id}.json"'
+                ),
+                "X-Content-Type-Options": "nosniff",
+            },
+        )
+
+    @application.post(
         "/api/projects/{project_id}/mcp/{connector_id}/revoke",
         response_model=UserMcpConnector,
     )
@@ -2229,6 +2266,41 @@ def _create_app(
             return user_mcp.revoke(project_id, connector_id)
         except KeyError as exc:
             raise HTTPException(404, "MCP connector not found") from exc
+
+    @application.post("/api/connectors/{connector_id}/credential/export")
+    async def export_connector_credential(
+        connector_id: str, payload: CredentialActionRequest, request: Request,
+    ) -> Response:
+        principal = _request_principal(request)
+        if principal is not None and principal.role not in {
+            PrincipalRole.OWNER, PrincipalRole.ADMIN,
+        }:
+            raise HTTPException(403, "Tenant administrator required for credentials")
+        if payload.confirmation != "export":
+            raise HTTPException(400, "Confirm connector credential export")
+        if principal is not None:
+            for service in (gmail, outlook):
+                owned, owner = service.token_owner(connector_id)
+                if owned and owner != principal.tenant_id:
+                    raise HTTPException(403, "Mailbox account is outside this tenant")
+        try:
+            exported = connectors.export_credential(connector_id)
+        except ConnectorNotFoundError as exc:
+            raise HTTPException(404, "Connector not found") from exc
+        except ConnectorCredentialUnavailableError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(400, "Invalid connector ID") from exc
+        return Response(
+            json.dumps(exported, ensure_ascii=False), media_type="application/json",
+            headers={
+                "Cache-Control": "no-store",
+                "Content-Disposition": (
+                    f'attachment; filename="ophira-connector-{connector_id}.json"'
+                ),
+                "X-Content-Type-Options": "nosniff",
+            },
+        )
 
     @application.post("/api/connectors/{connector_id}/health-check", response_model=Connector)
     async def connector_health_check(connector_id: str) -> Connector:

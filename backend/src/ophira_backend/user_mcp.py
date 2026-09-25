@@ -1093,6 +1093,29 @@ class UserMcpRegistry:
             self._clear_credentials(project_id, connector_id)
             return updated
 
+    def export_credential(self, project_id: str, connector_id: str) -> dict[str, object]:
+        """Export this project's vault entries without revealing them in list APIs."""
+        with self._transaction(project_id):
+            current = self.get(project_id, connector_id)
+            keys = {
+                "bearer_token": self._vault_id(project_id, connector_id),
+                **{
+                    f"oauth_{kind}": self._oauth_vault_id(project_id, connector_id, kind)
+                    for kind in ("preset", "token", "client", "metadata")
+                },
+            }
+            credentials = {
+                name: value for name, key in keys.items()
+                if (value := self.vault.get(key)) is not None
+            }
+            if not credentials:
+                raise UserMcpConflictError("Remote MCP credential is unavailable")
+            return {
+                "schema_version": 1,
+                "connector": current.model_dump(mode="json", exclude={"review_error"}),
+                "credentials": credentials,
+            }
+
     def active(self, project_id: str) -> list[UserMcpConnector]:
         result = []
         for item in self.list(project_id):

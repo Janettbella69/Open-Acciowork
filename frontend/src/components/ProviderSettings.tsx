@@ -10,6 +10,7 @@ import {
 } from '../api/client'
 import type { ProviderPreflightResult, ProviderProfile } from '../api/types'
 import { useLanguage, useT } from '../i18n'
+import { saveCredentialDownload } from '../utils/credentialDownload'
 
 type EditorState = {
   id: string
@@ -155,15 +156,7 @@ export default function ProviderSettings() {
     try {
       if (action === 'export') {
         const credential = await downloadProviderCredential(providerId)
-        const url = URL.createObjectURL(credential)
-        const link = document.createElement('a')
-        link.href = url
-        link.download = `ophira-provider-${providerId}.json`
-        link.hidden = true
-        document.body.appendChild(link)
-        try { link.click() } finally { link.remove() }
-        const revokeObjectUrl = URL.revokeObjectURL.bind(URL)
-        window.setTimeout(() => revokeObjectUrl(url), 1000)
+        saveCredentialDownload(credential, `ophira-provider-${providerId}.json`)
         setNotice(t('Credential file sent to your browser. Check downloads and store it securely.'))
       } else {
         const updated = await revokeProviderCredential(providerId)

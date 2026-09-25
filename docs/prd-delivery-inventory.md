@@ -130,6 +130,8 @@ Google Chrome；用户已登录浏览器、真实卖家后台和 Provider 端到
 
 2026-09-24 FR-38 钉钉/企微增量：钉钉 Stream 与企微智能机器人官方 SDK 的本地收发链路、管理员精确绑定、重放与投递失败留痕已实现；企微离线结果等待认证连接，发送结果不确定时终止自动重试。后端全量排除沙箱禁用的 Unix socket 专项 `2240 passed / 13 skipped`；socket 专项在允许绑定环境中 `9 passed`，Ruff 与依赖检查通过。未使用真实租户凭据，真实收发、权限、轮换与实际送达尚未验收；微信个人群入口仍待产品选择。
 
+2026-09-25 §3.9 凭据主权增量：租户管理员可经二次确认导出运行时连接器的本地密钥仓密钥和已授权 OAuth 令牌；项目 owner/admin 可导出该项目 MCP 的 Bearer/OAuth 仓内凭据。现有撤销路径删除本地凭据，跨租户邮箱和项目成员原始导出受拒；连接器换地址不沿用旧密钥，密钥写入失败保持禁用。后端全量在允许本地 Unix socket 的环境中 `2408 passed / 13 skipped`，前端全量 `565 passed / 59 files`，Ruff、ESLint、TypeScript/Vite 构建与差异检查通过。未进行浏览器目视或真实外部服务验收；主机环境密钥、浏览器登录资料、外部令牌撤销与历史备份清理仍待处理，见 `docs/connector-mcp-credentials.md`。
+
 ## FR 表之外仍属于全量范围的要求
 
 | PRD 落点 | 状态及剩余工作 |
@@ -141,7 +143,7 @@ Google Chrome；用户已登录浏览器、真实卖家后台和 Provider 端到
 | §4.16 任务经验 | delivered：专属工具与版本/来源账本、创建时配置指纹、低信任检索注入、容量/事务恢复与人工停用UI；deferred：真实Provider自主调用及长期判断质量 |
 | §4.12 事件 | delivered：有真实Run归属的evidence.added/decision.recorded、artifact.registered/updated、memory.proposed；实时产物刷新、固定版本下载、记忆审核入口、持久幂等补发与完整SSE尾部消费；deferred：无Run项目变更和 schedule/preflight 细分事件 |
 | §3.9 / §4.10 | delivered：自动调度跨进程抢占与事件汇总恢复；Bash 工作区快照与人审恢复、跨进程目录切换修复；deferred：其余事件故障矩阵、生产恢复/容量与性能、CPU/内存/进程/输出限制 |
-| §3.9 数据主权 | delivered：操作者CLI完整数据目录冷备份与新目录恢复，覆盖项目账本/提案/Registry/工作区检查点一致性；项目工作文件恢复UI；项目owner/admin审核清单后导出文件、应用可见会话、来源与相关账本ZIP。本地交付：项目及独立会话删除审核/API/UI、跨域擦除与原操作恢复，见project-deletion-design.md与conversation-deletion.md；Provider 密钥可由租户管理员独立导出/撤销，见provider-credentials.md；deferred：连接器/MCP/浏览器登录等凭据的统一独立授权导出与删除（记忆已交付）、全应用恢复UI、历史备份删除登记对账与生产灾备；项目ZIP不含运行时会话、凭据和浏览器登录资料 |
+| §3.9 数据主权 | delivered：操作者CLI完整数据目录冷备份与新目录恢复，覆盖项目账本/提案/Registry/工作区检查点一致性；项目工作文件恢复UI；项目owner/admin审核清单后导出文件、应用可见会话、来源与相关账本ZIP。本地交付：项目及独立会话删除审核/API/UI、跨域擦除与原操作恢复，见project-deletion-design.md与conversation-deletion.md；Provider 密钥可由租户管理员独立导出/撤销，见provider-credentials.md；连接器和项目 MCP 的本地密钥仓凭据可按权限独立导出、经现有撤销路径删除，见connector-mcp-credentials.md；deferred：浏览器登录资料、主机环境变量与外部服务凭据的统一导出/删除、全应用恢复UI、历史备份删除登记对账与生产灾备；项目ZIP不含运行时会话、凭据和浏览器登录资料 |
 | §3.9 性能 | delivered：本地ASGI单/4并发各100样本，创建/首事件持久化/离线task取消P95基线；deferred：真实SDK进程、网络/SSE运输、多worker与生产负载验收 |
 | §3.9 / §3.10 | delivered：项目范围按Provider/model/Skill/tool/错误的有界指标汇总；deferred：业务成功指标、区域与数据流披露 |
 | §3.11 / §6.6 | deferred：当前 L2 基线、人亲自标注的 gold、judge 校准与 TPR/TNR 门槛；不能由 AI 伪造标注 |

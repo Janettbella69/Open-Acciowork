@@ -148,6 +148,10 @@ class ConnectorNotFoundError(KeyError):
     pass
 
 
+class ConnectorCredentialUnavailableError(RuntimeError):
+    pass
+
+
 class ConnectorUnavailableError(RuntimeError):
     """A configured connector cannot currently be used by a runtime tool."""
 
@@ -380,6 +384,8 @@ class ConnectorRegistry:
         secret_env_reason = check_connector_secret_env(secret_env)
         if secret_env_reason:
             raise ValueError(secret_env_reason)
+        if secret is not None and self.vault is None:
+            raise ValueError("connector vault is not configured")
         if connector_id == "chrome_cdp" or type == "chrome_cdp":
             if connector_id != "chrome_cdp" or type != "chrome_cdp":
                 raise ValueError("Chrome CDP connector 必须使用 id/type chrome_cdp")
@@ -436,7 +442,31 @@ class ConnectorRegistry:
                 last_checked_at=None,
                 created_at=existing.created_at if existing else utc_now(),
             )
-            self._write(connector)
+            binding_changed = bool(existing and (
+                existing.type != type or existing.endpoint != endpoint
+                or existing.secret_env != secret_env
+            ))
+            if (
+                binding_changed and secret is None and existing is not None
+                and secret_env is not None and secret_env == existing.secret_env
+            ):
+                raise ValueError(
+                    "Changing connector authority requires a new credential "
+                    "or environment reference"
+                )
+            # Stop the old authority before touching its vault entries. A failed
+            # write or a crash must never pair an old key with a new endpoint.
+            if existing is not None:
+                self._write(existing.model_copy(update={
+                    "revision": connector.revision, "enabled": False,
+                    "health": "unknown", "last_checked_at": None,
+                }))
+                connector = connector.model_copy(update={"revision": connector.revision + 1})
+            if existing is None and secret is not None and self.vault is not None:
+                # A previous incomplete create must not resurrect an orphaned key.
+                self.vault.delete(connector_id)
+            if binding_changed and self.vault is not None:
+                self.vault.delete(connector_id)
             if self.vault is not None and (existing is not None or secret is not None) and (
                 type == TIKTOK_SHOP_TYPE
                 or (existing is not None and existing.type == TIKTOK_SHOP_TYPE)
@@ -458,9 +488,45 @@ class ConnectorRegistry:
             ):
                 for key in outlook_oauth_vault_keys(connector_id):
                     self.vault.delete(key)
+            if existing is None and secret is not None:
+                self._write(connector.model_copy(update={"enabled": False}))
+                connector = connector.model_copy(update={"revision": connector.revision + 1})
             if secret and self.vault is not None:
                 self.vault.set(connector.id, secret)
+            self._write(connector)
         return connector
+
+    def export_credential(self, connector_id: str) -> dict[str, object]:
+        """Return only vault-managed credentials under the registry lock."""
+        with self._transaction():
+            connector = self.get(connector_id)
+            values: dict[str, str] = {}
+            if self.vault is not None:
+                secret = self.vault.get(connector_id)
+                if secret is not None:
+                    values["secret"] = secret
+                oauth_keys = {
+                    TIKTOK_SHOP_TYPE: tiktok_oauth_vault_keys,
+                    SHOPIFY_TYPE: shopify_oauth_vault_keys,
+                    "gmail": gmail_oauth_vault_keys,
+                    "outlook": outlook_oauth_vault_keys,
+                }.get(connector.type)
+                if oauth_keys is not None:
+                    # Slot one is the active token. Slot zero is an unfinished
+                    # authorization and is deliberately excluded from exports.
+                    token = self.vault.get(oauth_keys(connector_id)[1])
+                    if token is not None:
+                        values["oauth_token"] = token
+            if not values:
+                raise ConnectorCredentialUnavailableError(
+                    "Connector vault credential is unavailable"
+                )
+            return {
+                "schema_version": 1,
+                "connector": connector.model_dump(mode="json"),
+                "credentials": values,
+                "host_environment_reference": connector.secret_env,
+            }
 
     def store_secret(self, connector_id: str, secret: str) -> Connector:
         with self._transaction():
@@ -476,10 +542,13 @@ class ConnectorRegistry:
             if self.vault is None:
                 raise ValueError("connector vault is not configured")
             updated = connector.model_copy(update={
-                "revision": connector.revision + 1, "health": "unknown", "last_checked_at": None,
+                "revision": connector.revision + 2, "health": "unknown", "last_checked_at": None,
             })
             # Invalidate old probes before the new credential can become visible.
-            self._write(updated)
+            self._write(connector.model_copy(update={
+                "revision": connector.revision + 1, "enabled": False,
+                "health": "unknown", "last_checked_at": None,
+            }))
             if connector.type == TIKTOK_SHOP_TYPE:
                 for key in tiktok_oauth_vault_keys(connector_id):
                     self.vault.delete(key)
@@ -493,6 +562,7 @@ class ConnectorRegistry:
                 for key in outlook_oauth_vault_keys(connector_id):
                     self.vault.delete(key)
             self.vault.set(connector.id, secret)
+            self._write(updated)
             return updated
 
     def revoke(self, connector_id: str) -> Connector:

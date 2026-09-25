@@ -3,6 +3,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Connector } from '../api/types'
 import ConnectorsPage from './ConnectorsPage'
 
+vi.mock('../utils/credentialDownload', () => ({ saveCredentialDownload: vi.fn() }))
+
 vi.mock('../api/client', () => ({
   listConnectors: vi.fn(),
   listMarketplaceGuides: vi.fn(),
@@ -11,6 +13,7 @@ vi.mock('../api/client', () => ({
   getShopifyOAuthStatus: vi.fn(),
   startShopifyOAuth: vi.fn(),
   revokeConnector: vi.fn(),
+  downloadConnectorCredential: vi.fn(),
   listProjects: vi.fn(),
   listUserMcpCatalog: vi.fn(),
   listUserMcp: vi.fn(),
@@ -19,10 +22,12 @@ vi.mock('../api/client', () => ({
   reviewUserMcp: vi.fn(),
   setUserMcpToolPolicy: vi.fn(),
   revokeUserMcp: vi.fn(),
+  downloadUserMcpCredential: vi.fn(),
   errorMessage: (error: unknown) => error instanceof Error ? error.message : 'unknown error',
 }))
 
-import { checkConnectorHealth, getShopifyOAuthStatus, listConnectors, listMarketplaceGuides, listProjects, revokeConnector } from '../api/client'
+import { checkConnectorHealth, downloadConnectorCredential, getShopifyOAuthStatus, listConnectors, listMarketplaceGuides, listProjects, revokeConnector } from '../api/client'
+import { saveCredentialDownload } from '../utils/credentialDownload'
 
 const connector: Connector = {
   id: 'connector_search',
@@ -58,10 +63,22 @@ beforeEach(() => {
 })
 
 describe('ConnectorsPage', () => {
+  it('requires a second action before downloading a raw connector credential', async () => {
+    vi.mocked(listConnectors).mockResolvedValue([connector])
+    vi.mocked(downloadConnectorCredential).mockResolvedValue(new Blob(['private']))
+    render(<ConnectorsPage />)
+    await screen.findByText('Connector credential downloads')
+    fireEvent.click(screen.getByRole('button', { name: 'Export credential…' }))
+    expect(downloadConnectorCredential).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: 'Download credential file' }))
+    await waitFor(() => expect(downloadConnectorCredential).toHaveBeenCalledWith('connector_search'))
+    expect(saveCredentialDownload).toHaveBeenCalledWith(expect.any(Blob), 'ophira-connector-connector_search.json')
+  })
+
   it('lists credential-safe connector metadata and performs a health check', async () => {
     render(<ConnectorsPage />)
 
-    const card = (await screen.findByText('Public web search')).closest('article')!
+    const card = (await screen.findByRole('heading', { name: 'Public web search' })).closest('article')!
     expect(screen.getByText('OPHIRA_SEARCH_API_KEY')).toBeInTheDocument()
     expect(screen.getByText('Not verified')).toBeInTheDocument()
     expect(screen.getByText('Configure store access')).toBeInTheDocument()
@@ -76,7 +93,7 @@ describe('ConnectorsPage', () => {
     vi.mocked(listConnectors).mockResolvedValue([connector])
     render(<ConnectorsPage />)
 
-    await screen.findByText('Public web search')
+    await screen.findByRole('heading', { name: 'Public web search' })
     fireEvent.click(screen.getByRole('button', { name: 'Revoke' }))
 
     await waitFor(() => expect(revokeConnector).toHaveBeenCalledWith('connector_search'))

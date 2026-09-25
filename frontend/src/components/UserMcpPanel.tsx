@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import {
   addCatalogMcp,
+  downloadUserMcpCredential,
   errorMessage,
   getUserMcpOAuthSetup,
   listProjects,
@@ -15,6 +16,7 @@ import {
 } from '../api/client'
 import type { OpportunityProject, UserMcpCatalogItem, UserMcpConnector, UserMcpOAuthSetup, UserMcpTool } from '../api/types'
 import { useT } from '../i18n'
+import { saveCredentialDownload } from '../utils/credentialDownload'
 
 export default function UserMcpPanel() {
   const t = useT()
@@ -31,6 +33,8 @@ export default function UserMcpPanel() {
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState('')
   const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
+  const [confirmingExport, setConfirmingExport] = useState('')
   const [name, setName] = useState(pluginName)
   const [id, setId] = useState(pluginName ? pluginId : '')
   const [url, setUrl] = useState(pluginUrl)
@@ -150,6 +154,25 @@ export default function UserMcpPanel() {
     }
   }
 
+  const exportCredential = async (serverId: string) => {
+    if (!projectId || busyRef.current) return
+    busyRef.current = true
+    setBusy(`${serverId}:export`)
+    setError('')
+    setNotice('')
+    try {
+      const credential = await downloadUserMcpCredential(projectId, serverId)
+      saveCredentialDownload(credential, `ophira-mcp-${projectId}-${serverId}.json`)
+      setNotice(t('Credential file sent to your browser. Check downloads and store it securely.'))
+      setConfirmingExport('')
+    } catch (cause) {
+      setError(errorMessage(cause))
+    } finally {
+      busyRef.current = false
+      setBusy('')
+    }
+  }
+
   return (
     <section className="user-mcp" aria-labelledby="user-mcp-heading">
       <header>
@@ -160,13 +183,14 @@ export default function UserMcpPanel() {
         </div>
         <label>
           <span>{t('Project')}</span>
-          <select aria-label={t('MCP project')} value={projectId} onChange={(event) => { setProjectId(event.target.value); setOauthLink(null) }} disabled={Boolean(busy)}>
+          <select aria-label={t('MCP project')} value={projectId} onChange={(event) => { setProjectId(event.target.value); setOauthLink(null); setConfirmingExport(''); setNotice('') }} disabled={Boolean(busy)}>
             {projects.length === 0 && <option value="">{t('No projects yet')}</option>}
             {projects.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
           </select>
         </label>
       </header>
       {error && <p className="connectors-error" role="alert">{error}</p>}
+      {notice && <p role="status">{notice}</p>}
       {loading && <p role="status">{t('Loading MCP connectors…')}</p>}
       {!loading && !projectId && <p>{t('Create a project to connect external tools.')}</p>}
       {projectId && <>
@@ -237,10 +261,16 @@ export default function UserMcpPanel() {
               </label>)}
             </div>}
             <div className="user-mcp-actions">
+              {(server.credential_configured || server.oauth_client_configured) && <button type="button" disabled={Boolean(busy)} onClick={() => setConfirmingExport(server.id)}>{t('Export credential…')}</button>}
               {server.auth_mode === 'oauth' && <button type="button" disabled={Boolean(busy) || !oauthSetup?.redirect_uri} onClick={() => void beginOAuth(server.id)}>{t('Connect with OAuth')}</button>}
               <button type="button" disabled={Boolean(busy) || (server.auth_mode === 'oauth' && !server.credential_configured)} onClick={() => void act(`${server.id}:review`, () => reviewUserMcp(projectId, server.id))}>{t('Review tools')}</button>
               <button type="button" disabled={Boolean(busy)} onClick={() => void act(`${server.id}:revoke`, () => revokeUserMcp(projectId, server.id))}>{t('Revoke')}</button>
             </div>
+            {confirmingExport === server.id && <p>
+              {t('Download an unencrypted copy of this MCP credential, including OAuth tokens when present. Keep the file private; deleting OPHIRA data will not erase browser downloads.')}{' '}
+              <button type="button" disabled={Boolean(busy)} onClick={() => void exportCredential(server.id)}>{t('Download credential file')}</button>{' '}
+              <button type="button" disabled={Boolean(busy)} onClick={() => setConfirmingExport('')}>{t('Cancel')}</button>
+            </p>}
           </article>)}
         </div>
       </>}

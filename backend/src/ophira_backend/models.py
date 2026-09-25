@@ -765,8 +765,12 @@ class ProviderProfileUpsert(APIModel):
     budget_scale: float = Field(default=1.0, gt=0, le=10_000)
 
 
-class ProviderCredentialActionRequest(APIModel):
+class CredentialActionRequest(APIModel):
     confirmation: Literal["export", "revoke"]
+
+
+class ProviderCredentialActionRequest(CredentialActionRequest):
+    pass
 
 
 class ProviderPreflightResult(APIModel):

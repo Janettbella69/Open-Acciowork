@@ -29,6 +29,7 @@ requires a new key when its endpoint or auth variable changes. During
 a key replacement the old profile is disabled before the vault is changed; a
 write failure leaves it disabled until the administrator successfully saves the
 new key. This keeps an old key from being used at a newly configured endpoint.
-This workflow does not export or revoke connector, remote MCP, browser login, or
-external service credentials. Those remain separate data-sovereignty work in
-the [PRD delivery inventory](prd-delivery-inventory.md).
+Runtime connector and project MCP credentials have their own export and revoke
+flows in [connector-mcp-credentials.md](connector-mcp-credentials.md). Browser
+login profiles and credentials outside the application vault remain separate
+data-sovereignty work in the [PRD delivery inventory](prd-delivery-inventory.md).

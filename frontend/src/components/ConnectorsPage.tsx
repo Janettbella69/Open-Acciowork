@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
-import { checkConnectorHealth, errorMessage, listConnectors, listMarketplaceGuides, revokeConnector, upsertConnector } from '../api/client'
+import { checkConnectorHealth, downloadConnectorCredential, errorMessage, listConnectors, listMarketplaceGuides, revokeConnector, upsertConnector } from '../api/client'
 import type { Connector } from '../api/types'
 import type { MarketplaceGuide } from '../api/marketplaces'
 import { useT } from '../i18n'
+import { saveCredentialDownload } from '../utils/credentialDownload'
 import MarketplaceConnector from './MarketplaceConnector'
 import GmailConnector from './GmailConnector'
 import OutlookConnector from './OutlookConnector'
@@ -27,6 +28,8 @@ export default function ConnectorsPage() {
   const [saving, setSaving] = useState('')
   const [checking, setChecking] = useState('')
   const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
+  const [confirmingExport, setConfirmingExport] = useState('')
   const actionInFlightRef = useRef(new Set<string>())
   const available = connectors.filter((item) => item.enabled).length
   const configured = connectors.filter((item) => item.enabled && item.health === 'ok').length
@@ -89,6 +92,25 @@ export default function ConnectorsPage() {
     setConnectors((current) => current.map((item) => item.id === updated.id ? updated : item))
   }
 
+  const exportCredential = async (connector: Connector) => {
+    if (actionInFlightRef.current.has(connector.id)) return
+    actionInFlightRef.current.add(connector.id)
+    setSaving(connector.id)
+    setError('')
+    setNotice('')
+    try {
+      const credential = await downloadConnectorCredential(connector.id)
+      saveCredentialDownload(credential, `ophira-connector-${connector.id}.json`)
+      setNotice(t('Credential file sent to your browser. Check downloads and store it securely.'))
+      setConfirmingExport('')
+    } catch (cause) {
+      setError(errorMessage(cause))
+    } finally {
+      actionInFlightRef.current.delete(connector.id)
+      setSaving('')
+    }
+  }
+
   const revoke = async (connector: Connector) => {
     if (!connector.enabled || actionInFlightRef.current.has(connector.id)) return
     actionInFlightRef.current.add(connector.id)
@@ -129,6 +151,20 @@ export default function ConnectorsPage() {
         <section className="connectors-registry" aria-labelledby="connectors-registry-title">
           <div><span>{t('Runtime integrations')}</span><h2 id="connectors-registry-title">{t('Connector registry')}</h2></div>
           {error && <p className="connectors-error" role="alert">{error}</p>}
+          {notice && <p role="status">{notice}</p>}
+          {connectors.length > 0 && <div className="connector-credential-management">
+            <h3>{t('Connector credential downloads')}</h3>
+            <p>{t('A downloaded file contains unencrypted vault credentials, including active OAuth tokens when present. Host environment keys are managed by the operator and are not included.')}</p>
+            {connectors.map((connector) => <div key={connector.id} className="connector-credential-row">
+              <span>{connector.display_name}</span>{' '}
+              <button type="button" disabled={Boolean(saving)} onClick={() => setConfirmingExport(connector.id)}>{t('Export credential…')}</button>
+              {confirmingExport === connector.id && <p>
+                {t('Keep this file private; deleting OPHIRA data will not erase browser downloads.')}{' '}
+                <button type="button" disabled={Boolean(saving)} onClick={() => void exportCredential(connector)}>{t('Download credential file')}</button>{' '}
+                <button type="button" disabled={Boolean(saving)} onClick={() => setConfirmingExport('')}>{t('Cancel')}</button>
+              </p>}
+            </div>)}
+          </div>}
           {loading ? (
             <div className="connectors-empty"><strong>{t('Loading connectors…')}</strong></div>
           ) : connectors.length ? (

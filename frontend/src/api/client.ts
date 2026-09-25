@@ -496,18 +496,22 @@ export function saveProvider(providerId: string, input: ProviderInput): Promise<
   })
 }
 
-export async function downloadProviderCredential(providerId: string): Promise<Blob> {
-  const response = await fetch(apiUrl(`/api/providers/${encodeURIComponent(providerId)}/credential/export`), {
+async function downloadCredential(path: string): Promise<Blob> {
+  const response = await fetch(apiUrl(path), {
     method: 'POST', body: JSON.stringify({ confirmation: 'export' }), cache: 'no-store',
     headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
   })
   if (!response.ok) throw await responseError(response)
   if (response.headers.get('Content-Type')?.split(';')[0].trim().toLowerCase() !== 'application/json') {
-    throw new Error('The Provider credential export response was not JSON.')
+    throw new Error('The credential export response was not JSON.')
   }
   const credential = await response.blob()
-  if (!credential.size) throw new Error('The Provider credential export was empty.')
+  if (!credential.size) throw new Error('The credential export was empty.')
   return credential
+}
+
+export function downloadProviderCredential(providerId: string): Promise<Blob> {
+  return downloadCredential(`/api/providers/${encodeURIComponent(providerId)}/credential/export`)
 }
 
 export function revokeProviderCredential(providerId: string): Promise<ProviderProfile> {
@@ -1062,6 +1066,10 @@ export function revokeConnector(id: string): Promise<Connector> {
   return request<Connector>(`/api/connectors/${encodeURIComponent(id)}/revoke`, { method: 'POST' })
 }
 
+export function downloadConnectorCredential(id: string): Promise<Blob> {
+  return downloadCredential(`/api/connectors/${encodeURIComponent(id)}/credential/export`)
+}
+
 function projectMcpPath(projectId: string): string {
   return `/api/projects/${encodeURIComponent(projectId)}/mcp`
 }
@@ -1122,6 +1130,10 @@ export function revokeUserMcp(projectId: string, id: string): Promise<UserMcpCon
   return request<UserMcpConnector>(
     `${projectMcpPath(projectId)}/${encodeURIComponent(id)}/revoke`, { method: 'POST' },
   )
+}
+
+export function downloadUserMcpCredential(projectId: string, id: string): Promise<Blob> {
+  return downloadCredential(`${projectMcpPath(projectId)}/${encodeURIComponent(id)}/credential/export`)
 }
 
 export function listMarketplaceGuides(): Promise<MarketplaceGuide[]> {

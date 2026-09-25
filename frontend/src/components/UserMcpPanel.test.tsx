@@ -3,6 +3,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { OpportunityProject, UserMcpConnector } from '../api/types'
 import UserMcpPanel from './UserMcpPanel'
 
+vi.mock('../utils/credentialDownload', () => ({ saveCredentialDownload: vi.fn() }))
+
 vi.mock('../api/client', () => ({
   listProjects: vi.fn(),
   listUserMcpCatalog: vi.fn(),
@@ -14,13 +16,15 @@ vi.mock('../api/client', () => ({
   setUserMcpToolPolicy: vi.fn(),
   startUserMcpOAuth: vi.fn(),
   revokeUserMcp: vi.fn(),
+  downloadUserMcpCredential: vi.fn(),
   errorMessage: (error: unknown) => error instanceof Error ? error.message : 'unknown error',
 }))
 
 import {
-  addCatalogMcp, getUserMcpOAuthSetup, listProjects, listUserMcp, listUserMcpCatalog, saveUserMcp,
+  addCatalogMcp, downloadUserMcpCredential, getUserMcpOAuthSetup, listProjects, listUserMcp, listUserMcpCatalog, saveUserMcp,
   setUserMcpToolPolicy, startUserMcpOAuth,
 } from '../api/client'
+import { saveCredentialDownload } from '../utils/credentialDownload'
 
 const reviewed: UserMcpConnector = {
   id: 'claude_code_docs', project_id: 'project_one', name: 'Claude Code documentation',
@@ -53,6 +57,17 @@ beforeEach(() => {
 })
 
 describe('UserMcpPanel', () => {
+  it('confirms a project MCP credential export before downloading', async () => {
+    vi.mocked(listUserMcp).mockResolvedValue([{ ...reviewed, credential_configured: true }])
+    vi.mocked(downloadUserMcpCredential).mockResolvedValue(new Blob(['private']))
+    render(<UserMcpPanel />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Export credential…' }))
+    expect(downloadUserMcpCredential).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: 'Download credential file' }))
+    await waitFor(() => expect(downloadUserMcpCredential).toHaveBeenCalledWith('project_one', reviewed.id))
+    expect(saveCredentialDownload).toHaveBeenCalledWith(expect.any(Blob), `ophira-mcp-project_one-${reviewed.id}.json`)
+  })
+
   it('adds a catalog server through review and sets a single tool policy', async () => {
     render(<UserMcpPanel />)
     fireEvent.click(await screen.findByRole('button', { name: 'Add and review' }))
