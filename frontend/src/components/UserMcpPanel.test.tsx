@@ -11,19 +11,21 @@ vi.mock('../api/client', () => ({
   saveUserMcp: vi.fn(),
   reviewUserMcp: vi.fn(),
   setUserMcpToolPolicy: vi.fn(),
+  startUserMcpOAuth: vi.fn(),
   revokeUserMcp: vi.fn(),
   errorMessage: (error: unknown) => error instanceof Error ? error.message : 'unknown error',
 }))
 
 import {
   addCatalogMcp, listProjects, listUserMcp, listUserMcpCatalog, saveUserMcp,
-  setUserMcpToolPolicy,
+  setUserMcpToolPolicy, startUserMcpOAuth,
 } from '../api/client'
 
 const reviewed: UserMcpConnector = {
   id: 'claude_code_docs', project_id: 'project_one', name: 'Claude Code documentation',
   url: 'https://code.claude.com/docs/mcp', revision: 2, enabled: true,
   reviewed_at: '2026-09-24T00:00:00Z', review_error: null,
+  auth_mode: 'bearer', oauth_issuer: null,
   credential_configured: false, tools: [{ name: 'search_docs', policy: 'ask' }],
 }
 
@@ -86,5 +88,38 @@ describe('UserMcpPanel', () => {
     expect(screen.getByLabelText('HTTPS MCP address')).toHaveValue('https://mcp.example.com/mcp')
     expect(screen.getByLabelText('Bearer token (optional)')).toHaveValue('')
     expect(saveUserMcp).not.toHaveBeenCalled()
+  })
+
+  it('saves an OAuth issuer and offers the returned browser authorization link', async () => {
+    const oauthServer: UserMcpConnector = {
+      ...reviewed, id: 'sales_mcp', name: 'Sales MCP',
+      url: 'https://mcp.example.com/mcp', auth_mode: 'oauth',
+      oauth_issuer: 'https://auth.example.com',
+      enabled: false, reviewed_at: null, credential_configured: false, tools: [],
+    }
+    vi.mocked(saveUserMcp).mockResolvedValue(oauthServer)
+    vi.mocked(startUserMcpOAuth).mockResolvedValue({
+      authorization_url: 'https://auth.example.com/authorize?state=trusted',
+    })
+    vi.mocked(listUserMcp).mockResolvedValue([oauthServer])
+    render(<UserMcpPanel />)
+    await screen.findByText('Connector directory')
+    fireEvent.click(screen.getByText('Advanced: add a remote MCP address'))
+    fireEvent.change(screen.getByLabelText('Server name'), { target: { value: 'Sales MCP' } })
+    fireEvent.change(screen.getByLabelText('Server ID'), { target: { value: 'sales_mcp' } })
+    fireEvent.change(screen.getByLabelText('HTTPS MCP address'), { target: { value: oauthServer.url } })
+    fireEvent.change(screen.getByLabelText('OAuth issuer URL (optional)'), {
+      target: { value: oauthServer.oauth_issuer },
+    })
+    expect(screen.getByLabelText('Bearer token (optional)')).toBeDisabled()
+    fireEvent.click(screen.getByRole('button', { name: 'Save for review' }))
+    await waitFor(() => expect(saveUserMcp).toHaveBeenCalledWith('project_one', 'sales_mcp', {
+      name: 'Sales MCP', url: oauthServer.url, oauth_issuer: oauthServer.oauth_issuer,
+    }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Connect with OAuth' }))
+    await waitFor(() => expect(startUserMcpOAuth).toHaveBeenCalledWith('project_one', 'sales_mcp'))
+    expect(await screen.findByRole('link', { name: 'Open OAuth authorization' })).toHaveAttribute(
+      'href', 'https://auth.example.com/authorize?state=trusted',
+    )
   })
 })

@@ -164,6 +164,7 @@ class Settings(BaseSettings):
     companion_public_origin: str | None = Field(default=None, max_length=500)
     # Operator-owned public HTTPS origin for external event deliveries.
     event_public_origin: str | None = Field(default=None, max_length=500)
+    mcp_oauth_public_origin: str | None = Field(default=None, max_length=500)
     site_public_origin: str | None = Field(default=None, max_length=500)
     push_enabled: bool = False
     push_vapid_private_key: SecretStr | None = Field(default=None, max_length=2_000)
@@ -300,6 +301,10 @@ class Settings(BaseSettings):
             self.event_public_origin = public_https_origin(
                 self.event_public_origin, "event_public_origin",
             )
+        if self.mcp_oauth_public_origin is not None:
+            self.mcp_oauth_public_origin = public_https_origin(
+                self.mcp_oauth_public_origin, "mcp_oauth_public_origin",
+            )
         if self.site_public_origin is not None:
             self.site_public_origin = public_https_origin(
                 self.site_public_origin, "site_public_origin",
@@ -308,12 +313,15 @@ class Settings(BaseSettings):
             if site_host in {
                 urlsplit(origin).hostname for origin in (
                     self.event_public_origin, self.companion_public_origin,
+                    self.mcp_oauth_public_origin,
                 ) if origin is not None
             }:
                 raise ValueError("site_public_origin must use a separate host")
         if self.companion_enabled and self.companion_public_origin is None:
             raise ValueError("companion access requires OPHIRA_COMPANION_PUBLIC_ORIGIN")
         if self.auth_mode == "local_only":
+            if self.mcp_oauth_public_origin is not None:
+                raise ValueError("local_only OAuth uses its loopback callback origin")
             try:
                 loopback = (
                     self.host.casefold() == "localhost"

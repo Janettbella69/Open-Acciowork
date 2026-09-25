@@ -648,6 +648,8 @@ export type UserMcpConnector = {
   enabled: boolean
   reviewed_at: string | null
   review_error: string | null
+  auth_mode: 'bearer' | 'oauth'
+  oauth_issuer: string | null
   credential_configured: boolean
   tools: UserMcpTool[]
 }

@@ -37,6 +37,15 @@ from that host to the backend; the management API remains on its own host. A
 project administrator reviews and approves each exact version and can withdraw
 it later. See [site publication setup](../docs/site-publications.md).
 
+Remote MCP OAuth in trusted-gateway mode requires an operator-owned
+`OPHIRA_MCP_OAUTH_PUBLIC_ORIGIN=https://work.example.com` on the control-plane
+host. Route the two `/api/mcp/oauth/` browser callback pages to this backend;
+the callback uses a one-time SDK state and does not require the gateway's
+identity header. Exclude callback query strings from proxy access logs; the
+backend already redacts them from Uvicorn access logs. All connector management
+still requires project permission.
+See [remote MCP setup](../docs/user-mcp.md).
+
 Browser L1/L2 support is an explicit optional install because Playwright also
 needs a managed Chromium binary:
 

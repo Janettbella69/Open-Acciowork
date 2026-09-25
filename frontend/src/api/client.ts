@@ -957,11 +957,17 @@ export function addCatalogMcp(projectId: string, catalogId: string): Promise<Use
 }
 
 export function saveUserMcp(projectId: string, id: string, input: {
-  name: string; url: string; bearer_token?: string
+  name: string; url: string; bearer_token?: string; oauth_issuer?: string
 }): Promise<UserMcpConnector> {
   return request<UserMcpConnector>(`${projectMcpPath(projectId)}/${encodeURIComponent(id)}`, {
     method: 'PUT', body: JSON.stringify(input),
   })
+}
+
+export function startUserMcpOAuth(projectId: string, id: string): Promise<{ authorization_url: string }> {
+  return request<{ authorization_url: string }>(
+    `${projectMcpPath(projectId)}/${encodeURIComponent(id)}/oauth/start`, { method: 'POST' },
+  )
 }
 
 export function reviewUserMcp(projectId: string, id: string): Promise<UserMcpConnector> {

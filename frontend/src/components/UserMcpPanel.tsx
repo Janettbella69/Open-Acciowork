@@ -9,6 +9,7 @@ import {
   reviewUserMcp,
   revokeUserMcp,
   saveUserMcp,
+  startUserMcpOAuth,
   setUserMcpToolPolicy,
 } from '../api/client'
 import type { OpportunityProject, UserMcpCatalogItem, UserMcpConnector, UserMcpTool } from '../api/types'
@@ -32,6 +33,8 @@ export default function UserMcpPanel() {
   const [id, setId] = useState(pluginName ? pluginId : '')
   const [url, setUrl] = useState(pluginUrl)
   const [token, setToken] = useState('')
+  const [oauthIssuer, setOauthIssuer] = useState('')
+  const [oauthLink, setOauthLink] = useState<{ id: string; url: string } | null>(null)
   const busyRef = useRef(false)
   const advancedRef = useRef<HTMLDetailsElement>(null)
 
@@ -66,6 +69,18 @@ export default function UserMcpPanel() {
     return () => { active = false }
   }, [projectId])
 
+  useEffect(() => {
+    if (!projectId || !oauthLink) return
+    const interval = window.setInterval(() => {
+      void listUserMcp(projectId).then((items) => {
+        setServers(items)
+        const target = items.find((item) => item.id === oauthLink.id)
+        if (target?.enabled || target?.review_error) setOauthLink(null)
+      }).catch(() => undefined)
+    }, 3000)
+    return () => window.clearInterval(interval)
+  }, [projectId, oauthLink])
+
   const act = async (key: string, action: () => Promise<UserMcpConnector>) => {
     if (!projectId || busyRef.current) return
     busyRef.current = true
@@ -88,13 +103,35 @@ export default function UserMcpPanel() {
     event.preventDefault()
     if (!projectId || !/^[a-z][a-z0-9_]{2,63}$/.test(id)) return
     const saved = await act('custom', () => saveUserMcp(projectId, id, {
-      name: name.trim(), url: url.trim(), ...(token ? { bearer_token: token } : {}),
+      name: name.trim(), url: url.trim(),
+      ...(token ? { bearer_token: token } : {}),
+      ...(oauthIssuer.trim() ? { oauth_issuer: oauthIssuer.trim() } : {}),
     }))
     if (saved) {
       setName('')
       setId('')
       setUrl('')
       setToken('')
+      setOauthIssuer('')
+    }
+  }
+
+  const beginOAuth = async (serverId: string) => {
+    if (!projectId || busyRef.current) return
+    busyRef.current = true
+    setBusy(`${serverId}:oauth`)
+    setError('')
+    setOauthLink(null)
+    try {
+      const result = await startUserMcpOAuth(projectId, serverId)
+      setOauthLink({ id: serverId, url: result.authorization_url })
+      setServers(await listUserMcp(projectId))
+    } catch (actionError) {
+      setError(errorMessage(actionError))
+      void listUserMcp(projectId).then(setServers).catch(() => undefined)
+    } finally {
+      busyRef.current = false
+      setBusy('')
     }
   }
 
@@ -108,7 +145,7 @@ export default function UserMcpPanel() {
         </div>
         <label>
           <span>{t('Project')}</span>
-          <select aria-label={t('MCP project')} value={projectId} onChange={(event) => setProjectId(event.target.value)} disabled={Boolean(busy)}>
+          <select aria-label={t('MCP project')} value={projectId} onChange={(event) => { setProjectId(event.target.value); setOauthLink(null) }} disabled={Boolean(busy)}>
             {projects.length === 0 && <option value="">{t('No projects yet')}</option>}
             {projects.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
           </select>
@@ -136,7 +173,9 @@ export default function UserMcpPanel() {
             <label>{t('Server name')}<input value={name} onChange={(event) => setName(event.target.value)} maxLength={160} required /></label>
             <label>{t('Server ID')}<input value={id} onChange={(event) => setId(event.target.value)} pattern="[a-z][a-z0-9_]{2,63}" placeholder="my_mcp" required /></label>
             <label>{t('HTTPS MCP address')}<input type="url" value={url} onChange={(event) => setUrl(event.target.value)} placeholder="https://mcp.example.com/mcp" required /></label>
-            <label>{t('Bearer token (optional)')}<input type="password" value={token} onChange={(event) => setToken(event.target.value)} autoComplete="off" /></label>
+            <label>{t('Bearer token (optional)')}<input type="password" value={token} onChange={(event) => setToken(event.target.value)} autoComplete="off" disabled={Boolean(oauthIssuer)} /></label>
+            <label>{t('OAuth issuer URL (optional)')}<input type="url" value={oauthIssuer} onChange={(event) => setOauthIssuer(event.target.value)} disabled={Boolean(token)} placeholder="https://auth.example.com" /></label>
+            <p>{t('For OAuth, approve the issuer host in organization settings, then save and connect in the browser.')}</p>
             <button type="submit" disabled={Boolean(busy)}>{t('Save for review')}</button>
           </form>
         </details>
@@ -147,6 +186,9 @@ export default function UserMcpPanel() {
             <header><div><strong>{server.name}</strong><small>{server.url}</small></div>
               <span>{server.enabled ? t('Reviewed') : t('Disabled · review required')}</span>
             </header>
+            {server.review_error && <p role="alert">{t(server.review_error)}</p>}
+            {server.auth_mode === 'oauth' && server.oauth_issuer && <p>{t('OAuth issuer')}: {server.oauth_issuer}</p>}
+            {oauthLink?.id === server.id && <p><a href={oauthLink.url} target="_blank" rel="noopener noreferrer">{t('Open OAuth authorization')}</a> · {t('Waiting for authorization and tool review…')}</p>}
             {server.enabled && <div className="user-mcp-tools">
               {server.tools.map((tool: UserMcpTool) => <label key={tool.name}>
                 <code>{tool.name}</code>
@@ -165,7 +207,8 @@ export default function UserMcpPanel() {
               </label>)}
             </div>}
             <div className="user-mcp-actions">
-              <button type="button" disabled={Boolean(busy)} onClick={() => void act(`${server.id}:review`, () => reviewUserMcp(projectId, server.id))}>{t('Review tools')}</button>
+              {server.auth_mode === 'oauth' && <button type="button" disabled={Boolean(busy)} onClick={() => void beginOAuth(server.id)}>{t('Connect with OAuth')}</button>}
+              <button type="button" disabled={Boolean(busy) || (server.auth_mode === 'oauth' && !server.credential_configured)} onClick={() => void act(`${server.id}:review`, () => reviewUserMcp(projectId, server.id))}>{t('Review tools')}</button>
               <button type="button" disabled={Boolean(busy)} onClick={() => void act(`${server.id}:revoke`, () => revokeUserMcp(projectId, server.id))}>{t('Revoke')}</button>
             </div>
           </article>)}

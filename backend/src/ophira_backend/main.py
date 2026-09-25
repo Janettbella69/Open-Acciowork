@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import logging
 import re
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -14,7 +15,7 @@ import httpx
 import uvicorn
 from fastapi import FastAPI, Header, HTTPException, Query, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from sse_starlette.sse import EventSourceResponse
 from starlette.concurrency import run_in_threadpool
 
@@ -301,6 +302,8 @@ from .telemetry import RunTelemetry, build_run_telemetry
 from .templates import TEMPLATE_SPECS
 from .user_mcp import (
     MCP_CATALOG,
+    OAUTH_CALLBACK_PATH,
+    OAUTH_COMPLETE_PATH,
     UserMcpConflictError,
     UserMcpConnector,
     UserMcpRegistry,
@@ -313,6 +316,26 @@ from .wecom_delivery import WeComReplyAdapter
 from .workspace_recovery_api import register_workspace_recovery_routes
 
 MAX_PROJECT_UPLOAD_BYTES = 50 * 1024 * 1024
+
+
+class _OAuthCallbackAccessLogFilter(logging.Filter):
+    """Uvicorn otherwise logs the one-time authorization code in the URL."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        args = record.args
+        if (
+            isinstance(args, tuple) and len(args) == 5
+            and isinstance(args[2], str)
+            and args[2].split("?", 1)[0] == OAUTH_CALLBACK_PATH
+        ):
+            record.args = (*args[:2], OAUTH_CALLBACK_PATH, *args[3:])
+        return True
+
+
+def _install_oauth_access_log_filter() -> None:
+    logger = logging.getLogger("uvicorn.access")
+    if not any(isinstance(item, _OAuthCallbackAccessLogFilter) for item in logger.filters):
+        logger.addFilter(_OAuthCallbackAccessLogFilter())
 
 
 def _request_principal(request: Request) -> PrincipalContext | None:
@@ -387,6 +410,7 @@ def _create_app(
     dingtalk_reply_adapter: ChannelReplyAdapter | None = None,
 ) -> FastAPI:
     settings = settings or get_settings()
+    _install_oauth_access_log_filter()
     ledger = FileLedger(settings.data_dir, ingest_config=IngestConfig.from_settings(settings))
     project_access = ProjectAccessStore(settings.data_dir / "auth" / "projects")
     project_deletion = ProjectDeletionService(ledger, project_access)
@@ -462,10 +486,20 @@ def _create_app(
         vault=FileSecretVault(settings.data_dir / "secrets", filename="connector-secrets.json"),
     )
     connectors.ensure_catalog()
+    if settings.auth_mode == "local_only":
+        loopback_host = (
+            f"[{settings.host}]" if ":" in settings.host else settings.host
+        )
+        mcp_oauth_origin = f"http://{loopback_host}:{settings.port}"
+    else:
+        mcp_oauth_origin = settings.mcp_oauth_public_origin
     user_mcp = UserMcpRegistry(
         settings.data_dir / "user-mcp",
         FileSecretVault(settings.data_dir / "secrets", filename="mcp-secrets.json"),
         policy,
+        oauth_redirect_url=(
+            mcp_oauth_origin + OAUTH_CALLBACK_PATH if mcp_oauth_origin else None
+        ),
     )
     marketplace_access = MarketplaceAccessService(
         ledger, connectors, settings=settings, access=project_access,
@@ -572,9 +606,12 @@ def _create_app(
                 await dingtalk_channel.stop()
         finally:
             try:
-                await runs.stop()
+                await user_mcp.aclose_oauth_flows()
             finally:
-                await channel_delivery.stop()
+                try:
+                    await runs.stop()
+                finally:
+                    await channel_delivery.stop()
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
@@ -596,6 +633,7 @@ def _create_app(
     application.state.scheduler = scheduler
     application.state.intent_watcher = intent_watcher
     application.state.connectors = connectors
+    application.state.user_mcp = user_mcp
     application.state.notifications = notifications
     application.state.intents = intents
     application.state.grants = grants
@@ -788,6 +826,28 @@ def _create_app(
                 return response
         if not (path == "/api" or path.startswith("/api/")):
             return await call_next(request)
+        if path in {OAUTH_CALLBACK_PATH, OAUTH_COMPLETE_PATH} and (
+            request.method == "GET"
+        ):
+            if settings.auth_mode == "trusted_gateway":
+                expected_host = urlsplit(settings.mcp_oauth_public_origin or "").netloc
+                if not expected_host or request.headers.get("host", "").casefold() != (
+                    expected_host.casefold()
+                ):
+                    return JSONResponse(status_code=404, content={"detail": "Not found"})
+            else:
+                try:
+                    validate_local_request_source(
+                        [("host", request.headers.get("host", ""))],
+                        scheme=request.url.scheme,
+                        allowed_origins=settings.cors_origins,
+                    )
+                except AuthenticationError:
+                    return JSONResponse(status_code=403, content={"detail": "Forbidden"})
+            response = await call_next(request)
+            response.headers["Cache-Control"] = "no-store"
+            response.headers["Referrer-Policy"] = "no-referrer"
+            return response
         # The authenticated bundle preview redirects into a short-lived,
         # revision-bound read capability. Sandboxed asset requests can have an
         # opaque origin and lack the control-plane session cookie.
@@ -1833,6 +1893,28 @@ def _create_app(
         )
         return list(MCP_CATALOG)
 
+    @application.get(OAUTH_CALLBACK_PATH)
+    async def user_mcp_oauth_callback(
+        state: str = Query(min_length=32, max_length=128),
+        code: str | None = Query(default=None, max_length=8_000),
+        iss: str | None = Query(default=None, max_length=2_000),
+        error: str | None = Query(default=None, max_length=200),
+    ) -> RedirectResponse:
+        if not user_mcp.complete_oauth_callback(
+            state=state, code=code, issuer=iss, error=error,
+        ):
+            raise HTTPException(400, "OAuth session is unavailable or expired")
+        return RedirectResponse(OAUTH_COMPLETE_PATH, status_code=303)
+
+    @application.get(OAUTH_COMPLETE_PATH)
+    async def user_mcp_oauth_complete() -> HTMLResponse:
+        return HTMLResponse(
+            "<!doctype html><html><head><meta charset=\"utf-8\"></head>"
+            "<body><p>Authorization received. Return to OPHIRA to see the "
+            "connector review result.</p></body></html>",
+            headers={"Content-Security-Policy": "default-src 'none'; style-src 'none'"},
+        )
+
     @application.get(
         "/api/projects/{project_id}/mcp", response_model=list[UserMcpConnector],
     )
@@ -1903,6 +1985,24 @@ def _create_app(
             raise HTTPException(502, str(exc)) from exc
         except (OSError, TimeoutError, httpx.HTTPError, ExceptionGroup) as exc:
             raise HTTPException(502, "Remote MCP handshake or tool review failed") from exc
+
+    @application.post("/api/projects/{project_id}/mcp/{connector_id}/oauth/start")
+    async def start_user_mcp_oauth(
+        request: Request, project_id: str, connector_id: str,
+    ) -> dict[str, str]:
+        require_project_authorization(
+            project_id, _request_principal(request), ProjectPermission.PROJECT_WRITE,
+        )
+        try:
+            return {"authorization_url": await user_mcp.begin_oauth(project_id, connector_id)}
+        except KeyError as exc:
+            raise HTTPException(404, "MCP connector not found") from exc
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        except UserMcpConflictError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        except UserMcpRemoteError as exc:
+            raise HTTPException(502, str(exc)) from exc
 
     @application.put(
         "/api/projects/{project_id}/mcp/{connector_id}/tools/{tool_name}",

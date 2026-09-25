@@ -116,7 +116,9 @@ The other four adapters and live seller certification remain open; see
 **Plugins → Connectors** also has a project-scoped remote MCP directory and an
 advanced HTTPS address form. A live tool-list review is required before use;
 each discovered tool can be allowed, asked every time, or denied. Custom hosts
-require organization approval. Reviewed remote tools run through a pinned MCP
+require organization approval. The advanced form also supports browser OAuth
+with an explicitly approved issuer and server-side token refresh. Reviewed
+remote tools run through a pinned MCP
 gateway; live endpoint/Provider acceptance is still pending. See
 [`docs/user-mcp.md`](docs/user-mcp.md).
 

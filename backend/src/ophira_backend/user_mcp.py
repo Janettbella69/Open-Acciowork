@@ -9,16 +9,26 @@ import os
 import re
 import tempfile
 import threading
+import time
 from contextlib import AsyncExitStack, contextmanager
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 
 import httpx2
 from mcp import Client
+from mcp.client.auth.oauth2 import OAuthClientProvider, TokenStorage
 from mcp.client.streamable_http import streamable_http_client
 from mcp.server.lowlevel import Server
+from mcp.shared.auth import (
+    AuthorizationCodeResult,
+    OAuthClientInformationFull,
+    OAuthClientMetadata,
+    OAuthMetadata,
+    OAuthToken,
+)
 from mcp.types import (
     CallToolRequestParams,
     CallToolResult,
@@ -43,6 +53,8 @@ MCP_CATALOG = ({
 _ID = re.compile(r"^[a-z][a-z0-9_]{2,63}$")
 _TOOL = re.compile(r"^[A-Za-z0-9_-]{1,100}$")
 MAX_REVIEW_RESPONSE_BYTES = 2_000_000
+OAUTH_CALLBACK_PATH = "/api/mcp/oauth/callback"
+OAUTH_COMPLETE_PATH = "/api/mcp/oauth/complete"
 
 
 class UserMcpTool(BaseModel):
@@ -62,6 +74,8 @@ class UserMcpConnector(BaseModel):
     enabled: bool = False
     reviewed_at: datetime | None = None
     review_error: str | None = None
+    auth_mode: Literal["bearer", "oauth"] = "bearer"
+    oauth_issuer: str | None = None
     credential_configured: bool = False
     tools: list[UserMcpTool] = Field(default_factory=list, max_length=100)
 
@@ -77,6 +91,7 @@ class UserMcpUpsert(BaseModel):
     name: str = Field(min_length=1, max_length=160)
     url: str = Field(min_length=12, max_length=2_000)
     bearer_token: str | None = Field(default=None, min_length=1, max_length=8_000)
+    oauth_issuer: str | None = Field(default=None, min_length=12, max_length=2_000)
 
 
 class UserMcpToolPolicyUpdate(BaseModel):
@@ -108,21 +123,35 @@ class _CappedReviewStream(httpx2.AsyncByteStream):
 
 
 class _PinnedMcpTransport(httpx2.AsyncBaseTransport):
-    """Resolve and pin every review request; redirects are disabled by the client."""
+    """Pin MCP and explicitly approved OAuth issuer traffic on every request."""
 
-    def __init__(self, approved_url: str) -> None:
+    def __init__(self, approved_url: str, oauth_issuer: str | None = None) -> None:
         self.approved = urlsplit(approved_url)
+        self.oauth_issuer = urlsplit(oauth_issuer) if oauth_issuer else None
         self.inner = httpx2.AsyncHTTPTransport(trust_env=False)
 
     async def handle_async_request(self, request: httpx2.Request) -> httpx2.Response:
         requested = urlsplit(str(request.url))
-        if (
-            requested.scheme != self.approved.scheme
-            or requested.hostname != self.approved.hostname
-            or requested.port != self.approved.port
-            or requested.path != self.approved.path
-        ):
+        same_resource = (
+            requested.scheme == self.approved.scheme
+            and requested.hostname == self.approved.hostname
+            and requested.port == self.approved.port
+        )
+        mcp_endpoint = same_resource and requested.path == self.approved.path
+        resource_metadata = (
+            self.oauth_issuer is not None and same_resource
+            and requested.path.startswith("/.well-known/oauth-protected-resource")
+        )
+        issuer_endpoint = bool(
+            self.oauth_issuer is not None
+            and requested.scheme == self.oauth_issuer.scheme
+            and requested.hostname == self.oauth_issuer.hostname
+            and requested.port == self.oauth_issuer.port
+        )
+        if not (mcp_endpoint or resource_metadata or issuer_endpoint):
             raise UserMcpConflictError("Remote MCP review changed its approved endpoint")
+        if not mcp_endpoint and request.headers.get("Authorization", "").startswith("Bearer "):
+            raise UserMcpConflictError("Remote MCP token cannot leave its approved endpoint")
         destination, reason = await asyncio.to_thread(pin_public_http_url, str(request.url))
         if destination is None or request.url.scheme != "https":
             raise UserMcpConflictError(reason or "Remote MCP requires a public HTTPS endpoint")
@@ -212,21 +241,104 @@ async def _read_tool_manifest(client: Client) -> list[UserMcpTool]:
     return tools
 
 
-async def discover_remote_tools(url: str, bearer_token: str | None) -> list[UserMcpTool]:
+async def discover_remote_tools(
+    url: str, bearer_token: str | None, *,
+    oauth_provider: OAuthClientProvider | None = None,
+    oauth_issuer: str | None = None,
+    exchange_timeout_seconds: int = 25,
+) -> list[UserMcpTool]:
     """Use MCP's version-negotiated tools-list exchange; never invoke remote tools."""
     headers = {"Authorization": f"Bearer {bearer_token}"} if bearer_token else {}
     try:
         async with httpx2.AsyncClient(
-            transport=_PinnedMcpTransport(url), headers=headers, follow_redirects=False,
+            transport=_PinnedMcpTransport(url, oauth_issuer), headers=headers,
+            auth=oauth_provider, follow_redirects=False,
             timeout=httpx2.Timeout(8, read=15), trust_env=False,
         ) as http_client:
-            async with asyncio.timeout(25):
+            async with asyncio.timeout(exchange_timeout_seconds):
                 async with Client(streamable_http_client(url, http_client=http_client)) as client:
                     return await _read_tool_manifest(client)
     except UserMcpConflictError:
         raise
     except Exception as exc:
         raise UserMcpRemoteError("Remote MCP handshake or tool review failed") from exc
+
+
+class _IssuerBoundOAuthProvider(OAuthClientProvider):
+    """Accept only the issuer the project owner named and the organization allowed."""
+
+    def __init__(self, expected_issuer: str, **kwargs: Any) -> None:
+        self.expected_issuer = expected_issuer.rstrip("/")
+        super().__init__(**kwargs)
+
+    def _select_authorization_server(self, advertised: list[str]) -> str:
+        if self.expected_issuer not in {issuer.rstrip("/") for issuer in advertised}:
+            raise UserMcpConflictError("Remote MCP advertised a different OAuth issuer")
+        return self.expected_issuer
+
+
+@dataclass
+class _PendingOAuth:
+    connector: UserMcpConnector
+    authorization_url: asyncio.Future[str | None]
+    callback: asyncio.Future[AuthorizationCodeResult]
+    task: asyncio.Task[None] | None = None
+    state: str | None = None
+
+
+class _McpOAuthStorage(TokenStorage):
+    def __init__(self, registry: UserMcpRegistry, connector: UserMcpConnector) -> None:
+        self.registry = registry
+        self.connector = connector
+
+    def _key(self, kind: str) -> str:
+        return self.registry._oauth_vault_id(self.connector.project_id, self.connector.id, kind)
+
+    async def get_tokens(self) -> OAuthToken | None:
+        if not self.registry._oauth_storage_valid(self.connector):
+            return None
+        raw = self.registry.vault.get(self._key("token"))
+        if not raw:
+            return None
+        stored = json.loads(raw)
+        tokens = OAuthToken.model_validate(stored["tokens"])
+        expires_at = stored.get("expires_at")
+        if tokens.refresh_token and expires_at is not None and time.time() >= expires_at:
+            # The SDK's TokenStorage contract stores tokens, not their expiry
+            # timestamp. An empty access token prompts its native refresh path.
+            return tokens.model_copy(update={"access_token": ""})
+        return tokens
+
+    async def set_tokens(self, tokens: OAuthToken) -> None:
+        expires_at = (
+            time.time() + max(0, tokens.expires_in - 30)
+            if tokens.expires_in is not None
+            else (time.time() if tokens.refresh_token else None)
+        )
+        serialized = json.dumps({
+            "tokens": tokens.model_dump(mode="json"), "expires_at": expires_at,
+        })
+        if len(serialized) > 32_000:
+            raise UserMcpConflictError("Remote MCP OAuth token is too large")
+        with self.registry._transaction(self.connector.project_id):
+            if not self.registry._oauth_storage_valid(self.connector):
+                raise UserMcpConflictError("Remote MCP changed during OAuth authorization")
+            self.registry.vault.set(self._key("token"), serialized)
+
+    async def get_client_info(self) -> OAuthClientInformationFull | None:
+        if not self.registry._oauth_storage_valid(self.connector):
+            return None
+        raw = self.registry.vault.get(self._key("client"))
+        return OAuthClientInformationFull.model_validate_json(raw) if raw else None
+
+    async def set_client_info(self, client_info: OAuthClientInformationFull) -> None:
+        serialized = client_info.model_dump_json()
+        if len(serialized) > 32_000:
+            raise UserMcpConflictError("Remote MCP OAuth registration is too large")
+        with self.registry._transaction(self.connector.project_id):
+            if not self.registry._oauth_storage_valid(self.connector):
+                raise UserMcpConflictError("Remote MCP changed during OAuth authorization")
+            self.registry.vault.set(self._key("client"), serialized)
 
 
 class _RemoteMcpSession:
@@ -242,14 +354,24 @@ class _RemoteMcpSession:
         self._closed = False
 
     async def _connect(self, stack: AsyncExitStack) -> Client:
-        credential = self.registry.vault.get(self.registry._vault_id(
-            self.pinned.project_id, self.pinned.id,
-        ))
-        if self.pinned.credential_configured and credential is None:
-            raise UserMcpConflictError("Remote MCP credential is unavailable")
-        headers = {"Authorization": f"Bearer {credential}"} if credential else {}
+        if self.pinned.auth_mode == "oauth":
+            if not self.registry.vault.has(self.registry._oauth_vault_id(
+                self.pinned.project_id, self.pinned.id, "token",
+            )):
+                raise UserMcpConflictError("Remote MCP OAuth credential is unavailable")
+            headers: dict[str, str] = {}
+            auth = self.registry._oauth_provider(self.pinned)
+        else:
+            credential = self.registry.vault.get(self.registry._vault_id(
+                self.pinned.project_id, self.pinned.id,
+            ))
+            if self.pinned.credential_configured and credential is None:
+                raise UserMcpConflictError("Remote MCP credential is unavailable")
+            headers = {"Authorization": f"Bearer {credential}"} if credential else {}
+            auth = None
         http_client = await stack.enter_async_context(httpx2.AsyncClient(
-            transport=_PinnedMcpTransport(self.pinned.url), headers=headers,
+            transport=_PinnedMcpTransport(self.pinned.url, self.pinned.oauth_issuer),
+            headers=headers, auth=auth,
             follow_redirects=False, timeout=httpx2.Timeout(8, read=60), trust_env=False,
         ))
         return await stack.enter_async_context(Client(
@@ -373,13 +495,19 @@ class UserMcpRunScope:
 
 
 class UserMcpRegistry:
-    def __init__(self, root: Path, vault: FileSecretVault, policy: OrgPolicyStore) -> None:
+    def __init__(
+        self, root: Path, vault: FileSecretVault, policy: OrgPolicyStore,
+        *, oauth_redirect_url: str | None = None,
+    ) -> None:
         self.root = root.resolve()
         self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
         self.vault = vault
         self.policy = policy
         self._lock = threading.RLock()
         self._held_transaction = threading.local()
+        self.oauth_redirect_url = oauth_redirect_url
+        self._oauth_flows: dict[tuple[str, str], _PendingOAuth] = {}
+        self._oauth_states: dict[str, _PendingOAuth] = {}
 
     @staticmethod
     def _id(value: str) -> str:
@@ -398,6 +526,96 @@ class UserMcpRegistry:
 
     def _vault_id(self, project_id: str, connector_id: str) -> str:
         return f"{self._project(project_id)}:{self._id(connector_id)}"
+
+    def _oauth_vault_id(self, project_id: str, connector_id: str, kind: str) -> str:
+        return f"oauth-{kind}:{self._vault_id(project_id, connector_id)}"
+
+    def _clear_credentials(self, project_id: str, connector_id: str) -> None:
+        self.vault.delete(self._vault_id(project_id, connector_id))
+        for kind in ("token", "client", "metadata"):
+            self.vault.delete(self._oauth_vault_id(project_id, connector_id, kind))
+
+    def _credential_available(self, item: UserMcpConnector) -> bool:
+        if item.auth_mode == "oauth":
+            return all(self.vault.has(self._oauth_vault_id(
+                item.project_id, item.id, kind,
+            )) for kind in ("token", "client"))
+        return not item.credential_configured or self.vault.has(
+            self._vault_id(item.project_id, item.id)
+        )
+
+    def _oauth_storage_valid(self, pinned: UserMcpConnector) -> bool:
+        try:
+            current = self.get(pinned.project_id, pinned.id)
+            self._check_url(current.url)
+            self._check_oauth_issuer(current.oauth_issuer, current.url)
+            return bool(
+                current.revision == pinned.revision
+                and current.url == pinned.url
+                and current.oauth_issuer == pinned.oauth_issuer
+                and current.auth_mode == "oauth"
+            )
+        except (KeyError, ValueError):
+            return False
+
+    def _check_oauth_issuer(self, issuer: str | None, resource_url: str) -> None:
+        if issuer is None:
+            raise ValueError("Remote MCP OAuth issuer is required")
+        reason = check_commercial_https_endpoint(issuer)
+        if reason:
+            raise ValueError(reason)
+        parts = urlsplit(issuer)
+        if parts.port not in (None, 443) or "\\" in issuer:
+            raise ValueError("Remote MCP OAuth issuer must use an exact HTTPS address")
+        hostname = (parts.hostname or "").rstrip(".").casefold()
+        policy = self.policy.get()
+        resource_host = (urlsplit(resource_url).hostname or "").rstrip(".").casefold()
+        allowed = {str(item).rstrip(".").casefold() for item in policy.allowed_mcp_hosts}
+        if not policy.remote_mcp_enabled or hostname not in allowed | {resource_host}:
+            raise ValueError("OAuth issuer host is not allowed by organization policy")
+
+    def _oauth_provider(
+        self, item: UserMcpConnector, *,
+        redirect_handler: Any = None, callback_handler: Any = None,
+    ) -> OAuthClientProvider:
+        if not self.oauth_redirect_url or not item.oauth_issuer:
+            raise UserMcpConflictError("Remote MCP OAuth callback origin is not configured")
+        self._check_oauth_issuer(item.oauth_issuer, item.url)
+        provider = _IssuerBoundOAuthProvider(
+            expected_issuer=item.oauth_issuer,
+            server_url=item.url,
+            client_metadata=OAuthClientMetadata(
+                redirect_uris=[self.oauth_redirect_url],
+                client_name="OPHIRA",
+                application_type=(
+                    "web" if self.oauth_redirect_url.startswith("https://") else "native"
+                ),
+            ),
+            storage=_McpOAuthStorage(self, item),
+            redirect_handler=redirect_handler,
+            callback_handler=callback_handler,
+        )
+        raw_metadata = self.vault.get(self._oauth_vault_id(item.project_id, item.id, "metadata"))
+        if raw_metadata:
+            metadata = OAuthMetadata.model_validate_json(raw_metadata)
+            self._check_oauth_metadata(metadata, item.oauth_issuer)
+            provider.context.oauth_metadata = metadata
+            provider.context.auth_server_url = item.oauth_issuer
+        return provider
+
+    @staticmethod
+    def _check_oauth_metadata(metadata: OAuthMetadata, issuer: str) -> None:
+        if str(metadata.issuer).rstrip("/") != issuer.rstrip("/"):
+            raise UserMcpConflictError("Remote MCP OAuth issuer changed")
+        approved = urlsplit(issuer)
+        for endpoint in (metadata.authorization_endpoint, metadata.token_endpoint):
+            parts = urlsplit(str(endpoint))
+            if (
+                parts.scheme != "https" or parts.hostname != approved.hostname
+                or parts.port != approved.port or parts.username or parts.password
+                or parts.query or parts.fragment
+            ):
+                raise UserMcpConflictError("Remote MCP OAuth endpoint changed hosts")
 
     def run_scope(self) -> UserMcpRunScope:
         return UserMcpRunScope(self)
@@ -473,6 +691,10 @@ class UserMcpRegistry:
         self, project_id: str, connector_id: str, payload: UserMcpUpsert,
     ) -> UserMcpConnector:
         self._check_url(payload.url)
+        if payload.oauth_issuer is not None:
+            self._check_oauth_issuer(payload.oauth_issuer, payload.url)
+        if payload.oauth_issuer is not None and payload.bearer_token is not None:
+            raise ValueError("Choose OAuth or a bearer token, not both")
         if payload.bearer_token is not None and not re.fullmatch(
             r"[A-Za-z0-9._~+/-]+={0,8}", payload.bearer_token
         ):
@@ -485,25 +707,45 @@ class UserMcpRegistry:
             if current is None and len(self.list(project_id)) >= 10:
                 raise ValueError("A project supports at most ten remote MCP connectors")
             vault_id = self._vault_id(project_id, connector_id)
+            preserve_oauth = bool(
+                current is not None and current.auth_mode == "oauth"
+                and current.url == payload.url and payload.bearer_token is None
+                and payload.oauth_issuer is None
+            )
+            oauth_issuer = (
+                payload.oauth_issuer or (current.oauth_issuer if preserve_oauth else None)
+            )
+            auth_mode = "oauth" if oauth_issuer else "bearer"
             preserve_credential = (
                 current is not None and current.url == payload.url
-                and payload.bearer_token is None
+                and payload.bearer_token is None and auth_mode == "bearer"
+                and current.auth_mode == "bearer"
+            )
+            preserve_oauth_token = bool(
+                current is not None and current.auth_mode == "oauth"
+                and auth_mode == "oauth" and current.url == payload.url
+                and current.oauth_issuer == oauth_issuer
             )
             updated = UserMcpConnector(
                 id=self._id(connector_id), project_id=self._project(project_id),
                 name=payload.name, url=payload.url,
                 revision=current.revision + 1 if current else 1,
+                auth_mode=auth_mode,
+                oauth_issuer=oauth_issuer,
                 credential_configured=(
                     bool(payload.bearer_token)
                     or (preserve_credential and self.vault.has(vault_id))
+                    or (preserve_oauth_token and self.vault.has(
+                        self._oauth_vault_id(project_id, connector_id, "token")
+                    ))
                 ),
             )
             # A changed origin loses its old credential before the new URL is
             # published. The new record remains disabled until review.
-            if not preserve_credential:
+            if not preserve_credential and not preserve_oauth_token:
                 # Remove authority for the old origin before publishing a new
                 # URL. A crash between these writes can only fail closed.
-                self.vault.delete(vault_id)
+                self._clear_credentials(project_id, connector_id)
             self._write(updated)
             if payload.bearer_token is not None:
                 self.vault.set(vault_id, payload.bearer_token)
@@ -536,10 +778,20 @@ class UserMcpRegistry:
                 "tools": [],
             })
             self._write(current)
-        credential = self.vault.get(self._vault_id(project_id, connector_id))
-        if current.credential_configured and credential is None:
-            raise UserMcpConflictError("Remote MCP credential is unavailable; save it again")
-        reviewed_tools = await discover_remote_tools(current.url, credential)
+        if current.auth_mode == "oauth":
+            self._check_oauth_issuer(current.oauth_issuer, current.url)
+            if not self.vault.has(self._oauth_vault_id(project_id, connector_id, "token")):
+                raise UserMcpConflictError("Connect OAuth before reviewing remote MCP tools")
+            reviewed_tools = await discover_remote_tools(
+                current.url, None,
+                oauth_provider=self._oauth_provider(current),
+                oauth_issuer=current.oauth_issuer,
+            )
+        else:
+            credential = self.vault.get(self._vault_id(project_id, connector_id))
+            if current.credential_configured and credential is None:
+                raise UserMcpConflictError("Remote MCP credential is unavailable; save it again")
+            reviewed_tools = await discover_remote_tools(current.url, credential)
         with self._transaction(project_id):
             latest = self.get(project_id, connector_id)
             if latest.revision != current.revision or latest.url != current.url:
@@ -554,6 +806,153 @@ class UserMcpRegistry:
             })
             self._write(reviewed)
             return reviewed
+
+    async def begin_oauth(self, project_id: str, connector_id: str) -> str:
+        """Start SDK OAuth discovery; a short-lived browser callback completes review."""
+        if self.oauth_redirect_url is None:
+            raise UserMcpConflictError("Remote MCP OAuth callback origin is not configured")
+        key = (self._project(project_id), self._id(connector_id))
+        existing = self._oauth_flows.get(key)
+        if existing is not None:
+            url = await asyncio.wait_for(asyncio.shield(existing.authorization_url), 30)
+            if url is None:
+                raise UserMcpRemoteError("Remote MCP OAuth discovery failed")
+            return url
+        with self._transaction(project_id):
+            current = self.get(project_id, connector_id)
+            if current.auth_mode != "oauth":
+                raise UserMcpConflictError("Remote MCP is not configured for OAuth")
+            self._check_url(current.url)
+            self._check_oauth_issuer(current.oauth_issuer, current.url)
+            pinned = current.model_copy(update={
+                "revision": current.revision + 1,
+                "enabled": False,
+                "reviewed_at": None,
+                "review_error": None,
+                "credential_configured": False,
+                "tools": [],
+            })
+            self._clear_credentials(project_id, connector_id)
+            self._write(pinned)
+        loop = asyncio.get_running_loop()
+        flow = _PendingOAuth(
+            connector=pinned,
+            authorization_url=loop.create_future(),
+            callback=loop.create_future(),
+        )
+        self._oauth_flows[key] = flow
+        flow.task = asyncio.create_task(
+            self._oauth_flow_worker(flow), name="ophira:user-mcp-oauth",
+        )
+        try:
+            url = await asyncio.wait_for(asyncio.shield(flow.authorization_url), 30)
+        except TimeoutError as exc:
+            flow.task.cancel()
+            raise UserMcpRemoteError("Remote MCP OAuth discovery timed out") from exc
+        if url is None:
+            raise UserMcpRemoteError("Remote MCP OAuth discovery failed")
+        return url
+
+    async def _oauth_flow_worker(self, flow: _PendingOAuth) -> None:
+        pinned = flow.connector
+        key = (pinned.project_id, pinned.id)
+
+        async def redirect_handler(url: str) -> None:
+            parts = urlsplit(url)
+            issuer = urlsplit(pinned.oauth_issuer or "")
+            states = parse_qs(parts.query).get("state", [])
+            if (
+                len(url) > 8_192 or "\\" in url
+                or any(ord(character) < 32 for character in url)
+                or parts.scheme != "https"
+                or parts.hostname != issuer.hostname or parts.port != issuer.port
+                or parts.username is not None or parts.password is not None
+                or parts.fragment or len(states) != 1
+                or not re.fullmatch(r"[A-Za-z0-9_-]{32,128}", states[0])
+            ):
+                raise UserMcpConflictError("Remote MCP OAuth authorization URL is unsafe")
+            state = states[0]
+            if state in self._oauth_states or not self._oauth_storage_valid(pinned):
+                raise UserMcpConflictError("Remote MCP OAuth authorization changed")
+            flow.state = state
+            self._oauth_states[state] = flow
+            flow.authorization_url.set_result(url)
+
+        async def callback_handler() -> AuthorizationCodeResult:
+            return await asyncio.wait_for(flow.callback, 300)
+
+        try:
+            provider = self._oauth_provider(
+                pinned,
+                redirect_handler=redirect_handler,
+                callback_handler=callback_handler,
+            )
+            tools = await discover_remote_tools(
+                pinned.url, None,
+                oauth_provider=provider,
+                oauth_issuer=pinned.oauth_issuer,
+                exchange_timeout_seconds=330,
+            )
+            with self._transaction(pinned.project_id):
+                if not self._oauth_storage_valid(pinned) or not self.vault.has(
+                    self._oauth_vault_id(pinned.project_id, pinned.id, "token")
+                ):
+                    raise UserMcpConflictError("Remote MCP OAuth authorization changed")
+                if provider.context.oauth_metadata is not None:
+                    self._check_oauth_metadata(
+                        provider.context.oauth_metadata, pinned.oauth_issuer or "",
+                    )
+                    self.vault.set(
+                        self._oauth_vault_id(pinned.project_id, pinned.id, "metadata"),
+                        provider.context.oauth_metadata.model_dump_json(),
+                    )
+                reviewed = pinned.model_copy(update={
+                    "revision": pinned.revision + 1,
+                    "enabled": True,
+                    "reviewed_at": utc_now(),
+                    "review_error": None,
+                    "credential_configured": True,
+                    "tools": tools,
+                })
+                self._write(reviewed)
+        except BaseException:
+            with self._transaction(pinned.project_id):
+                if self._oauth_storage_valid(pinned):
+                    self._clear_credentials(pinned.project_id, pinned.id)
+                    self._write(pinned.model_copy(update={
+                        "review_error": "OAuth authorization or tool review failed",
+                    }))
+        finally:
+            if not flow.authorization_url.done():
+                flow.authorization_url.set_result(None)
+            if flow.state is not None:
+                self._oauth_states.pop(flow.state, None)
+            self._oauth_flows.pop(key, None)
+
+    def complete_oauth_callback(
+        self, *, state: str, code: str | None, issuer: str | None,
+        error: str | None,
+    ) -> bool:
+        flow = self._oauth_states.pop(state, None)
+        if flow is None or flow.callback.done():
+            return False
+        if not self._oauth_storage_valid(flow.connector):
+            flow.callback.set_exception(UserMcpConflictError("OAuth authorization was revoked"))
+            return False
+        if error or not code or len(code) > 8_000 or (issuer and len(issuer) > 2_000):
+            flow.callback.set_exception(UserMcpConflictError("OAuth authorization was denied"))
+        else:
+            flow.callback.set_result(AuthorizationCodeResult(
+                code=code, state=state, iss=issuer,
+            ))
+        return True
+
+    async def aclose_oauth_flows(self) -> None:
+        tasks = [flow.task for flow in self._oauth_flows.values() if flow.task is not None]
+        for task in tasks:
+            task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
 
     def set_tool_policy(
         self, project_id: str, connector_id: str, tool_name: str,
@@ -581,10 +980,10 @@ class UserMcpRegistry:
             current = self.get(project_id, connector_id)
             updated = current.model_copy(update={
                 "revision": current.revision + 1, "enabled": False,
-                "reviewed_at": None, "tools": [],
+                "reviewed_at": None, "credential_configured": False, "tools": [],
             })
             self._write(updated)
-            self.vault.delete(self._vault_id(project_id, connector_id))
+            self._clear_credentials(project_id, connector_id)
             return updated
 
     def active(self, project_id: str) -> list[UserMcpConnector]:
@@ -594,11 +993,11 @@ class UserMcpRegistry:
                 continue
             try:
                 self._check_url(item.url)
+                if item.auth_mode == "oauth":
+                    self._check_oauth_issuer(item.oauth_issuer, item.url)
             except ValueError:
                 continue
-            if item.credential_configured and not self.vault.has(
-                self._vault_id(project_id, item.id)
-            ):
+            if not self._credential_available(item):
                 continue
             result.append(item)
         return result
@@ -607,11 +1006,11 @@ class UserMcpRegistry:
         try:
             current = self.get(pinned.project_id, pinned.id)
             self._check_url(current.url)
+            if current.auth_mode == "oauth":
+                self._check_oauth_issuer(current.oauth_issuer, current.url)
             return bool(
                 current == pinned and current.enabled and current.reviewed_at is not None
-                and (not current.credential_configured or self.vault.has(
-                    self._vault_id(current.project_id, current.id)
-                ))
+                and self._credential_available(current)
             )
         except (KeyError, ValueError):
             return False

@@ -5,15 +5,43 @@ official Claude Code documentation MCP as the initial catalog entry. Adding it
 negotiates the server's MCP version and performs a paginated `tools/list` review
 in one action. The gateway supports the handshake-free `2026-07-28` path and
 falls back to the legacy `initialize` exchange for older servers.
-The advanced form accepts a Streamable HTTP HTTPS address and an optional bearer
-token. A custom hostname must first be added to the organization allowlist by
-an owner or administrator (in local-only mode, by the local operator).
+The advanced form accepts a Streamable HTTP HTTPS address, an optional bearer
+token, or an OAuth issuer URL. A custom MCP or OAuth issuer hostname must first
+be added to the organization allowlist by an owner or administrator (in
+local-only mode, by the local operator). Saving an OAuth connector keeps it
+disabled. **Connect with OAuth** returns a short-lived authorization link; the
+browser callback completes the SDK's authorization-code/PKCE exchange and a
+live tool-list review before enabling it. The link can be retrieved again while
+authorization is pending. An interrupted process or rejected authorization
+leaves the connector disabled; start the connection again.
 
 Saving or editing a connector disables it. Review pins each outbound request to
 a DNS-validated public IP, keeps the original Host and TLS SNI, rejects redirects,
 and permits only a bounded tool list with safe names. Failed or overlapping
-reviews leave the connector disabled. The bearer token is kept in the server-side
-secret vault and never returned by the API. A revoked connector loses its token.
+reviews leave the connector disabled. Bearer tokens, OAuth access/refresh tokens,
+dynamic client registration, and reviewed authorization-server metadata stay in
+the server-side secret vault and never enter the API response or SDK worker.
+A revoked connector loses those credentials. The OAuth issuer must match the
+resource server's advertised issuer and organization policy. The browser may
+visit only an authorization URL on that issuer host. The gateway accepts OAuth
+metadata and token requests only on the approved resource/issuer hosts and
+prevents Bearer tokens from reaching anything but the reviewed MCP endpoint.
+Expired tokens are refreshed through the pinned issuer endpoint before a new
+Run uses them. The SDK's native [OAuth client flow](https://github.com/modelcontextprotocol/python-sdk/blob/main/docs/client/oauth-clients.md)
+performs discovery, registration, PKCE/state/issuer validation, exchange, and
+refresh; the host binds destinations, storage, callback, and review.
+
+In `local_only` mode the callback is the local backend's loopback address. In
+`trusted_gateway` mode set `OPHIRA_MCP_OAUTH_PUBLIC_ORIGIN` to the exact public
+HTTPS control-plane origin and route only `/api/mcp/oauth/callback` and
+`/api/mcp/oauth/complete` there without the gateway's normal identity header.
+The callback requires the one-time SDK state and is redirected to a URL without
+the authorization code. The backend redacts that callback's query string from
+Uvicorn access logs; the fronting gateway must also omit its query string from
+access logs. Management routes still require project authorization.
+The backend process must remain up during the five-minute browser grant. A
+provider that requires a pre-registered client instead of MCP dynamic client
+registration is not yet supported by this flow.
 
 Reviewed tools default to **ask**. Each tool can be set to **allow**, **ask each
 time**, or **deny**. Ask decisions use the existing durable SDK approval path and
@@ -61,8 +89,10 @@ compaction, and standing-intent Runs receive no user MCP servers.
   The pinned Claude Agent SDK 0.2.143 accepts the v2 in-process server in
   offline modern and legacy tests. A public server requiring only the new path
   and a real Provider run still need acceptance testing.
-- OAuth authorization and token refresh are not implemented; the advanced form
-  accepts a user-supplied bearer token only.
+- OAuth has an offline end-to-end HTTP test covering discovery, registration,
+  browser callback, PKCE, token exchange/refresh, tool review/call, issuer
+  policy, and revocation. A real public OAuth MCP/Provider and deployed
+  trusted-gateway callback still need acceptance testing.
 - Remote MCP receipts prove what the reviewed server returned to this Run after
   sanitization. They do not verify the server's underlying sources or factual
   claims. Live server and Provider acceptance remains pending.
