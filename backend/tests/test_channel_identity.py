@@ -11,9 +11,11 @@ from ophira_backend.auth import AuthorizationError, ProjectAccessStore
 from ophira_backend.channel_identity import (
     ChannelIdentityAmbiguousError,
     ChannelIdentityConflictError,
+    ChannelIdentityIntegrityError,
     ChannelIdentityNotFoundError,
     ChannelIdentityPayloadError,
     ChannelIdentityRevokedError,
+    DingTalkIdentityBindingCreate,
     FeishuIdentityBinding,
     FeishuIdentityBindingCreate,
     FeishuIdentityBindingStore,
@@ -267,3 +269,50 @@ def test_selector_uses_only_signed_body_identity_fields_not_message_text() -> No
                 },
             }
         )
+
+
+def test_dingtalk_binding_is_scoped_to_channel_and_revalidates_role(tmp_path: Path) -> None:
+    _feishu_store, access, owner = configured_store(tmp_path)
+    store = FeishuIdentityBindingStore(
+        tmp_path / "dingtalk-bindings", access, channel="dingtalk", clock=lambda: NOW,
+    )
+    payload = DingTalkIdentityBindingCreate(
+        corp_id="ding_corp_1",
+        conversation_id="cid=group/1",
+        sender_staff_id="staff_1",
+        project_id="project_123",
+        principal_id="member@example.com",
+        role=PrincipalRole.MEMBER,
+    )
+    with pytest.raises(ChannelIdentityPayloadError):
+        store.create(create_payload(), actor=owner)
+    with pytest.raises(ChannelIdentityPayloadError):
+        store.resolve(create_payload().selector)
+
+    created = store.create(payload, actor=owner)
+    assert created.channel == "dingtalk"
+    assert created.principal_session_id == f"dingtalk/{created.id}"
+    assert store.create(payload, actor=owner) == created
+    restarted = FeishuIdentityBindingStore(
+        tmp_path / "dingtalk-bindings", access, channel="dingtalk",
+    )
+    assert restarted.resolve(payload.selector).principal.principal_id == "member@example.com"
+
+    access.grant(
+        "project_123", owner, principal_id="member@example.com", role=PrincipalRole.REVIEWER,
+    )
+    with pytest.raises(AuthorizationError, match="role"):
+        restarted.resolve(payload.selector)
+    assert store.revoke(created.id, actor=owner).active is False
+    with pytest.raises(ChannelIdentityRevokedError):
+        restarted.resolve(payload.selector)
+
+
+def test_dingtalk_store_fails_closed_on_cross_channel_snapshot(tmp_path: Path) -> None:
+    feishu_store, access, owner = configured_store(tmp_path)
+    feishu_store.create(create_payload(), actor=owner)
+    other = FeishuIdentityBindingStore(
+        feishu_store.root, access, channel="dingtalk", clock=lambda: NOW,
+    )
+    with pytest.raises(ChannelIdentityIntegrityError):
+        other.list_for_tenant("tenant_acme")

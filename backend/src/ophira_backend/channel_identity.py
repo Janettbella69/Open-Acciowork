@@ -1,10 +1,9 @@
 """Durable, server-administered identity bindings for signed channel events.
 
-Feishu authenticates the event body, but that signature does not identify an
-OPHIRA principal or project.  This store is the trust bridge: an administrator
-binds the exact signed Feishu tenant/chat/user tuple to a durable OPHIRA
-principal scope.  Resolution always revalidates project membership so revoking
-or changing a user's role immediately invalidates the channel binding.
+The channel transport authenticates an event, but that event does not identify
+an OPHIRA principal or project. An administrator binds the verified external
+tenant/conversation/user tuple to a durable OPHIRA principal scope. Resolution
+revalidates project membership so revocation or role changes take effect.
 """
 
 from __future__ import annotations
@@ -27,7 +26,7 @@ from .constants import PrincipalRole
 from .models import PrincipalBinding, PrincipalContext, new_id, utc_now
 from .project_lifecycle import ProjectLifecycleBusyError, ProjectUnavailableError
 
-_FEISHU_ID_PATTERN: Final = r"^[A-Za-z0-9][A-Za-z0-9._:@+\-]{0,255}$"
+_CHANNEL_ID_PATTERN: Final = r"^[A-Za-z0-9][A-Za-z0-9._:@+\-/=]{0,255}$"
 _OPHIRA_ID_PATTERN: Final = r"^[A-Za-z0-9][A-Za-z0-9._:@+\-]{0,159}$"
 _SESSION_ID_PATTERN: Final = r"^[A-Za-z0-9][A-Za-z0-9._:@+\-/]{15,499}$"
 _LEDGER_ID_PATTERN: Final = r"^[A-Za-z0-9_-]{1,200}$"
@@ -63,13 +62,14 @@ class ChannelIdentityPayloadError(ChannelIdentityError):
 
 
 class FeishuIdentitySelector(BaseModel):
-    """Identifiers read only from the already verified Feishu event body."""
+    """Identifiers read only from an already authenticated channel event."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    tenant_key: str = Field(min_length=1, max_length=256, pattern=_FEISHU_ID_PATTERN)
-    chat_id: str = Field(min_length=1, max_length=256, pattern=_FEISHU_ID_PATTERN)
-    user_open_id: str = Field(min_length=1, max_length=256, pattern=_FEISHU_ID_PATTERN)
+    channel: Literal["feishu", "dingtalk"] = "feishu"
+    tenant_key: str = Field(min_length=1, max_length=256, pattern=_CHANNEL_ID_PATTERN)
+    chat_id: str = Field(min_length=1, max_length=256, pattern=_CHANNEL_ID_PATTERN)
+    user_open_id: str = Field(min_length=1, max_length=256, pattern=_CHANNEL_ID_PATTERN)
 
 
 class FeishuIdentityBindingCreate(BaseModel):
@@ -77,9 +77,9 @@ class FeishuIdentityBindingCreate(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    tenant_key: str = Field(min_length=1, max_length=256, pattern=_FEISHU_ID_PATTERN)
-    chat_id: str = Field(min_length=1, max_length=256, pattern=_FEISHU_ID_PATTERN)
-    user_open_id: str = Field(min_length=1, max_length=256, pattern=_FEISHU_ID_PATTERN)
+    tenant_key: str = Field(min_length=1, max_length=256, pattern=_CHANNEL_ID_PATTERN)
+    chat_id: str = Field(min_length=1, max_length=256, pattern=_CHANNEL_ID_PATTERN)
+    user_open_id: str = Field(min_length=1, max_length=256, pattern=_CHANNEL_ID_PATTERN)
     project_id: str = Field(min_length=1, max_length=200, pattern=_LEDGER_ID_PATTERN)
     principal_id: str = Field(
         min_length=1,
@@ -91,9 +91,32 @@ class FeishuIdentityBindingCreate(BaseModel):
     @property
     def selector(self) -> FeishuIdentitySelector:
         return FeishuIdentitySelector(
+            channel="feishu",
             tenant_key=self.tenant_key,
             chat_id=self.chat_id,
             user_open_id=self.user_open_id,
+        )
+
+
+class DingTalkIdentityBindingCreate(BaseModel):
+    """Admin mapping for one authenticated DingTalk Stream conversation sender."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    corp_id: str = Field(min_length=1, max_length=256, pattern=_CHANNEL_ID_PATTERN)
+    conversation_id: str = Field(min_length=1, max_length=256, pattern=_CHANNEL_ID_PATTERN)
+    sender_staff_id: str = Field(min_length=1, max_length=256, pattern=_CHANNEL_ID_PATTERN)
+    project_id: str = Field(min_length=1, max_length=200, pattern=_LEDGER_ID_PATTERN)
+    principal_id: str = Field(min_length=1, max_length=160, pattern=_OPHIRA_ID_PATTERN)
+    role: PrincipalRole
+
+    @property
+    def selector(self) -> FeishuIdentitySelector:
+        return FeishuIdentitySelector(
+            channel="dingtalk",
+            tenant_key=self.corp_id,
+            chat_id=self.conversation_id,
+            user_open_id=self.sender_staff_id,
         )
 
 
@@ -104,10 +127,10 @@ class FeishuIdentityBinding(BaseModel):
         default_factory=lambda: new_id("channel_binding"),
         pattern=r"^channel_binding_[a-f0-9]{32}$",
     )
-    channel: Literal["feishu"] = "feishu"
-    tenant_key: str = Field(min_length=1, max_length=256, pattern=_FEISHU_ID_PATTERN)
-    chat_id: str = Field(min_length=1, max_length=256, pattern=_FEISHU_ID_PATTERN)
-    user_open_id: str = Field(min_length=1, max_length=256, pattern=_FEISHU_ID_PATTERN)
+    channel: Literal["feishu", "dingtalk"] = "feishu"
+    tenant_key: str = Field(min_length=1, max_length=256, pattern=_CHANNEL_ID_PATTERN)
+    chat_id: str = Field(min_length=1, max_length=256, pattern=_CHANNEL_ID_PATTERN)
+    user_open_id: str = Field(min_length=1, max_length=256, pattern=_CHANNEL_ID_PATTERN)
     tenant_id: str = Field(min_length=1, max_length=160, pattern=_OPHIRA_ID_PATTERN)
     principal_id: str = Field(min_length=1, max_length=160, pattern=_OPHIRA_ID_PATTERN)
     project_id: str = Field(min_length=1, max_length=200, pattern=_LEDGER_ID_PATTERN)
@@ -152,6 +175,7 @@ class FeishuIdentityBinding(BaseModel):
     @property
     def selector(self) -> FeishuIdentitySelector:
         return FeishuIdentitySelector(
+            channel=self.channel,
             tenant_key=self.tenant_key,
             chat_id=self.chat_id,
             user_open_id=self.user_open_id,
@@ -204,13 +228,14 @@ def feishu_identity_selector(payload: dict[str, Any]) -> FeishuIdentitySelector:
 
 
 class FeishuIdentityBindingStore:
-    """Atomic binding history with one active target per external identity tuple."""
+    """Atomic binding history with one active target per channel identity tuple."""
 
     def __init__(
         self,
         root: Path,
         project_access: ProjectAccessStore,
         *,
+        channel: Literal["feishu", "dingtalk"] = "feishu",
         clock=utc_now,
     ) -> None:
         self.root = root.resolve()
@@ -220,6 +245,7 @@ class FeishuIdentityBindingStore:
         except OSError:
             pass
         self.project_access = project_access
+        self.channel = channel
         self._clock = clock
         self._process_lock = threading.RLock()
 
@@ -263,7 +289,10 @@ class FeishuIdentityBindingStore:
         try:
             if path.is_symlink() or not path.is_file():
                 raise OSError("invalid binding snapshot")
-            return FeishuIdentityBinding.model_validate_json(path.read_text(encoding="utf-8"))
+            record = FeishuIdentityBinding.model_validate_json(path.read_text(encoding="utf-8"))
+            if record.channel != self.channel:
+                raise ValueError("binding belongs to another channel")
+            return record
         except (OSError, ValueError) as exc:
             raise ChannelIdentityIntegrityError(
                 "channel identity binding failed integrity validation"
@@ -324,7 +353,7 @@ class FeishuIdentityBindingStore:
     @staticmethod
     def _same_target(
         binding: FeishuIdentityBinding,
-        payload: FeishuIdentityBindingCreate,
+        payload: FeishuIdentityBindingCreate | DingTalkIdentityBindingCreate,
         tenant_id: str,
     ) -> bool:
         return (
@@ -336,18 +365,20 @@ class FeishuIdentityBindingStore:
 
     def create(
         self,
-        payload: FeishuIdentityBindingCreate,
+        payload: FeishuIdentityBindingCreate | DingTalkIdentityBindingCreate,
         *,
         actor: PrincipalContext,
     ) -> FeishuIdentityBinding:
         """Create an idempotent binding after validating actor and target membership."""
 
+        if payload.selector.channel != self.channel:
+            raise ChannelIdentityPayloadError("binding payload belongs to another channel")
         with self._project_lease(payload.project_id):
             return self._create_available(payload, actor=actor)
 
     def _create_available(
         self,
-        payload: FeishuIdentityBindingCreate,
+        payload: FeishuIdentityBindingCreate | DingTalkIdentityBindingCreate,
         *,
         actor: PrincipalContext,
     ) -> FeishuIdentityBinding:
@@ -388,14 +419,15 @@ class FeishuIdentityBindingStore:
             binding_id = new_id("channel_binding")
             record = FeishuIdentityBinding(
                 id=binding_id,
-                tenant_key=payload.tenant_key,
-                chat_id=payload.chat_id,
-                user_open_id=payload.user_open_id,
+                channel=self.channel,
+                tenant_key=payload.selector.tenant_key,
+                chat_id=payload.selector.chat_id,
+                user_open_id=payload.selector.user_open_id,
                 tenant_id=actor.tenant_id,
                 principal_id=payload.principal_id,
                 project_id=payload.project_id,
                 role=payload.role,
-                principal_session_id=f"feishu/{binding_id}",
+                principal_session_id=f"{self.channel}/{binding_id}",
                 created_by=actor.principal_id,
                 created_at=now,
                 updated_at=now,
@@ -473,6 +505,8 @@ class FeishuIdentityBindingStore:
     def resolve(self, selector: FeishuIdentitySelector) -> ResolvedFeishuIdentity:
         """Resolve one active mapping and revalidate its current project role."""
 
+        if selector.channel != self.channel:
+            raise ChannelIdentityPayloadError("selector belongs to another channel")
         with self._locked():
             matches = [item for item in self._list_unlocked() if item.selector == selector]
             active = [item for item in matches if item.active]
@@ -494,3 +528,10 @@ class FeishuIdentityBindingStore:
                 permission=ProjectPermission.RUN_CREATE,
             )
             return ResolvedFeishuIdentity(binding=binding, principal=binding.principal)
+
+
+# Existing Feishu names remain import-compatible with historical records and APIs.
+ChannelIdentitySelector = FeishuIdentitySelector
+ChannelIdentityBinding = FeishuIdentityBinding
+ChannelIdentityBindingStore = FeishuIdentityBindingStore
+ResolvedChannelIdentity = ResolvedFeishuIdentity
