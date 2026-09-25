@@ -66,7 +66,7 @@
 | FR-32 并行任务列表 | delivered（本地列表）：新任务不取消旧 Run；默认或用户选择的任务预算在创建时冻结，受管理员上限约束，按 Provider 成本比例传入 SDK 原生 `max_budget_usd`；授权过滤列表展示独立 Run 状态、审批、预算、已报告的 SDK 费用和结果，精确 Run 跳转 | deferred：运行中的可靠实时花费、真实多个 SDK Run 并发与预算熔断、浏览器验收 |
 | FR-33 用户 MCP/连接器 | partial（本地）：项目级目录首项一键添加+在线工具清单审查、进阶 HTTPS/Bearer/OAuth 配置、SDK 原生动态注册、客户端元数据 URL 与预注册公开/机密客户端授权刷新、组织主机白名单、逐工具允许/每次询问/禁止、撤销、Run 快照与 SDK 显式装配；运行期经每次地址钉住的受控 MCP 网关，外部输出不可信过滤；主 Agent 当前批准工具的清洗后结果可签发同 Run/session 的 `tool` 来源凭证，写入证据时由账本复核；MCP Python SDK 2.2 自动协商 2026-07-28 无握手协议及旧版回退，同一 Run 复用旧版有状态 HTTP 会话、不同 Run 隔离，离线 HTTP 和进程内测试覆盖；见 `docs/user-mcp.md` | deferred：真实 MCP/Provider/OAuth E2E、更多已验证目录项、公开状态型服务器、可信网关部署及浏览器目视验收，见 `docs/user-mcp.md` |
 | FR-34 上下文压缩 | delivered（本地代码/离线测试，2026-09-24）：钉版 SDK `get_context_usage()` 采样有效窗口占用并随 Run 事件回放；原生压缩边界事件提示自动/手动压缩、崩溃后修复 epoch 并强制完整业务上下文刷新；用户可在已完成会话启动独立无工具 `/compact` Run，只有 SDK 手动边界确认才算成功，账本及产物不被压缩 Run 改写 | deferred：真实 Provider 用量/手动与自动压缩语义、长时采样及浏览器目视验收；SDK 不提供用量时显示未知，不从累计 token 推算 |
-| FR-35 会话检索 | delivered（本地）：项目内有界 Run 提问、用户插话、主 Agent 回复与结果检索，RUN_READ 校验、只读 MCP、Run ID 回放及截断提示 | deferred：大历史性能/覆盖、浏览器与真实会话质量验收 |
+| FR-35 会话检索 | delivered（本地）：项目内有界 Run 提问、用户插话、主 Agent 回复与结果检索，RUN_READ 校验、只读 MCP、Run ID 回放、有界续页搜索更早 Run 及跳过日志提示 | deferred：大历史性能、浏览器与真实会话质量验收；单页仍扫描所有本地 Run 元数据后过滤项目 |
 | FR-36 首次引导 | delivered（本地）：示例任务、模型选择及设置页密钥/条款/预检/返回步骤 | deferred：新用户可用性测试和实际 Provider 配置 E2E |
 | FR-37 事件触发 | partial（本地）：项目级 webhook/询盘邮件/店铺订单规范化事件入口；Mailgun 收件路由原生表单验签、精确收件地址绑定、Message-ID 与签名 token 持久去重；Shopify `orders/create` 原生 HMAC 入站、项目店铺授权绑定、去重与订阅注册/核验/移除；Gmail 只读 OAuth、Inbox watch 续期、已认证 Pub/Sub JWT 入站、history 增量/过期显式重置、项目触发器独立启用游标及持久去重；Outlook Graph Inbox `created` 订阅、`clientState` 验证/入队/续订、共享邮箱项目登记与 Run 幂等、生命周期缺口标记、不确定注册远端核对、私有 delta 游标与有界缺口补偿/自动同步；服务端公开 HTTPS 地址、项目/创建人权限复验、单 Run 预算与权限上限、单主 Agent 和现有人审流程及前端管理；见 `docs/event-triggers.md` | deferred：旧登记或超出有界窗口的 Outlook 缺口需人工核查；真实公共 HTTPS/Google/Microsoft OAuth 与 Pub/Sub/Mailgun/Shopify 联调、其他邮箱/店铺原生适配、Provider E2E、部署环境浏览器验收与更广崩溃故障矩阵；不确定投递不盲目重试 |
 | FR-38 钉钉/企微 | partial（本地）：钉钉官方 Stream SDK 验证回调接入、群 @ /单聊文字门禁、管理员绑定 corp/conversation/staff 至项目与成员、角色即时复验、跨 worker 去重与投递互斥、Run 结果经官方 robot API 回到原会话；企微官方智能机器人 SDK 验证 WebSocket 帧接入、群/单聊文字、bot/conversation/sender 精确绑定、Run 结果经主动发送命令回到会话，断线时未发送结果保持待处理；两者的无幂等字段投递异常停止自动重试并留痕；见 `backend/README.md` | deferred：钉钉及企微真实租户收发/权限/轮换 E2E 与实际送达确认；微信路径仍待确定。PRD 的微信先行顺序尚未满足 |
@@ -1333,3 +1333,16 @@ vault 与项目 MCP 相关专项 **116 passed**，Ruff 和 `git diff --check` �
 验证：后端全套 **2440 passed / 14 skipped**，前端全套 **571 passed / 59 files**，
 Ruff、ESLint、TypeScript、Vite 构建与 `git diff --check` 通过。浏览器连接列表为空，
 本批未做页面目视；归档规模性能和完整 PRD 仍未验收完成。
+
+## 2026-09-25：FR-35 会话检索继续查找旧 Run
+
+原搜索只查项目最新 500 个 Run，无法继续查询更早历史。现提供项目和查询绑定的
+`next_cursor`，工作台与主 Agent 只读 MCP 均可继续有界扫描；每页仍最多 500 个 Run、
+20 个匹配结果及既有事件字节/条数预算。请求预算恰在一个 Run 的事件日志前耗尽时，
+该 Run 留在下一页重试；超过单 Run 上限的日志仍明确标为跳过。新增 501 个真实本地
+Run 的回归覆盖最旧结果、分页重复防护、项目/查询游标隔离和权限。
+
+650 条临时 Run 的本机验证中，前 500 条扫描约 0.26 秒，后 150 条续页约 0.16 秒，
+两页找到最旧结果；这不代表大规模项目的性能验收。后端全套 **2444 passed / 14 skipped**，
+前端全套 **573 passed / 59 files**，Ruff、ESLint、TypeScript、Vite
+构建与 `git diff --check` 通过。页面浏览器目视和完整 PRD 仍未验收完成。

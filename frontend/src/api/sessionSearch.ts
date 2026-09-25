@@ -16,4 +16,5 @@ export type SessionSearch = {
   scanned_runs: number
   skipped_event_logs: number
   truncated: boolean
+  next_cursor: string | null
 }

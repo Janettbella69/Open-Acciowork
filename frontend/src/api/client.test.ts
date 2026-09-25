@@ -7,6 +7,7 @@ import {
   getProjectMetrics,
   getWorkspaceArchivePage,
   changeWorkspaceRetention,
+  searchProjectSessions,
   getProjectKnowledge,
   getProject,
   getRunTelemetry,
@@ -32,6 +33,16 @@ afterEach(() => {
 })
 
 describe('API client', () => {
+  it('encodes the project query and continuation cursor for session search', async () => {
+    const fetchMock = vi.fn(async () => new Response('{}', { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+    const signal = new AbortController().signal
+    await searchProjectSessions('project/one', 'ceramic mugs', signal, 'page/+one')
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/projects/project%2Fone/session-search?q=ceramic+mugs&limit=20&cursor=page%2F%2Bone',
+      expect.objectContaining({ signal, cache: 'no-store' }),
+    )
+  })
   it('scopes archived recovery paging and confirmed deletion to the selected project', async () => {
     const fetchMock = vi.fn(async () => new Response('{}', { status: 200 }))
     vi.stubGlobal('fetch', fetchMock)

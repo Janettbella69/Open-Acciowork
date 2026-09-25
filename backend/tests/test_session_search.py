@@ -1,4 +1,5 @@
 import json
+from urllib.parse import quote
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -56,6 +57,75 @@ async def test_search_skips_oversized_logs_without_claiming_complete_coverage(
     assert not result.matches and result.truncated and result.skipped_event_logs == 1
     with pytest.raises(ValueError):
         search_project_sessions(ledger, project.id, query="   ")
+
+
+def test_search_continues_through_older_runs_without_repeating_newer_results(
+    tmp_path, monkeypatch,
+):
+    monkeypatch.setattr("ophira_backend.session_search.MAX_SEARCH_RUNS", 2)
+    ledger = FileLedger(tmp_path)
+    project = ledger.create_project(ProjectCreate(name="Mine", objective="Market"))
+    runs = [ledger.create_run(project.id, prompt) for prompt in (
+        "The oldest ceramics note", "Second note", "Third note", "Fourth note", "Newest note",
+    )]
+    first = search_project_sessions(ledger, project.id, query="ceramics")
+    assert first.matches == [] and first.scanned_runs == 2 and first.next_cursor
+    ledger.create_run(project.id, "New run after search started")
+    second = search_project_sessions(
+        ledger, project.id, query="ceramics", cursor=first.next_cursor,
+    )
+    assert second.matches == [] and second.scanned_runs == 2 and second.next_cursor
+    third = search_project_sessions(
+        ledger, project.id, query="ceramics", cursor=second.next_cursor,
+    )
+    assert [match.run_id for match in third.matches] == [runs[0].id]
+    assert third.scanned_runs == 1 and third.next_cursor is None and not third.truncated
+    with pytest.raises(ValueError, match="cursor"):
+        search_project_sessions(ledger, project.id, query="another", cursor=first.next_cursor)
+    other = ledger.create_project(ProjectCreate(name="Other", objective="Market"))
+    with pytest.raises(ValueError, match="cursor"):
+        search_project_sessions(ledger, other.id, query="ceramics", cursor=first.next_cursor)
+    with pytest.raises(ValueError, match="cursor"):
+        search_project_sessions(ledger, project.id, query="ceramics", cursor="not a cursor")
+
+
+def test_search_reaches_a_run_older_than_the_default_page_limit(tmp_path):
+    ledger = FileLedger(tmp_path)
+    project = ledger.create_project(ProjectCreate(name="Mine", objective="Market"))
+    oldest = ledger.create_run(project.id, "The only rare material")
+    for index in range(500):
+        ledger.create_run(project.id, f"Later task {index}")
+    first = search_project_sessions(ledger, project.id, query="rare material")
+    assert first.scanned_runs == 500 and first.matches == [] and first.next_cursor
+    second = search_project_sessions(
+        ledger, project.id, query="rare material", cursor=first.next_cursor,
+    )
+    assert [match.run_id for match in second.matches] == [oldest.id]
+    assert second.next_cursor is None and not second.truncated
+
+
+@pytest.mark.asyncio
+async def test_search_retries_run_when_request_budget_ends_before_its_event_log(
+    tmp_path, monkeypatch,
+):
+    ledger = FileLedger(tmp_path)
+    project = ledger.create_project(ProjectCreate(name="Mine", objective="Market"))
+    older = ledger.create_run(project.id, "Find suppliers")
+    newer = ledger.create_run(project.id, "Find customers")
+    publisher = EventPublisher(ledger)
+    await publisher.publish(older.id, EventType.RUN_RESULT, {"result": "needle supplier"})
+    await publisher.publish(newer.id, EventType.RUN_RESULT, {"result": "another result"})
+    combined = (ledger._events_path(older.id).stat().st_size
+                + ledger._events_path(newer.id).stat().st_size)
+    monkeypatch.setattr("ophira_backend.session_search.MAX_REQUEST_EVENT_BYTES", combined - 1)
+    first = search_project_sessions(ledger, project.id, query="needle")
+    assert first.matches == [] and first.scanned_runs == 1
+    assert first.skipped_event_logs == 0 and first.next_cursor
+    older_page = search_project_sessions(
+        ledger, project.id, query="needle", cursor=first.next_cursor,
+    )
+    assert [match.run_id for match in older_page.matches] == [older.id]
+    assert older_page.next_cursor is None and older_page.skipped_event_logs == 0
 
 
 @pytest.mark.asyncio
@@ -121,6 +191,24 @@ async def test_search_mcp_is_read_only_and_treats_results_as_untrusted(tmp_path)
 
 
 @pytest.mark.asyncio
+async def test_search_mcp_accepts_the_returned_cursor_for_older_history(tmp_path):
+    ledger = FileLedger(tmp_path)
+    project = ledger.create_project(ProjectCreate(name="Mine", objective="Market"))
+    older = ledger.create_run(project.id, "Supplier note older")
+    ledger.create_run(project.id, "Supplier note newer")
+    tool = next(item for item in build_ledger_tools(ledger, project.id)
+                if item.name == "search_project_sessions")
+    first = json.loads((await tool.handler({"query": "Supplier note", "limit": 1}))[
+        "content"][0]["text"])
+    assert first["next_cursor"]
+    second = json.loads((await tool.handler({
+        "query": "Supplier note", "limit": 1, "cursor": first["next_cursor"],
+    }))["content"][0]["text"])
+    assert second["matches"][0]["run_id"] == older.id
+    assert second["next_cursor"] is None
+
+
+@pytest.mark.asyncio
 async def test_session_search_api_requires_project_run_read(tmp_path):
     app = create_app(trusted_settings(tmp_path), runtime=FakeRuntime())
     async with AsyncClient(
@@ -136,14 +224,31 @@ async def test_session_search_api_requires_project_run_read(tmp_path):
                 "owner@example.com", PrincipalRole.OWNER,
             ),
         )
-        route = f"/api/projects/{project_id}/session-search?q=ceramics"
+        app.state.ledger.create_run(
+            project_id, "Compare ceramics", principal=principal(
+                "owner@example.com", PrincipalRole.OWNER,
+            ),
+        )
+        route = f"/api/projects/{project_id}/session-search?q=ceramics&limit=1"
         visible = await request_as(client, "GET", route, "owner@example.com", PrincipalRole.OWNER)
         assert visible.status_code == 200 and len(visible.json()["matches"]) == 1
         assert visible.headers["cache-control"] == "no-store"
+        cursor = visible.json()["next_cursor"]
+        older = await request_as(
+            client, "GET", route + f"&cursor={quote(cursor)}",
+            "owner@example.com", PrincipalRole.OWNER,
+        )
+        assert older.status_code == 200 and len(older.json()["matches"]) == 1
+        assert older.json()["next_cursor"] is None
+        assert older.json()["matches"][0]["run_id"] != visible.json()["matches"][0]["run_id"]
         denied = await request_as(
             client, "GET", route, "outsider@example.com", PrincipalRole.MEMBER,
         )
         assert denied.status_code == 403 and "ceramics" not in denied.text
+        invalid_cursor = await request_as(
+            client, "GET", route + "&cursor=invalid", "owner@example.com", PrincipalRole.OWNER,
+        )
+        assert invalid_cursor.status_code == 422
         invalid = await request_as(
             client, "GET", f"/api/projects/{project_id}/session-search?q=%20",
             "owner@example.com", PrincipalRole.OWNER,

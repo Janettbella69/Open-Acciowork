@@ -389,8 +389,9 @@ export function listProjectRuns(projectId: string): Promise<RunRecord[]> {
   return request<RunRecord[]>(`/api/projects/${projectId}/runs`)
 }
 
-export function searchProjectSessions(projectId: string, query: string, signal?: AbortSignal): Promise<SessionSearch> {
+export function searchProjectSessions(projectId: string, query: string, signal?: AbortSignal, cursor?: string): Promise<SessionSearch> {
   const params = new URLSearchParams({ q: query, limit: '20' })
+  if (cursor) params.set('cursor', cursor)
   return request<SessionSearch>(`/api/projects/${encodeURIComponent(projectId)}/session-search?${params}`, {
     signal, cache: 'no-store',
   })

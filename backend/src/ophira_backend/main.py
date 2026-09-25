@@ -288,6 +288,7 @@ from .scheduler import (
 )
 from .sdk_adapter import ClaudeAgentRuntime
 from .session_search import (
+    MAX_CURSOR_CHARS,
     MAX_QUERY_CHARS,
     MAX_SEARCH_RESULTS,
     SessionSearch,
@@ -1525,13 +1526,14 @@ def _create_app(
         request: Request, response: Response, project_id: str,
         q: Annotated[str, Query(min_length=1, max_length=MAX_QUERY_CHARS)],
         limit: Annotated[int, Query(ge=1, le=MAX_SEARCH_RESULTS)] = 10,
+        cursor: Annotated[str | None, Query(min_length=1, max_length=MAX_CURSOR_CHARS)] = None,
     ) -> SessionSearch:
         require_project_authorization(
             project_id, _request_principal(request), ProjectPermission.RUN_READ,
         )
         response.headers["Cache-Control"] = "no-store"
         try:
-            return search_project_sessions(ledger, project_id, query=q, limit=limit)
+            return search_project_sessions(ledger, project_id, query=q, limit=limit, cursor=cursor)
         except LedgerNotFoundError as exc:
             raise HTTPException(status_code=404, detail="Project not found") from exc
         except ValueError as exc:

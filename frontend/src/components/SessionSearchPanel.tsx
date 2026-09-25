@@ -25,19 +25,27 @@ export default function SessionSearchPanel({ projectId, onSelectRun }: {
     }
   }, [projectId])
 
-  async function search(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    const text = query.trim()
-    if (!text) return
+  async function search(text: string, cursor?: string) {
+    if (!text || loading) return
     pending.current?.abort()
     const controller = new AbortController()
     pending.current = controller
     setLoading(true)
     setError('')
-    setResult(null)
+    if (!cursor) setResult(null)
     try {
-      const found = await searchProjectSessions(projectId, text, controller.signal)
-      if (!controller.signal.aborted && found.project_id === projectId) setResult(found)
+      const found = await searchProjectSessions(projectId, text, controller.signal, cursor)
+      if (!controller.signal.aborted && found.project_id === projectId) {
+        setResult((current) => {
+          if (!cursor || !current) return found
+          const skipped = current.skipped_event_logs + found.skipped_event_logs
+          return {
+            ...found, matches: [...current.matches, ...found.matches],
+            scanned_runs: current.scanned_runs + found.scanned_runs,
+            skipped_event_logs: skipped, truncated: found.next_cursor !== null || skipped > 0,
+          }
+        })
+      }
     } catch {
       if (!controller.signal.aborted) setError(t('Session search could not finish. Please retry.'))
     } finally {
@@ -48,20 +56,35 @@ export default function SessionSearchPanel({ projectId, onSelectRun }: {
     }
   }
 
+  function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    void search(query.trim())
+  }
+
+  function changeQuery(value: string) {
+    pending.current?.abort()
+    pending.current = null
+    setLoading(false)
+    setQuery(value)
+    setResult(null)
+    setError('')
+  }
+
   return (
     <details className="conversation-session-search">
       <summary>{t('Search past conversations')}</summary>
-      <form onSubmit={(event) => void search(event)} role="search">
+      <form onSubmit={submit} role="search">
         <label htmlFor="session-search-input">{t('Search this project')}</label>
         <div>
-          <input id="session-search-input" value={query} maxLength={200} onChange={(event) => setQuery(event.target.value)} />
+          <input id="session-search-input" value={query} maxLength={200} onChange={(event) => changeQuery(event.target.value)} />
           <button type="submit" disabled={loading || !query.trim()}>{loading ? t('Searching…') : t('Search')}</button>
         </div>
       </form>
       {error && <p role="alert">{error}</p>}
       {result && <div aria-live="polite">
         {!result.matches.length && <p>{t('No matching conversations in the scanned history.')}</p>}
-        {result.truncated && <p>{t('Search coverage is incomplete. Narrow the search or review older runs.')}</p>}
+        {result.skipped_event_logs > 0 && <p>{t('Some event logs could not be searched. Results may be incomplete.')}</p>}
+        {result.next_cursor && <p>{t('More history remains. Continue searching older runs.')}</p>}
         <ul>
           {result.matches.map((match) => <li key={match.run_id}>
             <button type="button" onClick={() => onSelectRun(match.run_id)}>
@@ -73,6 +96,8 @@ export default function SessionSearchPanel({ projectId, onSelectRun }: {
             </button>
           </li>)}
         </ul>
+        {result.next_cursor && <button type="button" disabled={loading}
+          onClick={() => void search(result.query.trim(), result.next_cursor ?? undefined)}>{t('Search older runs')}</button>}
       </div>}
     </details>
   )

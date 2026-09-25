@@ -221,8 +221,8 @@
 .conversation-session-search label { display: block; margin-bottom: 6px; color: #727972; font-size: 12px; }
 .conversation-session-search form > div { display: flex; gap: 8px; }
 .conversation-session-search input { min-width: 0; flex: 1; border: 1px solid #dfe4dd; border-radius: 8px; padding: 8px 10px; font: inherit; }
-.conversation-session-search form button { border: 0; border-radius: 8px; padding: 8px 12px; color: #fff; background: #536f59; cursor: pointer; }
-.conversation-session-search form button:disabled { opacity: .5; cursor: default; }
+.conversation-session-search form button, .conversation-session-search [aria-live] > button { border: 0; border-radius: 8px; padding: 8px 12px; color: #fff; background: #536f59; cursor: pointer; }
+.conversation-session-search form button:disabled, .conversation-session-search [aria-live] > button:disabled { opacity: .5; cursor: default; }
 .conversation-session-search ul { display: grid; margin: 10px 0 0; padding: 0; gap: 6px; list-style: none; }
 .conversation-session-search li button { display: grid; width: 100%; border: 0; border-radius: 8px; padding: 10px; gap: 6px; background: #f7faf6; text-align: left; cursor: pointer; }
 .conversation-session-search li strong { color: #3d483e; font-size: 13px; font-weight: 500; overflow-wrap: anywhere; }
