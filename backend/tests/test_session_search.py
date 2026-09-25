@@ -14,7 +14,7 @@ from ophira_backend.constants import (
 from ophira_backend.events import EventPublisher
 from ophira_backend.ledger_tools import build_ledger_tools
 from ophira_backend.main import create_app
-from ophira_backend.models import EventActor, ProjectCreate
+from ophira_backend.models import EventActor, ProjectCreate, utc_now
 from ophira_backend.sdk_adapter import _post_tool_untrusted_source
 from ophira_backend.session_search import search_project_sessions
 from ophira_backend.storage import FileLedger
@@ -89,12 +89,18 @@ def test_search_continues_through_older_runs_without_repeating_newer_results(
         search_project_sessions(ledger, project.id, query="ceramics", cursor="not a cursor")
 
 
-def test_search_reaches_a_run_older_than_the_default_page_limit(tmp_path):
+def test_search_reaches_a_run_older_than_the_default_page_limit(tmp_path, monkeypatch):
     ledger = FileLedger(tmp_path)
     project = ledger.create_project(ProjectCreate(name="Mine", objective="Market"))
     oldest = ledger.create_run(project.id, "The only rare material")
     for index in range(500):
         ledger.create_run(project.id, f"Later task {index}")
+    assert len(list(ledger.iter_runs(project.id))) == 501
+
+    def no_materialized_list(*args, **kwargs):
+        raise AssertionError("session search must stream Run metadata")
+
+    monkeypatch.setattr(ledger, "list_runs", no_materialized_list)
     first = search_project_sessions(ledger, project.id, query="rare material")
     assert first.scanned_runs == 500 and first.matches == [] and first.next_cursor
     second = search_project_sessions(
@@ -102,6 +108,27 @@ def test_search_reaches_a_run_older_than_the_default_page_limit(tmp_path):
     )
     assert [match.run_id for match in second.matches] == [oldest.id]
     assert second.next_cursor is None and not second.truncated
+
+
+def test_streamed_candidates_keep_timestamp_ties_in_stable_cursor_order(
+    tmp_path, monkeypatch,
+):
+    monkeypatch.setattr("ophira_backend.session_search.MAX_SEARCH_RUNS", 2)
+    ledger = FileLedger(tmp_path)
+    project = ledger.create_project(ProjectCreate(name="Mine", objective="Market"))
+    tied_at = utc_now()
+    records = [ledger.create_run(project.id, f"matching task {index}").model_copy(
+        update={"created_at": tied_at},
+    ) for index in range(5)]
+    monkeypatch.setattr(ledger, "iter_runs", lambda project_id: iter(records))
+    found = []
+    cursor = None
+    for _ in range(3):
+        page = search_project_sessions(ledger, project.id, query="matching", cursor=cursor)
+        found.extend(match.run_id for match in page.matches)
+        cursor = page.next_cursor
+    assert found == sorted((run.id for run in records), reverse=True)
+    assert cursor is None
 
 
 @pytest.mark.asyncio

@@ -23,5 +23,6 @@ returning them.
 The local test suite covers project isolation, `RUN_READ`, replay identifiers,
 redaction, user and Agent message types, bounded logs, cursor continuity and
 the MCP trust boundary. Each page still reads all Run metadata from the file
-ledger before filtering by project; large history performance, real conversation
-quality and browser interaction still need separate acceptance.
+ledger before filtering by project, but retains only the newest 501 eligible
+Run records in memory. Large history I/O performance, real conversation quality
+and browser interaction still need separate acceptance.

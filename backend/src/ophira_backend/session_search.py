@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import binascii
 import hashlib
+import heapq
 from datetime import datetime
 from typing import Literal
 
@@ -12,7 +13,7 @@ from pydantic import Field
 
 from .constants import EventType, RunStatus
 from .events import _redact_text
-from .models import APIModel, utc_now
+from .models import APIModel, RunRecord, utc_now
 from .storage import EventReplayBudget, EventReplayLimitError, FileLedger
 
 MAX_QUERY_CHARS = 200
@@ -93,10 +94,21 @@ def search_project_sessions(
     if not needle:
         raise ValueError("query must contain non-whitespace text")
     cursor_key = _decode_cursor(cursor, project_id, needle) if cursor else None
-    runs = ledger.list_runs(project_id, sort_by_created_at=False)
-    runs.sort(key=lambda run: (run.created_at, run.id), reverse=True)
-    eligible = [run for run in runs if cursor_key is None
-                or (run.created_at, run.id) < cursor_key]
+    candidates: list[tuple[datetime, str, RunRecord]] = []
+    total_runs = 0
+    for run in ledger.iter_runs(project_id):
+        total_runs += 1
+        key = (run.created_at, run.id)
+        if cursor_key is not None and key >= cursor_key:
+            continue
+        entry = (run.created_at, run.id, run)
+        if len(candidates) < MAX_SEARCH_RUNS + 1:
+            heapq.heappush(candidates, entry)
+        elif key > candidates[0][:2]:
+            heapq.heapreplace(candidates, entry)
+    eligible = [entry[2] for entry in sorted(
+        candidates, key=lambda entry: entry[:2], reverse=True,
+    )]
     budget = EventReplayBudget(MAX_REQUEST_EVENT_BYTES, MAX_REQUEST_EVENTS)
     matches: list[SessionMatch] = []
     scanned = 0
@@ -156,7 +168,7 @@ def search_project_sessions(
     )
     return SessionSearch(
         project_id=project_id, query=request.query, observed_at=utc_now(),
-        matches=matches, total_runs=len(runs), scanned_runs=scanned,
+        matches=matches, total_runs=total_runs, scanned_runs=scanned,
         skipped_event_logs=skipped,
         truncated=next_cursor is not None or skipped > 0,
         next_cursor=next_cursor,

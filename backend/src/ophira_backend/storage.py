@@ -771,25 +771,25 @@ class FileLedger:
     def list_runs(
         self, project_id: str | None = None, *, sort_by_created_at: bool = True,
     ) -> list[RunRecord]:
-        if project_id is not None:
-            self.get_project(project_id)
-        runs = [
-            run for run in self._iter_runs()
-            if project_id is None or run.project_id == project_id
-        ]
+        runs = list(self.iter_runs(project_id))
         if not sort_by_created_at:
             return runs
         return sorted(runs, key=lambda run: run.created_at, reverse=True)
 
-    def _iter_runs(self) -> list[RunRecord]:
-        runs: list[RunRecord] = []
+    def iter_runs(self, project_id: str | None = None) -> Iterator[RunRecord]:
+        """Read matching Run records without retaining unrelated projects in memory."""
+        if project_id is not None:
+            self.get_project(project_id)
         for path in self.runs_dir.glob("*/run.json"):
             try:
                 run = self.get_run(path.parent.name)
             except (OSError, ValueError, LedgerNotFoundError):
                 continue
-            runs.append(run)
-        return runs
+            if project_id is None or run.project_id == project_id:
+                yield run
+
+    def _iter_runs(self) -> list[RunRecord]:
+        return list(self.iter_runs())
 
     def runs_for_sdk_session(self, session_id: str) -> list[RunRecord]:
         """Return durable runs bound to an SDK session, newest first."""
