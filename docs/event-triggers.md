@@ -42,8 +42,8 @@ The inquiry email source expects `message_id`, `from`, `subject`, and `body` as
 nonempty strings. The store order source expects `order_id`, `shop_id`, and `status`.
 Other fields remain available to the Agent as bounded, untrusted event data. A
 sender or integration gateway must normalize its upstream email/store event to
-this contract. Direct Mailgun and Gmail inbound email and Shopify order webhooks
-are also supported below. Other mailbox subscriptions still need an integration.
+this contract. Direct Mailgun, Gmail, Outlook Inbox and Shopify order events
+are also supported below.
 
 ## Direct Gmail Inbox trigger
 
@@ -96,6 +96,53 @@ watch boundary; erasing the project removes its local enrollment but cannot
 stop a shared remote watch on behalf of another project.
 Google OAuth consent, topic permissions, authenticated public push delivery and
 Provider Run execution still require validation with an authorized live account.
+
+## Direct Outlook Inbox trigger
+
+Authorize the Outlook connector in **Connectors → Outlook** with Microsoft
+delegated `offline_access User.Read Mail.Read` and configure the same public
+HTTPS event origin used for OAuth. Create **Inquiry email → Outlook Inbox via
+Microsoft Graph** in Event triggers, then select **Register or renew Outlook
+subscription**. A tenant administrator with project access manages it. The
+server registers one Graph `created` subscription for the connector's Inbox;
+multiple project triggers on that mailbox share it. Each trigger has its own
+project enrollment. The callback is
+`<event origin>/api/connectors/outlook/outlook/notifications`. Only the exact
+configured host in trusted-gateway mode accepts it.
+
+Graph validates the callback with a `validationToken` request. OPHIRA echoes
+the decoded token as plain text. Notifications must carry the private
+`clientState` created at registration, the matching subscription ID, and an
+Inbox message ID. The endpoint persists each verified message notification
+before returning `202`; a background worker fetches that immutable ID from
+Graph. It checks the message remains in Inbox and is not a draft, requests
+plain text, excludes HTML and attachments, and limits the body to 3,500
+characters. Sender and subject are untrusted. The existing event dispatcher
+rechecks project and trigger authority, budget, permission ceiling, and human
+approval rules. Duplicate notifications share a durable queue item and Run
+receipts. Completed queue items retain only an ID digest for 30 days; message
+content and project targets are cleared. Project deletion waits for pending
+Outlook notifications involving that project to finish, and its review warns
+that a remote shared subscription may remain.
+
+The subscription requests a six-day expiration and renews within one day of
+expiry. Graph lifecycle `missed` and `subscriptionRemoved` events mark a
+visible **stale** mail gap; they are never described as processed. This
+implementation does not yet reconcile that gap with Graph delta. An uncertain
+create response is retained and never retried automatically. **Reconcile
+Outlook subscription with Graph** lists this app's subscriptions, adopts only
+one exact app/Inbox/callback match, or marks a visible gap when none exists.
+The list API does not return `clientState`, so verified notifications remain
+the delivery proof. Multiple matches require manual review. Stopping
+one trigger removes only its enrollment when another active trigger shares
+the subscription; stopping the last trigger deletes the Graph subscription.
+Stop the subscription before revoking its connector, and inspect any gap before
+stopping it. A real Microsoft account, public HTTPS callback, lifecycle
+delivery, renewal, and Provider Run still need live validation. See Microsoft's
+[webhook delivery](https://learn.microsoft.com/en-us/graph/change-notifications-delivery-webhooks),
+[Outlook notification](https://learn.microsoft.com/en-us/graph/outlook-change-notifications-overview),
+and [lifecycle](https://learn.microsoft.com/en-us/graph/change-notifications-lifecycle-events)
+contracts.
 
 ## Direct Mailgun inbound email
 

@@ -28,7 +28,8 @@ its fixed Graph origin and Inbox path, then fetches each message with
 Inbox and not be a draft. The Agent receives sender, subject, time, and at most
 3,500 characters of plain text per message; HTML responses fail closed and
 attachments are never fetched. The connector currently pages recent Inbox
-mail; it does not offer server-side mail search or Outlook event triggers.
+mail; it does not offer server-side mail search. New Inbox messages can
+separately start Runs through a [Graph subscription trigger](event-triggers.md#direct-outlook-inbox-trigger).
 
 Each successful page has a fixed Graph source path and a same Run/SDK session
 receipt usable with `record_evidence`. Reads themselves do not assert Evidence.

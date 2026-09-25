@@ -62,6 +62,7 @@ import type {
   EventTriggerCreated,
   GmailWatchView,
   MailgunDeliveryView,
+  OutlookSubscriptionView,
   ShopifySubscriptionView,
 } from './eventTriggers'
 import type { ConversationDeletionOperation, ConversationDeletionPreview, ProjectDeletionOperation, ProjectDeletionPreview, ProjectDeletionRequest } from './projectDeletion'
@@ -701,6 +702,42 @@ export function stopGmailWatch(projectId: string, triggerId: string): Promise<Gm
   return request<GmailWatchView>(
     `/api/projects/${encodeURIComponent(projectId)}/event-triggers/${encodeURIComponent(triggerId)}/gmail-watch`,
     { method: 'DELETE', cache: 'no-store' },
+  )
+}
+
+export function getOutlookSubscription(
+  projectId: string, triggerId: string,
+): Promise<OutlookSubscriptionView> {
+  return request<OutlookSubscriptionView>(
+    `/api/projects/${encodeURIComponent(projectId)}/event-triggers/${encodeURIComponent(triggerId)}/outlook-subscription`,
+    { cache: 'no-store' },
+  )
+}
+
+export function registerOutlookSubscription(
+  projectId: string, triggerId: string,
+): Promise<OutlookSubscriptionView> {
+  return request<OutlookSubscriptionView>(
+    `/api/projects/${encodeURIComponent(projectId)}/event-triggers/${encodeURIComponent(triggerId)}/outlook-subscription`,
+    { method: 'POST', cache: 'no-store' },
+  )
+}
+
+export function stopOutlookSubscription(
+  projectId: string, triggerId: string,
+): Promise<OutlookSubscriptionView> {
+  return request<OutlookSubscriptionView>(
+    `/api/projects/${encodeURIComponent(projectId)}/event-triggers/${encodeURIComponent(triggerId)}/outlook-subscription`,
+    { method: 'DELETE', cache: 'no-store' },
+  )
+}
+
+export function reconcileOutlookSubscription(
+  projectId: string, triggerId: string,
+): Promise<OutlookSubscriptionView> {
+  return request<OutlookSubscriptionView>(
+    `/api/projects/${encodeURIComponent(projectId)}/event-triggers/${encodeURIComponent(triggerId)}/outlook-subscription/reconcile`,
+    { method: 'POST', cache: 'no-store' },
   )
 }
 

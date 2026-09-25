@@ -77,6 +77,7 @@ class EventTriggerCreate(APIModel):
         default=None, pattern=r"^marketplace_binding_[a-f0-9]{32}$",
     )
     gmail_connector_id: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_-]{1,100}$")
+    outlook_connector_id: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_-]{1,100}$")
     mailgun_recipient: str | None = Field(default=None, max_length=255)
     mailgun_signing_key: str | None = Field(
         default=None, min_length=32, max_length=256, repr=False,
@@ -88,13 +89,21 @@ class EventTriggerCreate(APIModel):
             raise ValueError("Shopify binding requires a store order trigger")
         if self.gmail_connector_id is not None and (
             self.kind != "inquiry_email" or self.mailgun_recipient is not None
-            or self.shopify_binding_id is not None
+            or self.shopify_binding_id is not None or self.outlook_connector_id is not None
         ):
             raise ValueError("Gmail requires an inquiry email trigger")
+        if self.outlook_connector_id is not None and (
+            self.kind != "inquiry_email" or self.mailgun_recipient is not None
+            or self.shopify_binding_id is not None
+        ):
+            raise ValueError("Outlook requires an inquiry email trigger")
         if (self.mailgun_recipient is None) != (self.mailgun_signing_key is None):
             raise ValueError("Mailgun requires a recipient and signing key")
         if self.mailgun_recipient is not None:
-            if self.kind != "inquiry_email" or self.shopify_binding_id is not None:
+            if (
+                self.kind != "inquiry_email" or self.shopify_binding_id is not None
+                or self.outlook_connector_id is not None
+            ):
                 raise ValueError("Mailgun requires an inquiry email trigger")
             if not _MAILGUN_RECIPIENT.fullmatch(self.mailgun_recipient):
                 raise ValueError("Mailgun requires an exact email recipient")
@@ -132,6 +141,7 @@ class EventTrigger(APIModel):
     kind: EventKind
     shopify_binding_id: str | None = None
     gmail_connector_id: str | None = None
+    outlook_connector_id: str | None = None
     mailgun_recipient: str | None = None
     prompt: str
     provider_profile_id: str | None = None
@@ -275,6 +285,7 @@ class EventTriggerStore:
                 principal_binding=principal, name=payload.name, kind=payload.kind,
                 shopify_binding_id=payload.shopify_binding_id,
                 gmail_connector_id=payload.gmail_connector_id,
+                outlook_connector_id=payload.outlook_connector_id,
                 mailgun_recipient=(
                     payload.mailgun_recipient.lower() if payload.mailgun_recipient else None
                 ),
@@ -287,6 +298,7 @@ class EventTriggerStore:
                 payload.mailgun_signing_key if payload.mailgun_recipient else
                 secrets.token_hex(32) if (
                     payload.shopify_binding_id is None and payload.gmail_connector_id is None
+                    and payload.outlook_connector_id is None
                 ) else None
             )
             with self.ledger._lock_for(f"event-trigger:{trigger.id}"):
@@ -354,6 +366,7 @@ class EventTriggerStore:
                     current.shopify_binding_id is not None
                     or current.mailgun_recipient is not None
                     or current.gmail_connector_id is not None
+                    or current.outlook_connector_id is not None
                 ):
                     raise EventTriggerError(
                         "This trigger uses an external signing key; update it at the source"
@@ -371,7 +384,10 @@ class EventTriggerStore:
         event_id: str, signature: str, body: bytes, now: float | None = None,
     ) -> bool:
         trigger = self.get(project_id, trigger_id)
-        if trigger.mailgun_recipient is not None or trigger.gmail_connector_id is not None:
+        if (
+            trigger.mailgun_recipient is not None or trigger.gmail_connector_id is not None
+            or trigger.outlook_connector_id is not None
+        ):
             return False
         if (
             not timestamp.isascii() or not timestamp.isdecimal() or len(timestamp) > 12

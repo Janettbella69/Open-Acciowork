@@ -9,6 +9,7 @@ export type EventTrigger = {
   kind: EventTriggerKind
   shopify_binding_id?: string | null
   gmail_connector_id?: string | null
+  outlook_connector_id?: string | null
   mailgun_recipient?: string | null
   prompt: string
   provider_profile_id: string | null
@@ -33,6 +34,7 @@ export type EventTriggerCreate = {
   permission_ceiling: SchedulePermissionRule[]
   shopify_binding_id?: string
   gmail_connector_id?: string
+  outlook_connector_id?: string
   mailgun_recipient?: string
   mailgun_signing_key?: string
 }
@@ -45,6 +47,15 @@ export type GmailWatchView = {
   status: 'unconfigured' | 'not_registered' | 'active' | 'expired' | 'stale'
   expiration_ms: number | null
   history_id: string | null
+}
+
+export type OutlookSubscriptionView = {
+  email: string
+  notification_url: string | null
+  status: 'unconfigured' | 'not_registered' | 'attempting' | 'uncertain' | 'active' | 'expired' | 'stale' | 'removed' | 'changed'
+  gap: boolean
+  subscription_id: string | null
+  expiration_at: string | null
 }
 
 export type ShopifySubscriptionView = {

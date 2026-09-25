@@ -36,6 +36,12 @@ _PENDING = "outlook-oauth-pending:"
 _TOKEN = "outlook-oauth-token:"
 
 
+def _bounded_utf8(value: Any, limit: int) -> str:
+    if not isinstance(value, str):
+        return ""
+    return value[:limit].encode("utf-8", errors="replace").decode("utf-8")
+
+
 class OutlookError(RuntimeError):
     def __init__(self, code: str, message: str, status_code: int = 409) -> None:
         super().__init__(message)
@@ -63,8 +69,11 @@ def parse_outlook_credentials(raw: str) -> OutlookCredentials:
         raise ValueError("Outlook requires a Microsoft app client ID and secret") from None
 
 
-def outlook_oauth_vault_keys(connector_id: str) -> tuple[str, str]:
-    return _PENDING + connector_id, _TOKEN + connector_id
+def outlook_oauth_vault_keys(connector_id: str) -> tuple[str, ...]:
+    return (
+        _PENDING + connector_id, _TOKEN + connector_id,
+        "outlook-subscription-state:" + connector_id,
+    )
 
 
 class OutlookToken(BaseModel):
@@ -295,11 +304,14 @@ class OutlookService:
     async def _json(
         self, method: str, url: str, *, headers: dict[str, str] | None = None,
         data: dict[str, str] | None = None, params: dict[str, str] | None = None,
+        payload: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         try:
             async with self.client.stream(
-                method, url, headers=headers, data=data, params=params,
+                method, url, headers=headers, data=data, params=params, json=payload,
             ) as response:
+                if response.status_code == 404:
+                    raise OutlookError("OUTLOOK_NOT_FOUND", "Outlook item was not found", 404)
                 if response.status_code >= 400:
                     raise OutlookError(
                         "OUTLOOK_UPSTREAM", "Microsoft rejected the request", 502
@@ -317,6 +329,59 @@ class OutlookService:
             return result
         except (httpx.HTTPError, ValueError) as exc:
             raise OutlookError("OUTLOOK_UPSTREAM", "Outlook request failed", 502) from exc
+
+    async def read_inbox_message(
+        self, connector_id: str, tenant_id: str | None, message_id: str,
+    ) -> dict[str, str] | None:
+        """Fetch one immutable Graph ID; ignore mail moved out of the Inbox."""
+        if not _MESSAGE_ID.fullmatch(message_id):
+            raise OutlookError("OUTLOOK_MESSAGE_INVALID", "Outlook message ID is invalid", 400)
+        token = await self._access(connector_id, tenant_id)
+        headers = {
+            "Authorization": f"Bearer {token.access_token}",
+            "Prefer": 'outlook.body-content-type="text", IdType="ImmutableId"',
+        }
+        folder = await self._json(
+            "GET", GRAPH_API + "/me/mailFolders/inbox", headers=headers,
+            params={"$select": "id"},
+        )
+        folder_id = folder.get("id")
+        if not isinstance(folder_id, str) or not 1 <= len(folder_id) <= 512:
+            raise OutlookError("OUTLOOK_FOLDER_INVALID", "Outlook Inbox is invalid", 502)
+        try:
+            raw = await self._json(
+                "GET", GRAPH_API + "/me/messages/" + quote(message_id, safe=""),
+                headers=headers,
+                params={"$select": "id,parentFolderId,isDraft,from,subject,body,receivedDateTime"},
+            )
+        except OutlookError as exc:
+            if exc.code == "OUTLOOK_NOT_FOUND":
+                return None
+            raise
+        if raw.get("id") != message_id:
+            raise OutlookError("OUTLOOK_MESSAGE_INVALID", "Outlook message ID changed", 502)
+        if raw.get("parentFolderId") != folder_id or raw.get("isDraft") is not False:
+            return None
+        body = raw.get("body")
+        if (
+            not isinstance(body, dict) or not isinstance(body.get("contentType"), str)
+            or body["contentType"].lower() != "text" or not isinstance(body.get("content"), str)
+        ):
+            raise OutlookError("OUTLOOK_MESSAGE_INVALID", "Outlook did not return plain text", 502)
+        sender = raw.get("from")
+        address = (
+            sender.get("emailAddress", {}).get("address")
+            if isinstance(sender, dict) and isinstance(sender.get("emailAddress"), dict)
+            else None
+        )
+        subject = raw.get("subject")
+        return {
+            "message_id": message_id,
+            "from": _bounded_utf8(address, 255),
+            "subject": _bounded_utf8(subject, 300),
+            "body": _bounded_utf8(body["content"], 3500) or "[No plain-text body]",
+            "recipient": token.email,
+        }
 
     async def _access(self, connector_id: str, tenant_id: str | None) -> OutlookToken:
         token = self._token(connector_id, tenant_id)
@@ -464,10 +529,10 @@ class OutlookService:
             received = raw.get("receivedDateTime")
             messages.append({
                 "message_id": message_id,
-                "from": address[:255] if isinstance(address, str) else "",
-                "subject": subject[:300] if isinstance(subject, str) else "",
-                "received_at": received[:80] if isinstance(received, str) else None,
-                "body": content[:3500], "body_truncated": len(content) > 3500,
+                "from": _bounded_utf8(address, 255),
+                "subject": _bounded_utf8(subject, 300),
+                "received_at": _bounded_utf8(received, 80) if isinstance(received, str) else None,
+                "body": _bounded_utf8(content, 3500), "body_truncated": len(content) > 3500,
             })
         return {
             "mailbox": token.email, "page_size": page_size,

@@ -11,6 +11,7 @@ from ophira_backend.auth import ProjectAccessStore
 from ophira_backend.event_triggers import EventTriggerStore, ShopifySubscriptionRecord
 from ophira_backend.gmail import GmailEnrollment
 from ophira_backend.models import ProjectCreate, utc_now
+from ophira_backend.outlook_subscriptions import OutlookEnrollment, OutlookNotification
 from ophira_backend.project_deletion import ProjectDeletionService
 from ophira_backend.project_deletion_capture import ProjectDeletionConflict
 from ophira_backend.project_deletion_models import ProjectDeletionRequest
@@ -109,6 +110,47 @@ def test_project_deletion_discloses_gmail_watch_boundary(tmp_path):
         "Gmail mailbox watch" in item.message
         for item in service.preview(project.id, None).retained
     )
+
+
+def test_project_deletion_discloses_outlook_subscription_boundary(tmp_path):
+    ledger, service, project, _other, _run = setup(tmp_path)
+    record = OutlookEnrollment(
+        project_id=project.id, trigger_id="event_trigger_1", connector_id="outlook",
+        connector_revision=2, tenant_id=None, user_id="microsoft-user-1",
+        subscription_id="subscription-1",
+    )
+    path = (
+        tmp_path / "projects" / project.id / "event-triggers"
+        / "outlook-enrollments" / "event_trigger_1.json"
+    )
+    ledger._atomic_write(path, record)
+    preview = service.preview(project.id, None)
+    assert preview.can_delete
+    assert any("Microsoft Graph Inbox subscription" in item.message for item in preview.retained)
+    path.unlink()
+    assert not any(
+        "Microsoft Graph Inbox subscription" in item.message
+        for item in service.preview(project.id, None).retained
+    )
+
+
+def test_project_deletion_waits_for_outlook_queue_to_scrub_project_targets(tmp_path):
+    ledger, service, project, _other, _run = setup(tmp_path)
+    notice = OutlookNotification(
+        connector_id="outlook", subscription_id="subscription-1", message_id="message1",
+        targets=[f"{project.id}:event_trigger_1"], received_at=1.0,
+        payload={"body": "private queued mail"},
+    )
+    path = tmp_path / "outlook-subscriptions" / "outlook" / "notice.json"
+    ledger._atomic_write(path, notice)
+    preview = service.preview(project.id, None)
+    assert not preview.can_delete
+    assert any(item.code == "outlook_queue_pending" for item in preview.blockers)
+    ledger._atomic_write(path, notice.model_copy(update={
+        "message_id": "", "targets": [], "payload": None, "finished_at": 2.0,
+    }))
+    preview = service.preview(project.id, None)
+    assert preview.can_delete
 
 
 @pytest.mark.parametrize("change", ["content", "confirmation"])

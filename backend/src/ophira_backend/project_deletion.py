@@ -21,6 +21,7 @@ from .auth import AuthorizationError, ProjectAccessStore, ProjectPermission
 from .event_triggers import ShopifySubscriptionRecord
 from .gmail import GmailEnrollment
 from .models import PrincipalBinding, PrincipalContext, utc_now
+from .outlook_subscriptions import OutlookEnrollment, OutlookNotification
 from .project_deletion_capture import (
     ProjectDeletionConflict,
     PurgePlan,
@@ -215,10 +216,52 @@ class ProjectDeletionService:
                 "Stop the last watch or review the other project triggers first."
             )
             break
+        outlook_prefix = f"projects/{project_id}/event-triggers/outlook-enrollments/"
+        for entry in application.entries:
+            if not entry.path.startswith(outlook_prefix):
+                continue
+            try:
+                if entry.kind != "file":
+                    raise ValueError("invalid Outlook enrollment record")
+                record = OutlookEnrollment.model_validate_json(
+                    read_relative(self.ledger.root, entry.path, 16 * 1024),
+                )
+                if (
+                    record.project_id != project_id
+                    or entry.path != f"{outlook_prefix}{record.trigger_id}.json"
+                ):
+                    raise ValueError("Outlook enrollment binding changed")
+            except (OSError, ValueError):
+                pass  # An uncertain enrollment still requires remote review.
+            retained_messages.append(
+                "A Microsoft Graph Inbox subscription may remain active or be shared after "
+                "project deletion. Stop this trigger's subscription before deleting the project."
+            )
+            break
         retained = [DeletionRetention(code=f"retained_{index}", message=message)
                     for index, message in enumerate(dict.fromkeys(retained_messages))]
         blockers = [DeletionBlocker(code="inventory_requires_attention", message=message)
                     for message in application.blockers]
+        for path in (self.ledger.root / "outlook-subscriptions").glob("*/*.json"):
+            try:
+                relative = path.relative_to(self.ledger.root).as_posix()
+                notice = OutlookNotification.model_validate_json(
+                    read_relative(self.ledger.root, relative, 256 * 1024),
+                )
+            except (OSError, ValueError):
+                blockers.append(DeletionBlocker(
+                    code="outlook_queue_uncertain",
+                    message="An Outlook notification queue record needs review before deletion.",
+                ))
+                break
+            if notice.finished_at is None and any(
+                target.startswith(project_id + ":") for target in notice.targets
+            ):
+                blockers.append(DeletionBlocker(
+                    code="outlook_queue_pending",
+                    message="Finish this project's queued Outlook notifications before deletion.",
+                ))
+                break
         blockers += [DeletionBlocker(code="native_session_scope_unproven", message=(
             "Native session ownership could not be fully verified. "
             "Resolve the stored session boundary before deleting this project."

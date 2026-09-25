@@ -233,6 +233,8 @@ from .models import (
 from .outlook import OUTLOOK_CALLBACK_RE, OutlookService
 from .outlook_access import OutlookAccessService
 from .outlook_api import register_outlook_routes
+from .outlook_subscription_api import register_outlook_subscription_routes
+from .outlook_subscriptions import OUTLOOK_NOTIFICATIONS_RE, OutlookSubscriptions
 from .permissions import PermissionBroker, PermissionNotFoundError
 from .policy import OrgPolicyStore, PolicyDeniedError
 from .presentation_tools import PRESENTATION_COMPONENTS, PRESENTATION_SCHEMA_VERSION
@@ -614,12 +616,16 @@ def _create_app(
                             try:
                                 await gmail.start()
                                 try:
+                                    await outlook_subscriptions.start()
                                     yield
                                 finally:
                                     try:
-                                        await gmail.stop()
+                                        await outlook_subscriptions.stop_worker()
                                     finally:
-                                        await outlook.close()
+                                        try:
+                                            await gmail.stop()
+                                        finally:
+                                            await outlook.close()
                             finally:
                                 await companion_push.stop()
                         finally:
@@ -1001,6 +1007,16 @@ def _create_app(
             response.headers["Cache-Control"] = "no-store"
             return response
         if request.method == "POST" and GMAIL_PUSH_RE.fullmatch(path):
+            expected_host = urlsplit(settings.event_public_origin or "").netloc
+            if (
+                settings.auth_mode != "trusted_gateway" or not expected_host
+                or request.headers.get("host", "").casefold() != expected_host.casefold()
+            ):
+                return JSONResponse(status_code=404, content={"detail": "Not found"})
+            response = await call_next(request)
+            response.headers["Cache-Control"] = "no-store"
+            return response
+        if request.method == "POST" and OUTLOOK_NOTIFICATIONS_RE.fullmatch(path):
             expected_host = urlsplit(settings.event_public_origin or "").netloc
             if (
                 settings.auth_mode != "trusted_gateway" or not expected_host
@@ -3390,6 +3406,15 @@ def _create_app(
                     payload.gmail_connector_id,
                     principal.tenant_id if principal else None,
                 )
+            if payload.outlook_connector_id is not None:
+                if principal is not None and principal.role not in {
+                    PrincipalRole.OWNER, PrincipalRole.ADMIN,
+                }:
+                    raise HTTPException(403, "Tenant administrator required for Outlook")
+                outlook.account(
+                    payload.outlook_connector_id,
+                    principal.tenant_id if principal else None,
+                )
             return event_triggers.create(
                 project_id, payload,
                 principal=PrincipalBinding.from_context(principal) if principal else None,
@@ -3802,6 +3827,15 @@ def _create_app(
         application, service=outlook, access=outlook_access,
         require_project_authorization=require_project_authorization,
     )
+    outlook_subscriptions = OutlookSubscriptions(
+        outlook, ledger, event_triggers, dispatch_event_trigger,
+    )
+    application.state.outlook_subscriptions = outlook_subscriptions
+    register_outlook_subscription_routes(
+        application, subscriptions=outlook_subscriptions, triggers=event_triggers,
+        require_project_authorization=require_project_authorization,
+        authorize_trigger=authorize_gmail_trigger, read_bounded_body=_read_bounded_body,
+    )
 
     @application.post("/api/projects/{project_id}/event-triggers/{trigger_id}/deliver")
     async def deliver_event_trigger(
@@ -3815,7 +3849,10 @@ def _create_app(
             trigger = event_triggers.get(project_id, trigger_id)
         except (KeyError, LedgerNotFoundError, ValueError) as exc:
             raise HTTPException(status_code=404, detail="Event trigger not found") from exc
-        if trigger.shopify_binding_id is not None or trigger.gmail_connector_id is not None:
+        if (
+            trigger.shopify_binding_id is not None or trigger.gmail_connector_id is not None
+            or trigger.outlook_connector_id is not None
+        ):
             raise HTTPException(status_code=404, detail="Event trigger not found")
         if not trigger.enabled:
             raise HTTPException(status_code=403, detail="Event trigger is disabled")

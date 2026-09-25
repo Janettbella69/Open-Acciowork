@@ -10,12 +10,16 @@ vi.mock('../api/client', () => ({
   getMarketplaceAccess: vi.fn(),
   getMailgunDelivery: vi.fn(),
   getGmailWatch: vi.fn(),
+  getOutlookSubscription: vi.fn(),
+  reconcileOutlookSubscription: vi.fn(),
   getShopifySubscription: vi.fn(),
   updateEventTrigger: vi.fn(),
   rotateEventTriggerSecret: vi.fn(),
   registerShopifySubscription: vi.fn(),
   registerGmailWatch: vi.fn(),
+  registerOutlookSubscription: vi.fn(),
   stopGmailWatch: vi.fn(),
+  stopOutlookSubscription: vi.fn(),
   removeShopifySubscription: vi.fn(),
   errorMessage: (cause: unknown) => cause instanceof Error ? cause.message : String(cause),
 }))
@@ -25,13 +29,17 @@ import {
   getMarketplaceAccess,
   getMailgunDelivery,
   getGmailWatch,
+  getOutlookSubscription,
+  reconcileOutlookSubscription,
   getShopifySubscription,
   listEventTriggers,
   rotateEventTriggerSecret,
   registerShopifySubscription,
   registerGmailWatch,
+  registerOutlookSubscription,
   removeShopifySubscription,
   stopGmailWatch,
+  stopOutlookSubscription,
   updateEventTrigger,
 } from '../api/client'
 
@@ -62,6 +70,80 @@ beforeEach(() => {
     push_url: 'https://events.example.com/api/connectors/gmail/gmail/push',
     status: 'not_registered', expiration_ms: null, history_id: null,
   })
+  vi.mocked(getOutlookSubscription).mockResolvedValue({
+    email: 'inbox@example.com',
+    notification_url: 'https://events.example.com/api/connectors/outlook/outlook/notifications',
+    status: 'not_registered', gap: false, subscription_id: null, expiration_at: null,
+  })
+})
+
+it('creates an Outlook trigger and manages its Graph subscription', async () => {
+  const outlookTrigger = { ...trigger, outlook_connector_id: 'outlook' }
+  vi.mocked(createEventTrigger).mockResolvedValue({
+    trigger: outlookTrigger, signing_secret: null,
+  })
+  vi.mocked(registerOutlookSubscription).mockResolvedValue({
+    email: 'inbox@example.com',
+    notification_url: 'https://events.example.com/api/connectors/outlook/outlook/notifications',
+    status: 'active', gap: false, subscription_id: 'subscription-1',
+    expiration_at: '2026-09-30T00:00:00Z',
+  })
+  vi.mocked(stopOutlookSubscription).mockResolvedValue({
+    email: 'inbox@example.com',
+    notification_url: 'https://events.example.com/api/connectors/outlook/outlook/notifications',
+    status: 'not_registered', gap: false, subscription_id: null, expiration_at: null,
+  })
+  render(<EventTriggersPanel projects={[project]} />)
+  await screen.findByText('No event triggers in this project yet.')
+  fireEvent.change(screen.getByLabelText('Event source'), { target: { value: 'inquiry_email' } })
+  fireEvent.change(screen.getByLabelText('Email delivery method'), { target: { value: 'outlook' } })
+  fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Outlook inbox' } })
+  fireEvent.change(screen.getByLabelText('Instructions for the Agent'), {
+    target: { value: 'Review inquiry' },
+  })
+  fireEvent.click(screen.getByRole('button', { name: 'Create trigger' }))
+  await waitFor(() => expect(createEventTrigger).toHaveBeenCalledWith(project.id, {
+    name: 'Outlook inbox', kind: 'inquiry_email', prompt: 'Review inquiry',
+    max_budget_usd: 1, permission_ceiling: [], outlook_connector_id: 'outlook',
+  }))
+  await waitFor(() => expect(screen.getByLabelText('Graph notification URL')).toHaveValue(
+    'https://events.example.com/api/connectors/outlook/outlook/notifications',
+  ))
+  expect(screen.queryByRole('button', { name: 'Rotate signing key' })).not.toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: 'Register or renew Outlook subscription' }))
+  await waitFor(() => expect(registerOutlookSubscription).toHaveBeenCalledWith(
+    project.id, trigger.id,
+  ))
+  fireEvent.click(screen.getByRole('button', { name: 'Stop Outlook subscription' }))
+  await waitFor(() => expect(stopOutlookSubscription).toHaveBeenCalledWith(
+    project.id, trigger.id,
+  ))
+})
+
+it('reconciles an uncertain Outlook registration before allowing another attempt', async () => {
+  const outlookTrigger = { ...trigger, outlook_connector_id: 'outlook' }
+  vi.mocked(listEventTriggers).mockResolvedValue([outlookTrigger])
+  vi.mocked(getOutlookSubscription).mockResolvedValue({
+    email: 'inbox@example.com',
+    notification_url: 'https://events.example.com/api/connectors/outlook/outlook/notifications',
+    status: 'uncertain', gap: false, subscription_id: null, expiration_at: null,
+  })
+  vi.mocked(reconcileOutlookSubscription).mockResolvedValue({
+    email: 'inbox@example.com',
+    notification_url: 'https://events.example.com/api/connectors/outlook/outlook/notifications',
+    status: 'active', gap: false, subscription_id: 'subscription-1',
+    expiration_at: '2026-09-30T00:00:00Z',
+  })
+  render(<EventTriggersPanel projects={[project]} />)
+  await screen.findByRole('button', { name: 'Reconcile Outlook subscription with Graph' })
+  expect(screen.queryByRole('button', {
+    name: 'Register or renew Outlook subscription',
+  })).not.toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: 'Reconcile Outlook subscription with Graph' }))
+  await waitFor(() => expect(reconcileOutlookSubscription).toHaveBeenCalledWith(
+    project.id, trigger.id,
+  ))
+  await screen.findByRole('button', { name: 'Register or renew Outlook subscription' })
 })
 
 it('creates a Gmail trigger and manages the shared mailbox watch', async () => {
