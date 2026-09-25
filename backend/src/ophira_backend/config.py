@@ -180,6 +180,10 @@ class Settings(BaseSettings):
     push_max_attempts_per_day: int = Field(default=100, ge=1, le=1_000)
     media_endpoint: str | None = Field(default=None, max_length=2_000)
     media_api_key: SecretStr | None = None
+    # The image adapter is separate from the generic binary image/video endpoint:
+    # its key must never be sent to an operator-configured media URL.
+    media_image_provider: Literal["raw_binary", "openai"] = "raw_binary"
+    media_openai_api_key: SecretStr | None = None
     channel_webhook_url: str | None = Field(default=None, max_length=2_000)
     feishu_encrypt_key: SecretStr | None = None
     feishu_bot_open_id: str | None = Field(default=None, max_length=160)

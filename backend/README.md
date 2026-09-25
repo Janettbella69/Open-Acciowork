@@ -37,6 +37,10 @@ Shopify external-merchant OAuth requires trusted-gateway mode and
 this backend without a gateway identity header, and register the displayed callback
 URL in the Shopify app. See [merchant authorization setup](../docs/marketplace-connectors.md).
 
+For image drafts, the optional [OpenAI Image API adapter](../docs/media-generation.md)
+uses a separate operator key and keeps the Claude Agent SDK as the sole Agent runtime.
+Video generation still uses the existing authenticated raw-binary media endpoint.
+
 Publishing a saved HTML artifact requires trusted-gateway mode and a separate
 `OPHIRA_SITE_PUBLIC_ORIGIN=https://pages.example.com`. Route only `/published/`
 from that host to the backend; the management API remains on its own host. A
