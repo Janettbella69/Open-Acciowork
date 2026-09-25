@@ -17,6 +17,7 @@ import {
   rotateEventTriggerSecret,
   stopGmailWatch,
   stopOutlookSubscription,
+  syncOutlookDelta,
   updateEventTrigger,
 } from '../api/client'
 import type { EventTrigger, EventTriggerKind, GmailWatchView, OutlookSubscriptionView, ShopifySubscriptionView } from '../api/eventTriggers'
@@ -348,7 +349,7 @@ export default function EventTriggersPanel({ projects }: { projects: Opportunity
     }
   }
 
-  async function manageOutlook(trigger: EventTrigger, action: 'register' | 'stop' | 'reconcile') {
+  async function manageOutlook(trigger: EventTrigger, action: 'register' | 'stop' | 'reconcile' | 'sync') {
     if (busy) return
     setBusy(true)
     setError('')
@@ -358,6 +359,8 @@ export default function EventTriggersPanel({ projects }: { projects: Opportunity
         ? await stopOutlookSubscription(projectId, trigger.id)
         : action === 'reconcile'
         ? await reconcileOutlookSubscription(projectId, trigger.id)
+        : action === 'sync'
+        ? await syncOutlookDelta(projectId, trigger.id)
         : await registerOutlookSubscription(projectId, trigger.id)
       setOutlookSubscriptions((current) => ({ ...current, [trigger.id]: view }))
       setSubscriptionErrors((current) => ({ ...current, [trigger.id]: '' }))
@@ -365,6 +368,8 @@ export default function EventTriggersPanel({ projects }: { projects: Opportunity
         ? 'Outlook subscription stopped for this trigger.'
         : action === 'reconcile'
         ? 'Outlook subscription checked against Microsoft Graph.'
+        : action === 'sync'
+        ? 'Outlook Inbox changes checked with Graph and queued for delivery.'
         : 'Outlook subscription registered.'))
     } catch (cause) {
       setError(errorMessage(cause))
@@ -504,7 +509,9 @@ export default function EventTriggersPanel({ projects }: { projects: Opportunity
               {trigger.gmail_connector_id && gmailWatches[trigger.id] && <p>{t('Gmail mailbox')}: {gmailWatches[trigger.id].email} · {t('Watch status')}: {t(gmailWatches[trigger.id].status)}{gmailWatches[trigger.id].expiration_ms ? ` · ${new Date(gmailWatches[trigger.id].expiration_ms!).toLocaleString()}` : ''}</p>}
               {trigger.gmail_connector_id && <p>{t('Use this URL for an authenticated Google Pub/Sub push subscription. Registering the watch starts with future Inbox mail; a stale cursor requires an explicit reset that skips unavailable history.')}</p>}
               {trigger.outlook_connector_id && outlookSubscriptions[trigger.id] && <p>{t('Outlook mailbox')}: {outlookSubscriptions[trigger.id].email} · {t('Subscription status')}: {t(outlookSubscriptions[trigger.id].status)}{outlookSubscriptions[trigger.id].expiration_at ? ` · ${new Date(outlookSubscriptions[trigger.id].expiration_at!).toLocaleString()}` : ''}</p>}
-              {trigger.outlook_connector_id && outlookSubscriptions[trigger.id]?.gap && <p role="alert">{t('Microsoft reported missed notifications or removed the subscription. A mail gap remains unresolved; inspect the mailbox before continuing.')}</p>}
+              {trigger.outlook_connector_id && outlookSubscriptions[trigger.id]?.delta_last_synced_at && <p>{t('Last Graph Inbox reconciliation')}: {new Date(outlookSubscriptions[trigger.id].delta_last_synced_at!).toLocaleString()}</p>}
+              {trigger.outlook_connector_id && outlookSubscriptions[trigger.id]?.delta_ready === false && ['active', 'stale', 'removed'].includes(outlookSubscriptions[trigger.id].status) && <p>{t('Graph Inbox recovery baseline is not ready. Synchronize to establish or inspect the mail gap.')}</p>}
+              {trigger.outlook_connector_id && outlookSubscriptions[trigger.id]?.gap && <p role="alert">{t('An Outlook mail gap remains unresolved; inspect the mailbox before continuing.')}</p>}
               {trigger.outlook_connector_id && outlookSubscriptions[trigger.id]?.remote_unverified && <p role="alert">{t('The previous Graph subscription could not be verified with the current account. Check the old Microsoft app and mailbox for a remaining subscription.')}</p>}
               {trigger.outlook_connector_id && ['attempting', 'uncertain'].includes(outlookSubscriptions[trigger.id]?.status || '') && <p role="alert">{t('Graph registration may have succeeded. Reconcile the exact subscription before trying again.')}</p>}
               {trigger.outlook_connector_id && outlookSubscriptions[trigger.id]?.status === 'changed' && <p role="alert">{t('Outlook credentials, mailbox or callback changed. Reconcile the old subscription before registering again; a mail gap may remain.')}</p>}
@@ -541,6 +548,7 @@ export default function EventTriggersPanel({ projects }: { projects: Opportunity
                 {trigger.gmail_connector_id && gmailWatches[trigger.id] && !['unconfigured', 'not_registered'].includes(gmailWatches[trigger.id].status) && <button type="button" disabled={busy} onClick={() => void manageGmail(trigger, 'stop')}>{t('Stop Gmail watch')}</button>}
                 {trigger.outlook_connector_id && outlookSubscriptions[trigger.id] && !['unconfigured', 'attempting', 'uncertain', 'changed'].includes(outlookSubscriptions[trigger.id].status) && <button type="button" disabled={busy || !trigger.enabled} onClick={() => void manageOutlook(trigger, 'register')}>{t('Register or renew Outlook subscription')}</button>}
                 {trigger.outlook_connector_id && ['attempting', 'uncertain', 'changed'].includes(outlookSubscriptions[trigger.id]?.status || '') && <button type="button" disabled={busy} onClick={() => void manageOutlook(trigger, 'reconcile')}>{t('Reconcile Outlook subscription with Graph')}</button>}
+                {trigger.outlook_connector_id && ['active', 'stale', 'removed'].includes(outlookSubscriptions[trigger.id]?.status || '') && <button type="button" disabled={busy || !trigger.enabled} onClick={() => void manageOutlook(trigger, 'sync')}>{t('Synchronize Outlook Inbox changes')}</button>}
                 {trigger.outlook_connector_id && outlookSubscriptions[trigger.id] && !['unconfigured', 'not_registered', 'attempting', 'uncertain', 'changed'].includes(outlookSubscriptions[trigger.id].status) && <button type="button" disabled={busy} onClick={() => void manageOutlook(trigger, 'stop')}>{t('Stop Outlook subscription')}</button>}
                 {trigger.shopify_binding_id && shopifySubscriptions[trigger.id]
                   && !['unconfigured', 'origin_changed'].includes(shopifySubscriptions[trigger.id].status)

@@ -73,6 +73,7 @@ def outlook_oauth_vault_keys(connector_id: str) -> tuple[str, ...]:
     return (
         _PENDING + connector_id, _TOKEN + connector_id,
         "outlook-subscription-state:" + connector_id,
+        "outlook-subscription-delta:" + connector_id,
     )
 
 

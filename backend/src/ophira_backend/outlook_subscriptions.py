@@ -17,7 +17,7 @@ from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Literal
-from urllib.parse import urlsplit
+from urllib.parse import parse_qsl, quote, unquote, urlencode, urlsplit
 
 from fastapi import HTTPException
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
@@ -34,6 +34,10 @@ OUTLOOK_NOTIFICATIONS_RE = re.compile(
 MAX_NOTIFICATION_BODY = 64_000
 _GRAPH_ID = re.compile(r"^[A-Za-z0-9-]{1,160}$")
 _STATE_KEY = "outlook-subscription-state:"
+_DELTA_KEY = "outlook-subscription-delta:"
+_DELTA_PAGE_LIMIT = 100
+_DELTA_ITEM_LIMIT = 5_000
+_DELTA_PATH = "/me/mailFolders/{folder_id}/messages/delta"
 
 
 class OutlookWatch(BaseModel):
@@ -50,6 +54,7 @@ class OutlookWatch(BaseModel):
     gap: bool = False
     remote_unverified: bool = False
     reauthorize: bool = False
+    delta_from: datetime | None = None
     updated_at: datetime
 
 
@@ -62,6 +67,17 @@ class OutlookEnrollment(BaseModel):
     tenant_id: str | None
     user_id: str
     subscription_id: str | None = None
+    enrolled_at: datetime | None = None
+
+
+class OutlookDeltaCursor(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    connector_revision: int
+    tenant_id: str | None
+    user_id: str
+    folder_id: str
+    url: str
+    synced_at: datetime
 
 
 class OutlookNotification(BaseModel):
@@ -123,12 +139,26 @@ class OutlookSubscriptions:
         return value
 
     def _enroll(self, trigger: EventTrigger, watch: OutlookWatch) -> None:
+        previous = self._enrollment(trigger)
+        enrolled_at = (
+            previous.enrolled_at
+            if previous is not None
+            and previous.connector_id == watch.connector_id
+            and previous.connector_revision == watch.connector_revision
+            and previous.tenant_id == watch.tenant_id
+            and previous.user_id == watch.user_id
+            else None
+        )
         self.ledger._atomic_write(self._enrollment_path(trigger), OutlookEnrollment(
             project_id=trigger.project_id, trigger_id=trigger.id,
             connector_id=watch.connector_id,
             connector_revision=watch.connector_revision,
             tenant_id=watch.tenant_id, user_id=watch.user_id,
             subscription_id=watch.subscription_id,
+            enrolled_at=enrolled_at or (
+                watch.delta_from if watch.status == "attempting" and watch.delta_from
+                else datetime.now(UTC)
+            ),
         ))
 
     def _matches(self, watch: OutlookWatch, tenant_id: str | None) -> bool:
@@ -151,6 +181,71 @@ class OutlookSubscriptions:
             connector_id=connector_id,
         )
 
+    @staticmethod
+    def _delta_url(raw: Any, folder_id: str) -> str:
+        if (
+            not isinstance(raw, str) or not 1 <= len(raw) <= 8192
+            or any(ord(char) < 33 or ord(char) == 127 for char in raw)
+        ):
+            raise OutlookError("OUTLOOK_DELTA_INVALID", "Graph delta cursor is invalid", 502)
+        try:
+            parts = urlsplit(raw)
+            path = unquote(parts.path)
+            allowed_paths = {
+                f"/v1.0/me/mailFolders/{folder_id}/messages/delta",
+                f"/v1.0/me/mailFolders('{folder_id}')/messages/delta",
+                "/v1.0/me/mailFolders/inbox/messages/delta",
+                "/v1.0/me/mailFolders('inbox')/messages/delta",
+            }
+            pairs = parse_qsl(
+                parts.query, keep_blank_values=True, strict_parsing=True,
+                max_num_fields=8,
+            )
+            params = dict(pairs)
+            token_keys = {"$skiptoken", "$deltatoken"} & set(params)
+            if (
+                parts.scheme != "https" or parts.netloc != "graph.microsoft.com"
+                or path not in allowed_paths or parts.fragment
+                or len(params) != len(pairs) or len(token_keys) != 1
+                or set(params) - {
+                    "$skiptoken", "$deltatoken", "$select", "$filter", "$top", "changeType",
+                }
+                or not 1 <= len(params[next(iter(token_keys))]) <= 8000
+                or ("changeType" in params and params["changeType"] != "created")
+                or ("$select" in params and params["$select"] != "id,receivedDateTime")
+                or ("$filter" in params and not params["$filter"].startswith(
+                    "receivedDateTime ge "
+                ))
+            ):
+                raise ValueError
+        except ValueError:
+            raise OutlookError(
+                "OUTLOOK_DELTA_INVALID", "Graph delta cursor is invalid", 502,
+            ) from None
+        return raw
+
+    def _delta_cursor(self, watch: OutlookWatch) -> OutlookDeltaCursor | None:
+        assert self.service.connectors.vault is not None
+        raw = self.service.connectors.vault.get(_DELTA_KEY + watch.connector_id)
+        if raw is None:
+            return None
+        try:
+            cursor = OutlookDeltaCursor.model_validate_json(raw)
+            if (
+                cursor.connector_revision != watch.connector_revision
+                or cursor.tenant_id != watch.tenant_id
+                or cursor.user_id != watch.user_id
+                or not _MESSAGE_ID.fullmatch(cursor.folder_id)
+                or cursor.synced_at.tzinfo is None
+            ):
+                raise ValueError
+            self._delta_url(cursor.url, cursor.folder_id)
+            return cursor
+        except (ValidationError, ValueError):
+            raise OutlookError(
+                "OUTLOOK_DELTA_INVALID", "Outlook delta cursor is invalid", 409,
+            ) from None
+
     def status(
         self, connector_id: str, tenant_id: str | None, trigger: EventTrigger,
     ) -> dict[str, Any]:
@@ -166,6 +261,10 @@ class OutlookSubscriptions:
             and enrollment.subscription_id == watch.subscription_id
         )
         valid = bool(watch and self._matches(watch, tenant_id))
+        try:
+            cursor = self._delta_cursor(watch) if watch and valid else None
+        except OutlookError:
+            cursor = None
         state = (
             "unconfigured" if self.notification_url(connector_id) is None
             else "not_registered" if not enrolled
@@ -184,6 +283,8 @@ class OutlookSubscriptions:
             "remote_unverified": bool(watch and watch.remote_unverified and valid),
             "subscription_id": watch.subscription_id if enrolled else None,
             "expiration_at": watch.expiration_at if enrolled else None,
+            "delta_ready": bool(cursor),
+            "delta_last_synced_at": cursor.synced_at if cursor else None,
         }
 
     @staticmethod
@@ -272,6 +373,9 @@ class OutlookSubscriptions:
                 tenant_id=tenant_id, user_id=token.user_id, email=token.email,
                 notification_url=url, status="attempting", gap=prior.gap if prior else False,
                 remote_unverified=prior.remote_unverified if prior else False,
+                delta_from=(
+                    prior.delta_from if prior and prior.gap else datetime.now(UTC)
+                ),
                 updated_at=datetime.now(UTC),
             )
             assert self.service.connectors.vault is not None
@@ -450,6 +554,7 @@ class OutlookSubscriptions:
                     tenant_id=tenant_id, user_id=token.user_id, email=token.email,
                     notification_url=new_url, status="removed", gap=True,
                     remote_unverified=not bool(found),
+                    delta_from=None,
                     updated_at=datetime.now(UTC),
                 )
                 self._save(updated)
@@ -523,6 +628,7 @@ class OutlookSubscriptions:
             self._watch_path(connector_id).unlink(missing_ok=True)
             assert self.service.connectors.vault is not None
             self.service.connectors.vault.delete(_STATE_KEY + connector_id)
+            self.service.connectors.vault.delete(_DELTA_KEY + connector_id)
         return self.status(connector_id, tenant_id, trigger)
 
     def _triggers(self, watch: OutlookWatch) -> list[EventTrigger]:
@@ -551,12 +657,239 @@ class OutlookSubscriptions:
         digest = hashlib.sha256((subscription_id + "\0" + message_id).encode()).hexdigest()
         return self.root / self.ledger._safe_id(connector_id) / f"{digest}.json"
 
+    def _enqueue(
+        self, watch: OutlookWatch, message_id: str, targets: list[str],
+    ) -> bool:
+        if not watch.subscription_id or not targets:
+            return False
+        if len(targets) > 1000:
+            raise OutlookError("OUTLOOK_QUEUE_FULL", "Too many Outlook triggers", 503)
+        path = self._queue_path(watch.connector_id, watch.subscription_id, message_id)
+        with self.ledger._lock_for(f"outlook-queue:{path.stem}"):
+            if path.exists():
+                return False
+            path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+            if len(list(path.parent.glob("*.json"))) >= 10_000:
+                raise OutlookError(
+                    "OUTLOOK_QUEUE_FULL", "Outlook notification queue is full", 503,
+                )
+            self.ledger._atomic_write(path, OutlookNotification(
+                connector_id=watch.connector_id, subscription_id=watch.subscription_id,
+                message_id=message_id, targets=targets, received_at=time.time(),
+            ))
+            return True
+
     def _pending_for(self, watch: OutlookWatch) -> bool:
         for path in (self.root / self.ledger._safe_id(watch.connector_id)).glob("*.json"):
             notice = OutlookNotification.model_validate_json(path.read_text("utf-8"))
             if notice.subscription_id == watch.subscription_id and notice.finished_at is None:
                 return True
         return False
+
+    async def sync_delta(
+        self, connector_id: str, tenant_id: str | None, trigger: EventTrigger | None = None,
+    ) -> dict[str, Any]:
+        """Enqueue created Inbox IDs, then advance the private Graph delta cursor."""
+        try:
+            return await asyncio.wait_for(
+                self._sync_delta(connector_id, tenant_id, trigger), timeout=120,
+            )
+        except (OutlookError, TimeoutError, OSError) as exc:
+            if not (
+                isinstance(exc, OutlookError) and exc.code in {
+                    "OUTLOOK_SUBSCRIPTION_BUSY", "OUTLOOK_DELTA_UNAVAILABLE",
+                }
+            ):
+                with self.ledger._lock_for(f"outlook-watch:{connector_id}"):
+                    watch = self._watch(connector_id)
+                    if (
+                        watch is not None and not watch.gap
+                        and self._matches(watch, tenant_id)
+                    ):
+                        self._save(watch.model_copy(update={
+                            "gap": True, "updated_at": datetime.now(UTC),
+                        }))
+            if isinstance(exc, TimeoutError):
+                raise OutlookError(
+                    "OUTLOOK_DELTA_TIMEOUT", "Outlook Inbox delta timed out", 502,
+                ) from None
+            raise
+
+    async def _sync_delta(
+        self, connector_id: str, tenant_id: str | None, trigger: EventTrigger | None,
+    ) -> dict[str, Any]:
+        token = await self.service._access(connector_id, tenant_id)
+        with self._remote_lock(connector_id):
+            watch = self._watch(connector_id)
+            if (
+                watch is None or watch.status not in {"active", "removed"}
+                or watch.subscription_id is None
+                or not self._matches(watch, tenant_id)
+                or token.tenant_id != tenant_id
+            ):
+                raise OutlookError(
+                    "OUTLOOK_DELTA_UNAVAILABLE", "Outlook Inbox delta is unavailable",
+                )
+            triggers = self._triggers(watch)
+            if trigger is not None and not any(
+                item.project_id == trigger.project_id and item.id == trigger.id
+                for item in triggers
+            ):
+                raise OutlookError(
+                    "OUTLOOK_DELTA_UNAVAILABLE", "Outlook trigger enrollment is unavailable",
+                )
+            cursor = self._delta_cursor(watch)
+            headers = {
+                "Authorization": f"Bearer {token.access_token}",
+                "Prefer": 'IdType="ImmutableId", odata.maxpagesize=100',
+            }
+            if cursor is None:
+                start = watch.delta_from
+                if (
+                    start is None or start.tzinfo is None
+                    or start > datetime.now(UTC)
+                    or start < datetime.now(UTC) - timedelta(days=7)
+                ):
+                    raise OutlookError(
+                        "OUTLOOK_DELTA_UNBOUNDED",
+                        "A safe Outlook mail gap boundary is unavailable; inspect the mailbox",
+                    )
+                folder = await self.service._json(
+                    "GET", GRAPH_API + "/me/mailFolders/inbox",
+                    headers=headers, params={"$select": "id"},
+                )
+                folder_id = folder.get("id")
+                if not isinstance(folder_id, str) or not _MESSAGE_ID.fullmatch(folder_id):
+                    raise OutlookError(
+                        "OUTLOOK_DELTA_INVALID", "Graph Inbox folder ID is invalid", 502,
+                    )
+                url = GRAPH_API + _DELTA_PATH.format(
+                    folder_id=quote(folder_id, safe=""),
+                ) + "?" + urlencode({
+                    "changeType": "created", "$select": "id,receivedDateTime",
+                    "$filter": "receivedDateTime ge " + start.astimezone(UTC).isoformat(
+                        timespec="seconds",
+                    ).replace("+00:00", "Z"),
+                })
+            else:
+                folder_id = cursor.folder_id
+                url = cursor.url
+                start = None
+            targets = []
+            for item in triggers:
+                enrollment = self._enrollment(item)
+                if enrollment is not None and enrollment.enrolled_at is not None:
+                    targets.append((f"{item.project_id}:{item.id}", enrollment.enrolled_at))
+            if not targets:
+                raise OutlookError(
+                    "OUTLOOK_DELTA_UNBOUNDED", "No dated Outlook trigger enrollment",
+                )
+            seen: set[str] = set()
+            queued = 0
+            total = 0
+            for _page in range(_DELTA_PAGE_LIMIT):
+                if url in seen:
+                    raise OutlookError(
+                        "OUTLOOK_DELTA_INVALID", "Graph delta paging loop", 502,
+                    )
+                seen.add(url)
+                page = await self.service._json("GET", url, headers=headers)
+                if not self._matches(watch, tenant_id):
+                    raise OutlookError(
+                        "OUTLOOK_CONNECTOR_CHANGED", "Outlook connector changed",
+                    )
+                items = page.get("value")
+                if not isinstance(items, list) or len(items) > 1000:
+                    raise OutlookError(
+                        "OUTLOOK_DELTA_INVALID", "Graph delta page is invalid", 502,
+                    )
+                total += len(items)
+                if total >= _DELTA_ITEM_LIMIT:
+                    raise OutlookError(
+                        "OUTLOOK_DELTA_LIMIT",
+                        "Outlook gap exceeds the safe delta limit; inspect the mailbox",
+                    )
+                for item in items:
+                    if not isinstance(item, dict):
+                        raise OutlookError(
+                            "OUTLOOK_DELTA_INVALID", "Graph delta item is invalid", 502,
+                        )
+                    if "@removed" in item:
+                        continue
+                    message_id = item.get("id")
+                    raw_received = item.get("receivedDateTime")
+                    try:
+                        if (
+                            not isinstance(message_id, str)
+                            or not _MESSAGE_ID.fullmatch(message_id)
+                            or not isinstance(raw_received, str)
+                            or len(raw_received) > 64
+                        ):
+                            raise ValueError
+                        received = datetime.fromisoformat(
+                            raw_received.replace("Z", "+00:00"),
+                        )
+                        if received.tzinfo is None:
+                            raise ValueError
+                    except ValueError:
+                        raise OutlookError(
+                            "OUTLOOK_DELTA_INVALID", "Graph delta item is invalid", 502,
+                        ) from None
+                    if start is not None and received < start:
+                        continue
+                    eligible = [
+                        target for target, enrolled_at in targets
+                        if enrolled_at.tzinfo is not None and received >= enrolled_at
+                    ]
+                    if self._enqueue(watch, message_id, eligible):
+                        queued += 1
+                next_url = page.get("@odata.nextLink")
+                delta_url = page.get("@odata.deltaLink")
+                if bool(next_url) == bool(delta_url):
+                    raise OutlookError(
+                        "OUTLOOK_DELTA_INVALID", "Graph delta continuation is invalid", 502,
+                    )
+                if delta_url:
+                    final_url = self._delta_url(delta_url, folder_id)
+                    if "$deltatoken" not in dict(parse_qsl(urlsplit(final_url).query)):
+                        raise OutlookError(
+                            "OUTLOOK_DELTA_INVALID", "Graph delta link is invalid", 502,
+                        )
+                    break
+                url = self._delta_url(next_url, folder_id)
+            else:
+                raise OutlookError(
+                    "OUTLOOK_DELTA_LIMIT", "Graph delta page limit reached", 502,
+                )
+            current = self._watch(connector_id)
+            if (
+                current is None or current.connector_revision != watch.connector_revision
+                or current.user_id != watch.user_id
+                or current.subscription_id != watch.subscription_id
+                or not self._matches(current, tenant_id)
+            ):
+                raise OutlookError(
+                    "OUTLOOK_CONNECTOR_CHANGED", "Outlook connector changed",
+                )
+            assert self.service.connectors.vault is not None
+            synced_at = datetime.now(UTC)
+            self.service.connectors.vault.set(
+                _DELTA_KEY + connector_id,
+                OutlookDeltaCursor(
+                    connector_revision=watch.connector_revision,
+                    tenant_id=watch.tenant_id, user_id=watch.user_id,
+                    folder_id=folder_id, url=final_url, synced_at=synced_at,
+                ).model_dump_json(),
+            )
+            # A lifecycle event arriving during this round may refer to
+            # changes after Graph issued its deltaLink. Leave that gap set.
+            if current.updated_at == watch.updated_at:
+                self._save(current.model_copy(update={
+                    "gap": False, "updated_at": synced_at,
+                }))
+            if trigger is None:
+                return {"queued": queued, "delta_ready": True}
+            return {**self.status(connector_id, tenant_id, trigger), "queued": queued}
 
     def receive(self, connector_id: str, body: bytes) -> dict[str, int]:
         try:
@@ -609,21 +942,13 @@ class OutlookSubscriptions:
             ):
                 continue
             targets = [f"{t.project_id}:{t.id}" for t in self._triggers(watch)]
-            if len(targets) > 1000:
-                raise OutlookError("OUTLOOK_QUEUE_FULL", "Too many Outlook triggers", 503)
             if not targets:
                 continue
-            path = self._queue_path(connector_id, sub_id, message_id)
-            with self.ledger._lock_for(f"outlook-queue:{path.stem}"):
-                if not path.exists():
-                    if len(list(path.parent.glob("*.json"))) >= 10_000:
-                        raise OutlookError(
-                            "OUTLOOK_QUEUE_FULL", "Outlook notification queue is full", 503
-                        )
-                    self.ledger._atomic_write(path, OutlookNotification(
-                        connector_id=connector_id, subscription_id=sub_id,
-                        message_id=message_id, targets=targets, received_at=time.time(),
-                    ))
+            # Registration may still be waiting for Graph's create response.
+            # Verified notifications can be queued against that remote ID, then
+            # processed after the watch becomes active.
+            queued_watch = watch.model_copy(update={"subscription_id": sub_id})
+            self._enqueue(queued_watch, message_id, targets)
             count += 1
         return {"accepted": count}
 
@@ -751,6 +1076,40 @@ class OutlookSubscriptions:
             except (OutlookError, ValueError, OSError):
                 LOGGER.exception("Outlook subscription renewal failed for %s", path.stem)
 
+    async def sync_due(self) -> None:
+        for path in self.root.glob("*.json"):
+            try:
+                watch = self._watch(path.stem)
+                if (
+                    watch is None or watch.status not in {"active", "removed"}
+                    or watch.subscription_id is None
+                    or not self._matches(watch, watch.tenant_id)
+                    or not self._triggers(watch)
+                ):
+                    continue
+                try:
+                    cursor = self._delta_cursor(watch)
+                except OutlookError:
+                    # sync_delta records the gap before surfacing the invalid cursor.
+                    await self.sync_delta(watch.connector_id, watch.tenant_id)
+                    continue
+                if cursor is None and watch.delta_from is None:
+                    with self.ledger._lock_for(f"outlook-watch:{watch.connector_id}"):
+                        current = self._watch(watch.connector_id)
+                        if current and current.updated_at == watch.updated_at and not current.gap:
+                            self._save(current.model_copy(update={
+                                "gap": True, "updated_at": datetime.now(UTC),
+                            }))
+                    continue
+                if (
+                    cursor is not None and not watch.gap
+                    and cursor.synced_at > datetime.now(UTC) - timedelta(minutes=5)
+                ):
+                    continue
+                await self.sync_delta(watch.connector_id, watch.tenant_id)
+            except (OutlookError, ValueError, OSError):
+                LOGGER.exception("Outlook Inbox delta sync failed for %s", path.stem)
+
     async def start(self) -> None:
         if self._task is not None:
             return
@@ -760,6 +1119,8 @@ class OutlookSubscriptions:
             while True:
                 try:
                     await self.process_pending()
+                    if cycle % 12 == 0:
+                        await self.sync_due()
                     if cycle % 720 == 0:
                         await self.renew_due()
                 except Exception:

@@ -741,6 +741,15 @@ export function reconcileOutlookSubscription(
   )
 }
 
+export function syncOutlookDelta(
+  projectId: string, triggerId: string,
+): Promise<OutlookSubscriptionView & { queued: number }> {
+  return request<OutlookSubscriptionView & { queued: number }>(
+    `/api/projects/${encodeURIComponent(projectId)}/event-triggers/${encodeURIComponent(triggerId)}/outlook-subscription/sync-delta`,
+    { method: 'POST', cache: 'no-store' },
+  )
+}
+
 export function rotateEventTriggerSecret(
   projectId: string, triggerId: string,
 ): Promise<EventTriggerCreated> {

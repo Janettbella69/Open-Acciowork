@@ -57,6 +57,8 @@ export type OutlookSubscriptionView = {
   remote_unverified: boolean
   subscription_id: string | null
   expiration_at: string | null
+  delta_ready?: boolean
+  delta_last_synced_at?: string | null
 }
 
 export type ShopifySubscriptionView = {

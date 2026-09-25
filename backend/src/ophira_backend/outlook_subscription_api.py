@@ -107,6 +107,23 @@ def register_outlook_subscription_routes(
                 trigger.outlook_connector_id, tenant(request), trigger,
             )
 
+    @application.post(route + "/sync-delta")
+    async def outlook_subscription_sync_delta(
+        project_id: str, trigger_id: str, request: Request,
+    ):
+        admin(request)
+        require_project_authorization(
+            project_id, principal(request), ProjectPermission.PROJECT_ACCESS_MANAGE,
+        )
+        with subscriptions.ledger.lifecycle.lease(project_id):
+            trigger = trigger_for(project_id, trigger_id)
+            if not trigger.enabled:
+                raise HTTPException(409, "Outlook trigger is paused")
+            authorize_trigger(trigger)
+            return await subscriptions.sync_delta(
+                trigger.outlook_connector_id, tenant(request), trigger,
+            )
+
     @application.post(OUTLOOK_NOTIFICATIONS_PATH)
     async def outlook_notifications(connector_id: str, request: Request):
         tokens = request.query_params.getlist("validationToken")

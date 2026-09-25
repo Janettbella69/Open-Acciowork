@@ -12,6 +12,7 @@ vi.mock('../api/client', () => ({
   getGmailWatch: vi.fn(),
   getOutlookSubscription: vi.fn(),
   reconcileOutlookSubscription: vi.fn(),
+  syncOutlookDelta: vi.fn(),
   getShopifySubscription: vi.fn(),
   updateEventTrigger: vi.fn(),
   rotateEventTriggerSecret: vi.fn(),
@@ -31,6 +32,7 @@ import {
   getGmailWatch,
   getOutlookSubscription,
   reconcileOutlookSubscription,
+  syncOutlookDelta,
   getShopifySubscription,
   listEventTriggers,
   rotateEventTriggerSecret,
@@ -96,6 +98,14 @@ it('creates an Outlook trigger and manages its Graph subscription', async () => 
     status: 'not_registered', gap: false, remote_unverified: false,
     subscription_id: null, expiration_at: null,
   })
+  vi.mocked(syncOutlookDelta).mockResolvedValue({
+    email: 'inbox@example.com',
+    notification_url: 'https://events.example.com/api/connectors/outlook/outlook/notifications',
+    status: 'active', gap: false, remote_unverified: false,
+    subscription_id: 'subscription-1',
+    expiration_at: '2026-09-30T00:00:00Z',
+    delta_ready: true, delta_last_synced_at: '2026-09-25T12:00:00Z', queued: 2,
+  })
   render(<EventTriggersPanel projects={[project]} />)
   await screen.findByText('No event triggers in this project yet.')
   fireEvent.change(screen.getByLabelText('Event source'), { target: { value: 'inquiry_email' } })
@@ -117,6 +127,11 @@ it('creates an Outlook trigger and manages its Graph subscription', async () => 
   await waitFor(() => expect(registerOutlookSubscription).toHaveBeenCalledWith(
     project.id, trigger.id,
   ))
+  fireEvent.click(screen.getByRole('button', { name: 'Synchronize Outlook Inbox changes' }))
+  await waitFor(() => expect(syncOutlookDelta).toHaveBeenCalledWith(
+    project.id, trigger.id,
+  ))
+  await screen.findByText(/Last Graph Inbox reconciliation/)
   fireEvent.click(screen.getByRole('button', { name: 'Stop Outlook subscription' }))
   await waitFor(() => expect(stopOutlookSubscription).toHaveBeenCalledWith(
     project.id, trigger.id,

@@ -127,8 +127,30 @@ that a remote shared subscription may remain.
 
 The subscription requests a six-day expiration and renews within one day of
 expiry. Graph lifecycle `missed` and `subscriptionRemoved` events mark a
-visible **stale** mail gap; they are never described as processed. This
-implementation does not yet reconcile that gap with Graph delta. An uncertain
+visible **stale** mail gap; they are never described as processed. The worker
+checks delta eligibility about once a minute and normally calls Graph at most
+once every five minutes, checking a reported gap on its next cycle. It first establishes
+a baseline from the subscription registration time, then keeps Graph's opaque
+delta cursor in the private connector vault. Delta requests select immutable
+message IDs and received times. Newly received Inbox messages are placed in the
+same durable, deduplicated queue as signed notifications; each project trigger
+receives only messages dated after its own enrollment. The cursor advances only
+after a complete delta round. The administrator can use **Synchronize Outlook
+Inbox changes** to check immediately, and the UI shows baseline readiness and
+the last completed check. A successful round clears a reported gap only when no
+new lifecycle warning arrived during that round.
+
+The initial check has a seven-day registration boundary; each round stops at
+5,000 results or 100 pages. An old enrollment without a dated boundary, an
+expired initial boundary, Graph cursor failure, or an incomplete round keeps
+the gap visible for manual mailbox inspection. A message originally received
+before a trigger was enrolled and later moved into Inbox is outside this
+received-time recovery boundary. Connector replacement deletes the private
+cursor; a changed mailbox or credential binding does not silently reuse it.
+Graph's [message delta contract](https://learn.microsoft.com/en-us/graph/api/message-delta?view=graph-rest-1.0)
+and [delta query guidance](https://learn.microsoft.com/en-us/graph/delta-query-messages)
+define the paging tokens; OPHIRA replays them only against the fixed Graph
+Inbox endpoint. An uncertain
 create response is retained and never retried automatically. **Reconcile
 Outlook subscription with Graph** lists this app's subscriptions, adopts only
 one exact app/Inbox/callback match, or marks a visible gap when none exists.
