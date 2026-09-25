@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import fcntl
 import json
 import os
 import re
 import threading
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
 from .config import Settings
@@ -55,6 +58,7 @@ class FileSecretVault:
         self.root = root.resolve()
         self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
         self.path = self.root / filename
+        self.lock_path = self.root / (filename + ".lock")
         self._lock = threading.RLock()
         if self.path.exists():
             self._secure()
@@ -75,8 +79,21 @@ class FileSecretVault:
             return {}
         return {str(key): str(value) for key, value in data.items()}
 
-    def set(self, profile_id: str, secret: str) -> None:
+    @contextmanager
+    def _write_lock(self) -> Iterator[None]:
         with self._lock:
+            descriptor = os.open(
+                self.lock_path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW | os.O_CLOEXEC,
+                0o600,
+            )
+            try:
+                fcntl.flock(descriptor, fcntl.LOCK_EX)
+                yield
+            finally:
+                os.close(descriptor)
+
+    def set(self, profile_id: str, secret: str) -> None:
+        with self._write_lock():
             values = self._read()
             values[profile_id] = secret
             temporary = self.path.with_suffix(".tmp")
@@ -93,7 +110,7 @@ class FileSecretVault:
         return self.get(profile_id) is not None
 
     def delete(self, profile_id: str) -> None:
-        with self._lock:
+        with self._write_lock():
             values = self._read()
             if profile_id not in values:
                 return

@@ -191,3 +191,62 @@ def test_concurrent_workers_retain_each_connectors_credential(tmp_path):
                     worker.terminate()
                 worker.join(timeout=10)
         results.close()
+
+
+def _vault_write_worker(root, key, started, captured, release, results):
+    vault = FileSecretVault(Path(root))
+    original_read = vault._read
+
+    def paused_read():
+        values = original_read()
+        captured.set()
+        if release is not None and not release.wait(10):
+            raise RuntimeError("vault write was not released")
+        return values
+
+    vault._read = paused_read
+    started.set()
+    try:
+        vault.set(key, "private-" + key)
+        results.put((key, "ok"))
+    except BaseException as exc:
+        results.put((key, type(exc).__name__))
+
+
+def test_direct_vault_writes_preserve_both_workers_keys(tmp_path):
+    context = multiprocessing.get_context("spawn")
+    first_started, second_started = context.Event(), context.Event()
+    first_captured, second_captured = context.Event(), context.Event()
+    release, results = context.Event(), context.Queue()
+    root = tmp_path / "vault"
+    first = context.Process(target=_vault_write_worker, args=(
+        root, "outlook-token", first_started, first_captured, release, results,
+    ))
+    second = context.Process(target=_vault_write_worker, args=(
+        root, "outlook-delta", second_started, second_captured, None, results,
+    ))
+    first.start()
+    try:
+        assert first_captured.wait(10)
+        second.start()
+        assert second_started.wait(10)
+        assert not second_captured.wait(0.25)
+        release.set()
+        assert sorted(results.get(timeout=10) for _ in range(2)) == [
+            ("outlook-delta", "ok"), ("outlook-token", "ok"),
+        ]
+        for worker in (first, second):
+            worker.join(timeout=10)
+            assert worker.exitcode == 0
+        vault = FileSecretVault(root)
+        assert vault.get("outlook-token") == "private-outlook-token"
+        assert vault.get("outlook-delta") == "private-outlook-delta"
+        assert vault.lock_path.stat().st_mode & 0o777 == 0o600
+    finally:
+        release.set()
+        for worker in (first, second):
+            if worker.pid is not None:
+                if worker.is_alive():
+                    worker.terminate()
+                worker.join(timeout=10)
+        results.close()
