@@ -1689,7 +1689,7 @@ class ClaudeAgentRuntime:
                         "hookEventName": "PreToolUse",
                         "permissionDecision": "ask",
                         "permissionDecisionReason": (
-                            "Every native window selection, screenshot, and press requires "
+                            "Every native window selection, screenshot, and input action requires "
                             "confirmation for this invocation."
                         ),
                     }}

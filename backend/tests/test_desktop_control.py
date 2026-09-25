@@ -10,7 +10,13 @@ import pytest
 from mcp_test_client import call_sdk_tool
 from PIL import Image
 
-from ophira_backend.constants import TOOL_PRESS_DESKTOP, TOOL_SNAPSHOT_DESKTOP, RunStatus
+from ophira_backend.constants import (
+    TOOL_PRESS_DESKTOP,
+    TOOL_REPLACE_DESKTOP_TEXT,
+    TOOL_SEND_DESKTOP_KEY,
+    TOOL_SNAPSHOT_DESKTOP,
+    RunStatus,
+)
 from ophira_backend.desktop_bridge import DesktopBridgeError
 from ophira_backend.desktop_control import DesktopControl, DesktopControlError
 from ophira_backend.desktop_tools import build_desktop_mcp_server
@@ -23,6 +29,7 @@ from ophira_backend.storage import FileLedger
 class FakeBridge:
     def __init__(self, png: bytes) -> None:
         self.calls: list[tuple[str, str | None]] = []
+        self.arguments: list[dict] = []
         self.selection: dict = {
             "window_id": 42,
             "bundle_id": "com.apple.TextEdit",
@@ -41,16 +48,33 @@ class FakeBridge:
             "outcome": "confirmed",
             "ax_error_code": 0,
         }
+        self.text_action: dict = {
+            **self.selection,
+            "control_label": "Notes",
+            "control_role": "AXTextArea",
+            "outcome": "confirmed",
+            "ax_error_code": 0,
+        }
+        self.key_action: dict = {
+            **self.selection,
+            "key": "Return",
+            "outcome": "dispatched",
+        }
         self.action_error = False
 
     async def request(self, operation: str, *, run_id: str | None = None, **_kwargs) -> dict:
         self.calls.append((operation, run_id))
+        self.arguments.append(_kwargs.get("arguments") or {})
         if operation == "select_window":
             return self.selection
         if operation == "snapshot":
             return self.capture
         if self.action_error:
             raise DesktopBridgeError("native pipe lost after press")
+        if operation == "replace_text":
+            return self.text_action
+        if operation == "key":
+            return self.key_action
         return self.action
 
 
@@ -329,6 +353,122 @@ async def test_mismatched_native_control_label_is_uncertain(tmp_path: Path) -> N
 
 
 @pytest.mark.asyncio
+async def test_replace_text_requires_exact_capture_and_records_hashes_only(tmp_path: Path) -> None:
+    ledger, project, run, policy, bridge, service, _png = setup_capture(tmp_path)
+    policy.save(OrgPolicy(
+        computer_control_enabled=True,
+        allowed_desktop_bundle_ids=["com.apple.TextEdit"],
+    ))
+    selection = await service.select_window(project.id, run.id)
+    capture = await service.snapshot(project.id, run.id, selection["selection_id"])
+    with pytest.raises(DesktopControlError, match="outside the screenshot"):
+        await service.replace_window_text(
+            project.id, run.id, selection["selection_id"], capture["receipt_id"],
+            10, 1, "Notes", "old", "new",
+        )
+    with pytest.raises(DesktopControlError, match="native action limit"):
+        await service.replace_window_text(
+            project.id, run.id, selection["selection_id"], capture["receipt_id"],
+            1, 1, "Notes", "old", "new\x00value",
+        )
+    assert bridge.calls[-1] == ("snapshot", run.id)
+    action = await service.replace_window_text(
+        project.id, run.id, selection["selection_id"], capture["receipt_id"],
+        1, 1, "Notes", "old", "new text",
+    )
+    assert action["ok"] is True
+    assert action["outcome"] == "confirmed"
+    assert bridge.calls[-1] == ("replace_text", run.id)
+    assert bridge.arguments[-1]["capture_token"] == "a" * 32
+    assert bridge.arguments[-1]["expected_current_text"] == "old"
+    assert bridge.arguments[-1]["replacement_text"] == "new text"
+    receipt = next(
+        item for item in ledger.list_tool_receipts(project.id, run_id=run.id)
+        if item.tool == TOOL_REPLACE_DESKTOP_TEXT
+    )
+    payload = ledger.replay_tool_receipt(project.id, receipt.id).payload
+    assert payload["capture_receipt_id"] == capture["receipt_id"]
+    assert payload["expected_current_sha256"] == hashlib.sha256(b"old").hexdigest()
+    assert payload["replacement_sha256"] == hashlib.sha256(b"new text").hexdigest()
+    assert "new text" not in json.dumps(payload)
+    assert "old" not in json.dumps(payload)
+    with pytest.raises(DesktopControlError, match="Capture the selected window"):
+        await service.replace_window_text(
+            project.id, run.id, selection["selection_id"], capture["receipt_id"],
+            1, 1, "Notes", "old", "new text",
+        )
+
+
+@pytest.mark.asyncio
+async def test_key_is_allowlisted_window_bound_and_requires_new_capture(tmp_path: Path) -> None:
+    ledger, project, run, policy, bridge, service, _png = setup_capture(tmp_path)
+    policy.save(OrgPolicy(
+        computer_control_enabled=True,
+        allowed_desktop_bundle_ids=["com.apple.TextEdit"],
+    ))
+    selection = await service.select_window(project.id, run.id)
+    capture = await service.snapshot(project.id, run.id, selection["selection_id"])
+    with pytest.raises(DesktopControlError, match="exact title"):
+        await service.send_window_key(
+            project.id, run.id, selection["selection_id"], capture["receipt_id"],
+            "Other", "Return",
+        )
+    with pytest.raises(DesktopControlError, match="supported unmodified key"):
+        await service.send_window_key(
+            project.id, run.id, selection["selection_id"], capture["receipt_id"],
+            "Draft", "Command+Q",
+        )
+    assert bridge.calls[-1] == ("snapshot", run.id)
+    action = await service.send_window_key(
+        project.id, run.id, selection["selection_id"], capture["receipt_id"],
+        "Draft", "Return",
+    )
+    assert action["ok"] is True
+    assert action["outcome"] == "dispatched"
+    assert bridge.calls[-1] == ("key", run.id)
+    assert bridge.arguments[-1]["expected_window_title"] == "Draft"
+    receipt = next(
+        item for item in ledger.list_tool_receipts(project.id, run_id=run.id)
+        if item.tool == TOOL_SEND_DESKTOP_KEY
+    )
+    payload = ledger.replay_tool_receipt(project.id, receipt.id).payload
+    assert payload["capture_receipt_id"] == capture["receipt_id"]
+    assert payload["key"] == "Return"
+    assert payload["outcome"] == "dispatched"
+    with pytest.raises(DesktopControlError, match="Capture the selected window"):
+        await service.send_window_key(
+            project.id, run.id, selection["selection_id"], capture["receipt_id"],
+            "Draft", "Return",
+        )
+
+
+@pytest.mark.asyncio
+async def test_lost_native_text_response_is_uncertain_and_not_replayed(tmp_path: Path) -> None:
+    _ledger, project, run, policy, bridge, service, _png = setup_capture(tmp_path)
+    policy.save(OrgPolicy(
+        computer_control_enabled=True,
+        allowed_desktop_bundle_ids=["com.apple.TextEdit"],
+    ))
+    selection = await service.select_window(project.id, run.id)
+    capture = await service.snapshot(project.id, run.id, selection["selection_id"])
+    bridge.action_error = True
+    server = build_desktop_mcp_server(service, project.id, run.id)
+    request = {
+        "selection_id": selection["selection_id"],
+        "capture_receipt_id": capture["receipt_id"],
+        "x": 1, "y": 1, "expected_label": "Notes",
+        "expected_current_text": "", "replacement_text": "new",
+    }
+    response = await call_sdk_tool(server["instance"], "replace_window_text", request)
+    assert response.is_error is True
+    assert json.loads(response.content[0].text)["outcome"] == "uncertain"
+    response = await call_sdk_tool(server["instance"], "replace_window_text", request)
+    assert response.is_error is True
+    assert json.loads(response.content[0].text)["outcome"] == "not_sent"
+    assert bridge.calls.count(("replace_text", run.id)) == 1
+
+
+@pytest.mark.asyncio
 async def test_desktop_mcp_reports_scope_error_without_native_request(tmp_path: Path) -> None:
     _ledger, project, run, _policy, bridge, service, _png = setup_capture(tmp_path)
     server = build_desktop_mcp_server(service, project.id, run.id)
@@ -344,6 +484,8 @@ def test_desktop_permissions_are_never_persistent() -> None:
         "mcp__ophira_desktop__select_window",
         TOOL_SNAPSHOT_DESKTOP,
         TOOL_PRESS_DESKTOP,
+        TOOL_REPLACE_DESKTOP_TEXT,
+        TOOL_SEND_DESKTOP_KEY,
     ):
         assert not is_persistable_permission(tool_name, {})
         with pytest.raises(ValueError, match="per-invocation approval"):

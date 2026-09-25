@@ -47,6 +47,10 @@ private struct NativeArguments: Decodable {
     let width: Int?
     let height: Int?
     let expected_label: String?
+    let expected_current_text: String?
+    let replacement_text: String?
+    let expected_window_title: String?
+    let key: String?
 }
 
 private final class ReadyState: @unchecked Sendable {
@@ -301,9 +305,12 @@ private final class DesktopApplication: NSObject, NSApplicationDelegate,
             selectWindow(for: runID, requestID: request.id)
         } else if request.op == "snapshot", let runID = request.run_id {
             snapshotWindow(for: runID, requestID: request.id)
-        } else if request.op == "press", let runID = request.run_id,
+        } else if ["press", "replace_text", "key"].contains(request.op),
+                  let runID = request.run_id,
                   let args = request.args {
-            pressWindowControl(for: runID, requestID: request.id, args: args)
+            performWindowAction(
+                for: runID, requestID: request.id, operation: request.op, args: args
+            )
         } else {
             reply(to: request.id, error: "unsupported native operation")
         }
@@ -443,6 +450,7 @@ private final class DesktopApplication: NSObject, NSApplicationDelegate,
                     windowID: current.windowID,
                     processID: processID,
                     bundleID: bundleID,
+                    title: current.title ?? "",
                     imageWidth: image.width,
                     imageHeight: image.height,
                     bounds: bounds,
@@ -477,35 +485,82 @@ private final class DesktopApplication: NSObject, NSApplicationDelegate,
         window.owningApplication?.processID ?? 0
     }
 
-    private func pressWindowControl(
-        for runID: String, requestID: String, args: NativeArguments
+    private func performWindowAction(
+        for runID: String, requestID: String,
+        operation: String, args: NativeArguments
     ) {
         guard selectedRunID == runID,
               let capture = lastCapture,
               capture.runID == runID,
               let token = args.capture_token, token == capture.token,
-              let x = args.x, let y = args.y,
               let width = args.width, let height = args.height,
-              let label = args.expected_label,
               width == capture.imageWidth, height == capture.imageHeight,
-              x >= 0, y >= 0, x < width, y < height,
-              !label.isEmpty, label.count <= 120,
               Date().timeIntervalSince(capture.capturedAt) <= 120 else {
             reply(to: requestID, error: "a fresh matching window screenshot is required")
             return
         }
+        if operation == "press" || operation == "replace_text" {
+            guard let x = args.x, let y = args.y,
+                  let label = args.expected_label,
+                  x >= 0, y >= 0, x < width, y < height,
+                  !label.isEmpty, label.count <= 120,
+                  label == label.trimmingCharacters(in: .whitespacesAndNewlines) else {
+                reply(to: requestID, error: "a labelled screenshot target is required")
+                return
+            }
+            if operation == "replace_text" {
+                guard let prior = args.expected_current_text,
+                      let replacement = args.replacement_text,
+                      prior.utf8.count <= 4096,
+                      replacement.utf8.count <= 4096,
+                      prior.utf8.count + replacement.utf8.count <= 4000,
+                      !prior.unicodeScalars.contains(where: {
+                          $0.value < 32 && $0 != "\n" && $0 != "\r" && $0 != "\t"
+                      }),
+                      !replacement.unicodeScalars.contains(where: {
+                          $0.value < 32 && $0 != "\n" && $0 != "\r" && $0 != "\t"
+                      }) else {
+                    reply(to: requestID, error: "bounded current and replacement text are required")
+                    return
+                }
+            }
+        } else if operation == "key" {
+            guard let title = args.expected_window_title,
+                  title == capture.title, !title.isEmpty,
+                  let key = args.key,
+                  DesktopAccessibility.supportedKeys.contains(key) else {
+                reply(to: requestID, error: "a supported key and exact window title are required")
+                return
+            }
+        }
         // An error after dispatch may mean the target acted. Invalidate this
-        // screenshot first so the same press cannot be replayed blindly.
+        // screenshot first so the same action cannot be replayed blindly.
         lastCapture = nil
-        Task {
-            do {
-                let result = try await DesktopAccessibility.press(
+        do {
+            let result: [String: Any]
+            if operation == "press", let x = args.x, let y = args.y,
+               let label = args.expected_label {
+                result = try DesktopAccessibility.press(
                     capture: capture, x: x, y: y, expectedLabel: label
                 )
-                reply(to: requestID, result: result)
-            } catch {
-                reply(to: requestID, error: "selected window is not ready for AXPress")
+            } else if operation == "replace_text", let x = args.x,
+                      let y = args.y, let label = args.expected_label,
+                      let prior = args.expected_current_text,
+                      let replacement = args.replacement_text {
+                result = try DesktopAccessibility.replaceText(
+                    capture: capture, x: x, y: y, expectedLabel: label,
+                    expectedCurrent: prior, replacement: replacement
+                )
+            } else if operation == "key", let key = args.key {
+                result = try DesktopAccessibility.sendKey(
+                    capture: capture, key: key
+                )
+            } else {
+                throw DesktopError.startupFailed
             }
+            reply(to: requestID, result: result)
+        } catch {
+            reply(to: requestID, error: "selected window is not ready for this action")
         }
     }
 

@@ -154,7 +154,143 @@ def build_desktop_tools(service: DesktopControl, project_id: str, run_id: str):
                 "next_step": "Capture a fresh screenshot before any retry.",
             }, is_error=True)
 
-    return [select_window, snapshot_window, press_window_control]
+    @tool(
+        "replace_window_text",
+        "Replace the complete value of a labelled, non-secret native text field or text area. "
+        "Read the latest screenshot first, then supply its receipt, pixel target, exact "
+        "visible label, the full current value, and replacement text. The native host "
+        "rejects a changed value or secure field. Every call needs human approval; "
+        "capture again afterward and never blindly retry an uncertain result.",
+        {
+            "type": "object",
+            "properties": {
+                "selection_id": {"type": "string", "pattern": "^window_[a-f0-9]{32}$"},
+                "capture_receipt_id": {
+                    "type": "string", "pattern": "^receipt_[A-Za-z0-9_-]{20,}$",
+                },
+                "x": {"type": "integer", "minimum": 0},
+                "y": {"type": "integer", "minimum": 0},
+                "expected_label": {"type": "string", "minLength": 1, "maxLength": 120},
+                "expected_current_text": {"type": "string", "maxLength": 4096},
+                "replacement_text": {"type": "string", "maxLength": 4096},
+            },
+            "required": [
+                "selection_id", "capture_receipt_id", "x", "y", "expected_label",
+                "expected_current_text", "replacement_text",
+            ],
+            "additionalProperties": False,
+        },
+    )
+    async def replace_window_text(args: dict[str, Any]) -> dict[str, Any]:
+        try:
+            action = await service.replace_window_text(
+                project_id, run_id,
+                args["selection_id"], args["capture_receipt_id"],
+                args["x"], args["y"], args["expected_label"],
+                args["expected_current_text"], args["replacement_text"],
+            )
+            return _result(
+                {"note": UNTRUSTED_DATA_NOTICE, **action}, is_error=not action["ok"],
+            )
+        except DesktopControlError as exc:
+            uncertain = exc.code in {
+                "DESKTOP_WINDOW_CHANGED", "DESKTOP_NATIVE_RESPONSE_INVALID",
+            }
+            return _result({
+                "ok": False,
+                "error_code": exc.code,
+                "error": str(exc),
+                "outcome": "uncertain" if uncertain else "not_sent",
+                "next_step": "Capture a fresh screenshot before any retry." if uncertain else None,
+            }, is_error=True)
+        except DesktopBridgeError:
+            return _result({
+                "ok": False,
+                "error_code": "DESKTOP_ACTION_UNCERTAIN",
+                "error": "The native host did not confirm whether the text changed.",
+                "outcome": "uncertain",
+                "next_step": "Capture a fresh screenshot before any retry.",
+            }, is_error=True)
+        except Exception:
+            logger.exception("Desktop text result could not be recorded")
+            return _result({
+                "ok": False,
+                "error_code": "DESKTOP_ACTION_UNCERTAIN",
+                "error": "Text may have changed, but its result could not be recorded.",
+                "outcome": "uncertain",
+                "next_step": "Capture a fresh screenshot before any retry.",
+            }, is_error=True)
+
+    @tool(
+        "send_window_key",
+        "Send one unmodified key to the user-selected native app's focused window. "
+        "The latest screenshot receipt and exact window title are required. Supported keys "
+        "are Return, Escape, Tab, Space, Backspace, and the four arrows. The host checks "
+        "the focused window before dispatch. Every call needs human approval and a fresh "
+        "screenshot afterward; dispatch does not prove the UI changed.",
+        {
+            "type": "object",
+            "properties": {
+                "selection_id": {"type": "string", "pattern": "^window_[a-f0-9]{32}$"},
+                "capture_receipt_id": {
+                    "type": "string", "pattern": "^receipt_[A-Za-z0-9_-]{20,}$",
+                },
+                "expected_window_title": {"type": "string", "minLength": 1, "maxLength": 256},
+                "key": {
+                    "type": "string",
+                    "enum": [
+                        "Return", "Escape", "Tab", "Space", "Backspace",
+                        "Up", "Down", "Left", "Right",
+                    ],
+                },
+            },
+            "required": [
+                "selection_id", "capture_receipt_id", "expected_window_title", "key",
+            ],
+            "additionalProperties": False,
+        },
+    )
+    async def send_window_key(args: dict[str, Any]) -> dict[str, Any]:
+        try:
+            action = await service.send_window_key(
+                project_id, run_id,
+                args["selection_id"], args["capture_receipt_id"],
+                args["expected_window_title"], args["key"],
+            )
+            return _result({"note": UNTRUSTED_DATA_NOTICE, **action})
+        except DesktopControlError as exc:
+            uncertain = exc.code in {
+                "DESKTOP_WINDOW_CHANGED", "DESKTOP_NATIVE_RESPONSE_INVALID",
+            }
+            return _result({
+                "ok": False,
+                "error_code": exc.code,
+                "error": str(exc),
+                "outcome": "uncertain" if uncertain else "not_sent",
+                "next_step": "Capture a fresh screenshot before any retry." if uncertain else None,
+            }, is_error=True)
+        except DesktopBridgeError:
+            return _result({
+                "ok": False,
+                "error_code": "DESKTOP_ACTION_UNCERTAIN",
+                "error": "The native host did not confirm whether the key was dispatched.",
+                "outcome": "uncertain",
+                "next_step": "Capture a fresh screenshot before any retry.",
+            }, is_error=True)
+        except Exception:
+            logger.exception("Desktop key result could not be recorded")
+            return _result({
+                "ok": False,
+                "error_code": "DESKTOP_ACTION_UNCERTAIN",
+                "error": "The key may have been dispatched, but its result could not be recorded.",
+                "outcome": "uncertain",
+                "next_step": "Capture a fresh screenshot before any retry.",
+            }, is_error=True)
+
+    return [
+        select_window, snapshot_window, press_window_control,
+        replace_window_text, send_window_key,
+    ]
 
 
 def build_desktop_mcp_server(service: DesktopControl, project_id: str, run_id: str):

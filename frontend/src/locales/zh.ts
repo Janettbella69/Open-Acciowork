@@ -363,7 +363,7 @@ export const zh: Record<string, string> = {
   'Integrations': '集成',
   'Computer control': '电脑控制',
   'Native desktop control': '原生桌面控制',
-  'Allow approved native apps on this Mac. Every selection, screenshot, and accessible press asks again; browsers use L1/L2 domain checks.': '仅允许此 Mac 上获批的原生应用。每次选窗口、截图和辅助功能点击都需重新批准；浏览器使用 L1/L2 域名检查。',
+  'Allow approved native apps on this Mac. Every selection, screenshot, and native input action asks again; browsers use L1/L2 domain checks.': '仅允许此 Mac 上获批的原生应用。每次选窗口、截图和原生输入动作都需重新批准；浏览器使用 L1/L2 域名检查。',
   'Approved desktop app bundle IDs': '获批的桌面应用 Bundle ID',
   'One exact macOS bundle ID per line. The desktop host and system permission are required.': '每行填写一个准确的 macOS Bundle ID；还需要桌面宿主及系统授权。',
   'Save apps': '保存应用',

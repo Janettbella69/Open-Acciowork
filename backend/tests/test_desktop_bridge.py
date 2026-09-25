@@ -80,3 +80,42 @@ async def test_malformed_native_response_fails_pending_request() -> None:
         reader.close()
         writer.close()
         thread.join(timeout=2)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("operation", ["replace_text", "key"])
+async def test_input_action_uses_run_bound_private_pipe(operation: str) -> None:
+    inbound_read, inbound_write = os.pipe()
+    outbound_read, outbound_write = os.pipe()
+    reader = os.fdopen(inbound_read, "rb", buffering=0)
+    writer = os.fdopen(outbound_write, "wb", buffering=0)
+    native_reader = os.fdopen(outbound_read, "rb", buffering=0)
+    native_writer = os.fdopen(inbound_write, "wb", buffering=0)
+    bridge = DesktopBridge(reader, writer, on_disconnect=lambda: None)
+    seen: list[dict] = []
+
+    def native() -> None:
+        command = json.loads(native_reader.readline())
+        seen.append(command)
+        native_writer.write(json.dumps({
+            "v": 1, "id": command["id"], "ok": True,
+            "result": {"received": command["op"]},
+        }).encode() + b"\n")
+        native_writer.flush()
+        native_writer.close()
+
+    thread = threading.Thread(target=native)
+    thread.start()
+    try:
+        result = await bridge.request(
+            operation, run_id="run_approved", arguments={"capture_token": "a" * 32},
+        )
+        assert result == {"received": operation}
+        assert seen[0]["run_id"] == "run_approved"
+        assert seen[0]["args"] == {"capture_token": "a" * 32}
+    finally:
+        native_writer.close()
+        native_reader.close()
+        reader.close()
+        writer.close()
+        thread.join(timeout=2)

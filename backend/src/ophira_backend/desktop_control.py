@@ -20,6 +20,8 @@ from PIL import Image, UnidentifiedImageError
 from .constants import (
     DESKTOP_MCP_SERVER_NAME,
     TOOL_PRESS_DESKTOP,
+    TOOL_REPLACE_DESKTOP_TEXT,
+    TOOL_SEND_DESKTOP_KEY,
     TOOL_SNAPSHOT_DESKTOP,
     EvidenceKind,
     EvidenceSourceType,
@@ -50,6 +52,11 @@ _BROWSER_BUNDLE_IDS = frozenset({
 _MAX_PNG_BYTES = 12_000_000
 _CAPTURE_TOKEN = re.compile(r"^[0-9a-f]{32}$")
 _MAX_ACTION_AGE_SECONDS = 120
+_MAX_TEXT_BYTES = 4096
+_MAX_TEXT_REQUEST_BYTES = 4000
+_ALLOWED_KEYS = frozenset({
+    "Return", "Escape", "Tab", "Space", "Backspace", "Up", "Down", "Left", "Right",
+})
 
 
 class DesktopControlError(RuntimeError):
@@ -74,6 +81,7 @@ class WindowCapture:
     selection_id: str
     receipt_id: str
     native_token: str
+    title: str
     width: int
     height: int
     recorded_at_monotonic: float
@@ -253,6 +261,7 @@ class DesktopControl:
                 selection_id=selection.selection_id,
                 receipt_id=result["receipt_id"],
                 native_token=native_token,
+                title=title,
                 width=dimensions[0],
                 height=dimensions[1],
                 recorded_at_monotonic=time.monotonic(),
@@ -260,6 +269,79 @@ class DesktopControl:
             if self.project_events is not None:
                 await self.project_events.reconcile_run(run_id)
             return result
+
+    def _require_capture(
+        self, project_id: str, run_id: str,
+        selection_id: str, capture_receipt_id: str,
+    ) -> tuple[WindowSelection, WindowCapture]:
+        self._require_run(project_id, run_id)
+        selection = self._selection
+        capture = self._capture
+        if (
+            selection is None or selection.run_id != run_id
+            or selection.selection_id != selection_id
+            or capture is None or capture.run_id != run_id
+            or capture.selection_id != selection_id
+            or capture.receipt_id != capture_receipt_id
+        ):
+            raise DesktopControlError(
+                "DESKTOP_CAPTURE_UNAVAILABLE",
+                "Capture the selected window in this Run before an input action.",
+            )
+        self._require_policy(selection.bundle_id)
+        if time.monotonic() - capture.recorded_at_monotonic > _MAX_ACTION_AGE_SECONDS:
+            raise DesktopControlError(
+                "DESKTOP_CAPTURE_STALE", "Capture a fresh screenshot before acting."
+            )
+        return selection, capture
+
+    @staticmethod
+    def _check_coordinate(capture: WindowCapture, x: int, y: int) -> None:
+        if (
+            type(x) is not int or type(y) is not int
+            or not 0 <= x < capture.width or not 0 <= y < capture.height
+        ):
+            raise DesktopControlError(
+                "DESKTOP_COORDINATE_INVALID", "Target coordinates are outside the screenshot."
+            )
+
+    @staticmethod
+    def _clean_label(expected_label: str) -> str:
+        if not isinstance(expected_label, str) or not 1 <= len(
+            expected_label.strip()
+        ) <= 120:
+            raise DesktopControlError(
+                "DESKTOP_TARGET_INVALID", "Name the exact visible control for approval."
+            )
+        requested_label = expected_label.strip()
+        label = sanitize_untrusted_text(
+            requested_label, UntrustedSource.BROWSER_PAGE, max_chars=120,
+        ).text
+        if label != requested_label or any(ord(char) < 32 for char in label):
+            raise DesktopControlError(
+                "DESKTOP_TARGET_INVALID", "Use a plain visible control label."
+            )
+        return label
+
+    def _check_action_response(
+        self, selection: WindowSelection, capture: WindowCapture,
+        response: dict[str, Any], allowed_outcomes: set[str],
+    ) -> tuple[int, str, str, str]:
+        window_id, bundle_id, process_id, title = self._window_metadata(response)
+        if (
+            window_id != selection.window_id
+            or bundle_id != selection.bundle_id
+            or process_id != selection.process_id
+            or title != capture.title
+        ):
+            raise DesktopControlError(
+                "DESKTOP_WINDOW_CHANGED", "Selected window identity changed during action."
+            )
+        if response.get("outcome") not in allowed_outcomes:
+            raise DesktopControlError(
+                "DESKTOP_NATIVE_RESPONSE_INVALID", "Native action result is invalid."
+            )
+        return window_id, bundle_id, title, response["outcome"]
 
     async def press_window_control(
         self,
@@ -272,46 +354,11 @@ class DesktopControl:
         expected_label: str,
     ) -> dict[str, Any]:
         async with self._lock:
-            self._require_run(project_id, run_id)
-            selection = self._selection
-            capture = self._capture
-            if (
-                selection is None or selection.run_id != run_id
-                or selection.selection_id != selection_id
-                or capture is None or capture.run_id != run_id
-                or capture.selection_id != selection_id
-                or capture.receipt_id != capture_receipt_id
-            ):
-                raise DesktopControlError(
-                    "DESKTOP_CAPTURE_UNAVAILABLE",
-                    "Capture the selected window in this Run before an input action.",
-                )
-            self._require_policy(selection.bundle_id)
-            if time.monotonic() - capture.recorded_at_monotonic > _MAX_ACTION_AGE_SECONDS:
-                raise DesktopControlError(
-                    "DESKTOP_CAPTURE_STALE", "Capture a fresh screenshot before pressing."
-                )
-            if (
-                type(x) is not int or type(y) is not int
-                or not 0 <= x < capture.width or not 0 <= y < capture.height
-            ):
-                raise DesktopControlError(
-                    "DESKTOP_COORDINATE_INVALID", "Press coordinates are outside the screenshot."
-                )
-            if not isinstance(expected_label, str) or not 1 <= len(
-                expected_label.strip()
-            ) <= 120:
-                raise DesktopControlError(
-                    "DESKTOP_TARGET_INVALID", "Name the exact visible control for approval."
-                )
-            requested_label = expected_label.strip()
-            label = sanitize_untrusted_text(
-                requested_label, UntrustedSource.BROWSER_PAGE, max_chars=120,
-            ).text
-            if label != requested_label or any(ord(char) < 32 for char in label):
-                raise DesktopControlError(
-                    "DESKTOP_TARGET_INVALID", "Use a plain visible control label."
-                )
+            selection, capture = self._require_capture(
+                project_id, run_id, selection_id, capture_receipt_id,
+            )
+            self._check_coordinate(capture, x, y)
+            label = self._clean_label(expected_label)
             # Once a native request has been sent, its result may be unknown if
             # the pipe closes. Force fresh observation before any retry.
             self._capture = None
@@ -327,21 +374,14 @@ class DesktopControl:
                 },
                 timeout_seconds=20,
             )
-            window_id, bundle_id, process_id, title = self._window_metadata(response)
-            if (
-                window_id != selection.window_id
-                or bundle_id != selection.bundle_id
-                or process_id != selection.process_id
-            ):
-                raise DesktopControlError(
-                    "DESKTOP_WINDOW_CHANGED", "Selected window identity changed during action."
-                )
-            outcome = response.get("outcome")
+            window_id, bundle_id, title, outcome = self._check_action_response(
+                selection, capture, response, {"confirmed", "uncertain"},
+            )
             ax_error_code = response.get("ax_error_code")
             actual_label = response.get("control_label")
             control_role = response.get("control_role")
-            if outcome not in {"confirmed", "uncertain"} or (
-                ax_error_code is not None and type(ax_error_code) is not int
+            if type(ax_error_code) is not int or (
+                outcome == "confirmed" and ax_error_code != 0
             ) or (
                 not isinstance(actual_label, str) or len(actual_label) > 120
                 or actual_label != label
@@ -359,7 +399,14 @@ class DesktopControl:
             receipt = await asyncio.to_thread(
                 self._record_action,
                 project_id, run_id, selection, capture, title,
-                x, y, label, safe_actual_label, safe_role, outcome, ax_error_code,
+                TOOL_PRESS_DESKTOP, "desktop_accessibility_press", outcome,
+                {
+                    "x": x, "y": y,
+                    "expected_label": label,
+                    "control_label": safe_actual_label,
+                    "control_role": safe_role,
+                    "ax_error_code": ax_error_code,
+                },
             )
             return {
                 "ok": outcome == "confirmed",
@@ -374,6 +421,166 @@ class DesktopControl:
                 "next_step": "Capture a fresh screenshot to verify the resulting window state.",
             }
 
+    async def replace_window_text(
+        self,
+        project_id: str,
+        run_id: str,
+        selection_id: str,
+        capture_receipt_id: str,
+        x: int,
+        y: int,
+        expected_label: str,
+        expected_current_text: str,
+        replacement_text: str,
+    ) -> dict[str, Any]:
+        async with self._lock:
+            selection, capture = self._require_capture(
+                project_id, run_id, selection_id, capture_receipt_id,
+            )
+            self._check_coordinate(capture, x, y)
+            label = self._clean_label(expected_label)
+            if not isinstance(expected_current_text, str) or not isinstance(
+                replacement_text, str
+            ):
+                raise DesktopControlError(
+                    "DESKTOP_TEXT_INVALID", "Expected and replacement text must be strings."
+                )
+            try:
+                prior = expected_current_text.encode("utf-8")
+                replacement = replacement_text.encode("utf-8")
+            except UnicodeEncodeError as exc:
+                raise DesktopControlError(
+                    "DESKTOP_TEXT_INVALID", "Text must be valid UTF-8."
+                ) from exc
+            if (
+                len(prior) > _MAX_TEXT_BYTES or len(replacement) > _MAX_TEXT_BYTES
+                or len(prior) + len(replacement) > _MAX_TEXT_REQUEST_BYTES
+                or "\x00" in expected_current_text or "\x00" in replacement_text
+                or any(
+                    ord(char) < 32 and char not in "\n\r\t"
+                    for char in expected_current_text + replacement_text
+                )
+            ):
+                raise DesktopControlError(
+                    "DESKTOP_TEXT_INVALID", "Text exceeds the native action limit."
+                )
+            self._capture = None
+            response = await self.bridge.request(
+                "replace_text", run_id=run_id,
+                arguments={
+                    "capture_token": capture.native_token,
+                    "x": x,
+                    "y": y,
+                    "width": capture.width,
+                    "height": capture.height,
+                    "expected_label": label,
+                    "expected_current_text": expected_current_text,
+                    "replacement_text": replacement_text,
+                },
+                timeout_seconds=20,
+            )
+            window_id, bundle_id, title, outcome = self._check_action_response(
+                selection, capture, response, {"confirmed", "uncertain"},
+            )
+            actual_label = response.get("control_label")
+            role = response.get("control_role")
+            ax_error_code = response.get("ax_error_code")
+            if (
+                actual_label != label or role not in {"AXTextField", "AXTextArea"}
+                or type(ax_error_code) is not int
+                or (outcome == "confirmed" and ax_error_code != 0)
+            ):
+                raise DesktopControlError(
+                    "DESKTOP_NATIVE_RESPONSE_INVALID", "Native text result is invalid."
+                )
+            receipt = await asyncio.to_thread(
+                self._record_action,
+                project_id, run_id, selection, capture, title,
+                TOOL_REPLACE_DESKTOP_TEXT, "desktop_accessibility_text", outcome,
+                {
+                    "x": x, "y": y,
+                    "expected_label": label,
+                    "control_label": actual_label,
+                    "control_role": role,
+                    "expected_current_sha256": hashlib.sha256(prior).hexdigest(),
+                    "expected_current_bytes": len(prior),
+                    "replacement_sha256": hashlib.sha256(replacement).hexdigest(),
+                    "replacement_bytes": len(replacement),
+                    "ax_error_code": ax_error_code,
+                },
+            )
+            return {
+                "ok": outcome == "confirmed",
+                "outcome": outcome,
+                "selection_id": selection_id,
+                "window_id": window_id,
+                "bundle_id": bundle_id,
+                "title": title,
+                "control_label": actual_label,
+                "control_role": role,
+                "replacement_bytes": len(replacement),
+                "action_receipt_id": receipt.id,
+                "next_step": "Capture a fresh screenshot to verify the resulting window state.",
+            }
+
+    async def send_window_key(
+        self,
+        project_id: str,
+        run_id: str,
+        selection_id: str,
+        capture_receipt_id: str,
+        expected_window_title: str,
+        key: str,
+    ) -> dict[str, Any]:
+        async with self._lock:
+            selection, capture = self._require_capture(
+                project_id, run_id, selection_id, capture_receipt_id,
+            )
+            if not capture.title or expected_window_title != capture.title:
+                raise DesktopControlError(
+                    "DESKTOP_TARGET_INVALID", "Use the exact title from the latest screenshot."
+                )
+            if not isinstance(key, str) or key not in _ALLOWED_KEYS:
+                raise DesktopControlError(
+                    "DESKTOP_KEY_INVALID", "Use one supported unmodified key."
+                )
+            self._capture = None
+            response = await self.bridge.request(
+                "key", run_id=run_id,
+                arguments={
+                    "capture_token": capture.native_token,
+                    "width": capture.width,
+                    "height": capture.height,
+                    "expected_window_title": capture.title,
+                    "key": key,
+                },
+                timeout_seconds=20,
+            )
+            window_id, bundle_id, title, outcome = self._check_action_response(
+                selection, capture, response, {"dispatched"},
+            )
+            if response.get("key") != key:
+                raise DesktopControlError(
+                    "DESKTOP_NATIVE_RESPONSE_INVALID", "Native key result is invalid."
+                )
+            receipt = await asyncio.to_thread(
+                self._record_action,
+                project_id, run_id, selection, capture, title,
+                TOOL_SEND_DESKTOP_KEY, "desktop_keyboard_event", outcome,
+                {"key": key},
+            )
+            return {
+                "ok": True,
+                "outcome": outcome,
+                "selection_id": selection_id,
+                "window_id": window_id,
+                "bundle_id": bundle_id,
+                "title": title,
+                "key": key,
+                "action_receipt_id": receipt.id,
+                "next_step": "Capture a fresh screenshot to verify the resulting window state.",
+            }
+
     def _record_action(
         self,
         project_id: str,
@@ -381,13 +588,10 @@ class DesktopControl:
         selection: WindowSelection,
         capture: WindowCapture,
         title: str,
-        x: int,
-        y: int,
-        expected_label: str,
-        actual_label: str,
-        control_role: str,
+        tool: str,
+        object_type: str,
         outcome: str,
-        ax_error_code: int | None,
+        action_payload: dict[str, Any],
     ) -> ToolReceipt:
         # Action receipt persists even if the Run ends or policy is revoked
         # while the native AX call is in flight. The pre-action checks above
@@ -399,7 +603,7 @@ class DesktopControl:
         )
         return self.ledger.issue_tool_receipt(
             project_id, run_id,
-            tool=TOOL_PRESS_DESKTOP,
+            tool=tool,
             source_type=EvidenceSourceType.TOOL,
             canonical_source=canonical,
             payload={
@@ -408,17 +612,12 @@ class DesktopControl:
                 "process_id": selection.process_id,
                 "title": title,
                 "capture_receipt_id": capture.receipt_id,
-                "x": x,
-                "y": y,
-                "expected_label": expected_label,
-                "control_label": actual_label,
-                "control_role": control_role,
+                **action_payload,
                 "outcome": outcome,
-                "ax_error_code": ax_error_code,
                 "observed_at": stamp.isoformat(),
             },
-            object_type="desktop_accessibility_press",
-            object_key=f"{canonical}/press/{uuid4().hex}",
+            object_type=object_type,
+            object_key=f"{canonical}/{object_type}/{uuid4().hex}",
             object_metadata={
                 "capture_receipt_id": capture.receipt_id,
                 "outcome": outcome,
