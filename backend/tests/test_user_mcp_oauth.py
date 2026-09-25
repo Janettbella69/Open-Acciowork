@@ -19,6 +19,8 @@ from ophira_backend.models import OrgPolicy
 from ophira_backend.policy import OrgPolicyStore
 from ophira_backend.providers import FileSecretVault
 from ophira_backend.user_mcp import (
+    HUBSPOT_MCP_URL,
+    HUBSPOT_OAUTH_ISSUER,
     OAUTH_CALLBACK_PATH,
     OAUTH_METADATA_PATH,
     UserMcpConflictError,
@@ -296,6 +298,140 @@ async def test_oauth_transport_never_sends_bearer_to_issuer_or_other_host() -> N
             "GET", "https://other.example.test/.well-known/oauth-authorization-server",
         ))
     await transport.aclose()
+
+
+@pytest.mark.asyncio
+async def test_hubspot_catalog_oauth_reviews_only_documented_read_tools(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    redirect_uri = "https://gateway.example.test" + OAUTH_CALLBACK_PATH
+    observed: list[tuple[str, str, str | None]] = []
+
+    async def list_tools(_context, _params):
+        return ListToolsResult(tools=[Tool(name=name, inputSchema={
+            "type": "object", "properties": {},
+        }) for name in (
+            "get_user_details", "search_crm_objects", "manage_crm_objects",
+        )])
+
+    async def call_tool(_context, params):
+        assert params.name == "search_crm_objects"
+        return CallToolResult(content=[TextContent(type="text", text="scoped CRM result")])
+
+    remote = Server("hubspot", on_list_tools=list_tools, on_call_tool=call_tool)
+    mcp_app = remote.streamable_http_app(
+        json_response=True, stateless_http=True,
+        transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
+    )
+
+    class HubSpotTransport(httpx2.AsyncBaseTransport):
+        def __init__(self):
+            self.asgi = httpx2.ASGITransport(app=mcp_app)
+
+        async def handle_async_request(self, request: httpx2.Request) -> httpx2.Response:
+            host, path = request.headers["Host"], request.url.path
+            authorization = request.headers.get("Authorization")
+            observed.append((host, path, authorization))
+            if host == "mcp.hubspot.com" and path == "/":
+                if authorization != "Bearer hubspot-access":
+                    return httpx2.Response(401, headers={
+                        "WWW-Authenticate": (
+                            'Bearer resource_metadata="https://mcp.hubspot.com/'
+                            '.well-known/oauth-protected-resource"'
+                        ),
+                    }, request=request)
+                return await self.asgi.handle_async_request(httpx2.Request(
+                    request.method, "https://mcp.hubspot.com/mcp",
+                    headers=request.headers, content=await request.aread(),
+                ))
+            if host == "mcp.hubspot.com" and path == "/.well-known/oauth-protected-resource":
+                return httpx2.Response(200, json={
+                    "resource": HUBSPOT_OAUTH_ISSUER,
+                    "authorization_servers": [HUBSPOT_OAUTH_ISSUER],
+                }, request=request)
+            if host == "mcp.hubspot.com" and path == "/.well-known/oauth-authorization-server":
+                return httpx2.Response(200, json={
+                    "issuer": HUBSPOT_OAUTH_ISSUER,
+                    "authorization_endpoint": "https://app.hubspot.com/oauth/authorize",
+                    "token_endpoint": "https://api.hubspot.com/oauth/v3/token",
+                    "code_challenge_methods_supported": ["S256"],
+                    "token_endpoint_auth_methods_supported": ["client_secret_post"],
+                }, request=request)
+            if host == "api.hubspot.com" and path == "/oauth/v3/token":
+                form = parse_qs((await request.aread()).decode())
+                assert form["client_id"] == ["hubspot-client"]
+                assert form["client_secret"] == ["hubspot-secret"]
+                assert form["code_verifier"]
+                return httpx2.Response(200, json={
+                    "access_token": "hubspot-access", "token_type": "Bearer",
+                    "expires_in": 3600, "refresh_token": "hubspot-refresh",
+                }, request=request)
+            raise AssertionError(f"unexpected HubSpot request: {host}{path}")
+
+        async def aclose(self):
+            await self.asgi.aclose()
+
+    def pinned(url: str):
+        parts = urlsplit(url)
+        host = parts.hostname or ""
+        return PinnedPublicDestination(
+            request_url="https://93.184.216.34" + parts.path,
+            host_header=host, sni_hostname=host, resolved_ip="93.184.216.34",
+        ), None
+
+    monkeypatch.setattr("ophira_backend.user_mcp.pin_public_http_url", pinned)
+    monkeypatch.setattr(
+        "ophira_backend.user_mcp.httpx2.AsyncHTTPTransport", lambda **_kwargs: HubSpotTransport(),
+    )
+    service = UserMcpRegistry(
+        tmp_path / "user-mcp",
+        FileSecretVault(tmp_path / "secrets", filename="mcp-secrets.json"),
+        OrgPolicyStore(tmp_path / "org" / "policy.json"),
+        oauth_redirect_url=redirect_uri,
+    )
+    added = service.add_catalog("project_one", "hubspot_crm")
+    with pytest.raises(UserMcpConflictError, match="client ID and secret"):
+        await service.begin_oauth("project_one", added.id)
+    configured = service.upsert("project_one", added.id, UserMcpUpsert(
+        name=added.name, url=HUBSPOT_MCP_URL, oauth_issuer=HUBSPOT_OAUTH_ISSUER,
+        oauth_client_id="hubspot-client", oauth_client_secret="hubspot-secret",
+        oauth_client_auth_method="client_secret_post",
+    ))
+    assert not configured.enabled
+    async with mcp_app.router.lifespan_context(mcp_app):
+        authorization_url = await asyncio.wait_for(
+            service.begin_oauth("project_one", configured.id), 5,
+        )
+        parts = urlsplit(authorization_url)
+        assert parts.hostname == "app.hubspot.com"
+        parameters = parse_qs(parts.query)
+        assert parameters["code_challenge_method"] == ["S256"]
+        assert service.complete_oauth_callback(
+            state=parameters["state"][0], code="approved", issuer=HUBSPOT_OAUTH_ISSUER,
+            error=None,
+        )
+        for _ in range(100):
+            reviewed = service.get("project_one", configured.id)
+            if reviewed.enabled or reviewed.review_error:
+                break
+            await asyncio.sleep(0.01)
+        assert reviewed.enabled, (reviewed.review_error, observed)
+        assert [tool.name for tool in reviewed.tools] == [
+            "get_user_details", "search_crm_objects",
+        ]
+        with pytest.raises(KeyError):
+            service.set_tool_policy(
+                "project_one", configured.id, "manage_crm_objects", "ask",
+            )
+        result = await service._invoke_remote(reviewed, reviewed.tools[1], {})
+        assert result.content[0].text == "scoped CRM result"
+        assert all(
+            authorization is None or not authorization.startswith("Bearer ")
+            for host, path, authorization in observed
+            if host != "mcp.hubspot.com" or path != "/"
+        )
+        assert not service.vault.has("project_one:hubspot_crm")
+    await service.aclose_oauth_flows()
 
 
 @pytest.mark.asyncio

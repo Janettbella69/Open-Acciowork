@@ -31,11 +31,14 @@ from ophira_backend.runs import RunManager
 from ophira_backend.source_receipts import model_visible_source_receipt_context
 from ophira_backend.untrusted import UNTRUSTED_DATA_NOTICE
 from ophira_backend.user_mcp import (
+    HUBSPOT_MCP_URL,
+    HUBSPOT_OAUTH_ISSUER,
     UserMcpConflictError,
     UserMcpRegistry,
     UserMcpTool,
     UserMcpUpsert,
     _PinnedMcpTransport,
+    _read_tool_manifest,
     _reviewed_schema,
 )
 from ophira_backend.web_tools import PinnedPublicDestination
@@ -51,6 +54,35 @@ def registry(tmp_path: Path) -> UserMcpRegistry:
 
 def tool_manifest(*names: str) -> list[UserMcpTool]:
     return [UserMcpTool(name=name) for name in names]
+
+
+def test_hubspot_catalog_requires_a_registered_oauth_client(tmp_path: Path) -> None:
+    service = registry(tmp_path)
+    item = service.add_catalog("project_one", "hubspot_crm")
+    assert item.url == HUBSPOT_MCP_URL
+    assert item.oauth_issuer == HUBSPOT_OAUTH_ISSUER
+    assert item.auth_mode == "oauth"
+    assert not item.enabled and not item.credential_configured
+    assert not service.active("project_one")
+    assert service.vault.get("project_one:hubspot_crm") is None
+
+
+@pytest.mark.asyncio
+async def test_hubspot_review_excludes_crm_mutations() -> None:
+    class ClientWithTools:
+        async def list_tools(self, **_kwargs):
+            return ListToolsResult(tools=[
+                Tool(name=name, inputSchema={"type": "object", "properties": {}})
+                for name in (
+                    "get_user_details", "search_crm_objects", "manage_crm_objects",
+                    "manage_landing_page", "new_undocumented_tool",
+                )
+            ])
+
+    from ophira_backend.user_mcp import HUBSPOT_READ_TOOLS
+
+    reviewed = await _read_tool_manifest(ClientWithTools(), HUBSPOT_READ_TOOLS)
+    assert [item.name for item in reviewed] == ["get_user_details", "search_crm_objects"]
 
 
 def test_org_host_allowlist_uses_exact_dns_names() -> None:
@@ -654,7 +686,24 @@ async def test_catalog_api_adds_reviews_and_exposes_only_metadata(
             "/api/projects", json={"name": "Kettle", "objective": "Validate"},
         )).json()
         root = f"/api/projects/{project['id']}/mcp"
-        assert (await client.get(f"{root}/catalog")).status_code == 200
+        catalog = await client.get(f"{root}/catalog")
+        assert catalog.status_code == 200
+        assert {item["id"] for item in catalog.json()} == {
+            "claude_code_docs", "hubspot_crm",
+        }
+        hubspot = await client.post(f"{root}/catalog/hubspot_crm")
+        assert hubspot.status_code == 200, hubspot.text
+        assert not hubspot.json()["enabled"]
+        assert hubspot.json()["auth_mode"] == "oauth"
+        assert hubspot.json()["tools"] == []
+        private_value = "private-validation-marker-" + "x" * 8_000
+        invalid = await client.put(f"{root}/hubspot_crm", json={
+            "name": "HubSpot CRM", "url": HUBSPOT_MCP_URL,
+            "oauth_issuer": HUBSPOT_OAUTH_ISSUER,
+            "oauth_client_id": "client", "oauth_client_secret": private_value,
+        })
+        assert invalid.status_code == 422
+        assert "private-validation-marker" not in invalid.text
         response = await client.post(f"{root}/catalog/claude_code_docs")
         assert response.status_code == 200, response.text
         item = response.json()
@@ -664,7 +713,7 @@ async def test_catalog_api_adds_reviews_and_exposes_only_metadata(
             f"{root}/{item['id']}/tools/search_docs", json={"policy": "deny"},
         )
         assert changed.status_code == 200 and changed.json()["tools"][0]["policy"] == "deny"
-        assert len((await client.get(root)).json()) == 1
+        assert len((await client.get(root)).json()) == 2
 
 
 @pytest.mark.asyncio

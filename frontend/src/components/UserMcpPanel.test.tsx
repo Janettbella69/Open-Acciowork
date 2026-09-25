@@ -22,7 +22,7 @@ vi.mock('../api/client', () => ({
 
 import {
   addCatalogMcp, downloadUserMcpCredential, getUserMcpOAuthSetup, listProjects, listUserMcp, listUserMcpCatalog, saveUserMcp,
-  setUserMcpToolPolicy, startUserMcpOAuth,
+  reviewUserMcp, setUserMcpToolPolicy, startUserMcpOAuth,
 } from '../api/client'
 import { saveCredentialDownload } from '../utils/credentialDownload'
 
@@ -57,6 +57,46 @@ beforeEach(() => {
 })
 
 describe('UserMcpPanel', () => {
+  it('configures the HubSpot directory entry before starting OAuth', async () => {
+    const hubspot: UserMcpConnector = {
+      ...reviewed, id: 'hubspot_crm', name: 'HubSpot CRM',
+      url: 'https://mcp.hubspot.com/', auth_mode: 'oauth',
+      oauth_issuer: 'https://mcp.hubspot.com', oauth_client_configured: false,
+      enabled: false, reviewed_at: null, credential_configured: false, tools: [],
+    }
+    const configured = { ...hubspot, revision: 2, oauth_client_configured: true, oauth_client_auth_method: 'client_secret_post' as const }
+    vi.mocked(listUserMcpCatalog).mockResolvedValue([{
+      id: hubspot.id, name: hubspot.name, url: hubspot.url,
+      oauth_issuer: hubspot.oauth_issuer ?? undefined,
+      description: 'Read approved HubSpot CRM records using a HubSpot MCP connector.',
+    }])
+    vi.mocked(addCatalogMcp).mockResolvedValue(hubspot)
+    vi.mocked(saveUserMcp).mockResolvedValue(configured)
+    vi.mocked(startUserMcpOAuth).mockResolvedValue({
+      authorization_url: 'https://app.hubspot.com/oauth/authorize?state=test',
+    })
+    vi.mocked(listUserMcp).mockResolvedValueOnce([]).mockResolvedValue([configured])
+    render(<UserMcpPanel />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Add for OAuth setup' }))
+    expect(await screen.findByRole('button', { name: 'Connect with OAuth' })).toBeDisabled()
+    expect(reviewUserMcp).not.toHaveBeenCalled()
+    fireEvent.change(screen.getByLabelText('HubSpot MCP client ID'), { target: { value: 'client-id' } })
+    fireEvent.change(screen.getByLabelText('HubSpot MCP client secret'), { target: { value: 'private-secret' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save HubSpot OAuth client' }))
+    await waitFor(() => expect(saveUserMcp).toHaveBeenCalledWith('project_one', hubspot.id, {
+      name: hubspot.name, url: hubspot.url, oauth_issuer: hubspot.oauth_issuer,
+      oauth_client_id: 'client-id', oauth_client_secret: 'private-secret',
+      oauth_client_auth_method: 'client_secret_post',
+    }))
+    expect(screen.getByLabelText('HubSpot MCP client secret')).toHaveValue('')
+    expect(await screen.findByRole('button', { name: 'Connect with OAuth' })).toBeEnabled()
+    fireEvent.click(screen.getByRole('button', { name: 'Connect with OAuth' }))
+    await waitFor(() => expect(startUserMcpOAuth).toHaveBeenCalledWith('project_one', hubspot.id))
+    expect(await screen.findByRole('link', { name: 'Open OAuth authorization' })).toHaveAttribute(
+      'href', 'https://app.hubspot.com/oauth/authorize?state=test',
+    )
+  })
+
   it('confirms a project MCP credential export before downloading', async () => {
     vi.mocked(listUserMcp).mockResolvedValue([{ ...reviewed, credential_configured: true }])
     vi.mocked(downloadUserMcpCredential).mockResolvedValue(new Blob(['private']))

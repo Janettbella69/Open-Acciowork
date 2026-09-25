@@ -2135,6 +2135,10 @@ def _create_app(
         )
         try:
             added = user_mcp.add_catalog(project_id, catalog_id)
+            if added.auth_mode == "oauth":
+                # OAuth catalog entries require the user's pre-registered client
+                # and browser consent before any remote tool-list review.
+                return added
             return await user_mcp.review(project_id, added.id)
         except KeyError as exc:
             raise HTTPException(404, "MCP catalog entry not found") from exc

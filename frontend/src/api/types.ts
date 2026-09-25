@@ -662,6 +662,7 @@ export type UserMcpCatalogItem = {
   name: string
   url: string
   description: string
+  oauth_issuer?: string
 }
 export type UserMcpOAuthSetup = {
   redirect_uri: string | null

@@ -155,12 +155,13 @@ def register_marketplace_routes(
                 for item in exc.errors()
             ]}, headers={"Cache-Control": "no-store"})
         # FastAPI's default validation response contains input_value, including
-        # an overlong/mistyped ConnectorUpsert.secret. Never echo credential input.
+        # an overlong/mistyped connector or MCP OAuth secret. Never echo it.
         if (
             request.url.path.startswith("/api/connectors/")
             or "/marketplace-access" in request.url.path
             or "/gmail-access" in request.url.path
             or "/shops" in request.url.path
+            or re.fullmatch(r"/api/projects/[A-Za-z0-9_-]+/mcp(?:/.*)?", path)
         ):
             return JSONResponse(
                 status_code=422,

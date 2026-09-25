@@ -1,10 +1,41 @@
 # FR-33 remote MCP connectors (local implementation)
 
-Remote MCP connectors belong to one project. The connector page offers the
-official Claude Code documentation MCP as the initial catalog entry. Adding it
+Remote MCP connectors belong to one project. The directory offers the official
+Claude Code documentation MCP and HubSpot's hosted CRM MCP. Adding Claude Code
 negotiates the server's MCP version and performs a paginated `tools/list` review
-in one action. The gateway supports the handshake-free `2026-07-28` path and
+in one action. Adding HubSpot creates a disabled OAuth entry; its tool review
+occurs only after the user supplies a HubSpot MCP client and completes consent.
+The gateway supports the handshake-free `2026-07-28` path and
 falls back to the legacy `initialize` exchange for older servers.
+
+## HubSpot CRM directory entry
+
+HubSpot's [MCP connector guide](https://developers.hubspot.com/docs/apps/developer-platform/build-apps/integrate-with-the-remote-hubspot-mcp-server)
+documents `https://mcp.hubspot.com/`, a HubSpot-created OAuth client and PKCE.
+In **Plugins → Connectors → MCP connectors**, select the project and add
+**HubSpot CRM**. Copy the displayed callback URL into the MCP connector in
+HubSpot Development → MCP Connectors. Paste its client ID and secret into the
+project entry, then select **Connect with OAuth** and approve access in HubSpot.
+The callback reviews the current tool list before enabling the entry. Each
+reviewed tool defaults to **ask** and can be changed individually.
+
+This directory entry exposes only the named CRM lookup tools in
+`HUBSPOT_READ_TOOLS`; HubSpot's mutation and unknown tools are excluded from
+review and Run registration. The [HubSpot connector listing](https://claude.com/marketplace/connectors/hubspot)
+lists `search_crm_objects`, `get_crm_objects`, `get_user_details` and other lookups.
+The allowlist is rechecked on each runtime tool call. Tool output remains
+untrusted and can receive a Run-bound source receipt, which proves the server
+response, not the accuracy of a CRM record. The [HubSpot Postman collection](https://www.postman.com/hubspot/hubspot-public-api-workspace/collection/682b44c55ac051812a5ee1de)
+uses `app.hubspot.com/oauth/authorize` and
+`api.hubspot.com/oauth/v3/token`; the pinned transport permits exactly these
+cross-host paths for this catalog entry, forbids Bearer forwarding there, and
+still requires HTTPS/public DNS and no redirects. Other remote MCP connectors
+retain their issuer-host restriction. A browser callback origin must be
+configured before connecting. A live HubSpot account and Provider Run have not
+yet been used to verify the flow.
+
+## Advanced connector form
+
 The advanced form accepts a Streamable HTTP HTTPS address, an optional bearer
 token, or an OAuth issuer URL. It also accepts a pre-registered OAuth client ID
 and, for confidential clients, a secret with Basic or form-body token endpoint
@@ -78,8 +109,10 @@ compaction, and standing-intent Runs receive no user MCP servers.
 
 ## Current limits
 
-- The built-in directory contains one official server. More entries need
-  verified endpoints, authentication, tool review, and product-specific E2E.
+- The built-in directory contains two official servers. The HubSpot entry has
+  an offline OAuth and read-tool review test; real account consent, current
+  tool list, CRM reads, Provider use and browser acceptance remain open. Other
+  CRM/social integrations also remain open.
 - Live review and an actual Agent call to the official server have not been
   exercised in this workspace. Offline HTTP tests run real MCP client and
   server exchanges for both protocol paths, including pinned requests and a

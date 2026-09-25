@@ -122,6 +122,9 @@ with an explicitly approved issuer and server-side token refresh. Reviewed
 remote tools run through a pinned MCP
 gateway; live endpoint/Provider acceptance is still pending. See
 [`docs/user-mcp.md`](docs/user-mcp.md).
+The directory includes a HubSpot CRM OAuth entry. It requires a HubSpot-created
+MCP connector and only registers known read tools after consent and live review;
+real HubSpot account acceptance remains open.
 
 Open **Project run metrics** in a saved workspace to inspect recent execution,
 latency, observed cost estimates, and Provider/Skill/tool groups. Missing data stays

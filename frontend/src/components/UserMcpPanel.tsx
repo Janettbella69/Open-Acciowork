@@ -18,6 +18,35 @@ import type { OpportunityProject, UserMcpCatalogItem, UserMcpConnector, UserMcpO
 import { useT } from '../i18n'
 import { saveCredentialDownload } from '../utils/credentialDownload'
 
+function HubSpotMcpSetup({ redirectUri, busy, onSave }: {
+  redirectUri: string | null
+  busy: boolean
+  onSave: (clientId: string, clientSecret: string) => Promise<boolean>
+}) {
+  const t = useT()
+  const [clientId, setClientId] = useState('')
+  const [clientSecret, setClientSecret] = useState('')
+  const save = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    if (await onSave(clientId.trim(), clientSecret)) {
+      setClientId('')
+      setClientSecret('')
+    }
+  }
+  return <div className="user-mcp-hubspot-setup">
+    <p>{t('Create a HubSpot MCP connector, register this redirect URL, then save its client ID and secret here. This directory connection exposes CRM lookup tools only.')}{' '}
+      <a href="https://developers.hubspot.com/docs/apps/developer-platform/build-apps/integrate-with-the-remote-hubspot-mcp-server" target="_blank" rel="noopener noreferrer">{t('HubSpot setup guide')}</a>
+    </p>
+    {redirectUri ? <p>{t('Register this OAuth redirect URI with the authorization server:')} <code>{redirectUri}</code></p>
+      : <p>{t('OAuth callback origin is not configured by the operator.')}</p>}
+    <form onSubmit={(event) => void save(event)}>
+      <label>{t('HubSpot MCP client ID')}<input value={clientId} onChange={(event) => setClientId(event.target.value)} autoComplete="off" required maxLength={500} /></label>
+      <label>{t('HubSpot MCP client secret')}<input type="password" value={clientSecret} onChange={(event) => setClientSecret(event.target.value)} autoComplete="off" required maxLength={8000} /></label>
+      <button type="submit" disabled={busy || !clientId.trim() || !clientSecret}>{t('Save HubSpot OAuth client')}</button>
+    </form>
+  </div>
+}
+
 export default function UserMcpPanel() {
   const t = useT()
   const pluginPrefill = new URLSearchParams(window.location.search)
@@ -200,7 +229,7 @@ export default function UserMcpPanel() {
             {catalog.map((item) => <article key={item.id}>
               <div><strong>{item.name}</strong><p>{t(item.description)}</p><small>{item.url}</small></div>
               <button type="button" disabled={Boolean(busy) || servers.some((server) => server.id === item.id)} onClick={() => void act(item.id, () => addCatalogMcp(projectId, item.id))}>
-                {servers.some((server) => server.id === item.id) ? t('Added') : busy === item.id ? t('Reviewing…') : t('Add and review')}
+                {servers.some((server) => server.id === item.id) ? t('Added') : busy === item.id ? t('Reviewing…') : item.oauth_issuer ? t('Add for OAuth setup') : t('Add and review')}
               </button>
             </article>)}
           </div>
@@ -241,6 +270,15 @@ export default function UserMcpPanel() {
             </header>
             {server.review_error && <p role="alert">{t(server.review_error)}</p>}
             {server.auth_mode === 'oauth' && server.oauth_issuer && <p>{t('OAuth issuer')}: {server.oauth_issuer}</p>}
+            {server.id === 'hubspot_crm' && server.url === 'https://mcp.hubspot.com/' && <HubSpotMcpSetup
+              redirectUri={oauthSetup?.redirect_uri ?? null}
+              busy={Boolean(busy)}
+              onSave={async (clientId, clientSecret) => Boolean(await act(`${server.id}:setup`, () => saveUserMcp(projectId, server.id, {
+                name: server.name, url: server.url, oauth_issuer: server.oauth_issuer ?? 'https://mcp.hubspot.com',
+                oauth_client_id: clientId, oauth_client_secret: clientSecret,
+                oauth_client_auth_method: 'client_secret_post',
+              })))}
+            />}
             {server.oauth_client_configured && <p>{t('Pre-registered OAuth client configured')}</p>}
             {oauthLink?.id === server.id && <p><a href={oauthLink.url} target="_blank" rel="noopener noreferrer">{t('Open OAuth authorization')}</a> · {t('Waiting for authorization and tool review…')}</p>}
             {server.enabled && <div className="user-mcp-tools">
@@ -262,7 +300,7 @@ export default function UserMcpPanel() {
             </div>}
             <div className="user-mcp-actions">
               {(server.credential_configured || server.oauth_client_configured) && <button type="button" disabled={Boolean(busy)} onClick={() => setConfirmingExport(server.id)}>{t('Export credential…')}</button>}
-              {server.auth_mode === 'oauth' && <button type="button" disabled={Boolean(busy) || !oauthSetup?.redirect_uri} onClick={() => void beginOAuth(server.id)}>{t('Connect with OAuth')}</button>}
+              {server.auth_mode === 'oauth' && <button type="button" disabled={Boolean(busy) || !oauthSetup?.redirect_uri || (server.id === 'hubspot_crm' && !server.oauth_client_configured)} onClick={() => void beginOAuth(server.id)}>{t('Connect with OAuth')}</button>}
               <button type="button" disabled={Boolean(busy) || (server.auth_mode === 'oauth' && !server.credential_configured)} onClick={() => void act(`${server.id}:review`, () => reviewUserMcp(projectId, server.id))}>{t('Review tools')}</button>
               <button type="button" disabled={Boolean(busy)} onClick={() => void act(`${server.id}:revoke`, () => revokeUserMcp(projectId, server.id))}>{t('Revoke')}</button>
             </div>

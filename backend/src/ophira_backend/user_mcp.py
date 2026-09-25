@@ -44,12 +44,43 @@ from .policy import OrgPolicyStore
 from .providers import FileSecretVault
 from .web_tools import pin_public_http_url
 
-MCP_CATALOG = ({
-    "id": "claude_code_docs",
-    "name": "Claude Code documentation",
-    "url": "https://code.claude.com/docs/mcp",
-    "description": "Search the official Claude Code documentation.",
-},)
+HUBSPOT_MCP_URL = "https://mcp.hubspot.com/"
+HUBSPOT_OAUTH_ISSUER = "https://mcp.hubspot.com"
+HUBSPOT_OAUTH_AUTHORIZATION_URL = "https://app.hubspot.com/oauth/authorize"
+HUBSPOT_OAUTH_TOKEN_URL = "https://api.hubspot.com/oauth/v3/token"
+# HubSpot's hosted server also offers CRM mutations. Only these named
+# lookup tools enter a project review; new or renamed tools fail closed.
+HUBSPOT_READ_TOOLS = frozenset({
+    "get_user_details", "get_organization_details", "get_crm_objects",
+    "search_crm_objects", "get_properties", "search_properties",
+    "query_crm_data", "search_owners", "discover_hubspot_schema",
+})
+
+
+def _hubspot_read_names(item: UserMcpConnector) -> frozenset[str] | None:
+    if (
+        item.id == "hubspot_crm" and item.url == HUBSPOT_MCP_URL
+        and item.oauth_issuer == HUBSPOT_OAUTH_ISSUER
+    ):
+        return HUBSPOT_READ_TOOLS
+    return None
+
+
+MCP_CATALOG = (
+    {
+        "id": "claude_code_docs",
+        "name": "Claude Code documentation",
+        "url": "https://code.claude.com/docs/mcp",
+        "description": "Search the official Claude Code documentation.",
+    },
+    {
+        "id": "hubspot_crm",
+        "name": "HubSpot CRM",
+        "url": HUBSPOT_MCP_URL,
+        "description": "Read approved HubSpot CRM records using a HubSpot MCP connector.",
+        "oauth_issuer": HUBSPOT_OAUTH_ISSUER,
+    },
+)
 _ID = re.compile(r"^[a-z][a-z0-9_]{2,63}$")
 _TOOL = re.compile(r"^[A-Za-z0-9_-]{1,100}$")
 MAX_REVIEW_RESPONSE_BYTES = 2_000_000
@@ -144,6 +175,9 @@ class _PinnedMcpTransport(httpx2.AsyncBaseTransport):
     def __init__(self, approved_url: str, oauth_issuer: str | None = None) -> None:
         self.approved = urlsplit(approved_url)
         self.oauth_issuer = urlsplit(oauth_issuer) if oauth_issuer else None
+        self.hubspot = (
+            approved_url == HUBSPOT_MCP_URL and oauth_issuer == HUBSPOT_OAUTH_ISSUER
+        )
         self.inner = httpx2.AsyncHTTPTransport(trust_env=False)
 
     async def handle_async_request(self, request: httpx2.Request) -> httpx2.Response:
@@ -164,7 +198,11 @@ class _PinnedMcpTransport(httpx2.AsyncBaseTransport):
             and requested.hostname == self.oauth_issuer.hostname
             and requested.port == self.oauth_issuer.port
         )
-        if not (mcp_endpoint or resource_metadata or issuer_endpoint):
+        hubspot_endpoint = self.hubspot and str(request.url) in {
+            HUBSPOT_OAUTH_TOKEN_URL,
+            HUBSPOT_OAUTH_AUTHORIZATION_URL,
+        }
+        if not (mcp_endpoint or resource_metadata or issuer_endpoint or hubspot_endpoint):
             raise UserMcpConflictError("Remote MCP review changed its approved endpoint")
         if not mcp_endpoint and request.headers.get("Authorization", "").startswith("Bearer "):
             raise UserMcpConflictError("Remote MCP token cannot leave its approved endpoint")
@@ -235,12 +273,16 @@ def _reviewed_schema(raw: dict[str, Any]) -> dict[str, Any]:
     return schema
 
 
-async def _read_tool_manifest(client: Client) -> list[UserMcpTool]:
+async def _read_tool_manifest(
+    client: Client, allowed_names: frozenset[str] | None = None,
+) -> list[UserMcpTool]:
     tools: list[UserMcpTool] = []
     cursor: str | None = None
     for _ in range(10):
         page = await client.list_tools(cursor=cursor, cache_mode="bypass")
         for tool in page.tools:
+            if allowed_names is not None and tool.name not in allowed_names:
+                continue
             if not _TOOL.fullmatch(tool.name) or any(t.name == tool.name for t in tools):
                 raise UserMcpConflictError("Remote MCP tool names are invalid or duplicated")
             tools.append(UserMcpTool(
@@ -261,6 +303,7 @@ async def discover_remote_tools(
     url: str, bearer_token: str | None, *,
     oauth_provider: OAuthClientProvider | None = None,
     oauth_issuer: str | None = None,
+    allowed_names: frozenset[str] | None = None,
     exchange_timeout_seconds: int = 25,
 ) -> list[UserMcpTool]:
     """Use MCP's version-negotiated tools-list exchange; never invoke remote tools."""
@@ -273,7 +316,7 @@ async def discover_remote_tools(
         ) as http_client:
             async with asyncio.timeout(exchange_timeout_seconds):
                 async with Client(streamable_http_client(url, http_client=http_client)) as client:
-                    return await _read_tool_manifest(client)
+                    return await _read_tool_manifest(client, allowed_names)
     except UserMcpConflictError:
         raise
     except Exception as exc:
@@ -423,7 +466,9 @@ class _RemoteMcpSession:
                         if client is None:
                             stack = AsyncExitStack()
                             client = await self._connect(stack)
-                        observed = await _read_tool_manifest(client)
+                        observed = await _read_tool_manifest(
+                            client, _hubspot_read_names(self.pinned),
+                        )
                         matching = next(
                             (tool for tool in observed if tool.name == reviewed_tool.name), None,
                         )
@@ -660,23 +705,33 @@ class UserMcpRegistry:
         raw_metadata = self.vault.get(self._oauth_vault_id(item.project_id, item.id, "metadata"))
         if raw_metadata:
             metadata = OAuthMetadata.model_validate_json(raw_metadata)
-            self._check_oauth_metadata(metadata, item.oauth_issuer)
+            self._check_oauth_metadata(metadata, item.oauth_issuer, item.url)
             provider.context.oauth_metadata = metadata
             provider.context.auth_server_url = item.oauth_issuer
         return provider
 
     @staticmethod
-    def _check_oauth_metadata(metadata: OAuthMetadata, issuer: str) -> None:
+    def _check_oauth_metadata(
+        metadata: OAuthMetadata, issuer: str, resource_url: str,
+    ) -> None:
         if str(metadata.issuer).rstrip("/") != issuer.rstrip("/"):
             raise UserMcpConflictError("Remote MCP OAuth issuer changed")
         approved = urlsplit(issuer)
-        for endpoint in (metadata.authorization_endpoint, metadata.token_endpoint):
+        for kind, endpoint in (
+            ("authorization", metadata.authorization_endpoint),
+            ("token", metadata.token_endpoint),
+        ):
             parts = urlsplit(str(endpoint))
-            if (
-                parts.scheme != "https" or parts.hostname != approved.hostname
-                or parts.port != approved.port or parts.username or parts.password
-                or parts.query or parts.fragment
-            ):
+            same_issuer = parts.hostname == approved.hostname and parts.port == approved.port
+            hubspot_official = (
+                resource_url == HUBSPOT_MCP_URL and issuer == HUBSPOT_OAUTH_ISSUER
+                and str(endpoint) == (
+                    HUBSPOT_OAUTH_AUTHORIZATION_URL if kind == "authorization"
+                    else HUBSPOT_OAUTH_TOKEN_URL
+                )
+            )
+            if (parts.scheme != "https" or not (same_issuer or hubspot_official)
+                    or parts.username or parts.password or parts.query or parts.fragment):
                 raise UserMcpConflictError("Remote MCP OAuth endpoint changed hosts")
 
     def run_scope(self) -> UserMcpRunScope:
@@ -867,7 +922,10 @@ class UserMcpRegistry:
                 raise UserMcpConflictError("MCP catalog connector is already added")
             return self.upsert(
                 project_id, catalog_id,
-                UserMcpUpsert(name=item["name"], url=item["url"]),
+                UserMcpUpsert(
+                    name=item["name"], url=item["url"],
+                    oauth_issuer=item.get("oauth_issuer"),
+                ),
             )
 
     async def review(self, project_id: str, connector_id: str) -> UserMcpConnector:
@@ -889,6 +947,7 @@ class UserMcpRegistry:
                 current.url, None,
                 oauth_provider=self._oauth_provider(current),
                 oauth_issuer=current.oauth_issuer,
+                allowed_names=_hubspot_read_names(current),
             )
         else:
             credential = self.vault.get(self._vault_id(project_id, connector_id))
@@ -927,6 +986,8 @@ class UserMcpRegistry:
             current = self.get(project_id, connector_id)
             if current.auth_mode != "oauth":
                 raise UserMcpConflictError("Remote MCP is not configured for OAuth")
+            if _hubspot_read_names(current) is not None and not current.oauth_client_configured:
+                raise UserMcpConflictError("Configure the HubSpot MCP client ID and secret first")
             self._check_url(current.url)
             self._check_oauth_issuer(current.oauth_issuer, current.url)
             pinned = current.model_copy(update={
@@ -966,11 +1027,20 @@ class UserMcpRegistry:
             parts = urlsplit(url)
             issuer = urlsplit(pinned.oauth_issuer or "")
             states = parse_qs(parts.query).get("state", [])
+            hubspot_authorization = (
+                _hubspot_read_names(pinned) is not None
+                and parts.scheme == "https"
+                and f"{parts.scheme}://{parts.netloc}{parts.path}"
+                == HUBSPOT_OAUTH_AUTHORIZATION_URL
+            )
             if (
                 len(url) > 8_192 or "\\" in url
                 or any(ord(character) < 32 for character in url)
                 or parts.scheme != "https"
-                or parts.hostname != issuer.hostname or parts.port != issuer.port
+                or not (
+                    (parts.hostname == issuer.hostname and parts.port == issuer.port)
+                    or hubspot_authorization
+                )
                 or parts.username is not None or parts.password is not None
                 or parts.fragment or len(states) != 1
                 or not re.fullmatch(r"[A-Za-z0-9_-]{32,128}", states[0])
@@ -996,6 +1066,7 @@ class UserMcpRegistry:
                 pinned.url, None,
                 oauth_provider=provider,
                 oauth_issuer=pinned.oauth_issuer,
+                allowed_names=_hubspot_read_names(pinned),
                 exchange_timeout_seconds=330,
             )
             with self._transaction(pinned.project_id):
@@ -1005,7 +1076,7 @@ class UserMcpRegistry:
                     raise UserMcpConflictError("Remote MCP OAuth authorization changed")
                 if provider.context.oauth_metadata is not None:
                     self._check_oauth_metadata(
-                        provider.context.oauth_metadata, pinned.oauth_issuer or "",
+                        provider.context.oauth_metadata, pinned.oauth_issuer or "", pinned.url,
                     )
                     self.vault.set(
                         self._oauth_vault_id(pinned.project_id, pinned.id, "metadata"),

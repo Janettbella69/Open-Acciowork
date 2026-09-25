@@ -64,7 +64,7 @@
 | FR-30 任务进度 | delivered（本地）：钉版 SDK 原生 Task/Todo 工具允许与事件回放清单；主 Run/失败过滤测试 | deferred：真实 Provider 产出任务清单、浏览器刷新验收 |
 | FR-31 运行中插话 | delivered（本地代码/离线测试，2026-09-24）：用户消息先入 Run 事件序列，支持当前 SDK 流会话发送、排到下一轮及中断后替换；跨 worker 由持有会话的进程接收，具备 SDK session 的交互 Run 在实时投递不可用时自动启动同会话下一 Run；请求幂等、投递不确定/设备授权撤销状态、原 Run 回放和续行跳转、桌面及获准发起任务的配对手机入口均已覆盖 | deferred：真实 Provider 的中途插话/打断语义、浏览器与手机 HTTPS 目视验收；SDK 写入与持久确认之间的崩溃窗口只能标为不确定，不能盲目重试 |
 | FR-32 并行任务列表 | delivered（本地列表）：新任务不取消旧 Run；默认或用户选择的任务预算在创建时冻结，受管理员上限约束，按 Provider 成本比例传入 SDK 原生 `max_budget_usd`；授权过滤列表展示独立 Run 状态、审批、预算、已报告的 SDK 费用和结果，精确 Run 跳转 | deferred：运行中的可靠实时花费、真实多个 SDK Run 并发与预算熔断、浏览器验收 |
-| FR-33 用户 MCP/连接器 | partial（本地）：项目级目录首项一键添加+在线工具清单审查、进阶 HTTPS/Bearer/OAuth 配置、SDK 原生动态注册、客户端元数据 URL 与预注册公开/机密客户端授权刷新、组织主机白名单、逐工具允许/每次询问/禁止、撤销、Run 快照与 SDK 显式装配；运行期经每次地址钉住的受控 MCP 网关，外部输出不可信过滤；主 Agent 当前批准工具的清洗后结果可签发同 Run/session 的 `tool` 来源凭证，写入证据时由账本复核；MCP Python SDK 2.2 自动协商 2026-07-28 无握手协议及旧版回退，同一 Run 复用旧版有状态 HTTP 会话、不同 Run 隔离，离线 HTTP 和进程内测试覆盖；见 `docs/user-mcp.md` | deferred：真实 MCP/Provider/OAuth E2E、更多已验证目录项、公开状态型服务器、可信网关部署及浏览器目视验收，见 `docs/user-mcp.md` |
+| FR-33 用户 MCP/连接器 | partial（本地）：项目级 Claude 文档目录审查与 HubSpot CRM 目录 OAuth 配置/只读工具审查、进阶 HTTPS/Bearer/OAuth 配置、SDK 原生动态注册、客户端元数据 URL 与预注册公开/机密客户端授权刷新、组织主机白名单、逐工具允许/每次询问/禁止、撤销、Run 快照与 SDK 显式装配；运行期经每次地址钉住的受控 MCP 网关，外部输出不可信过滤；主 Agent 当前批准工具的清洗后结果可签发同 Run/session 的 `tool` 来源凭证，写入证据时由账本复核；MCP Python SDK 2.2 自动协商 2026-07-28 无握手协议及旧版回退，同一 Run 复用旧版有状态 HTTP 会话、不同 Run 隔离，离线 HTTP 和进程内测试覆盖；见 `docs/user-mcp.md` | deferred：真实 MCP/Provider/OAuth E2E、更多已验证目录项、公开状态型服务器、可信网关部署及浏览器目视验收，见 `docs/user-mcp.md` |
 | FR-34 上下文压缩 | delivered（本地代码/离线测试，2026-09-24）：钉版 SDK `get_context_usage()` 采样有效窗口占用并随 Run 事件回放；原生压缩边界事件提示自动/手动压缩、崩溃后修复 epoch 并强制完整业务上下文刷新；用户可在已完成会话启动独立无工具 `/compact` Run，只有 SDK 手动边界确认才算成功，账本及产物不被压缩 Run 改写 | deferred：真实 Provider 用量/手动与自动压缩语义、长时采样及浏览器目视验收；SDK 不提供用量时显示未知，不从累计 token 推算 |
 | FR-35 会话检索 | delivered（本地）：项目内有界 Run 提问、用户插话、主 Agent 回复与结果检索，RUN_READ 校验、只读 MCP、Run ID 回放、有界续页搜索更早 Run 及跳过日志提示；单页仅保留 501 条候选 Run 元数据 | deferred：大历史 I/O 性能、浏览器与真实会话质量验收；单页仍读取所有本地 Run 元数据后过滤项目 |
 | FR-36 首次引导 | delivered（本地）：示例任务、模型选择及设置页密钥/条款/预检/返回步骤 | deferred：新用户可用性测试和实际 Provider 配置 E2E |
@@ -1356,3 +1356,20 @@ Run 的回归覆盖最旧结果、分页重复防护、项目/查询游标隔离
 Python 峰值约 6.53 MiB。该测量包含追踪开销，仍需真实大项目、并发和 I/O 性能
 验收；每页还会读取全部本地 Run 元数据。后端全套 **2445 passed / 14 skipped**，
 Ruff 与 `git diff --check` 通过；本批未改前端。完整 PRD 仍未完成。
+
+## 2026-09-25：FR-33 HubSpot CRM 官方远程 MCP 目录
+
+项目连接器目录新增 HubSpot 官方托管 CRM MCP。添加后保持禁用；用户在 HubSpot 创建
+MCP 连接器、登记 OPHIRA 回调 URL 并填写客户端 ID/密钥，OAuth/PKCE 同意及实时
+工具清单审查成功后才启用。目录项只把明确选定的查询工具纳入审查与 Run；HubSpot
+提供的写入工具和未知新工具不能通过该目录项调用。对 HubSpot 官方文档中独立的
+授权页和令牌端点，仅允许固定 HTTPS 路径、公网 DNS 钉住且禁止 Bearer 外送；其它
+远程 MCP 的授权主机边界不变。异常配置响应不回显 OAuth 密钥。
+
+本地 HTTP 模拟覆盖授权码/PKCE、跨域令牌交换、工具发现、写工具排除和一次查询
+调用；页面组件覆盖添加、密钥配置及开始授权。后端全套在最终校验错误脱敏补丁前
+**2448 passed / 14 skipped**，随后 MCP 专项 **33 passed**，前端全套
+**574 passed / 59 files**；Ruff、ESLint、TypeScript/Vite 构建及
+`git diff --check` 通过。没有真实 HubSpot 账号、客户端凭据或 Provider 调用，
+真实同意、当前工具清单和商业数据检索仍需验收；这不是独立 REST CRM 适配器，
+FR-21、FR-33 和完整 PRD 保持部分完成。
