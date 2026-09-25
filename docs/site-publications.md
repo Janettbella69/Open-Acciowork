@@ -50,6 +50,14 @@ Self-contained HTML can include inline CSS and data images. Browser module
 scripts, remote CDNs, fonts, media, and third-party network APIs remain outside
 this publication format. A direct page visit can still follow normal links.
 
+Module scripts need a separate preview authorization design. In a synthetic
+loopback Chromium test, the sandboxed review iframe requested a module with
+`Origin: null` and without its `SameSite=Lax` session cookie. The module did
+not run without a CORS response; with `Access-Control-Allow-Origin: *` it ran,
+but the request still had no cookie. The current draft asset endpoint requires
+project authentication, so allowing anonymous CORS there would change the
+draft privacy boundary. Classic bundled scripts do not need this exception.
+
 Local API tests cover staging, explicit approval, byte pinning across artifact
 edits, host separation, withdrawal, and project deletion. Chromium review at
 1360px and 390px uses a local simulated gateway to exercise staging and
