@@ -43,9 +43,14 @@ from .untrusted import (
 
 MAX_EVENT_BODY_BYTES = 64_000
 MAX_SHOPIFY_WEBHOOK_BODY_BYTES = 1_000_000
+MAX_MAILGUN_WEBHOOK_BODY_BYTES = 1_000_000
 EVENT_SIGNATURE_TOLERANCE_SECONDS = 300
+MAILGUN_SIGNATURE_TOLERANCE_SECONDS = 8 * 60 * 60 + 10 * 60
 _EVENT_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$")
 _SIGNATURE = re.compile(r"^sha256=[0-9a-f]{64}$")
+_MAILGUN_SIGNATURE = re.compile(r"^[0-9a-f]{64}$")
+_MAILGUN_TOKEN = re.compile(r"^[A-Za-z0-9]{20,160}$")
+_MAILGUN_RECIPIENT = re.compile(r"^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]{1,64}@[A-Za-z0-9.-]{1,190}$")
 EventKind = Literal["webhook", "inquiry_email", "store_order"]
 
 
@@ -71,11 +76,32 @@ class EventTriggerCreate(APIModel):
     shopify_binding_id: str | None = Field(
         default=None, pattern=r"^marketplace_binding_[a-f0-9]{32}$",
     )
+    mailgun_recipient: str | None = Field(default=None, max_length=255)
+    mailgun_signing_key: str | None = Field(
+        default=None, min_length=32, max_length=256, repr=False,
+    )
 
     @model_validator(mode="after")
     def shopify_requires_order(self) -> EventTriggerCreate:
         if self.shopify_binding_id is not None and self.kind != "store_order":
             raise ValueError("Shopify binding requires a store order trigger")
+        if (self.mailgun_recipient is None) != (self.mailgun_signing_key is None):
+            raise ValueError("Mailgun requires a recipient and signing key")
+        if self.mailgun_recipient is not None:
+            if self.kind != "inquiry_email" or self.shopify_binding_id is not None:
+                raise ValueError("Mailgun requires an inquiry email trigger")
+            if not _MAILGUN_RECIPIENT.fullmatch(self.mailgun_recipient):
+                raise ValueError("Mailgun requires an exact email recipient")
+            if (
+                not self.mailgun_recipient.split("@", 1)[1].strip(".")
+                or ".." in self.mailgun_recipient
+            ):
+                raise ValueError("Mailgun recipient is invalid")
+            if (
+                not self.mailgun_signing_key.isascii()
+                or not self.mailgun_signing_key.isprintable()
+            ):
+                raise ValueError("Mailgun signing key is invalid")
         return self
 
 
@@ -87,6 +113,9 @@ class EventTriggerUpdate(APIModel):
     max_budget_usd: float | None = Field(default=None, gt=0, le=1_000)
     permission_ceiling: list[SchedulePermissionRule] | None = Field(default=None, max_length=100)
     enabled: bool | None = None
+    mailgun_signing_key: str | None = Field(
+        default=None, min_length=32, max_length=256, repr=False,
+    )
 
 
 class EventTrigger(APIModel):
@@ -96,6 +125,7 @@ class EventTrigger(APIModel):
     name: str
     kind: EventKind
     shopify_binding_id: str | None = None
+    mailgun_recipient: str | None = None
     prompt: str
     provider_profile_id: str | None = None
     max_budget_usd: float = Field(gt=0, le=1_000)
@@ -151,6 +181,14 @@ class EventDeliveryReceipt(APIModel):
     event_id_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
     body_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
     run_id: str | None = None
+    claimed_at: datetime
+
+
+class MailgunTokenReceipt(APIModel):
+    trigger_id: str
+    project_id: str
+    token_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    body_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
     claimed_at: datetime
 
 
@@ -229,17 +267,26 @@ class EventTriggerStore:
                 id=new_id("event_trigger"), project_id=project_id,
                 principal_binding=principal, name=payload.name, kind=payload.kind,
                 shopify_binding_id=payload.shopify_binding_id,
+                mailgun_recipient=(
+                    payload.mailgun_recipient.lower() if payload.mailgun_recipient else None
+                ),
                 prompt=payload.prompt, provider_profile_id=payload.provider_profile_id,
                 max_budget_usd=payload.max_budget_usd,
                 permission_ceiling=payload.permission_ceiling,
                 revision=1, created_at=now, updated_at=now,
             )
-            secret = secrets.token_hex(32) if payload.shopify_binding_id is None else None
+            secret = (
+                payload.mailgun_signing_key if payload.mailgun_recipient else
+                secrets.token_hex(32) if payload.shopify_binding_id is None else None
+            )
             with self.ledger._lock_for(f"event-trigger:{trigger.id}"):
                 if secret is not None:
                     self._write_secret(self._secret_path(project_id, trigger.id), secret)
                 self.ledger._atomic_write(self._path(project_id, trigger.id), trigger)
-            return EventTriggerCreated(trigger=trigger, signing_secret=secret)
+            return EventTriggerCreated(
+                trigger=trigger,
+                signing_secret=None if payload.mailgun_recipient else secret,
+            )
 
     def get(self, project_id: str, trigger_id: str) -> EventTrigger:
         self.ledger.lifecycle.assert_available(project_id)
@@ -268,6 +315,13 @@ class EventTriggerStore:
                 if current.revision != payload.expected_revision:
                     raise EventTriggerError("Trigger changed; reload before editing")
                 changes = payload.model_dump(exclude_unset=True, exclude={"expected_revision"})
+                mailgun_key = changes.pop("mailgun_signing_key", None)
+                if mailgun_key is not None:
+                    if (
+                        current.mailgun_recipient is None
+                        or not mailgun_key.isascii() or not mailgun_key.isprintable()
+                    ):
+                        raise EventTriggerError("Mailgun signing key is invalid for this trigger")
                 if any(
                     value is None for key, value in changes.items()
                     if key != "provider_profile_id"
@@ -277,6 +331,8 @@ class EventTriggerStore:
                     **current.model_dump(), **changes,
                     "revision": current.revision + 1, "updated_at": utc_now(),
                 })
+                if mailgun_key is not None:
+                    self._write_secret(self._secret_path(project_id, trigger_id), mailgun_key)
                 self.ledger._atomic_write(self._path(project_id, trigger_id), updated)
                 return updated
 
@@ -284,9 +340,9 @@ class EventTriggerStore:
         with self.ledger.lifecycle.lease(project_id):
             with self.ledger._lock_for(f"event-trigger:{trigger_id}"):
                 current = self.get(project_id, trigger_id)
-                if current.shopify_binding_id is not None:
+                if current.shopify_binding_id is not None or current.mailgun_recipient is not None:
                     raise EventTriggerError(
-                        "Shopify uses the app client secret; rotate it in the connector"
+                        "This trigger uses an external signing key; update it at the source"
                     )
                 secret = secrets.token_hex(32)
                 self._write_secret(self._secret_path(project_id, trigger_id), secret)
@@ -300,6 +356,8 @@ class EventTriggerStore:
         self, project_id: str, trigger_id: str, *, timestamp: str,
         event_id: str, signature: str, body: bytes, now: float | None = None,
     ) -> bool:
+        if self.get(project_id, trigger_id).mailgun_recipient is not None:
+            return False
         if (
             not timestamp.isascii() or not timestamp.isdecimal() or len(timestamp) > 12
             or not valid_event_id(event_id) or not _SIGNATURE.fullmatch(signature)
@@ -316,6 +374,49 @@ class EventTriggerStore:
         message = timestamp.encode() + b"\n" + event_id.encode() + b"\n" + body
         expected = hmac.new(secret.encode(), message, hashlib.sha256).hexdigest()
         return hmac.compare_digest(signature, f"sha256={expected}")
+
+    def verify_mailgun(
+        self, project_id: str, trigger_id: str, *, timestamp: str,
+        token: str, signature: str, now: float | None = None,
+    ) -> bool:
+        if (
+            not timestamp.isascii() or not timestamp.isdecimal() or len(timestamp) > 12
+            or not _MAILGUN_TOKEN.fullmatch(token)
+            or not _MAILGUN_SIGNATURE.fullmatch(signature)
+        ):
+            return False
+        current = time.time() if now is None else now
+        age = current - int(timestamp)
+        if age < -EVENT_SIGNATURE_TOLERANCE_SECONDS or age > MAILGUN_SIGNATURE_TOLERANCE_SECONDS:
+            return False
+        try:
+            secret = self._secret_path(project_id, trigger_id).read_text(encoding="ascii")
+        except OSError:
+            return False
+        expected = hmac.new(
+            secret.encode("ascii"), (timestamp + token).encode("ascii"), hashlib.sha256,
+        ).hexdigest()
+        return hmac.compare_digest(signature, expected)
+
+    def claim_mailgun_token(
+        self, project_id: str, trigger_id: str, token: str, body: bytes,
+    ) -> None:
+        token_digest = hashlib.sha256(token.encode("ascii")).hexdigest()
+        path = self._directory(project_id) / "mailgun-tokens" / trigger_id / f"{token_digest}.json"
+        body_digest = hashlib.sha256(body).hexdigest()
+        with self.ledger._lock_for(f"mailgun-token:{project_id}:{trigger_id}:{token_digest}"):
+            if path.exists():
+                existing = MailgunTokenReceipt.model_validate_json(path.read_text("utf-8"))
+                if (
+                    existing.project_id != project_id or existing.trigger_id != trigger_id
+                    or existing.token_digest != token_digest or existing.body_digest != body_digest
+                ):
+                    raise EventTriggerError("Mailgun token was replayed with different content")
+                return
+            self.ledger._atomic_write(path, MailgunTokenReceipt(
+                project_id=project_id, trigger_id=trigger_id,
+                token_digest=token_digest, body_digest=body_digest, claimed_at=utc_now(),
+            ))
 
     @staticmethod
     def verify_shopify(body: bytes, signature: str, client_secret: str) -> bool:
@@ -396,6 +497,53 @@ def event_prompt(trigger: EventTrigger, event_id: str, payload: dict[str, Any]) 
         f"{UNTRUSTED_DATA_NOTICE}\n{UNTRUSTED_DATA_OPEN}\n"
         f"{safe.text}\n{UNTRUSTED_DATA_CLOSE}"
     )
+
+
+def mailgun_email_payload(
+    fields: dict[str, str], *, expected_recipient: str,
+) -> tuple[str, dict[str, str]]:
+    """Reduce a verified Mailgun route delivery to one bounded, untrusted email."""
+    recipient = fields.get("recipient", "")
+    if recipient.lower() != expected_recipient:
+        raise EventTriggerError("Mailgun recipient does not match this trigger")
+    raw_headers = fields.get("message-headers", "")
+    if len(raw_headers) > 32_000:
+        raise EventTriggerError("Mailgun message headers are too large")
+    try:
+        headers = json.loads(raw_headers)
+    except ValueError as exc:
+        raise EventTriggerError("Mailgun message headers are invalid") from exc
+    if not isinstance(headers, list) or len(headers) > 200:
+        raise EventTriggerError("Mailgun message headers are invalid")
+    message_ids = [
+        pair[1] for pair in headers
+        if isinstance(pair, list) and len(pair) == 2
+        and isinstance(pair[0], str) and pair[0].lower() == "message-id"
+        and isinstance(pair[1], str)
+    ]
+    if (
+        len(message_ids) != 1 or not 1 <= len(message_ids[0]) <= 998
+        or not message_ids[0].isascii() or not message_ids[0].isprintable()
+    ):
+        raise EventTriggerError("Mailgun message requires one Message-ID")
+    sender = fields.get("from", "")
+    subject = fields.get("subject", "")
+    body = fields.get("body-plain", "")
+    if (
+        not sender or len(sender.encode("utf-8")) > 500
+        or len(subject.encode("utf-8")) > 4_000
+        or len(body.encode("utf-8")) > 48_000
+    ):
+        raise EventTriggerError("Mailgun email fields are invalid or too large")
+    event_id = "mailgun:" + hashlib.sha256(
+        (expected_recipient + "\0" + message_ids[0]).encode("utf-8")
+    ).hexdigest()
+    return event_id, {
+        "message_id": message_ids[0], "from": sender,
+        "subject": subject or "[No subject]",
+        "body": body or "[No plain-text body]",
+        "recipient": expected_recipient,
+    }
 
 
 def shopify_order_payload(raw: dict[str, Any], shop_id: str) -> dict[str, str]:

@@ -131,6 +131,7 @@ from .dingtalk_delivery import DingTalkReplyAdapter
 from .durable_permissions import DurablePermissionConflict
 from .event_triggers import (
     MAX_EVENT_BODY_BYTES,
+    MAX_MAILGUN_WEBHOOK_BODY_BYTES,
     MAX_SHOPIFY_WEBHOOK_BODY_BYTES,
     EventTrigger,
     EventTriggerBusy,
@@ -144,6 +145,7 @@ from .event_triggers import (
     ShopifySubscriptionRemove,
     ShopifySubscriptionView,
     event_prompt,
+    mailgun_email_payload,
     shopify_order_payload,
     valid_event_id,
 )
@@ -621,6 +623,7 @@ def _create_app(
                 yield
 
     application = FastAPI(title="OPHIRA API", version="0.1.0", lifespan=lifespan)
+
     application.state.ledger = ledger
     application.state.events = events
     application.state.project_events = project_events
@@ -931,7 +934,7 @@ def _create_app(
         # Only this exact POST path accepts an external HMAC identity. The route
         # validates the body-bound signature and the durable project binding.
         if request.method == "POST" and re.fullmatch(
-            r"/api/projects/[A-Za-z0-9_-]+/event-triggers/[A-Za-z0-9_-]+/(?:deliver|shopify)",
+            r"/api/projects/[A-Za-z0-9_-]+/event-triggers/[A-Za-z0-9_-]+/(?:deliver|shopify|mailgun)",
             path,
         ):
             if settings.auth_mode == "local_only":
@@ -3704,6 +3707,84 @@ def _create_app(
         if not isinstance(payload, dict):
             raise HTTPException(status_code=400, detail="Event JSON must be an object")
         return await dispatch_event_trigger(trigger, event_id, body, payload)
+
+    @application.get("/api/projects/{project_id}/event-triggers/{trigger_id}/mailgun-delivery")
+    async def mailgun_delivery_url(
+        project_id: str, trigger_id: str, request: Request,
+    ) -> dict[str, str | None]:
+        require_project_authorization(
+            project_id, _request_principal(request), ProjectPermission.PROJECT_READ,
+        )
+        try:
+            trigger = event_triggers.get(project_id, trigger_id)
+        except (KeyError, LedgerNotFoundError, ValueError) as exc:
+            raise HTTPException(status_code=404, detail="Event trigger not found") from exc
+        if trigger.mailgun_recipient is None:
+            raise HTTPException(status_code=404, detail="Mailgun trigger not found")
+        origin = settings.event_public_origin if settings.auth_mode == "trusted_gateway" else None
+        return {"delivery_url": (
+            f"{origin}/api/projects/{project_id}/event-triggers/{trigger_id}/mailgun"
+            if origin else None
+        )}
+
+    @application.post("/api/projects/{project_id}/event-triggers/{trigger_id}/mailgun")
+    async def deliver_mailgun_inquiry(
+        project_id: str, trigger_id: str, request: Request,
+    ) -> dict[str, object]:
+        raw_body = await _read_bounded_body(
+            request, max_bytes=MAX_MAILGUN_WEBHOOK_BODY_BYTES,
+            too_large_detail="Mailgun email payload too large",
+        )
+        try:
+            trigger = event_triggers.get(project_id, trigger_id)
+        except (KeyError, LedgerNotFoundError, ValueError) as exc:
+            raise HTTPException(status_code=404, detail="Event trigger not found") from exc
+        if trigger.mailgun_recipient is None or trigger.kind != "inquiry_email":
+            raise HTTPException(status_code=404, detail="Mailgun trigger not found")
+        content_type = request.headers.get("content-type", "").split(";", 1)[0].lower()
+        if content_type not in {"application/x-www-form-urlencoded", "multipart/form-data"}:
+            raise HTTPException(status_code=406, detail="Mailgun form payload is required")
+        async def bounded_receive() -> dict[str, object]:
+            return {"type": "http.request", "body": raw_body, "more_body": False}
+
+        # Parse only the already bounded bytes; the original ASGI stream was consumed
+        # while enforcing the cap before form decoding or temporary attachment writes.
+        bounded_request = Request(request.scope, receive=bounded_receive)
+        required = (
+            "timestamp", "token", "signature", "recipient",
+            "message-headers", "from", "subject", "body-plain",
+        )
+        async with bounded_request.form(
+            max_files=8, max_fields=64,
+            max_part_size=MAX_MAILGUN_WEBHOOK_BODY_BYTES,
+        ) as form:
+            if any(len(form.getlist(key)) != 1 for key in required):
+                raise HTTPException(
+                    status_code=406, detail="Mailgun email fields are missing or repeated",
+                )
+            fields = {key: form[key] for key in required if isinstance(form[key], str)}
+        if len(fields) != len(required):
+            raise HTTPException(status_code=406, detail="Mailgun email fields are invalid")
+        if not event_triggers.verify_mailgun(
+            project_id, trigger_id,
+            timestamp=fields["timestamp"], token=fields["token"],
+            signature=fields["signature"],
+        ):
+            raise HTTPException(status_code=401, detail="Invalid Mailgun signature")
+        if not trigger.enabled:
+            return {"run_id": None, "project_id": project_id,
+                    "duplicate": False, "status": "paused"}
+        try:
+            event_id, payload = mailgun_email_payload(
+                fields, expected_recipient=trigger.mailgun_recipient,
+            )
+            canonical = json.dumps(payload, ensure_ascii=False, sort_keys=True).encode("utf-8")
+            event_triggers.claim_mailgun_token(
+                project_id, trigger_id, fields["token"], canonical,
+            )
+        except EventTriggerError as exc:
+            raise HTTPException(status_code=406, detail=str(exc)) from exc
+        return await dispatch_event_trigger(trigger, event_id, canonical, payload)
 
     @application.post("/api/projects/{project_id}/event-triggers/{trigger_id}/shopify")
     async def deliver_shopify_order(

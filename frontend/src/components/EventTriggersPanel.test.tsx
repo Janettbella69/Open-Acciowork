@@ -8,6 +8,7 @@ vi.mock('../api/client', () => ({
   listEventTriggers: vi.fn(),
   createEventTrigger: vi.fn(),
   getMarketplaceAccess: vi.fn(),
+  getMailgunDelivery: vi.fn(),
   getShopifySubscription: vi.fn(),
   updateEventTrigger: vi.fn(),
   rotateEventTriggerSecret: vi.fn(),
@@ -19,6 +20,7 @@ vi.mock('../api/client', () => ({
 import {
   createEventTrigger,
   getMarketplaceAccess,
+  getMailgunDelivery,
   getShopifySubscription,
   listEventTriggers,
   rotateEventTriggerSecret,
@@ -46,6 +48,50 @@ beforeEach(() => {
     delivery_url: 'https://events.example.com/api/projects/project_1/event-triggers/event_trigger_1/shopify',
     status: 'not_registered', subscription_id: null, updated_at: null,
   })
+  vi.mocked(getMailgunDelivery).mockResolvedValue({
+    delivery_url: 'https://events.example.com/api/projects/project_1/event-triggers/event_trigger_1/mailgun',
+  })
+})
+
+it('creates a Mailgun inquiry trigger with an exact recipient and replaces its private key', async () => {
+  const mailgunTrigger = { ...trigger, mailgun_recipient: 'quotes@example.com' }
+  vi.mocked(createEventTrigger).mockResolvedValue({
+    trigger: mailgunTrigger, signing_secret: null,
+  })
+  vi.mocked(updateEventTrigger).mockResolvedValue({ ...mailgunTrigger, revision: 2 })
+  render(<EventTriggersPanel projects={[project]} />)
+  await screen.findByText('No event triggers in this project yet.')
+  fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Mailgun inquiries' } })
+  fireEvent.change(screen.getByLabelText('Event source'), { target: { value: 'inquiry_email' } })
+  fireEvent.change(screen.getByLabelText('Email delivery method'), { target: { value: 'mailgun' } })
+  fireEvent.change(screen.getByLabelText('Exact Mailgun recipient'), {
+    target: { value: 'quotes@example.com' },
+  })
+  fireEvent.change(screen.getByLabelText('Mailgun webhook signing key'), {
+    target: { value: 'k'.repeat(40) },
+  })
+  fireEvent.change(screen.getByLabelText('Instructions for the Agent'), {
+    target: { value: 'Review inquiry' },
+  })
+  fireEvent.click(screen.getByRole('button', { name: 'Create trigger' }))
+  await waitFor(() => expect(createEventTrigger).toHaveBeenCalledWith(project.id, {
+    name: 'Mailgun inquiries', kind: 'inquiry_email', prompt: 'Review inquiry',
+    max_budget_usd: 1, mailgun_recipient: 'quotes@example.com',
+    mailgun_signing_key: 'k'.repeat(40), permission_ceiling: [],
+  }))
+  await waitFor(() => expect(screen.getByLabelText('Delivery URL')).toHaveValue(
+    'https://events.example.com/api/projects/project_1/event-triggers/event_trigger_1/mailgun',
+  ))
+  expect(screen.queryByText('k'.repeat(40))).not.toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: 'Rotate signing key' })).not.toBeInTheDocument()
+  fireEvent.change(screen.getByLabelText('Replace Mailgun signing key'), {
+    target: { value: 'z'.repeat(40) },
+  })
+  fireEvent.click(screen.getByRole('button', { name: 'Save new key' }))
+  await waitFor(() => expect(updateEventTrigger).toHaveBeenCalledWith(
+    project.id, trigger.id, { expected_revision: 1, mailgun_signing_key: 'z'.repeat(40) },
+  ))
+  expect(screen.getByLabelText('Replace Mailgun signing key')).toHaveValue('')
 })
 
 it('creates a signed trigger and shows its secret only until dismissed', async () => {

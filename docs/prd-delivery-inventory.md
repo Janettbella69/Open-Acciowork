@@ -54,7 +54,7 @@
 | FR-34 上下文压缩 | delivered（本地代码/离线测试，2026-09-24）：钉版 SDK `get_context_usage()` 采样有效窗口占用并随 Run 事件回放；原生压缩边界事件提示自动/手动压缩、崩溃后修复 epoch 并强制完整业务上下文刷新；用户可在已完成会话启动独立无工具 `/compact` Run，只有 SDK 手动边界确认才算成功，账本及产物不被压缩 Run 改写 | deferred：真实 Provider 用量/手动与自动压缩语义、长时采样及浏览器目视验收；SDK 不提供用量时显示未知，不从累计 token 推算 |
 | FR-35 会话检索 | delivered（本地）：项目内有界 Run 提问、用户插话、主 Agent 回复与结果检索，RUN_READ 校验、只读 MCP、Run ID 回放及截断提示 | deferred：大历史性能/覆盖、浏览器与真实会话质量验收 |
 | FR-36 首次引导 | delivered（本地）：示例任务、模型选择及设置页密钥/条款/预检/返回步骤 | deferred：新用户可用性测试和实际 Provider 配置 E2E |
-| FR-37 事件触发 | partial（本地）：项目级 webhook/询盘邮件/店铺订单规范化事件入口；Shopify `orders/create` 原生 HMAC 入站、项目店铺授权绑定、去重与买家信息裁剪，以及管理员触发的店铺级订阅注册/核验/移除、服务端公开 HTTPS 地址、外部结果不确定时的持久防重复重试；项目删除审核披露未移除的远端订阅；一次性签名密钥与轮换、创建人权限复验、单 Run 预算与权限上限、单主 Agent 和现有人审流程、前端管理入口；见 `docs/event-triggers.md` | deferred：真实公共 HTTPS/Shopify 店铺联调、邮箱与其他店铺原生适配、Provider E2E、部署环境浏览器验收与更广崩溃故障矩阵；不确定投递不盲目重试 |
+| FR-37 事件触发 | partial（本地）：项目级 webhook/询盘邮件/店铺订单规范化事件入口；Mailgun 收件路由原生表单验签、精确收件地址绑定、Message-ID 与签名 token 持久去重、私有密钥替换及前端配置；Shopify `orders/create` 原生 HMAC 入站、项目店铺授权绑定、去重与买家信息裁剪，以及管理员触发的店铺级订阅注册/核验/移除、服务端公开 HTTPS 地址、外部结果不确定时的持久防重复重试；项目删除审核披露未移除的远端订阅；一次性签名密钥与轮换、创建人权限复验、单 Run 预算与权限上限、单主 Agent 和现有人审流程、前端管理入口；见 `docs/event-triggers.md` | deferred：真实公共 HTTPS/Mailgun/Shopify 联调、Gmail 与其他店铺原生适配、Provider E2E、部署环境浏览器验收与更广崩溃故障矩阵；不确定投递不盲目重试 |
 | FR-38 钉钉/企微 | partial（本地）：钉钉官方 Stream SDK 验证回调接入、群 @ /单聊文字门禁、管理员绑定 corp/conversation/staff 至项目与成员、角色即时复验、跨 worker 去重与投递互斥、Run 结果经官方 robot API 回到原会话；企微官方智能机器人 SDK 验证 WebSocket 帧接入、群/单聊文字、bot/conversation/sender 精确绑定、Run 结果经主动发送命令回到会话，断线时未发送结果保持待处理；两者的无幂等字段投递异常停止自动重试并留痕；见 `backend/README.md` | deferred：钉钉及企微真实租户收发/权限/轮换 E2E 与实际送达确认；微信路径仍待确定。PRD 的微信先行顺序尚未满足 |
 | FR-39 插件导入 | partial（本地）：官方插件 ZIP 多 Skill 拆分后复用私有仓库安全扫描和逐件人审；远程 MCP 地址引导至 FR-33 项目审批/逐工具策略，插件子 Agent 与其它可执行组件明确忽略；Anthropic marketing 真包的 8 个 Skill 扫描通过、11 个远程 MCP 地址列出；冷备报告/子 Skill 绑定校验；见 `docs/plugin-imports.md` | deferred：远程 MCP/Provider E2E、认证部署验收和更多真实包兼容性；OAuth、stdio MCP 和 Claude marketplace 安装机制不在当前 FR-33 远程 HTTPS 边界内 |
 | FR-40 语音输入 | partial（本地）：支持浏览器 SpeechRecognition 的手机任务/插话与工作台听写；语言选择、可编辑转写草稿、明确填入确认和原有提交路径；取消、页面隐藏及卸载中止录音，未提供音频上传端点；见 `docs/voice-input.md` | deferred：真实手机麦克风授权/转写质量、Safari/Android 与受限浏览器兼容、HTTPS 部署验收；不支持 Web Speech API 的浏览器目前仍需键盘听写或文字输入 |
@@ -68,6 +68,8 @@
 2026-09-25 FR-27 视频适配增量：显式选择 Runway Dev 后，使用独立密钥提交 Gen-4.5 文字生成视频任务，并持久保存任务 ID 与原始 Run/目标路径；相同参数续查，付费创建结果不确定时停止自动重试。完成后对签名结果链接逐跳执行公网 HTTPS 钉住、250 MB 流式上限及 MP4 签名校验，登记来源与 Artifact，下载或登记中断后按租约恢复。后端全量 `2339 passed / 13 skipped`、Ruff 通过；无真实 Runway 账号/计费/视频质量与长时验收，详见 `docs/media-generation.md`。
 
 2026-09-25 FR-41 本地站点资源增量：受限 ZIP 新增 WOFF/WOFF2 与 MP4/WebM，沿用 4 MiB 单文件、12 MiB 压缩包和 20 MiB 展开总量限制；签名、路径、CSP 与草稿短时预览凭证校验保持生效，沙箱字体仅对 `Origin: null` 返回无凭据 CORS，草稿仍须持有有效预览凭证。后端全量 `2344 passed / 13 skipped`、Ruff 通过；真实 Chromium/ASGI 站点脚本 21 项检查全过，含公开页与草稿的字体和 WebM 加载。真实公网域名/CDN 与跨浏览器验收仍未完成，见 `docs/site-publications.md`。
+
+2026-09-25 FR-37 Mailgun 收件增量：精确收件地址与私有 Webhook 签名密钥配置、表单/附件有界解析、Mailgun 时间戳与 token 验签、Message-ID 和 token 持久防重放、UTF-8 正文上限、权限/预算复用及密钥更新已接通。原有类型化 OpenAPI 请求结构保留，校验错误不回显密钥。后端全量 `2346 passed / 13 skipped`、Ruff 通过；前端全量 `547 passed / 56 files`、ESLint 与 TypeScript/Vite 构建通过。隔离临时数据上的真实 loopback HTTP 验证创建 201、首次投递 200、重投 200 且仅有一个 Run；无真实 Mailgun 帐号、公开 HTTPS 或 Provider 调用。Browser 技能返回空可用浏览器列表，未做页面目视。Gmail 原生邮箱和完整 PRD 仍未完成，见 `docs/event-triggers.md`。
 
 2026-09-24 FR-20 浏览器复验：真实 Chromium L1 经生产浏览器工具访问无跳转的
 公网 IP 目标，截图、Artifact、Evidence、来源凭证和 Run 关联等 **9 项检查全过**，

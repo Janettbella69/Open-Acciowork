@@ -8,6 +8,7 @@ export type EventTrigger = {
   name: string
   kind: EventTriggerKind
   shopify_binding_id?: string | null
+  mailgun_recipient?: string | null
   prompt: string
   provider_profile_id: string | null
   max_budget_usd: number
@@ -30,7 +31,11 @@ export type EventTriggerCreate = {
   max_budget_usd: number
   permission_ceiling: SchedulePermissionRule[]
   shopify_binding_id?: string
+  mailgun_recipient?: string
+  mailgun_signing_key?: string
 }
+
+export type MailgunDeliveryView = { delivery_url: string | null }
 
 export type ShopifySubscriptionView = {
   delivery_url: string | null

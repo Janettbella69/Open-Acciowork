@@ -24,6 +24,7 @@
 .event-triggers-title strong { font-size: var(--ophira-type-title); }
 .event-triggers-title span, .event-triggers-list small { color: #707a72; font-size: var(--ophira-type-small); }
 .event-triggers-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.event-triggers-actions label { min-width: 0; flex: 1 1 220px; }
 .event-triggers-secret { display: grid; border: 1px solid #d1ddcc; border-radius: 12px; padding: 16px; gap: 10px; background: #f3f8f0; }
 .event-triggers-secret code { overflow-wrap: anywhere; font-family: var(--ophira-mono); font-size: var(--ophira-type-small); }
 .event-triggers-secret p { margin: 0; font-size: var(--ophira-type-small); }

@@ -1,5 +1,6 @@
 """Administrator reads and human-owned project/shop authorization routes."""
 
+import re
 from collections.abc import Callable
 
 from fastapi import FastAPI, HTTPException, Request, Response
@@ -92,6 +93,22 @@ def register_marketplace_routes(
 
     @application.exception_handler(RequestValidationError)
     async def safe_connector_validation(request: Request, exc: RequestValidationError):
+        path = request.url.path
+        if (
+            request.method == "POST"
+            and re.fullmatch(r"/api/projects/[A-Za-z0-9_-]+/event-triggers", path)
+        ) or (
+            request.method == "PATCH"
+            and re.fullmatch(
+                r"/api/projects/[A-Za-z0-9_-]+/event-triggers/[A-Za-z0-9_-]+", path,
+            )
+        ):
+            # A model-level validation error includes the complete request input.
+            # Preserve field locations and messages without echoing the Mailgun key.
+            return JSONResponse(status_code=422, content={"detail": [
+                {key: item[key] for key in ("type", "loc", "msg") if key in item}
+                for item in exc.errors()
+            ]}, headers={"Cache-Control": "no-store"})
         # FastAPI's default validation response contains input_value, including
         # an overlong/mistyped ConnectorUpsert.secret. Never echo credential input.
         if (

@@ -42,8 +42,41 @@ The inquiry email source expects `message_id`, `from`, `subject`, and `body` as
 nonempty strings. The store order source expects `order_id`, `shop_id`, and `status`.
 Other fields remain available to the Agent as bounded, untrusted event data. A
 sender or integration gateway must normalize its upstream email/store event to
-this contract. A direct Shopify order webhook is also supported below; native
-mailbox subscriptions and other stores still need an integration gateway.
+this contract. Direct Mailgun inbound email and Shopify order webhooks are also
+supported below. Gmail and other mailbox subscriptions still need an integration.
+
+## Direct Mailgun inbound email
+
+Choose **Inquiry email → Mailgun inbound route** and enter the exact receiving
+address and the Mailgun **Webhook Signing Key** (not its API key). The key is kept
+only in OPHIRA's private `0600` event-trigger secret file; it is never returned
+by the create, list, or update API. A member with project Run-creation permission can replace it in
+the Event triggers page. The signed JSON delivery URL remains available as the
+separate **Signed JSON from an integration** option.
+
+Configure a [Mailgun receiving route](https://documentation.mailgun.com/docs/mailgun/user-manual/receive-forward-store/routes)
+matching that address with a `forward("https://.../mailgun")` action using the
+**Delivery URL** shown in OPHIRA. The receiving domain must be configured in
+Mailgun. In trusted gateway mode, set `OPHIRA_EVENT_PUBLIC_ORIGIN` to the
+operator-owned public HTTPS event origin; local-only mode cannot receive public
+Mailgun deliveries. Mailgun posts parsed inbound mail as URL-encoded form data,
+or multipart form data when attachments exist. OPHIRA ignores attachments and
+HTML; only bounded plain text reaches the Agent. See Mailgun's
+[inbound HTTP contract](https://documentation.mailgun.com/docs/mailgun/user-manual/receive-forward-store/receive-http).
+
+The endpoint verifies Mailgun's HMAC-SHA256 over `timestamp + token` with the
+stored key, accepts only an eight-hour-ten-minute timestamp window to cover the
+documented retry period, and requires the configured exact recipient. It
+requires one `Message-ID` in Mailgun's `message-headers`. A durable
+token receipt rejects the same signed token with changed email content; a
+recipient/Message-ID digest deduplicates retries even if Mailgun gives them a
+new token. The normalized body, sender and subject are untrusted data in the
+project Run. A trigger still uses the same creator authority, frozen budget,
+permission ceiling and separate external-action review as other FR-37 events.
+The endpoint accepts up to 1 MB total request bytes and at most 48,000 plain-text
+UTF-8 bytes; over-limit or malformed email is rejected without starting a Run.
+Mailgun's signature authenticates its delivery, not the human sender's identity.
+See Mailgun's [signature contract](https://documentation.mailgun.com/docs/mailgun/user-manual/webhooks/securing-webhooks).
 
 ## Direct Shopify order webhook
 
@@ -119,7 +152,7 @@ was created but the receipt was not updated, a repeat recovers its Run ID. The
 system never starts a second Run for an uncertain event ID. Inspect project Runs
 before sending a distinct event ID after an uncertain result.
 
-In trusted gateway mode, the exact `/deliver` and `/shopify` POST paths accept
+In trusted gateway mode, the exact `/deliver`, `/mailgun` and `/shopify` POST paths accept
 their respective event signatures without a user assertion. Deploy them behind HTTPS,
 keep the management API behind
 the normal authenticated gateway, and rate limit the public path. Local-only mode
@@ -128,13 +161,14 @@ receipts, and their private signing keys.
 
 ## Verification boundary
 
-Local HTTP tests cover accepted deliveries, Shopify subscription creation,
+Local HTTP tests cover accepted deliveries, Mailgun form/signature/recipient/token
+replay handling and private key rotation, Shopify subscription creation,
 lookup, uncertain retries and removal, HMAC/shop/topic/grant checks,
 PII reduction, budget and permission bindings, stale
 or bad signatures, schemas, duplicates, key rotation, pause/revocation, creator
 membership, and interrupted receipt binding. A local desktop/mobile headless
 Chromium pass verified the signed management page, creation, one-time key display, and
 dismissal. A separate local desktop/mobile Chromium pass used a simulated API to
-check Shopify registration and removal controls and narrow-screen layout. Real email
-and Shopify deliveries, a public HTTPS ingress, a configured
+check Shopify registration and removal controls and narrow-screen layout. Real Mailgun
+email and Shopify deliveries, a public HTTPS ingress, a configured
 Provider Run, and deployed browser verification remain open.

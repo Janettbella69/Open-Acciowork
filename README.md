@@ -57,8 +57,9 @@ Scheduled runs can retain scoped, traceable task experience without changing use
 policy or global memory; see [`docs/task-experience.md`](docs/task-experience.md).
 Manual and automatic schedule triggers now share cross-process overlap checks;
 see [`docs/schedule-overlap.md`](docs/schedule-overlap.md).
-Signed project event triggers can start budgeted Runs from webhooks, normalized
-inquiry emails, and store orders; see [`docs/event-triggers.md`](docs/event-triggers.md).
+Project event triggers can start budgeted Runs from signed webhooks, direct
+Mailgun inquiries, normalized email events, and Shopify orders; see
+[`docs/event-triggers.md`](docs/event-triggers.md).
 Run-bound evidence and decisions now emit recoverable ledger observations; the
 workspace drains the complete Run event tail before closing its stream.
 See [`docs/project-events.md`](docs/project-events.md).

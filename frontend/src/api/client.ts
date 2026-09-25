@@ -60,6 +60,7 @@ import type {
   EventTrigger,
   EventTriggerCreate,
   EventTriggerCreated,
+  MailgunDeliveryView,
   ShopifySubscriptionView,
 } from './eventTriggers'
 import type { ConversationDeletionOperation, ConversationDeletionPreview, ProjectDeletionOperation, ProjectDeletionPreview, ProjectDeletionRequest } from './projectDeletion'
@@ -644,11 +645,20 @@ export function createEventTrigger(
 
 export function updateEventTrigger(
   projectId: string, triggerId: string,
-  input: { expected_revision: number; enabled: boolean },
+  input: { expected_revision: number; enabled?: boolean; mailgun_signing_key?: string },
 ): Promise<EventTrigger> {
   return request<EventTrigger>(
     `/api/projects/${encodeURIComponent(projectId)}/event-triggers/${encodeURIComponent(triggerId)}`,
     { method: 'PATCH', body: JSON.stringify(input), cache: 'no-store' },
+  )
+}
+
+export function getMailgunDelivery(
+  projectId: string, triggerId: string,
+): Promise<MailgunDeliveryView> {
+  return request<MailgunDeliveryView>(
+    `/api/projects/${encodeURIComponent(projectId)}/event-triggers/${encodeURIComponent(triggerId)}/mailgun-delivery`,
+    { cache: 'no-store' },
   )
 }
 

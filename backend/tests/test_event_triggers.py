@@ -8,6 +8,7 @@ import stat
 import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from urllib.parse import urlencode
 from uuid import uuid4
 
 import pytest
@@ -49,6 +50,178 @@ def signed_headers(secret: str, event_id: str, body: bytes, *, timestamp: int | 
         "x-ophira-event-id": event_id,
         "x-ophira-signature": f"sha256={digest}",
     }
+
+
+@pytest.mark.asyncio
+async def test_mailgun_inquiry_route_verifies_binds_deduplicates_and_rotates(
+    tmp_path: Path,
+):
+    app = create_app(Settings(data_dir=tmp_path), runtime=FakeRuntime())
+    request_schema = app.openapi()["paths"]["/api/projects/{project_id}/event-triggers"][
+        "post"
+    ]["requestBody"]["content"]["application/json"]["schema"]
+    assert request_schema == {"$ref": "#/components/schemas/EventTriggerCreate"}
+    project = app.state.ledger.create_project(
+        ProjectCreate(name="Mailgun inquiry", objective="Review inbound inquiries")
+    )
+    base = f"/api/projects/{project.id}/event-triggers"
+    key = "mailgun-signing-key-" + "x" * 32
+    timestamp = str(int(time.time()))
+    fields = {
+        "timestamp": timestamp,
+        "token": "a" * 50,
+        "signature": "",
+        "recipient": "quotes@example.com",
+        "message-headers": json.dumps([["Message-Id", "<inquiry-1@example.net>"]]),
+        "from": "Buyer <buyer@example.net>",
+        "subject": "Quote request",
+        "body-plain": "Please quote 500 units.",
+    }
+
+    def signed(values: dict[str, str], secret: str = key) -> dict[str, str]:
+        result = values.copy()
+        result["signature"] = hmac.new(
+            secret.encode(), (result["timestamp"] + result["token"]).encode(),
+            hashlib.sha256,
+        ).hexdigest()
+        return result
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://localhost") as client:
+        invalid = await client.post(base, json={
+            "name": "Mailgun", "kind": "webhook", "prompt": "Review",
+            "max_budget_usd": 1, "mailgun_recipient": "quotes@example.com",
+            "mailgun_signing_key": key,
+        })
+        assert invalid.status_code == 422
+        assert key not in invalid.text
+        created = await client.post(base, json={
+            "name": "Mailgun", "kind": "inquiry_email", "prompt": "Review",
+            "max_budget_usd": 1, "mailgun_recipient": "quotes@example.com",
+            "mailgun_signing_key": key,
+        })
+        assert created.status_code == 201, created.text
+        trigger = created.json()["trigger"]
+        assert created.json()["signing_secret"] is None
+        assert key not in created.text
+        key_path = tmp_path / "secrets" / "event-triggers" / project.id / f"{trigger['id']}.key"
+        assert key_path.read_text() == key
+        assert stat.S_IMODE(key_path.stat().st_mode) == 0o600
+        short_key = await client.patch(f"{base}/{trigger['id']}", json={
+            "expected_revision": 1, "mailgun_signing_key": "private-short-key",
+        })
+        assert short_key.status_code == 422
+        assert "private-short-key" not in short_key.text
+        path = f"{base}/{trigger['id']}/mailgun"
+        assert (await client.get(f"{base}/{trigger['id']}/mailgun-delivery")).json() == {
+            "delivery_url": None,
+        }
+        assert (await client.post(path, data={**fields, "signature": "0" * 64})).status_code == 401
+        assert (await client.post(path, data=signed({
+            **fields, "timestamp": str(int(time.time()) + 360),
+        }))).status_code == 401
+        assert (await client.post(path, data=signed({
+            **fields, "timestamp": str(int(time.time()) - 8 * 3600 - 11 * 60),
+        }))).status_code == 401
+        assert (await client.post(path, data=signed({
+            **fields, "recipient": "other@example.com",
+        }))).status_code == 406
+        assert (await client.post(path, data=signed({
+            **fields, "message-headers": json.dumps([["Subject", "No ID"]]),
+        }))).status_code == 406
+        assert (await client.post(path, data=signed({
+            **fields, "message-headers": json.dumps([["Message-ID", "<错误@example.net>"]]),
+        }))).status_code == 406
+        assert (await client.post(path, data=signed({
+            **fields, "body-plain": "询" * 16_001,
+        }))).status_code == 406
+        first = await client.post(path, data=signed(fields))
+        assert first.status_code == 200, first.text
+        assert first.json()["duplicate"] is False
+        run_id = first.json()["run_id"]
+        run = app.state.ledger.get_run(run_id)
+        assert "Please quote 500 units." in run.prompt
+        assert "untrusted external content" in run.prompt
+        duplicate = await client.post(path, data=signed(fields))
+        assert duplicate.status_code == 200
+        assert duplicate.json()["duplicate"] is True
+        assert duplicate.json()["run_id"] == run_id
+        altered = await client.post(path, data=signed({
+            **fields, "body-plain": "Changed text",
+        }))
+        assert altered.status_code == 406
+        new_token = await client.post(path, data=signed({
+            **fields, "token": "b" * 50,
+        }))
+        assert new_token.status_code == 200
+        assert new_token.json()["duplicate"] is True
+        assert len(app.state.ledger.list_runs(project.id)) == 1
+        generic = await client.post(
+            f"{base}/{trigger['id']}/deliver", content=b"{}",
+            headers=signed_headers(key, "different", b"{}"),
+        )
+        assert generic.status_code == 401
+        updated = await client.patch(f"{base}/{trigger['id']}", json={
+            "expected_revision": 1, "mailgun_signing_key": "z" * 40,
+        })
+        assert updated.status_code == 200
+        assert "z" * 40 not in updated.text
+        assert (await client.post(path, data=signed({
+            **fields, "token": "c" * 50,
+        }))).status_code == 401
+        second = await client.post(path, data=signed({
+            **fields, "token": "c" * 50,
+            "message-headers": json.dumps([["Message-ID", "<inquiry-2@example.net>"]]),
+        }, "z" * 40))
+        assert second.status_code == 200
+        assert len(app.state.ledger.list_runs(project.id)) == 2
+        paused = await client.patch(f"{base}/{trigger['id']}", json={
+            "expected_revision": 2, "enabled": False,
+        })
+        assert paused.status_code == 200
+        ignored = await client.post(path, data=signed({
+            **fields, "token": "d" * 50,
+        }, "z" * 40))
+        assert ignored.status_code == 200
+        assert ignored.json()["status"] == "paused"
+        assert len(app.state.ledger.list_runs(project.id)) == 2
+
+
+@pytest.mark.asyncio
+async def test_mailgun_inquiry_accepts_bounded_multipart_and_rejects_repeated_fields(
+    tmp_path: Path,
+):
+    app = create_app(Settings(data_dir=tmp_path), runtime=FakeRuntime())
+    project = app.state.ledger.create_project(ProjectCreate(name="Mail", objective="Review"))
+    base = f"/api/projects/{project.id}/event-triggers"
+    key = "k" * 40
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://localhost") as client:
+        created = await client.post(base, json={
+            "name": "Mailgun", "kind": "inquiry_email", "prompt": "Review",
+            "max_budget_usd": 1, "mailgun_recipient": "quotes@example.com",
+            "mailgun_signing_key": key,
+        })
+        path = f"{base}/{created.json()['trigger']['id']}/mailgun"
+        timestamp = str(int(time.time()))
+        token = "a" * 50
+        signature = hmac.new(
+            key.encode(), (timestamp + token).encode(), hashlib.sha256,
+        ).hexdigest()
+        fields = {
+            "timestamp": timestamp, "token": token, "signature": signature,
+            "recipient": "quotes@example.com",
+            "message-headers": json.dumps([["Message-ID", "<multipart@example.net>"]]),
+            "from": "buyer@example.net", "subject": "Quote", "body-plain": "Details attached",
+        }
+        repeated = await client.post(
+            path, content=urlencode([*fields.items(), ("recipient", "other@example.com")]),
+            headers={"content-type": "application/x-www-form-urlencoded"},
+        )
+        assert repeated.status_code == 406
+        multipart = await client.post(
+            path, data=fields, files={"attachment-1": ("terms.pdf", b"%PDF-1.4")},
+        )
+        assert multipart.status_code == 200, multipart.text
+        assert len(app.state.ledger.list_runs(project.id)) == 1
 
 
 @pytest.mark.asyncio
