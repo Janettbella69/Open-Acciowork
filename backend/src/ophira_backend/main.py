@@ -153,6 +153,7 @@ from .events import EventPublisher
 from .feedback import FeedbackStore
 from .feedback_routes import register_feedback_routes
 from .gmail import GMAIL_CALLBACK_RE, GMAIL_PUSH_RE, GmailService
+from .gmail_access import GmailAccessService
 from .gmail_api import register_gmail_routes
 from .grants import GrantNotFoundError, PermissionGrantStore
 from .ingest import IngestConfig
@@ -492,6 +493,9 @@ def _create_app(
     )
     connectors.ensure_catalog()
     gmail = GmailService(settings, connectors, ledger, event_triggers)
+    gmail_access = GmailAccessService(
+        ledger, gmail, settings=settings, access=project_access,
+    )
     if settings.auth_mode == "local_only":
         loopback_host = (
             f"[{settings.host}]" if ":" in settings.host else settings.host
@@ -533,6 +537,7 @@ def _create_app(
         connectors=connectors,
         user_mcp=user_mcp,
         marketplace_access=marketplace_access,
+        gmail_access=gmail_access,
         shop_browsers=shop_browsers,
         policy=policy,
         commercial_actions=commercial_actions,
@@ -645,6 +650,7 @@ def _create_app(
     application.state.intent_watcher = intent_watcher
     application.state.connectors = connectors
     application.state.gmail = gmail
+    application.state.gmail_access = gmail_access
     application.state.user_mcp = user_mcp
     application.state.notifications = notifications
     application.state.intents = intents
@@ -3757,7 +3763,7 @@ def _create_app(
             raise HTTPException(403, "Trigger creator is no longer authorized") from exc
 
     register_gmail_routes(
-        application, service=gmail, triggers=event_triggers,
+        application, service=gmail, access=gmail_access, triggers=event_triggers,
         require_project_authorization=require_project_authorization,
         read_bounded_body=_read_bounded_body, dispatch=dispatch_event_trigger,
         authorize_trigger=authorize_gmail_trigger,

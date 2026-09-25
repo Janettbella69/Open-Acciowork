@@ -1,5 +1,5 @@
 export const marketplacesZh: Record<string, string> = {
-  'Project access for Agents': '项目 Agent 的店铺权限',
+  'Project access for Agents': '项目 Agent 的访问权限',
   'Allow project Agents to read one selected shop until expiry, including scheduled runs. Product pages retain source receipts; evidence is recorded separately. Only project administrators can change grants.': '允许项目 Agent 在有效期内读取指定店铺，包含计划任务。商品页保留来源凭证；写入证据需单独执行。只有项目管理员可以修改授权。',
   'Project for shop access': '授权给哪个项目',
   'Select a project': '选择项目',

@@ -61,6 +61,7 @@ from .constants import (
     TOOL_GET_ECB_FX_REFERENCE,
     TOOL_GET_PROJECT_CONTEXT,
     TOOL_LIST_STANDING_INTENTS,
+    TOOL_READ_GMAIL,
     TOOL_READ_MARKETPLACE,
     TOOL_READ_SOURCE_RECEIPT,
     TOOL_SEARCH_EVIDENCE,
@@ -88,6 +89,7 @@ from .desktop_control import DesktopControl
 from .destructive import is_destructive_delete
 from .durable_permissions import DurablePermissionConflict
 from .events import EventPublisher, redact
+from .gmail_access import GmailAccessService
 from .ingest import file_needs_markdown_companion
 from .ledger_tools import build_mcp_servers
 from .marketplace_access import MarketplaceAccessService
@@ -205,7 +207,7 @@ _UNTRUSTED_LEDGER_TOOL_NAMES = frozenset(
 )
 _UNTRUSTED_JSON_TOOL_NAMES = frozenset(
     {*_UNTRUSTED_LEDGER_TOOL_NAMES, TOOL_SEARCH_PUBLIC_WEB, TOOL_FETCH_PAGE_SNAPSHOT,
-     TOOL_GET_ECB_FX_REFERENCE, TOOL_READ_MARKETPLACE}
+     TOOL_GET_ECB_FX_REFERENCE, TOOL_READ_MARKETPLACE, TOOL_READ_GMAIL}
 )
 
 
@@ -229,6 +231,8 @@ def _post_tool_untrusted_source(
         return UntrustedSource.WEB_PAGE
     if tool_name == TOOL_READ_MARKETPLACE:
         return UntrustedSource.MARKETPLACE_PAGE
+    if tool_name == TOOL_READ_GMAIL:
+        return UntrustedSource.GMAIL_PAGE
     if tool_name in {TOOL_SNAPSHOT_PAGE, TOOL_ACT_ON_PAGE} and (
         tool_input.get("shop_id") or tool_input.get("list_shops")
     ):
@@ -261,10 +265,10 @@ def _is_subagent_restricted_tool(tool_name: str) -> bool:
     # main-Agent write even though normal L1 reads are auto-approved for users.
     # Presentation tools are read-only, but final UI composition is likewise
     # owned by the accountable main Agent rather than a research branch.
-    # Private shop reads mint receipts for the main SDK session. Research branches
-    # work from the main Agent's returned observations, not their own shop reads.
+    # Private connector reads mint receipts for the main SDK session. Research
+    # branches work from the main Agent's returned observations.
     if (
-        tool_name in {TOOL_SNAPSHOT_PAGE, TOOL_READ_MARKETPLACE}
+        tool_name in {TOOL_SNAPSHOT_PAGE, TOOL_READ_MARKETPLACE, TOOL_READ_GMAIL}
         or tool_name in PRESENTATION_TOOL_NAMES
     ):
         return True
@@ -314,6 +318,7 @@ class ClaudeAgentRuntime:
         project_events: ProjectEventProjector | None = None,
         skill_proposals: SkillProposalService | None = None,
         marketplace_access: MarketplaceAccessService | None = None,
+        gmail_access: GmailAccessService | None = None,
         shop_browsers: ShopBrowserService | None = None,
         user_mcp: UserMcpRegistry | None = None,
         desktop_control: DesktopControl | None = None,
@@ -351,6 +356,7 @@ class ClaudeAgentRuntime:
             if connectors is not None
             else None
         )
+        self.gmail_access = gmail_access
         self.policy = policy or OrgPolicyStore(settings.data_dir / "org" / "policy.json")
         self.shop_browsers = shop_browsers or (
             ShopBrowserService(self.marketplace_access, self.policy)
@@ -1130,6 +1136,7 @@ class ClaudeAgentRuntime:
                 project_events=self.project_events,
                 skill_proposals=self.skill_proposals,
                 marketplace_access=self.marketplace_access,
+                gmail_access=self.gmail_access,
                 shop_browsers=self.shop_browsers,
             )
         )

@@ -7,7 +7,7 @@ from collections.abc import Awaitable, Callable
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import JSONResponse, RedirectResponse
 
-from .auth import ProjectPermission
+from .auth import AuthenticationError, AuthorizationError, ProjectPermission
 from .constants import PrincipalRole
 from .event_triggers import EventTrigger, EventTriggerStore
 from .gmail import (
@@ -17,13 +17,16 @@ from .gmail import (
     GmailError,
     GmailService,
 )
+from .gmail_access import GmailAccessService, GmailGrantRequest, GmailRevokeRequest
 from .models import PrincipalContext
+from .storage import LedgerNotFoundError
 
 
 def register_gmail_routes(
     application: FastAPI,
     *,
     service: GmailService,
+    access: GmailAccessService,
     triggers: EventTriggerStore,
     require_project_authorization: Callable[
         [str, PrincipalContext | None, ProjectPermission], None
@@ -66,6 +69,60 @@ def register_gmail_routes(
         admin(request)
         response.headers["Cache-Control"] = "no-store"
         return service.oauth_status(connector_id, tenant(request))
+
+    @application.get("/api/projects/{project_id}/gmail-access")
+    async def gmail_access_status(project_id: str, request: Request, response: Response):
+        require_project_authorization(
+            project_id, principal(request), ProjectPermission.PROJECT_READ,
+        )
+        try:
+            result = access.view(project_id)
+        except (AuthenticationError, AuthorizationError, LedgerNotFoundError):
+            raise HTTPException(403, "Project Gmail access is unavailable") from None
+        require_project_authorization(
+            project_id, principal(request), ProjectPermission.PROJECT_READ,
+        )
+        response.headers["Cache-Control"] = "no-store"
+        return result
+
+    @application.post("/api/projects/{project_id}/gmail-access")
+    async def grant_gmail_access(
+        project_id: str, payload: GmailGrantRequest, request: Request, response: Response,
+    ):
+        admin(request)
+        require_project_authorization(
+            project_id, principal(request), ProjectPermission.PROJECT_ACCESS_MANAGE,
+        )
+        try:
+            result = access.grant(project_id, payload, principal(request))
+        except (AuthenticationError, AuthorizationError, LedgerNotFoundError):
+            raise HTTPException(403, "Project administrator access is unavailable") from None
+        require_project_authorization(
+            project_id, principal(request), ProjectPermission.PROJECT_ACCESS_MANAGE,
+        )
+        response.headers["Cache-Control"] = "no-store"
+        return result
+
+    @application.post("/api/projects/{project_id}/gmail-access/{grant_id}/revoke")
+    async def revoke_gmail_access(
+        project_id: str, grant_id: str, payload: GmailRevokeRequest,
+        request: Request, response: Response,
+    ):
+        admin(request)
+        require_project_authorization(
+            project_id, principal(request), ProjectPermission.PROJECT_ACCESS_MANAGE,
+        )
+        try:
+            result = access.revoke(
+                project_id, grant_id, payload.expected_revision, principal(request),
+            )
+        except (AuthenticationError, AuthorizationError, LedgerNotFoundError):
+            raise HTTPException(403, "Project administrator access is unavailable") from None
+        require_project_authorization(
+            project_id, principal(request), ProjectPermission.PROJECT_ACCESS_MANAGE,
+        )
+        response.headers["Cache-Control"] = "no-store"
+        return result
 
     @application.post("/api/connectors/{connector_id}/gmail-oauth/start")
     async def gmail_oauth_start(connector_id: str, request: Request, response: Response):

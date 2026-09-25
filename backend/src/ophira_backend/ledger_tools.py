@@ -60,6 +60,7 @@ from .untrusted import (
 if TYPE_CHECKING:
     from .commercial_actions import CommercialActionService
     from .connectors import ConnectorRegistry
+    from .gmail_access import GmailAccessService
     from .marketplace_access import MarketplaceAccessService
     from .project_events import ProjectEventProjector
     from .shop_browser import ShopBrowserService
@@ -128,6 +129,7 @@ def build_ledger_tools(
     project_events: ProjectEventProjector | None = None,
     skill_proposals: SkillProposalService | None = None,
     marketplace_access: MarketplaceAccessService | None = None,
+    gmail_access: GmailAccessService | None = None,
 ):
     """Tool list for the ledger MCP server; exposed separately so tests can call
     handlers directly without going through a live SDK session."""
@@ -772,6 +774,10 @@ def build_ledger_tools(
         from .marketplace_tools import build_marketplace_tool
 
         tools.append(build_marketplace_tool(marketplace_access, project_id, run_id))
+    if gmail_access is not None and run_id is not None:
+        from .gmail_tools import build_gmail_tool
+
+        tools.append(build_gmail_tool(gmail_access, project_id, run_id))
 
     if memory is not None:
 
@@ -858,6 +864,7 @@ def build_ledger_mcp_server(
     project_events: ProjectEventProjector | None = None,
     skill_proposals: SkillProposalService | None = None,
     marketplace_access: MarketplaceAccessService | None = None,
+    gmail_access: GmailAccessService | None = None,
 ):
     return create_sdk_mcp_server(
         name=LEDGER_MCP_SERVER_NAME,
@@ -871,6 +878,7 @@ def build_ledger_mcp_server(
             project_events=project_events,
             skill_proposals=skill_proposals,
             marketplace_access=marketplace_access,
+            gmail_access=gmail_access,
         ),
     )
 
@@ -1388,6 +1396,7 @@ def build_mcp_servers(
     project_events: ProjectEventProjector | None = None,
     skill_proposals: SkillProposalService | None = None,
     marketplace_access: MarketplaceAccessService | None = None,
+    gmail_access: GmailAccessService | None = None,
     shop_browsers: ShopBrowserService | None = None,
 ) -> dict[str, Any]:
     from .presentation_tools import build_presentation_mcp_server
@@ -1402,6 +1411,7 @@ def build_mcp_servers(
             project_events=project_events,
             skill_proposals=skill_proposals,
             marketplace_access=marketplace_access,
+            gmail_access=gmail_access,
         ),
         SUPPLIER_MCP_SERVER_NAME: build_supplier_mcp_server(),
         CUSTOMER_MCP_SERVER_NAME: build_customer_mcp_server(ledger, project_id),

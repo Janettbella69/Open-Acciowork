@@ -229,11 +229,14 @@ def _validate_plan_paths(plan):
         }
         fixed = path in {
             f"auth/marketplaces/{project}.json",
+            f"auth/gmail/{project}.json",
             f"collaboration/comments/{project}.json",
         }
         temporary = (
             len(parts) == 3
-            and "/".join(parts[:2]) in {"auth/marketplaces", "collaboration/comments"}
+            and "/".join(parts[:2]) in {
+                "auth/marketplaces", "auth/gmail", "collaboration/comments",
+            }
             and parts[-1].startswith(f".{project}.json.")
         )
         binding = len(parts) == 3 and parts[:2] == ("channels", "feishu-bindings")

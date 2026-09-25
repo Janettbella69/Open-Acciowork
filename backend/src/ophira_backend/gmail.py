@@ -466,6 +466,64 @@ class GmailService:
                 self.connectors.vault.set(_TOKEN + connector_id, updated.model_dump_json())
             return updated
 
+    async def read_inbox_page(
+        self, connector_id: str, tenant_id: str | None, *, query: str,
+        page_size: int, page_token: str | None,
+        authorize: Callable[[], None],
+    ) -> dict[str, Any]:
+        """Read one bounded Inbox page after each project/run authorization check."""
+        authorize()
+        token = await self._access(connector_id, tenant_id)
+        authorize()
+        params = {"labelIds": "INBOX", "maxResults": str(page_size)}
+        if query:
+            params["q"] = query
+        if page_token:
+            params["pageToken"] = page_token
+        listed = await self._json(
+            "GET", GMAIL_API + "/messages",
+            headers={"Authorization": f"Bearer {token.access_token}"}, params=params,
+        )
+        authorize()
+        items = listed.get("messages", [])
+        next_page = listed.get("nextPageToken")
+        if not isinstance(items, list) or len(items) > page_size or any(
+            not isinstance(item, dict)
+            or not isinstance(item.get("id"), str)
+            or not _GMAIL_ID.fullmatch(item["id"])
+            for item in items
+        ) or (next_page is not None and (
+            not isinstance(next_page, str) or len(next_page) > 2048
+        )):
+            raise GmailError("GMAIL_MESSAGE_INVALID", "Gmail message page is invalid", 502)
+        messages = []
+        for item in items:
+            authorize()
+            raw = await self._json(
+                "GET", GMAIL_API + "/messages/" + item["id"],
+                headers={"Authorization": f"Bearer {token.access_token}"},
+                params={"format": "full"},
+            )
+            authorize()
+            if raw.get("id") != item["id"]:
+                raise GmailError("GMAIL_MESSAGE_INVALID", "Gmail message ID changed", 502)
+            payload = self._message_payload(raw, token.email)
+            if payload is None:
+                # A message can leave Inbox after the list call. Never expose a
+                # later Sent/Draft/Trash body from a stale list response.
+                continue
+            body = payload["body"]
+            messages.append({
+                "message_id": item["id"], "from": payload["from"],
+                "subject": payload["subject"], "body": body[:3500],
+                "body_truncated": len(body) > 3500,
+            })
+        return {
+            "mailbox": token.email, "query": query, "messages": messages,
+            "next_page_token": next_page,
+            "source_url": GMAIL_API + "/messages?" + urlencode(params),
+        }
+
     def push_url(self, connector_id: str) -> str | None:
         origin = self.settings.event_public_origin
         if not origin or self.settings.auth_mode != "trusted_gateway":

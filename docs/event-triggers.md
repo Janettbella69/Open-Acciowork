@@ -70,6 +70,8 @@ Create **Inquiry email → Gmail Inbox via Pub/Sub** in Event triggers, then sel
 **Register or renew Gmail watch**. Multiple project triggers in the same tenant
 may share the one mailbox watch. Each trigger begins at its own enrollment
 history ID, so creating another trigger does not replay earlier mail.
+The watch grants no project Agent access to earlier mail. Active search requires
+the separate [project Gmail grant](gmail-connector.md).
 
 Google sends only the mailbox address and history ID in a push notification.
 OPHIRA verifies Google's RS256 JWT signature, exact audience, service account

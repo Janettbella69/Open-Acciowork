@@ -26,8 +26,8 @@ from .browser_tools import (
     _remove_cdp_request_guard,
     domain_allowed,
 )
+from .connector_run_access import authorize_connector_run
 from .maintenance import data_directory_lease
-from .marketplace_access import authorize_marketplace_run
 from .models import OrgPolicy, new_id, utc_now
 from .policy import OrgPolicyStore
 from .shop_browser_store import (
@@ -116,7 +116,7 @@ def authorize_caller(store, access, shop_id, session_id, caller, operation):
     ):
         raise AuthorizationError("Shop identity or access changed")
     if caller.run_id:
-        run = authorize_marketplace_run(store.ledger, access, project, caller.run_id)
+        run = authorize_connector_run(store.ledger, access, project, caller.run_id)
         if (
             run.sdk_session_id != caller.sdk_session_id
             or not shop.authorized(session_id)

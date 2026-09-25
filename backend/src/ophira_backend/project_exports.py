@@ -19,6 +19,7 @@ from .conversation_deletion_state import (
     run_excerpt_hash,
     run_identity_hash,
 )
+from .gmail_access import GmailAccessRecord
 from .marketplace_access import MarketplaceAccessRecord
 from .models import (
     CommercialActionRecord,
@@ -302,6 +303,8 @@ class ProjectExports:
              ProjectAccessRecord),
             (f"auth/marketplaces/{project.id}.json", "access/marketplaces.json", "access",
              MarketplaceAccessRecord),
+            (f"auth/gmail/{project.id}.json", "access/gmail.json", "access",
+             GmailAccessRecord),
             (f"collaboration/comments/{project.id}.json", "comments.json", "collaboration",
              CommentLedger),
         ):

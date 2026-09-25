@@ -1089,6 +1089,43 @@ export function startGmailOAuth(id: string): Promise<{
   })
 }
 
+export type GmailProjectGrant = {
+  id: string
+  connector_id: string
+  connector_revision: number
+  mailbox: string
+  created_by: string
+  created_at: string
+  expires_at: string
+  revoked_at: string | null
+  revoked_by: string | null
+  active: boolean
+}
+
+export type GmailProjectAccess = {
+  project_id: string
+  revision: number
+  grants: GmailProjectGrant[]
+}
+
+export function getGmailProjectAccess(projectId: string): Promise<GmailProjectAccess> {
+  return request(`/api/projects/${encodeURIComponent(projectId)}/gmail-access`, { cache: 'no-store' })
+}
+
+export function grantGmailProjectAccess(projectId: string, input: {
+  expected_revision: number; connector_id: string; expires_in_seconds: number
+}): Promise<GmailProjectAccess> {
+  return request(`/api/projects/${encodeURIComponent(projectId)}/gmail-access`, {
+    method: 'POST', body: JSON.stringify(input),
+  })
+}
+
+export function revokeGmailProjectAccess(projectId: string, grantId: string, revision: number): Promise<GmailProjectAccess> {
+  return request(`/api/projects/${encodeURIComponent(projectId)}/gmail-access/${encodeURIComponent(grantId)}/revoke`, {
+    method: 'POST', body: JSON.stringify({ expected_revision: revision }),
+  })
+}
+
 export type ShopifyOAuthStatus = {
   auth_mode: 'client_credentials' | 'merchant_oauth'
   authorized: boolean

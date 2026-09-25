@@ -24,6 +24,7 @@ class UntrustedSource(StrEnum):
     CHANNEL_MESSAGE = "channel_message"
     BUSINESS_RECORD = "business_record"
     MARKETPLACE_PAGE = "marketplace_page"
+    GMAIL_PAGE = "gmail_page"
     PROJECT_PRESENTATION = "project_presentation"
     PROJECT_LEDGER = "project_ledger"
     PROJECT_FILE = "project_file"
@@ -84,6 +85,9 @@ UNTRUSTED_LIMITS: dict[UntrustedSource, UntrustedLimits] = {
     ),
     UntrustedSource.MARKETPLACE_PAGE: UntrustedLimits(
         field_chars=4_000, total_chars=32_000, complete_fields=True, json_string_layers=1,
+    ),
+    UntrustedSource.GMAIL_PAGE: UntrustedLimits(
+        field_chars=4_000, total_chars=24_000, complete_fields=True, json_string_layers=1,
     ),
     # Typed cards contain at most 12 server-joined records. The aggregate cap
     # prevents an old oversized ledger entry from flooding Agent/UI context.
