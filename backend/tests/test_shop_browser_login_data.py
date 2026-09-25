@@ -46,6 +46,8 @@ async def test_delete_login_removes_all_generations_and_session_but_keeps_shop(s
     deleted = service.delete_login(project.id, shop["id"], shop["revision"], None)
     assert deleted["browser_profile_present"] is False
     assert deleted["profile_generation"] == shop["profile_generation"] + 1
+    assert deleted["login_deletion_count"] == 1
+    assert deleted["last_login_deleted_generation"] == shop["profile_generation"]
     assert deleted["revision"] == shop["revision"] + 1
     assert deleted["authorized_session_id"] is None
     assert deleted["agent_access"] is False
@@ -150,12 +152,15 @@ async def test_interrupted_login_deletion_remains_revoked_and_can_resume(setup, 
     persisted = service.store.get(shop["id"])
     assert persisted.revision == shop["revision"] + 1
     assert persisted.profile_generation == shop["profile_generation"] + 1
+    assert persisted.login_deletion_count == 1
+    assert persisted.last_login_deleted_generation == shop["profile_generation"]
     assert persisted.authorized_session_id is None
     assert not (directory / "profile-1").exists()
     assert (directory / "profile-2").exists()
     monkeypatch.setattr(shutil, "rmtree", original)
     retried = service.delete_login(project.id, shop["id"], persisted.revision, None)
     assert retried["browser_profile_present"] is False
+    assert retried["login_deletion_count"] == 2
     assert not (directory / "profile-2").exists()
 
 

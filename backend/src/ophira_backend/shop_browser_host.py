@@ -449,6 +449,7 @@ async def serve(
         "state": "starting",
         "token": secrets.token_urlsafe(32),
         "started_at": utc_now().isoformat(),
+        "profile_generation": shop.profile_generation,
     }
     with (
         data_directory_lease(root, exclusive=False),

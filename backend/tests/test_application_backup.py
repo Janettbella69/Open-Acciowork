@@ -998,9 +998,10 @@ def test_restore_cli_reconciles_a_matching_current_directory(
     result = json.loads(capsys.readouterr().out)
     assert result["passed"] is True
     assert result["deletion_reconciliation"] == {
-        "scope": "project_conversation_memory_credentials",
+        "scope": "project_conversation_memory_credentials_shop_logins",
         "project_deletions": 0, "conversation_deletions": 0, "memory_deletions": 0,
         "credential_deletions": 0,
+        "shop_login_deletion_intents": 0,
     }
     assert target.is_dir()
 
@@ -1056,9 +1057,10 @@ def test_restore_rejects_backup_older_than_a_completed_project_deletion(source, 
     recovered = tmp_path / "recent-restore"
     result = backup.restore_backup(recent, recovered, current_data_dir=data)
     assert result["deletion_reconciliation"] == {
-        "scope": "project_conversation_memory_credentials",
+        "scope": "project_conversation_memory_credentials_shop_logins",
         "project_deletions": 1, "conversation_deletions": 0, "memory_deletions": 0,
         "credential_deletions": 0,
+        "shop_login_deletion_intents": 0,
     }
     assert not (recovered / "data/projects" / removed.id).exists()
 
@@ -1232,6 +1234,87 @@ def test_cold_backup_rejects_invalid_credential_deletion_register(source, tmp_pa
     assert not (tmp_path / "unsafe-backup").exists()
     with pytest.raises(ValueError, match="invalid private vault deletion register"):
         FileSecretVault(data / "secrets")
+
+
+def test_restore_rejects_backup_older_than_shop_login_deletion(source, tmp_path):
+    from ophira_backend.shop_browser_store import ShopBrowserStore, ShopIdentity
+
+    data, plugin, ledger, _registry, _service, project, *_ = source
+    store = ShopBrowserStore(ledger)
+    shop = ShopIdentity(
+        name="Seller account", platform="other", seller_shop_id="seller-1",
+        entry_url="https://seller.example.test/", project_id=project.id,
+        tenant_id=project.tenant_id, identity_binding=project.identity_binding,
+        created_by="owner",
+    )
+    store.write(shop)
+    directory = store.directory(shop.id)
+    first = directory / "profile-1/Default"
+    first.mkdir(parents=True)
+    (first / "Cookies").write_text("old-private-cookie")
+    old = make_backup(source, tmp_path)
+
+    deleted = shop.model_copy(update={
+        "revision": shop.revision + 1, "profile_generation": shop.profile_generation + 1,
+        "login_deletion_count": 1,
+        "last_login_deleted_generation": shop.profile_generation,
+    })
+    store.write(deleted)
+    (first / "Cookies").unlink()
+    first.rmdir()
+    (directory / "profile-1").rmdir()
+    current = directory / "profile-2/Default"
+    current.mkdir(parents=True)
+    (current / "Cookies").write_text("new-private-cookie")
+    with pytest.raises(BackupError, match="deletion_register_mismatch"):
+        backup.restore_backup(old, tmp_path / "old-restore", current_data_dir=data)
+    assert not (tmp_path / "old-restore").exists()
+
+    recent = tmp_path / "recent-backup"
+    backup.create_backup(data, plugin, recent)
+    result = backup.restore_backup(recent, tmp_path / "recent-restore", current_data_dir=data)
+    assert result["deletion_reconciliation"]["shop_login_deletion_intents"] == 1
+    assert (tmp_path / "recent-restore/data/shop-browsers" / shop.id /
+            "profile-2/Default/Cookies").read_text() == "new-private-cookie"
+
+
+@pytest.mark.parametrize("residue", ["profile", "session"])
+def test_cold_backup_rejects_shop_login_deletion_residue(source, tmp_path, residue):
+    from ophira_backend.shop_browser_store import ShopBrowserStore, ShopIdentity
+
+    data, plugin, ledger, _registry, _service, project, *_ = source
+    store = ShopBrowserStore(ledger)
+    shop = ShopIdentity(
+        name="Seller account", platform="other", seller_shop_id="seller-1",
+        entry_url="https://seller.example.test/", project_id=project.id,
+        tenant_id=project.tenant_id, identity_binding=project.identity_binding,
+        created_by="owner", profile_generation=2, login_deletion_count=1,
+        last_login_deleted_generation=1,
+    )
+    store.write(shop)
+    directory = store.directory(shop.id)
+    if residue == "profile":
+        profile = directory / "profile-1"
+        profile.mkdir()
+        (profile / "Cookies").write_text("erased-private-cookie")
+    else:
+        (directory / "session.json").write_text(json.dumps({
+            "shop_id": shop.id, "profile_generation": 1,
+            "token": "erased-private-session",
+        }))
+    with pytest.raises(BackupError, match="shop_login_deletion_incomplete"):
+        backup.create_backup(data, plugin, tmp_path / "unsafe-backup")
+    assert not (tmp_path / "unsafe-backup").exists()
+
+
+def test_cold_backup_rejects_orphan_shop_login_directory(source, tmp_path):
+    data, plugin, *_ = source
+    orphan = data / "shop-browsers" / f"shop_{uuid4().hex}" / "profile-1"
+    orphan.mkdir(parents=True)
+    (orphan / "Cookies").write_text("orphan-private-cookie")
+    with pytest.raises(BackupError, match="shop_login_deletion_register_invalid"):
+        backup.create_backup(data, plugin, tmp_path / "unsafe-backup")
+    assert not (tmp_path / "unsafe-backup").exists()
 
 
 @pytest.mark.parametrize("residue", [

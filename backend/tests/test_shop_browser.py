@@ -147,8 +147,8 @@ async def test_real_chromium_profile_can_be_exported_deleted_and_reopened(setup)
     _app, service, project, _run = setup
     shop = await create_shop(service, project)
     directory = service.store.directory(shop["id"])
-    async with running(service, shop):
-        pass
+    async with running(service, shop) as session:
+        assert session["profile_generation"] == shop["profile_generation"]
     profile = directory / "profile-1"
     assert profile.is_dir()
     archive = service.export_login(project.id, shop["id"], shop["revision"], None)
@@ -164,7 +164,8 @@ async def test_real_chromium_profile_can_be_exported_deleted_and_reopened(setup)
     deleted = service.delete_login(project.id, shop["id"], shop["revision"], None)
     assert deleted["browser_login_data_present"] is False
     assert not profile.exists()
-    async with running(service, deleted):
+    async with running(service, deleted) as session:
+        assert session["profile_generation"] == deleted["profile_generation"]
         assert (directory / "profile-2").is_dir()
 
 

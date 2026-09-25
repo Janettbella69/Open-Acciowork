@@ -82,6 +82,8 @@ class ShopIdentity(ShopIdentityInput):
     identity_binding: Literal["local_only", "authenticated_principal"]
     revision: int = Field(default=1, ge=1)
     profile_generation: int = Field(default=1, ge=1)
+    login_deletion_count: int = Field(default=0, ge=0)
+    last_login_deleted_generation: int = Field(default=0, ge=0)
     created_by: str
     created_at: datetime = Field(default_factory=utc_now)
     authorized_session_id: str | None = Field(default=None, pattern=SESSION_ID)
@@ -105,6 +107,11 @@ class ShopIdentity(ShopIdentityInput):
             not self.granted_at or self.grant_expires_at <= self.granted_at
         ):
             raise ValueError("Shop grant expiry must follow confirmation")
+        if (
+            bool(self.login_deletion_count) != bool(self.last_login_deleted_generation)
+            or self.last_login_deleted_generation >= self.profile_generation
+        ):
+            raise ValueError("Shop login deletion generation is inconsistent")
         return self
 
     def authorized(self, session_id: str) -> bool:

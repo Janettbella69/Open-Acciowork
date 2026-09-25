@@ -6,6 +6,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import tempfile
 from collections import Counter
 from pathlib import Path
@@ -28,6 +29,7 @@ from .project_comments import MAX_COMMENT_BYTES, CommentLedger
 from .project_deletion_proofs import load_deletion_proofs
 from .project_template_backup import inspect_project_templates
 from .providers import CREDENTIAL_VAULT_FILENAMES, parse_credential_deletion_register
+from .shop_browser_store import SHOP_ID, ShopIdentity
 from .skill_proposal_files import directory_fd, read_relative, relative_parts
 from .skill_proposals import SkillProposalService
 from .skill_repository_backup import inspect_skill_imports
@@ -577,8 +579,78 @@ def _credential_deletion_register(data: Path) -> dict:
     return {"files": registers, "deletions": total}
 
 
+def _shop_login_deletion_register(data: Path) -> dict:
+    """Retain only login deletion boundaries and reject older Chromium state."""
+    root = data / "shop-browsers"
+    if not root.exists() and not root.is_symlink():
+        return {"records": [], "intents": 0}
+    with directory_fd(root) as descriptor:
+        names = os.listdir(descriptor)
+    if len(names) > DEFAULT_LIMITS.entries:
+        raise BackupError("shop_login_deletion_register_invalid")
+    records = []
+    total = 0
+    shop_ids = set()
+    for name in sorted(names):
+        if not name.endswith(".json"):
+            continue
+        shop_id = name.removesuffix(".json")
+        if re.fullmatch(SHOP_ID, shop_id) is None:
+            raise BackupError("shop_login_deletion_register_invalid")
+        try:
+            shop = ShopIdentity.model_validate_json(read_relative(root, name, 32_000))
+        except ValueError:
+            raise BackupError("shop_login_deletion_register_invalid") from None
+        if shop.id != shop_id:
+            raise BackupError("shop_login_deletion_register_invalid")
+        shop_ids.add(shop_id)
+        if re.fullmatch(r"[A-Za-z0-9_-]{1,200}", shop.project_id) is None:
+            raise BackupError("shop_login_deletion_register_invalid")
+        try:
+            with directory_fd(data / "projects" / shop.project_id):
+                pass
+        except OSError:
+            raise BackupError("shop_login_deletion_register_invalid") from None
+        if not shop.login_deletion_count:
+            continue
+        directory = root / shop_id
+        if directory.exists() or directory.is_symlink():
+            with directory_fd(directory) as descriptor:
+                contents = os.listdir(descriptor)
+            if len(contents) > DEFAULT_LIMITS.entries:
+                raise BackupError("shop_login_deletion_register_invalid")
+            for entry in contents:
+                if entry.startswith("profile-"):
+                    if re.fullmatch(r"profile-[1-9][0-9]*", entry) is None:
+                        raise BackupError("shop_login_deletion_register_invalid")
+                    if int(entry.removeprefix("profile-")) <= shop.last_login_deleted_generation:
+                        raise BackupError("shop_login_deletion_incomplete")
+            if "session.json" in contents:
+                try:
+                    session = parse_json(read_relative(root, f"{shop_id}/session.json", 4096))
+                except ValueError:
+                    raise BackupError("shop_login_deletion_register_invalid") from None
+                if (
+                    not isinstance(session, dict)
+                    or session.get("shop_id") != shop_id
+                    or type(session.get("profile_generation")) is not int
+                    or session["profile_generation"] <= shop.last_login_deleted_generation
+                    or session["profile_generation"] > shop.profile_generation
+                ):
+                    raise BackupError("shop_login_deletion_incomplete")
+        records.append({
+            "shop_id": shop_id, "project_id": shop.project_id,
+            "login_deletion_count": shop.login_deletion_count,
+            "last_login_deleted_generation": shop.last_login_deleted_generation,
+        })
+        total += shop.login_deletion_count
+    if any(re.fullmatch(SHOP_ID, name) and name not in shop_ids for name in names):
+        raise BackupError("shop_login_deletion_register_invalid")
+    return {"records": records, "intents": total}
+
+
 def _deletion_register(data: Path) -> dict:
-    """Read committed project, conversation, memory, and credential deletions."""
+    """Read committed project, conversation, memory, credential and shop deletions."""
     from .conversation_deletion_state import ConversationDeletionStates
     from .project_deletion_proofs import deleted_project_ids
     from .project_lifecycle import ProjectLifecycle
@@ -629,6 +701,7 @@ def _deletion_register(data: Path) -> dict:
         "conversation_deletions": conversation_count,
         "memory": _memory_deletion_register(data),
         "credentials": _credential_deletion_register(data),
+        "shop_logins": _shop_login_deletion_register(data),
     }
 
 
@@ -694,14 +767,16 @@ def _restore_backup(
                 current["inventory"] != recovered["inventory"]
                 or current["memory"]["files"] != recovered["memory"]["files"]
                 or current["credentials"]["files"] != recovered["credentials"]["files"]
+                or current["shop_logins"]["records"] != recovered["shop_logins"]["records"]
             ):
                 raise BackupError("deletion_register_mismatch")
             reconciliation = {
-                "scope": "project_conversation_memory_credentials",
+                "scope": "project_conversation_memory_credentials_shop_logins",
                 "project_deletions": current["project_deletions"],
                 "conversation_deletions": current["conversation_deletions"],
                 "memory_deletions": current["memory"]["tombstones"],
                 "credential_deletions": current["credentials"]["deletions"],
+                "shop_login_deletion_intents": current["shop_logins"]["intents"],
             }
         sync_directories(restored)
         publish_exclusive(restored, target)

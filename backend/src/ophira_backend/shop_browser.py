@@ -455,6 +455,8 @@ class ShopBrowserService:
                         self.store.write(shop.model_copy(update={
                             "revision": shop.revision + 1,
                             "profile_generation": shop.profile_generation + 1,
+                            "login_deletion_count": shop.login_deletion_count + 1,
+                            "last_login_deleted_generation": shop.profile_generation,
                             "authorized_session_id": None,
                             "grant_expires_at": None,
                             "revoked_at": utc_now(),
