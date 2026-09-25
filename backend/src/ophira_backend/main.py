@@ -66,6 +66,7 @@ from .channel_identity import (
     FeishuIdentityBinding,
     FeishuIdentityBindingCreate,
     FeishuIdentityBindingStore,
+    WeComIdentityBindingCreate,
     feishu_identity_selector,
 )
 from .channels import (
@@ -306,6 +307,8 @@ from .user_mcp import (
     UserMcpToolPolicyUpdate,
     UserMcpUpsert,
 )
+from .wecom_channel import WeComChannel
+from .wecom_delivery import WeComReplyAdapter
 from .workspace_recovery_api import register_workspace_recovery_routes
 
 MAX_PROJECT_UPLOAD_BYTES = 50 * 1024 * 1024
@@ -414,13 +417,20 @@ def _create_app(
         project_access,
         channel="dingtalk",
     )
+    wecom_identity_bindings = FeishuIdentityBindingStore(
+        settings.data_dir / "channels" / "wecom-bindings",
+        project_access,
+        channel="wecom",
+    )
     channel_replays = ChannelReplayGuard(settings.data_dir / "channels" / "replays.json")
     event_triggers = EventTriggerStore(ledger)
+    wecom_reply_adapter = WeComReplyAdapter(settings)
     channel_delivery = ChannelDeliveryService(
         ledger,
         ChannelDeliveryStore(settings.data_dir / "channel-deliveries"),
         channel_reply_adapter or FeishuReplyAdapter(settings),
         dingtalk_adapter=dingtalk_reply_adapter or DingTalkReplyAdapter(settings),
+        wecom_adapter=wecom_reply_adapter,
         enabled=lambda: policy.get().channel_delivery_enabled,
         max_attempts=settings.feishu_delivery_max_attempts,
         retry_base_seconds=settings.feishu_delivery_retry_base_seconds,
@@ -512,6 +522,10 @@ def _create_app(
         settings, dingtalk_identity_bindings, channel_replays,
         channel_delivery, runs, policy,
     )
+    wecom_channel = WeComChannel(
+        settings, wecom_identity_bindings, channel_replays,
+        channel_delivery, wecom_reply_adapter, runs, policy,
+    )
     scheduler = ScheduleService(
         ledger,
         runs,
@@ -536,19 +550,23 @@ def _create_app(
         try:
             await dingtalk_channel.start()
             try:
-                await scheduler.start()
+                await wecom_channel.start()
                 try:
-                    await intent_watcher.start()
+                    await scheduler.start()
                     try:
-                        await companion_push.start()
+                        await intent_watcher.start()
                         try:
-                            yield
+                            await companion_push.start()
+                            try:
+                                yield
+                            finally:
+                                await companion_push.stop()
                         finally:
-                            await companion_push.stop()
+                            await intent_watcher.stop()
                     finally:
-                        await intent_watcher.stop()
+                        await scheduler.stop()
                 finally:
-                    await scheduler.stop()
+                    await wecom_channel.stop()
             finally:
                 await dingtalk_channel.stop()
         finally:
@@ -590,6 +608,8 @@ def _create_app(
     application.state.channel_identity_bindings = channel_identity_bindings
     application.state.dingtalk_identity_bindings = dingtalk_identity_bindings
     application.state.dingtalk_channel = dingtalk_channel
+    application.state.wecom_identity_bindings = wecom_identity_bindings
+    application.state.wecom_channel = wecom_channel
     application.state.event_triggers = event_triggers
     application.state.commercial_actions = commercial_actions
     application.state.commercial_action_adapter = commercial_action_adapter
@@ -881,6 +901,8 @@ def _create_app(
         admin_prefixes = (
             "/api/agents",
             "/api/channels/feishu/bindings",
+            "/api/channels/dingtalk/bindings",
+            "/api/channels/wecom/bindings",
             "/api/connectors",
             "/api/org/",
             "/api/providers",
@@ -2969,6 +2991,93 @@ def _create_app(
         principal = require_channel_binding_admin(request)
         try:
             return dingtalk_identity_bindings.revoke(binding_id, actor=principal)
+        except ChannelIdentityConflictError as exc:
+            raise HTTPException(status_code=409, detail="Project is busy; retry shortly") from exc
+        except ChannelIdentityNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="Channel binding not found") from exc
+        except AuthorizationError as exc:
+            raise HTTPException(
+                status_code=403,
+                detail="Principal is not authorized to revoke this channel binding",
+            ) from exc
+        except ChannelIdentityIntegrityError as exc:
+            raise HTTPException(
+                status_code=500, detail="Channel identity binding could not be revoked",
+            ) from exc
+
+    @application.get(
+        "/api/channels/wecom/bindings",
+        response_model=list[FeishuIdentityBinding],
+    )
+    async def list_wecom_identity_bindings(
+        request: Request,
+        include_revoked: bool = False,
+    ) -> list[FeishuIdentityBinding]:
+        principal = require_channel_binding_admin(request)
+        try:
+            return wecom_identity_bindings.list_for_tenant(
+                principal.tenant_id, include_revoked=include_revoked,
+            )
+        except ChannelIdentityIntegrityError as exc:
+            raise HTTPException(
+                status_code=500, detail="Channel identity binding integrity validation failed",
+            ) from exc
+
+    @application.post(
+        "/api/channels/wecom/bindings",
+        response_model=FeishuIdentityBinding,
+        status_code=status.HTTP_201_CREATED,
+    )
+    async def create_wecom_identity_binding(
+        request: Request,
+        payload: WeComIdentityBindingCreate,
+    ) -> FeishuIdentityBinding:
+        principal = require_channel_binding_admin(request)
+        try:
+            return wecom_identity_bindings.create(payload, actor=principal)
+        except ChannelIdentityNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="Project binding target not found") from exc
+        except (ChannelIdentityConflictError, ChannelIdentityAmbiguousError) as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except AuthorizationError as exc:
+            raise HTTPException(
+                status_code=403,
+                detail="Principal is not authorized to create this channel binding",
+            ) from exc
+        except ChannelIdentityError as exc:
+            raise HTTPException(
+                status_code=500, detail="Channel identity binding could not be persisted",
+            ) from exc
+
+    @application.get(
+        "/api/channels/wecom/bindings/{binding_id}",
+        response_model=FeishuIdentityBinding,
+    )
+    async def get_wecom_identity_binding(
+        request: Request, binding_id: str,
+    ) -> FeishuIdentityBinding:
+        principal = require_channel_binding_admin(request)
+        try:
+            return wecom_identity_bindings.get_for_tenant(
+                binding_id, principal.tenant_id,
+            )
+        except ChannelIdentityNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="Channel binding not found") from exc
+        except ChannelIdentityIntegrityError as exc:
+            raise HTTPException(
+                status_code=500, detail="Channel identity binding integrity validation failed",
+            ) from exc
+
+    @application.delete(
+        "/api/channels/wecom/bindings/{binding_id}",
+        response_model=FeishuIdentityBinding,
+    )
+    async def revoke_wecom_identity_binding(
+        request: Request, binding_id: str,
+    ) -> FeishuIdentityBinding:
+        principal = require_channel_binding_admin(request)
+        try:
+            return wecom_identity_bindings.revoke(binding_id, actor=principal)
         except ChannelIdentityConflictError as exc:
             raise HTTPException(status_code=409, detail="Project is busy; retry shortly") from exc
         except ChannelIdentityNotFoundError as exc:

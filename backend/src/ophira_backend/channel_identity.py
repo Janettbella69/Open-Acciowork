@@ -66,7 +66,7 @@ class FeishuIdentitySelector(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    channel: Literal["feishu", "dingtalk"] = "feishu"
+    channel: Literal["feishu", "dingtalk", "wecom"] = "feishu"
     tenant_key: str = Field(min_length=1, max_length=256, pattern=_CHANNEL_ID_PATTERN)
     chat_id: str = Field(min_length=1, max_length=256, pattern=_CHANNEL_ID_PATTERN)
     user_open_id: str = Field(min_length=1, max_length=256, pattern=_CHANNEL_ID_PATTERN)
@@ -120,6 +120,40 @@ class DingTalkIdentityBindingCreate(BaseModel):
         )
 
 
+class WeComIdentityBindingCreate(BaseModel):
+    """Admin mapping for one WeCom bot, conversation, and sender."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    bot_id: str = Field(min_length=1, max_length=256, pattern=_CHANNEL_ID_PATTERN)
+    conversation_type: Literal["group", "single"]
+    conversation_id: str = Field(min_length=1, max_length=249, pattern=_CHANNEL_ID_PATTERN)
+    sender_user_id: str = Field(min_length=1, max_length=256, pattern=_CHANNEL_ID_PATTERN)
+    project_id: str = Field(min_length=1, max_length=200, pattern=_LEDGER_ID_PATTERN)
+    principal_id: str = Field(min_length=1, max_length=160, pattern=_OPHIRA_ID_PATTERN)
+    role: PrincipalRole
+
+    @model_validator(mode="after")
+    def direct_conversation_is_sender(self) -> WeComIdentityBindingCreate:
+        if self.conversation_type == "single" and self.conversation_id != self.sender_user_id:
+            raise ValueError("single conversation ID must match its sender user ID")
+        return self
+
+    @property
+    def selector(self) -> FeishuIdentitySelector:
+        return FeishuIdentitySelector(
+            channel="wecom",
+            tenant_key=self.bot_id,
+            chat_id=f"{self.conversation_type}:{self.conversation_id}",
+            user_open_id=self.sender_user_id,
+        )
+
+
+ChannelIdentityBindingCreate = (
+    FeishuIdentityBindingCreate | DingTalkIdentityBindingCreate | WeComIdentityBindingCreate
+)
+
+
 class FeishuIdentityBinding(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -127,7 +161,7 @@ class FeishuIdentityBinding(BaseModel):
         default_factory=lambda: new_id("channel_binding"),
         pattern=r"^channel_binding_[a-f0-9]{32}$",
     )
-    channel: Literal["feishu", "dingtalk"] = "feishu"
+    channel: Literal["feishu", "dingtalk", "wecom"] = "feishu"
     tenant_key: str = Field(min_length=1, max_length=256, pattern=_CHANNEL_ID_PATTERN)
     chat_id: str = Field(min_length=1, max_length=256, pattern=_CHANNEL_ID_PATTERN)
     user_open_id: str = Field(min_length=1, max_length=256, pattern=_CHANNEL_ID_PATTERN)
@@ -235,7 +269,7 @@ class FeishuIdentityBindingStore:
         root: Path,
         project_access: ProjectAccessStore,
         *,
-        channel: Literal["feishu", "dingtalk"] = "feishu",
+        channel: Literal["feishu", "dingtalk", "wecom"] = "feishu",
         clock=utc_now,
     ) -> None:
         self.root = root.resolve()
@@ -353,7 +387,7 @@ class FeishuIdentityBindingStore:
     @staticmethod
     def _same_target(
         binding: FeishuIdentityBinding,
-        payload: FeishuIdentityBindingCreate | DingTalkIdentityBindingCreate,
+        payload: ChannelIdentityBindingCreate,
         tenant_id: str,
     ) -> bool:
         return (
@@ -365,7 +399,7 @@ class FeishuIdentityBindingStore:
 
     def create(
         self,
-        payload: FeishuIdentityBindingCreate | DingTalkIdentityBindingCreate,
+        payload: ChannelIdentityBindingCreate,
         *,
         actor: PrincipalContext,
     ) -> FeishuIdentityBinding:
@@ -378,7 +412,7 @@ class FeishuIdentityBindingStore:
 
     def _create_available(
         self,
-        payload: FeishuIdentityBindingCreate | DingTalkIdentityBindingCreate,
+        payload: ChannelIdentityBindingCreate,
         *,
         actor: PrincipalContext,
     ) -> FeishuIdentityBinding:

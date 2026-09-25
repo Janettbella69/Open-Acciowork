@@ -114,7 +114,21 @@ class DingTalkReplyTarget(BaseModel):
     robot_code: str = Field(min_length=1, max_length=160)
 
 
-ChannelReplyTarget = FeishuReplyTarget | DingTalkReplyTarget
+class WeComReplyTarget(BaseModel):
+    """Recipient captured from an authenticated WeCom intelligent bot frame."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    channel: Literal["wecom"] = "wecom"
+    event_id: str = Field(min_length=1, max_length=200)
+    message_id: str = Field(min_length=1, max_length=200)
+    chat_id: str = Field(min_length=1, max_length=256)
+    chat_type: Literal["group", "single"]
+    sender_user_id: str = Field(min_length=1, max_length=256)
+    bot_id: str = Field(min_length=1, max_length=256)
+
+
+ChannelReplyTarget = FeishuReplyTarget | DingTalkReplyTarget | WeComReplyTarget
 
 
 class DeliveryTransition(BaseModel):
@@ -134,7 +148,7 @@ class ChannelDeliveryRecord(BaseModel):
     schema_version: Literal["1"] = "1"
     id: str = Field(pattern=r"^delivery_[a-f0-9]{40}$")
     idempotency_key: str = Field(min_length=1, max_length=50)
-    channel: Literal["feishu", "dingtalk"] = "feishu"
+    channel: Literal["feishu", "dingtalk", "wecom"] = "feishu"
     run_id: str = Field(min_length=1, max_length=160)
     project_id: str = Field(min_length=1, max_length=160)
     target: ChannelReplyTarget = Field(discriminator="channel")
@@ -565,7 +579,7 @@ class ChannelDeliveryStore:
             return updated
 
     def recover_attempting(self, *, now: datetime | None = None) -> list[ChannelDeliveryRecord]:
-        """Replay Feishu within its UUID window; quarantine ambiguous DingTalk sends."""
+        """Replay Feishu within its UUID window; quarantine other ambiguous sends."""
 
         moment = (now or utc_now()).astimezone(UTC)
         recovered: list[ChannelDeliveryRecord] = []
@@ -578,13 +592,13 @@ class ChannelDeliveryStore:
                 record = self.get(snapshot.id)
                 if record.status != DeliveryStatus.ATTEMPTING:
                     continue
-                if record.channel == "dingtalk":
+                if record.channel in {"dingtalk", "wecom"}:
                     recovered.append(
                         self.mark_failed(
                             record.id,
                             code="UNCERTAIN_OUTCOME",
                             detail=(
-                                "DingTalk send was interrupted before acknowledgement; "
+                                "Channel send was interrupted before acknowledgement; "
                                 "inspect the conversation before a new manual send."
                             ),
                             retryable=False,
@@ -940,6 +954,7 @@ class ChannelDeliveryService:
         adapter: ChannelReplyAdapter,
         *,
         dingtalk_adapter: ChannelReplyAdapter | None = None,
+        wecom_adapter: ChannelReplyAdapter | None = None,
         enabled: Callable[[], bool] | None = None,
         max_attempts: int = 4,
         retry_base_seconds: float = 2.0,
@@ -950,6 +965,7 @@ class ChannelDeliveryService:
         self.store = store
         self.adapter = adapter
         self.dingtalk_adapter = dingtalk_adapter
+        self.wecom_adapter = wecom_adapter
         self.enabled = enabled or (lambda: True)
         self.max_attempts = max_attempts
         self.retry_base_seconds = retry_base_seconds
@@ -961,8 +977,15 @@ class ChannelDeliveryService:
     def configured(self) -> bool:
         return self.adapter.configured
 
-    def configured_for(self, channel: Literal["feishu", "dingtalk"]) -> bool:
-        adapter = self.adapter if channel == "feishu" else self.dingtalk_adapter
+    def _adapter_for(self, channel: Literal["feishu", "dingtalk", "wecom"]):
+        return {
+            "feishu": self.adapter,
+            "dingtalk": self.dingtalk_adapter,
+            "wecom": self.wecom_adapter,
+        }[channel]
+
+    def configured_for(self, channel: Literal["feishu", "dingtalk", "wecom"]) -> bool:
+        adapter = self._adapter_for(channel)
         return adapter is not None and adapter.configured
 
     def bind_run(self, run: RunRecord, target: ChannelReplyTarget) -> ChannelDeliveryRecord:
@@ -1067,6 +1090,15 @@ class ChannelDeliveryService:
         self, delivery_id: str, *, now: datetime | None = None,
     ) -> ChannelDeliveryRecord:
         moment = (now or utc_now()).astimezone(UTC)
+        current = self.store.get(delivery_id)
+        if (
+            current.channel == "wecom"
+            and self.enabled()
+            and self.wecom_adapter is not None
+            and self.wecom_adapter.configured
+            and not getattr(self.wecom_adapter, "ready", True)
+        ):
+            return current
         claimed = self.store.claim_due(delivery_id, now=moment)
         if claimed is None:
             return self.store.get(delivery_id)
@@ -1081,7 +1113,7 @@ class ChannelDeliveryService:
                 retry_delay_seconds=None,
                 now=moment,
             )
-        adapter = self.adapter if claimed.channel == "feishu" else self.dingtalk_adapter
+        adapter = self._adapter_for(claimed.channel)
         if adapter is None or not adapter.configured:
             return self.store.mark_failed(
                 delivery_id,

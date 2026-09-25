@@ -20,6 +20,7 @@ from ophira_backend.channel_identity import (
     FeishuIdentityBindingCreate,
     FeishuIdentityBindingStore,
     FeishuIdentitySelector,
+    WeComIdentityBindingCreate,
     feishu_identity_selector,
 )
 from ophira_backend.constants import PrincipalRole
@@ -316,3 +317,31 @@ def test_dingtalk_store_fails_closed_on_cross_channel_snapshot(tmp_path: Path) -
     )
     with pytest.raises(ChannelIdentityIntegrityError):
         other.list_for_tenant("tenant_acme")
+
+
+def test_wecom_binding_scopes_group_and_single_conversations(tmp_path: Path) -> None:
+    _feishu_store, access, owner = configured_store(tmp_path)
+    store = FeishuIdentityBindingStore(
+        tmp_path / "wecom-bindings", access, channel="wecom", clock=lambda: NOW,
+    )
+    group = WeComIdentityBindingCreate(
+        bot_id="bot_1", conversation_type="group", conversation_id="chat_1",
+        sender_user_id="member_1", project_id="project_123",
+        principal_id="member@example.com", role=PrincipalRole.MEMBER,
+    )
+    single = WeComIdentityBindingCreate(
+        bot_id="bot_1", conversation_type="single", conversation_id="member_1",
+        sender_user_id="member_1", project_id="project_123",
+        principal_id="member@example.com", role=PrincipalRole.MEMBER,
+    )
+    assert group.selector.chat_id == "group:chat_1"
+    assert single.selector.chat_id == "single:member_1"
+    assert store.create(group, actor=owner).channel == "wecom"
+    assert store.create(single, actor=owner).principal_session_id.startswith("wecom/")
+    assert store.resolve(group.selector).binding.chat_id == "group:chat_1"
+    with pytest.raises(ValueError, match="must match"):
+        WeComIdentityBindingCreate(
+            bot_id="bot_1", conversation_type="single", conversation_id="other_user",
+            sender_user_id="member_1", project_id="project_123",
+            principal_id="member@example.com", role=PrincipalRole.MEMBER,
+        )

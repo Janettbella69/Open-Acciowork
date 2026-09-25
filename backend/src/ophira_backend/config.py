@@ -200,6 +200,8 @@ class Settings(BaseSettings):
     dingtalk_app_secret: SecretStr | None = Field(default=None, max_length=512)
     dingtalk_robot_code: str | None = Field(default=None, max_length=160)
     dingtalk_delivery_timeout_seconds: float = Field(default=15, ge=1, le=120)
+    wecom_bot_id: str | None = Field(default=None, max_length=256)
+    wecom_bot_secret: SecretStr | None = Field(default=None, max_length=512)
     # Shared only with the trusted authentication gateway. It is deliberately
     # shadowed out of every Claude Agent SDK worker environment.
     commercial_approval_secret: SecretStr | None = Field(
@@ -241,6 +243,8 @@ class Settings(BaseSettings):
         "dingtalk_app_key",
         "dingtalk_app_secret",
         "dingtalk_robot_code",
+        "wecom_bot_id",
+        "wecom_bot_secret",
         "push_vapid_private_key",
         "push_vapid_subject",
         mode="before",
@@ -278,6 +282,15 @@ class Settings(BaseSettings):
             and self.auth_mode != "trusted_gateway"
         ):
             raise ValueError("DingTalk Stream requires trusted_gateway identity bindings")
+        wecom_fields = (self.wecom_bot_id, self.wecom_bot_secret)
+        if any(value is not None for value in wecom_fields) and not all(
+            value is not None for value in wecom_fields
+        ):
+            raise ValueError(
+                "WeCom bot requires OPHIRA_WECOM_BOT_ID and OPHIRA_WECOM_BOT_SECRET"
+            )
+        if all(value is not None for value in wecom_fields) and self.auth_mode != "trusted_gateway":
+            raise ValueError("WeCom bot requires trusted_gateway identity bindings")
         if len(self.push_allowed_origins) > 20:
             raise ValueError("at most 20 push service origins may be configured")
         self.push_allowed_origins = [companion_origin(item) for item in self.push_allowed_origins]

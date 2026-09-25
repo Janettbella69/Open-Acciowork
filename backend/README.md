@@ -303,8 +303,36 @@ still needs tenant verification. Since these send APIs document no idempotency
 field, an interrupted or ambiguous send becomes a terminal `UNCERTAIN_OUTCOME`
 or `NETWORK_ERROR` ledger record. Inspect the conversation before manually
 resending. Local tests cover SDK callback registration, binding/revocation,
-replay, request payloads, and crash recovery. A real DingTalk tenant E2E,
-WeChat, and WeCom remain outstanding.
+replay, request payloads, and crash recovery. A real DingTalk tenant E2E
+remains outstanding.
+
+### WeCom intelligent bot channel (FR-38, local integration)
+
+Install the [official WeCom Python SDK](https://github.com/WecomTeam/wecom-aibot-python-sdk)
+with `pip install -e './backend[dev,wecom]'`. Configure an intelligent bot for
+WebSocket connection mode and set `OPHIRA_WECOM_BOT_ID` and
+`OPHIRA_WECOM_BOT_SECRET` together. This channel requires `trusted_gateway`
+mode. An administrator maps the exact bot/conversation/sender tuple to a
+project member through `GET|POST /api/channels/wecom/bindings` and
+`GET|DELETE /api/channels/wecom/bindings/{binding_id}`. Use
+`conversation_type=group` and the callback `chatid` for a group, or
+`conversation_type=single` with both `conversation_id` and `sender_user_id`
+set to the callback `from.userid` for a direct chat. The official SDK owns the
+authenticated connection and reconnects; no public WeCom inbound route is
+exposed. Bot-addressed text callbacks start ordinary Runs after project role,
+organization policy, and replay checks. Bot credentials are excluded from Agent
+worker environments.
+
+Terminal Run results are sent with the SDK's active-send Markdown command to
+the captured group `chatid` or direct `userid`. A successful WebSocket ACK
+records its request ID as platform acceptance. While the connection is offline,
+an unsent reply stays pending. An interrupted send or missing ACK is recorded
+as a terminal uncertain outcome; inspect the conversation before a manual
+resend. Local tests cover binding/revocation, authenticated callback dispatch,
+SDK lifecycle, replay, offline recovery, and uncertain-send handling. A real
+WeCom tenant E2E, actual recipient delivery confirmation, and credential
+rotation acceptance remain outstanding. The separate WeChat channel path is
+still awaiting a product decision.
 
 Configure a model endpoint either via `backend/.env` (see `.env.example`; the values
 bootstrap an `environment` provider profile) or through the Settings page / Provider API,
