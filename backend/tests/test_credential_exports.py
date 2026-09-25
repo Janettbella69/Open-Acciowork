@@ -48,6 +48,7 @@ async def test_connector_export_requires_admin_and_revoke_removes_vault_keys(tmp
         assert revoked.status_code == 200, revoked.text
         assert "connector-secret-123" not in revoked.text
         assert app.state.connectors.vault.get("search_private") is None
+        assert app.state.connectors.vault._register()[0] == 1
         assert (await request_as(
             client, "POST", export, "admin", PrincipalRole.ADMIN,
             json={"confirmation": "export"},
@@ -130,6 +131,7 @@ async def test_project_mcp_export_requires_project_export_permission_and_revoke(
         revoked = await request_as(client, "POST", base + "/revoke", "owner", PrincipalRole.OWNER)
         assert revoked.status_code == 200, revoked.text
         assert "mcp-private-token" not in revoked.text
+        assert registry.vault._register()[0] == 1
         assert (await request_as(
             client, "POST", export, "owner", PrincipalRole.OWNER,
             json={"confirmation": "export"},

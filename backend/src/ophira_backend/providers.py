@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import fcntl
+import hashlib
 import json
 import os
 import re
@@ -8,6 +9,7 @@ import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
+from uuid import uuid4
 
 from .config import Settings
 from .constants import ProviderErrorCode
@@ -23,6 +25,27 @@ MODEL_SECRET_NAMES = (
     "ANTHROPIC_AUTH_TOKEN",
     "CLAUDE_CODE_OAUTH_TOKEN",
 )
+PROVIDER_VAULT_FILENAME = "provider-secrets.json"
+CONNECTOR_VAULT_FILENAME = "connector-secrets.json"
+MCP_VAULT_FILENAME = "mcp-secrets.json"
+CREDENTIAL_VAULT_FILENAMES = (
+    PROVIDER_VAULT_FILENAME, CONNECTOR_VAULT_FILENAME, MCP_VAULT_FILENAME,
+)
+
+
+def parse_credential_deletion_register(data: object) -> tuple[int, str]:
+    if (
+        not isinstance(data, dict)
+        or set(data) != {"schema_version", "count", "sha256"}
+        or type(data["schema_version"]) is not int
+        or data["schema_version"] != 1
+        or type(data["count"]) is not int
+        or data["count"] < 1
+        or not isinstance(data["sha256"], str)
+        or re.fullmatch(r"[0-9a-f]{64}", data["sha256"]) is None
+    ):
+        raise ValueError("invalid private vault deletion register")
+    return data["count"], data["sha256"]
 
 
 class ProviderNotFoundError(KeyError):
@@ -54,14 +77,23 @@ def provider_readiness_failures(profile: ProviderProfile) -> list[str]:
 class FileSecretVault:
     """Local key-vault port. The file is never served and is mode 0600."""
 
-    def __init__(self, root: Path, filename: str = "provider-secrets.json") -> None:
+    def __init__(self, root: Path, filename: str = PROVIDER_VAULT_FILENAME) -> None:
         self.root = root.resolve()
         self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
         self.path = self.root / filename
         self.lock_path = self.root / (filename + ".lock")
+        self.deletion_register_path = self.root / (filename + ".deletion-register.json")
+        self.deletion_pending_path = self.root / (filename + ".deletion-pending.json")
         self._lock = threading.RLock()
         if self.path.exists():
             self._secure()
+        if self.deletion_pending_path.exists() or any(
+            path.with_name(path.name + ".tmp").exists()
+            for path in (self.path, self.deletion_register_path, self.deletion_pending_path)
+        ) or self.path.with_suffix(".tmp").exists():
+            with self._write_lock():
+                pass
+        self._register()
 
     def _secure(self) -> None:
         try:
@@ -70,14 +102,113 @@ class FileSecretVault:
         except OSError:
             pass
 
+    def _sync_root(self) -> None:
+        descriptor = os.open(self.root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+
+    def _atomic_json(self, path: Path, value: object) -> None:
+        temporary = path.with_name(path.name + ".tmp")
+        descriptor = os.open(
+            temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
+            0o600,
+        )
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            json.dump(value, handle, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+        self._sync_root()
+
     def _read(self) -> dict[str, str]:
         if not self.path.exists():
             return {}
-        try:
-            data = json.loads(self.path.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            return {}
-        return {str(key): str(value) for key, value in data.items()}
+        data = json.loads(self.path.read_text(encoding="utf-8"))
+        if not isinstance(data, dict) or any(
+            not isinstance(key, str) or not isinstance(value, str)
+            for key, value in data.items()
+        ):
+            raise ValueError("invalid private vault")
+        return data
+
+    def _register(self) -> tuple[int, str]:
+        if not self.deletion_register_path.exists():
+            return 0, "0" * 64
+        data = json.loads(self.deletion_register_path.read_text(encoding="utf-8"))
+        return parse_credential_deletion_register(data)
+
+    @staticmethod
+    def _next_digest(previous: str, operation_id: str, key: str, value_digest: str) -> str:
+        event = json.dumps({
+            "operation_id": operation_id,
+            "key_sha256": hashlib.sha256(key.encode()).hexdigest(),
+            "value_sha256": value_digest,
+        }, sort_keys=True, separators=(",", ":")).encode()
+        return hashlib.sha256(bytes.fromhex(previous) + event).hexdigest()
+
+    def _recover_deletion_locked(self) -> None:
+        removed = False
+        for path in (self.path, self.deletion_register_path, self.deletion_pending_path):
+            temporary = path.with_name(path.name + ".tmp")
+            if temporary.exists():
+                temporary.unlink()
+                removed = True
+        legacy_temporary = self.path.with_suffix(".tmp")
+        if legacy_temporary.exists():
+            legacy_temporary.unlink()
+            removed = True
+        if removed:
+            self._sync_root()
+        pending_path = self.deletion_pending_path
+        if not pending_path.exists():
+            return
+        pending = json.loads(pending_path.read_text(encoding="utf-8"))
+        if (
+            not isinstance(pending, dict)
+            or set(pending) != {
+                "schema_version", "operation_id", "key", "value_sha256",
+                "previous_count", "previous_sha256", "next_sha256",
+            }
+            or type(pending["schema_version"]) is not int
+            or pending["schema_version"] != 1
+            or not isinstance(pending["operation_id"], str)
+            or re.fullmatch(r"[0-9a-f]{32}", pending["operation_id"]) is None
+            or not isinstance(pending["key"], str)
+            or not 0 < len(pending["key"]) <= 1_000
+            or type(pending["previous_count"]) is not int
+            or pending["previous_count"] < 0
+            or any(
+                not isinstance(pending[name], str)
+                or re.fullmatch(r"[0-9a-f]{64}", pending[name]) is None
+                for name in ("value_sha256", "previous_sha256", "next_sha256")
+            )
+            or pending["next_sha256"] != self._next_digest(
+                pending["previous_sha256"], pending["operation_id"],
+                pending["key"], pending["value_sha256"],
+            )
+        ):
+            raise ValueError("invalid private vault deletion intent")
+        previous = pending["previous_count"], pending["previous_sha256"]
+        next_state = previous[0] + 1, pending["next_sha256"]
+        current = self._register()
+        if current not in (previous, next_state):
+            raise ValueError("private vault deletion register diverged")
+        values = self._read()
+        old_value = values.get(pending["key"])
+        if old_value is not None:
+            if hashlib.sha256(old_value.encode()).hexdigest() != pending["value_sha256"]:
+                raise ValueError("private vault deletion target changed")
+            values.pop(pending["key"])
+            self._atomic_json(self.path, values)
+        if current == previous:
+            self._atomic_json(self.deletion_register_path, {
+                "schema_version": 1, "count": next_state[0], "sha256": next_state[1],
+            })
+        pending_path.unlink()
+        self._sync_root()
 
     @contextmanager
     def _write_lock(self) -> Iterator[None]:
@@ -88,6 +219,7 @@ class FileSecretVault:
             )
             try:
                 fcntl.flock(descriptor, fcntl.LOCK_EX)
+                self._recover_deletion_locked()
                 yield
             finally:
                 os.close(descriptor)
@@ -95,31 +227,47 @@ class FileSecretVault:
     def set(self, profile_id: str, secret: str) -> None:
         with self._write_lock():
             values = self._read()
+            if profile_id in values and values[profile_id] != secret:
+                self._delete_locked(profile_id, values)
+                values = self._read()
             values[profile_id] = secret
-            temporary = self.path.with_suffix(".tmp")
-            temporary.write_text(json.dumps(values, ensure_ascii=False), encoding="utf-8")
-            temporary.chmod(0o600)
-            os.replace(temporary, self.path)
+            self._atomic_json(self.path, values)
             self._secure()
 
     def get(self, profile_id: str) -> str | None:
+        if self.deletion_pending_path.exists():
+            with self._write_lock():
+                pass
         with self._lock:
             return self._read().get(profile_id)
 
     def has(self, profile_id: str) -> bool:
         return self.get(profile_id) is not None
 
+    def _delete_locked(self, profile_id: str, values: dict[str, str]) -> None:
+        value = values.pop(profile_id)
+        count, digest = self._register()
+        operation_id = uuid4().hex
+        value_digest = hashlib.sha256(value.encode()).hexdigest()
+        next_digest = self._next_digest(digest, operation_id, profile_id, value_digest)
+        self._atomic_json(self.deletion_pending_path, {
+            "schema_version": 1, "operation_id": operation_id, "key": profile_id,
+            "value_sha256": value_digest, "previous_count": count,
+            "previous_sha256": digest, "next_sha256": next_digest,
+        })
+        self._atomic_json(self.path, values)
+        self._atomic_json(self.deletion_register_path, {
+            "schema_version": 1, "count": count + 1, "sha256": next_digest,
+        })
+        self.deletion_pending_path.unlink()
+        self._sync_root()
+        self._secure()
+
     def delete(self, profile_id: str) -> None:
         with self._write_lock():
             values = self._read()
-            if profile_id not in values:
-                return
-            values.pop(profile_id)
-            temporary = self.path.with_suffix(".tmp")
-            temporary.write_text(json.dumps(values, ensure_ascii=False), encoding="utf-8")
-            temporary.chmod(0o600)
-            os.replace(temporary, self.path)
-            self._secure()
+            if profile_id in values:
+                self._delete_locked(profile_id, values)
 
 
 class ProviderRegistry:

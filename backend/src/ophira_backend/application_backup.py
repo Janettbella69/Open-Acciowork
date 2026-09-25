@@ -27,6 +27,7 @@ from .plugin_import_backup import inspect_plugin_imports
 from .project_comments import MAX_COMMENT_BYTES, CommentLedger
 from .project_deletion_proofs import load_deletion_proofs
 from .project_template_backup import inspect_project_templates
+from .providers import CREDENTIAL_VAULT_FILENAMES, parse_credential_deletion_register
 from .skill_proposal_files import directory_fd, read_relative, relative_parts
 from .skill_proposals import SkillProposalService
 from .skill_repository_backup import inspect_skill_imports
@@ -536,8 +537,48 @@ def _memory_deletion_register(data: Path) -> dict:
     return {"files": tombstone_files, "tombstones": total}
 
 
+def _credential_deletion_register(data: Path) -> dict:
+    """Compare compact vault deletion chains without exposing credential values."""
+    root = data / "secrets"
+    if not root.exists() and not root.is_symlink():
+        return {"files": [], "deletions": 0}
+    inventory = tree_inventory(root, DEFAULT_LIMITS)
+    files = {row["path"]: row for row in inventory["files"]}
+    expected_registers = {
+        filename + ".deletion-register.json" for filename in CREDENTIAL_VAULT_FILENAMES
+    }
+    expected_pending = {
+        filename + ".deletion-pending.json" for filename in CREDENTIAL_VAULT_FILENAMES
+    }
+    for path in files:
+        if path.endswith((".deletion-register.json", ".deletion-pending.json")):
+            if path not in expected_registers | expected_pending:
+                raise BackupError("credential_deletion_register_invalid")
+    registers = []
+    total = 0
+    for filename in CREDENTIAL_VAULT_FILENAMES:
+        register_path = filename + ".deletion-register.json"
+        pending_path = filename + ".deletion-pending.json"
+        if any(path in files for path in (
+            pending_path, pending_path + ".tmp", register_path + ".tmp",
+            filename + ".tmp", filename.removesuffix(".json") + ".tmp",
+        )):
+            raise BackupError("pending_credential_deletion")
+        if register_path not in files:
+            continue
+        try:
+            count, _ = parse_credential_deletion_register(parse_json(
+                read_relative(root, register_path, DEFAULT_LIMITS.file_bytes)
+            ))
+        except ValueError:
+            raise BackupError("credential_deletion_register_invalid") from None
+        registers.append(files[register_path])
+        total += count
+    return {"files": registers, "deletions": total}
+
+
 def _deletion_register(data: Path) -> dict:
-    """Read committed project, conversation, and memory deletion records."""
+    """Read committed project, conversation, memory, and credential deletions."""
     from .conversation_deletion_state import ConversationDeletionStates
     from .project_deletion_proofs import deleted_project_ids
     from .project_lifecycle import ProjectLifecycle
@@ -587,6 +628,7 @@ def _deletion_register(data: Path) -> dict:
         "project_deletions": len(project_ids),
         "conversation_deletions": conversation_count,
         "memory": _memory_deletion_register(data),
+        "credentials": _credential_deletion_register(data),
     }
 
 
@@ -651,13 +693,15 @@ def _restore_backup(
             if (
                 current["inventory"] != recovered["inventory"]
                 or current["memory"]["files"] != recovered["memory"]["files"]
+                or current["credentials"]["files"] != recovered["credentials"]["files"]
             ):
                 raise BackupError("deletion_register_mismatch")
             reconciliation = {
-                "scope": "project_conversation_memory",
+                "scope": "project_conversation_memory_credentials",
                 "project_deletions": current["project_deletions"],
                 "conversation_deletions": current["conversation_deletions"],
                 "memory_deletions": current["memory"]["tombstones"],
+                "credential_deletions": current["credentials"]["deletions"],
             }
         sync_directories(restored)
         publish_exclusive(restored, target)

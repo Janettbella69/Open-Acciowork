@@ -465,7 +465,7 @@ Accio 同时也**抬高了 table stakes**：权限四态与审计日志、分层
 
 - 指标按 Provider、模型、Skill、MCP 工具和错误类型聚合，业务内容默认不进入公共日志；可选用官方 OTel 导出替代自建指标管道。
 - 存储 Agent 输出、工具输入摘要和可审计事件，不展示或持久化私有 chain-of-thought。
-- 用户可导出和删除项目、会话、记忆与凭据；数据区域与跨境传输在 Provider 选择时明确提示。当前 Provider、运行时连接器和项目 MCP 的本地密钥仓凭据已有独立导出/撤销；项目店铺浏览器的持久 profile 可在关闭窗口后独立导出/删除，见 `provider-credentials.md`、`connector-mcp-credentials.md` 和 `shop-browsers.md`。本地冷备恢复要求与现行项目/会话删除登记及记忆墓碑对账，或由操作者显式承认无法对账，见 `application-backup.md`。主机环境变量、平台远端令牌、其他数据域、历史备份擦除及真实登录资料的生产隔离仍需单独处理和验收。
+- 用户可导出和删除项目、会话、记忆与凭据；数据区域与跨境传输在 Provider 选择时明确提示。当前 Provider、运行时连接器和项目 MCP 的本地密钥仓凭据已有独立导出/撤销；项目店铺浏览器的持久 profile 可在关闭窗口后独立导出/删除，见 `provider-credentials.md`、`connector-mcp-credentials.md` 和 `shop-browsers.md`。本地冷备恢复要求与现行项目/会话删除登记、记忆墓碑及三个本地密钥仓的删除哈希链对账，或由操作者显式承认无法对账，见 `application-backup.md`。主机环境变量、平台远端令牌、其他数据域、历史备份擦除及真实登录资料的生产隔离仍需单独处理和验收。
 
 ### 3.10 成功指标（维持 v1.1）
 

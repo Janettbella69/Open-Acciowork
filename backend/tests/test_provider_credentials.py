@@ -73,6 +73,7 @@ async def test_admin_export_and_revoke_provider_key_without_normal_api_exposure(
         assert revoked.json()["last_verified_at"] is None
         assert secret not in revoked.text
         assert app.state.providers.vault.get("deepseek") is None
+        assert app.state.providers.vault._register()[0] == 1
         with pytest.raises(ProviderConfigurationError):
             app.state.providers.build_worker_env("deepseek")
         unavailable = await request_as(

@@ -29,6 +29,11 @@ requires a new key when its endpoint or auth variable changes. During
 a key replacement the old profile is disabled before the vault is changed; a
 write failure leaves it disabled until the administrator successfully saves the
 new key. This keeps an old key from being used at a newly configured endpoint.
+Every local vault deletion advances a private, content-free deletion register.
+Interrupted deletions are completed before the vault is used again. A cold restore
+with the latest stopped data directory compares this register and rejects an older
+snapshot that could reintroduce a revoked key. The check cannot erase older backups,
+recover deletions made before this register existed, or revoke a host environment key.
 Runtime connector and project MCP credentials have their own export and revoke
 flows in [connector-mcp-credentials.md](connector-mcp-credentials.md). Browser
 login profiles and credentials outside the application vault remain separate

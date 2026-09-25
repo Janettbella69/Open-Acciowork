@@ -259,6 +259,8 @@ from .project_metrics import (
 from .project_scope import LOCAL_OPERATOR_ID
 from .project_template_api import register_project_template_routes
 from .providers import (
+    CONNECTOR_VAULT_FILENAME,
+    MCP_VAULT_FILENAME,
     FileSecretVault,
     ProviderConfigurationError,
     ProviderNotFoundError,
@@ -509,7 +511,7 @@ def _create_app(
     intents = IntentStore(settings.data_dir / "intents")
     connectors = ConnectorRegistry(
         settings.data_dir / "connectors",
-        vault=FileSecretVault(settings.data_dir / "secrets", filename="connector-secrets.json"),
+        vault=FileSecretVault(settings.data_dir / "secrets", filename=CONNECTOR_VAULT_FILENAME),
     )
     connectors.ensure_catalog()
     gmail = GmailService(settings, connectors, ledger, event_triggers)
@@ -529,7 +531,7 @@ def _create_app(
         mcp_oauth_origin = settings.mcp_oauth_public_origin
     user_mcp = UserMcpRegistry(
         settings.data_dir / "user-mcp",
-        FileSecretVault(settings.data_dir / "secrets", filename="mcp-secrets.json"),
+        FileSecretVault(settings.data_dir / "secrets", filename=MCP_VAULT_FILENAME),
         policy,
         oauth_redirect_url=(
             mcp_oauth_origin + OAUTH_CALLBACK_PATH if mcp_oauth_origin else None

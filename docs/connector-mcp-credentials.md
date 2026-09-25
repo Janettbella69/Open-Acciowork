@@ -37,3 +37,9 @@ type, endpoint, or environment reference cannot carry a vault secret to the new
 authority. If a host environment reference would be reused, a new credential
 or different reference is required. A failed key write leaves the previously
 configured connector disabled.
+Both vaults now maintain a private deletion count and hash chain for each removed
+local value, including replaced credentials and OAuth state. An interrupted delete
+is resumed before the vault is used again. Cold restore compares these registers
+with a supplied latest stopped data directory, rejecting a snapshot from before a
+deletion. Earlier backups, host environment variables, and remote issued tokens
+still require their own cleanup.

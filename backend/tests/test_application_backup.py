@@ -998,8 +998,9 @@ def test_restore_cli_reconciles_a_matching_current_directory(
     result = json.loads(capsys.readouterr().out)
     assert result["passed"] is True
     assert result["deletion_reconciliation"] == {
-        "scope": "project_conversation_memory",
+        "scope": "project_conversation_memory_credentials",
         "project_deletions": 0, "conversation_deletions": 0, "memory_deletions": 0,
+        "credential_deletions": 0,
     }
     assert target.is_dir()
 
@@ -1055,8 +1056,9 @@ def test_restore_rejects_backup_older_than_a_completed_project_deletion(source, 
     recovered = tmp_path / "recent-restore"
     result = backup.restore_backup(recent, recovered, current_data_dir=data)
     assert result["deletion_reconciliation"] == {
-        "scope": "project_conversation_memory",
+        "scope": "project_conversation_memory_credentials",
         "project_deletions": 1, "conversation_deletions": 0, "memory_deletions": 0,
+        "credential_deletions": 0,
     }
     assert not (recovered / "data/projects" / removed.id).exists()
 
@@ -1119,6 +1121,117 @@ def test_restore_rejects_backup_older_than_a_memory_deletion(source, tmp_path):
     assert b"private erased fact" not in (
         recovered / "data/memory/user/owner/items.json"
     ).read_bytes()
+
+
+@pytest.mark.parametrize("filename", [
+    "provider-secrets.json", "connector-secrets.json", "mcp-secrets.json",
+])
+def test_restore_rejects_backup_older_than_a_credential_deletion(
+    source, tmp_path, filename,
+):
+    from ophira_backend.providers import FileSecretVault
+
+    data, plugin, *_ = source
+    vault = FileSecretVault(data / "secrets", filename=filename)
+    vault.set("private_credential", "revoked-secret-value")
+    old = make_backup(source, tmp_path)
+    vault.delete("private_credential")
+    vault.set("private_credential", "replacement-secret-value")
+    with pytest.raises(BackupError, match="deletion_register_mismatch"):
+        backup.restore_backup(old, tmp_path / "old-restore", current_data_dir=data)
+    assert not (tmp_path / "old-restore").exists()
+
+    recent = tmp_path / "recent-backup"
+    backup.create_backup(data, plugin, recent)
+    result = backup.restore_backup(
+        recent, tmp_path / "recent-restore", current_data_dir=data,
+    )
+    assert result["deletion_reconciliation"]["credential_deletions"] == 1
+    values = json.loads((
+        tmp_path / "recent-restore/data/secrets" / filename
+    ).read_text())
+    assert values["private_credential"] == "replacement-secret-value"
+    assert "revoked-secret-value" not in values.values()
+
+
+def test_cold_backup_rejects_pending_credential_deletion(source, tmp_path, monkeypatch):
+    from ophira_backend.providers import FileSecretVault
+
+    data, plugin, *_ = source
+    vault = FileSecretVault(data / "secrets")
+    vault.set("private_credential", "revoked-secret-value")
+    write_json = vault._atomic_json
+
+    def crash_before_secret_scrub(path, value):
+        if path == vault.path:
+            raise SimulatedCrash()
+        write_json(path, value)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(vault, "_atomic_json", crash_before_secret_scrub)
+        with pytest.raises(SimulatedCrash):
+            vault.delete("private_credential")
+    with pytest.raises(BackupError, match="pending_credential_deletion"):
+        backup.create_backup(data, plugin, tmp_path / "unsafe-backup")
+    assert not (tmp_path / "unsafe-backup").exists()
+    recovered = FileSecretVault(data / "secrets")
+    assert recovered.get("private_credential") is None
+    assert recovered._register()[0] == 1
+    assert not recovered.deletion_pending_path.exists()
+    backup.create_backup(data, plugin, tmp_path / "safe-backup")
+
+
+def test_replacing_a_vault_value_records_old_secret_deletion(source, tmp_path):
+    from ophira_backend.providers import FileSecretVault
+
+    data, *_ = source
+    vault = FileSecretVault(data / "secrets")
+    vault.set("private_credential", "old-secret-value")
+    old = make_backup(source, tmp_path)
+    vault.set("private_credential", "new-secret-value")
+    assert vault._register()[0] == 1
+    vault.set("private_credential", "new-secret-value")
+    assert vault._register()[0] == 1
+    with pytest.raises(BackupError, match="deletion_register_mismatch"):
+        backup.restore_backup(old, tmp_path / "old-restore", current_data_dir=data)
+
+
+def test_vault_recovers_deletion_after_secret_scrub(tmp_path, monkeypatch):
+    from ophira_backend.providers import FileSecretVault
+
+    vault = FileSecretVault(tmp_path / "secrets")
+    vault.set("private_credential", "revoked-secret-value")
+    write_json = vault._atomic_json
+
+    def crash_before_register(path, value):
+        if path == vault.deletion_register_path:
+            raise SimulatedCrash()
+        write_json(path, value)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(vault, "_atomic_json", crash_before_register)
+        with pytest.raises(SimulatedCrash):
+            vault.delete("private_credential")
+    recovered = FileSecretVault(tmp_path / "secrets")
+    assert recovered.get("private_credential") is None
+    assert recovered._register()[0] == 1
+    assert not recovered.deletion_pending_path.exists()
+    assert b"revoked-secret-value" not in recovered.deletion_register_path.read_bytes()
+
+
+def test_cold_backup_rejects_invalid_credential_deletion_register(source, tmp_path):
+    from ophira_backend.providers import FileSecretVault
+
+    data, plugin, *_ = source
+    vault = FileSecretVault(data / "secrets")
+    vault.set("private_credential", "revoked-secret-value")
+    vault.delete("private_credential")
+    vault.deletion_register_path.write_text('{"schema_version":1,"count":0,"sha256":"bad"}')
+    with pytest.raises(BackupError, match="credential_deletion_register_invalid"):
+        backup.create_backup(data, plugin, tmp_path / "unsafe-backup")
+    assert not (tmp_path / "unsafe-backup").exists()
+    with pytest.raises(ValueError, match="invalid private vault deletion register"):
+        FileSecretVault(data / "secrets")
 
 
 @pytest.mark.parametrize("residue", [
