@@ -1,0 +1,29 @@
+{
+  "kind": "browser_l2_acceptance",
+  "generated_at": "2026-09-25T02:14:57.439717+00:00",
+  "url": "https://8.8.8.8/resolve?name=example.com&type=A",
+  "passed": true,
+  "checks": {
+    "connector_health_ok": true,
+    "tool_success": true,
+    "browser_level_l2": true,
+    "evidence_persisted": true,
+    "artifact_persisted": true,
+    "source_receipt_persisted": true,
+    "artifact_links_evidence": true,
+    "screenshot_exists": true
+  },
+  "browser_result": {
+    "url": "https://8.8.8.8/resolve?name=example.com&type=A",
+    "final_url": "https://8.8.8.8/resolve?name=example.com&type=A",
+    "ok": true,
+    "browser_level": "L2",
+    "evidence_id": "ev_7c558e9c087040c5b7cb5fd23e0fc54c",
+    "title": "",
+    "artifact_id": "artifact_5e024034baa34d8da1265d7c1b61f62e"
+  },
+  "preexisting_service_workers": {
+    "count": 0,
+    "schemes": []
+  }
+}
