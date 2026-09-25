@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { errorMessage, getOrgPolicy, listProviders, saveOrgPolicy } from '../api/client'
+import { errorMessage, getOrgPolicy, getRunLimits, listProviders, saveOrgPolicy } from '../api/client'
 import type { OpportunityProject, PermissionModePolicy, ProviderProfile, RunInterjectionMode, RunMode, RunRetryStrategy } from '../api/types'
 import { useOpportunityRuntime } from '../api/useOpportunityRuntime'
 import { useProjectDeletion } from '../api/useProjectDeletion'
@@ -53,6 +53,8 @@ export default function Workspace() {
   const [approvalModeSaving, setApprovalModeSaving] = useState(false)
   const approvalSaveRef = useRef<Promise<void> | null>(null)
   const [runMode, setRunMode] = useState<RunMode>('standard')
+  const [runBudgetUsd, setRunBudgetUsd] = useState('')
+  const [maxRunBudgetUsd, setMaxRunBudgetUsd] = useState<number | null>(null)
   const [planActionBusy, setPlanActionBusy] = useState(false)
   const planActionRef = useRef(false)
   const [interjectionBusy, setInterjectionBusy] = useState(false)
@@ -104,8 +106,20 @@ export default function Workspace() {
     void getOrgPolicy()
       .then((policy) => { if (active) setApprovalMode(policy.permission_mode) })
       .catch((loadError) => { if (active) setApprovalModeError(errorMessage(loadError)) })
+    void getRunLimits()
+      .then((limits) => { if (active) setMaxRunBudgetUsd(limits.max_budget_usd) })
+      .catch(() => { if (active) setMaxRunBudgetUsd(null) })
     return () => { active = false }
   }, [])
+
+  const selectedRunBudget = (): number | undefined => {
+    if (!runBudgetUsd.trim()) return undefined
+    const amount = Number(runBudgetUsd)
+    if (!Number.isFinite(amount) || amount <= 0 || maxRunBudgetUsd === null || amount > maxRunBudgetUsd) {
+      throw new Error('Choose a task budget within the operator limit.')
+    }
+    return amount
+  }
 
   const changeApprovalMode = (permissionMode: PermissionModePolicy): Promise<void> => {
     if (approvalSaveRef.current) return approvalSaveRef.current
@@ -130,6 +144,8 @@ export default function Workspace() {
     if (approvalSaveRef.current || planActionRef.current || runtime.isActive) return
     const brief = briefInput.trim()
     if (!brief) return
+    let budget: number | undefined
+    try { budget = selectedRunBudget() } catch (cause) { setNotice(errorMessage(cause)); return }
     const navigation = ++navigationRef.current
     if (providerProfileId) {
       const selectedProvider = providers.find((provider) => provider.id === providerProfileId)
@@ -143,12 +159,13 @@ export default function Workspace() {
     setRetryFailure(null)
     try {
       const started = runtime.project
-        ? await runtime.continueProject(brief, attachedFiles, runMode, agentId, providerProfileId)
-        : await runtime.start(brief, attachedFiles, runMode, agentId, providerProfileId)
+        ? await runtime.continueProject(brief, attachedFiles, runMode, agentId, providerProfileId, null, budget)
+        : await runtime.start(brief, attachedFiles, runMode, agentId, providerProfileId, budget)
       if (!started || navigationRef.current !== navigation) return
       normalizeWorkspaceUrl()
       setBriefInput('')
       setAttachedFiles([])
+      setRunBudgetUsd('')
       setNotice('Backend connected. Live activity is streaming into this conversation.')
     } catch {
       if (navigationRef.current === navigation) {
@@ -221,9 +238,10 @@ export default function Workspace() {
       const prompt = changes === undefined
         ? 'I approve the plan you just presented. Continue in this session and execute it. Ask for separate approval before any external action that requires it.'
         : `Revise the plan you just presented using my changes below. Do not execute it yet.\n\n${changes.trim()}`
+      const budget = selectedRunBudget() ?? source.max_budget_usd ?? undefined
       const next = await runtime.continueProject(
         prompt, [], changes === undefined ? 'standard' : 'plan',
-        source.agent_id, source.provider_profile_id, source.id,
+        source.agent_id, source.provider_profile_id, source.id, budget,
       )
       if (next && navigationRef.current === navigation) {
         setRunMode(changes === undefined ? 'standard' : 'plan')
@@ -269,6 +287,7 @@ export default function Workspace() {
     setRetryFailure(null)
     setBriefInput('')
     setAttachedFiles([])
+    setRunBudgetUsd('')
     normalizeWorkspaceUrl()
     setNotice(keepRunning
       ? 'The previous task continues in the background. Start another independent task.'
@@ -279,6 +298,7 @@ export default function Workspace() {
     const navigation = ++navigationRef.current
     setBriefInput('')
     setAttachedFiles([])
+    setRunBudgetUsd('')
     setRetryFailure(null)
     normalizeWorkspaceUrl()
     setNotice('Loading the saved project truth and run history…')
@@ -335,11 +355,14 @@ export default function Workspace() {
       approvalModeError={approvalModeError}
       approvalModeSaving={approvalModeSaving}
       runMode={runMode}
+      runBudgetUsd={runBudgetUsd}
+      maxRunBudgetUsd={maxRunBudgetUsd}
       onChange={setBriefInput}
       onAttachedFilesChange={setAttachedFiles}
       onProviderProfileChange={setProviderProfileId}
       onApprovalModeChange={changeApprovalMode}
       onRunModeChange={setRunMode}
+      onRunBudgetChange={setRunBudgetUsd}
       onApprovePlan={() => void continuePlan()}
       onRevisePlan={(changes) => void continuePlan(changes)}
       onSubmit={runAnalysis}

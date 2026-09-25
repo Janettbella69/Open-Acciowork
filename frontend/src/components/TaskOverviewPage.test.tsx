@@ -16,13 +16,15 @@ const overview: TaskOverview = {
     {
       run_id: 'run_first', project_id: 'project_first', project_name: 'Supplier project',
       prompt: 'Find ceramics suppliers', status: 'waiting_permission', created_at: '2026-09-23T00:00:00Z',
-      pending_approvals: 2, max_budget_usd: 10, estimated_cost_usd: 1.2356,
+      pending_approvals: 2, max_budget_usd: 10, sdk_budget_usd: 80,
+      estimated_cost_usd: 1.2356,
       result_preview: null, observations_available: true,
     },
     {
       run_id: 'run_second', project_id: 'project_second', project_name: 'Listing project',
       prompt: 'Review listing', status: 'completed', created_at: '2026-09-22T00:00:00Z',
-      pending_approvals: 0, max_budget_usd: null, estimated_cost_usd: null,
+      pending_approvals: 0, max_budget_usd: null, sdk_budget_usd: null,
+      estimated_cost_usd: null,
       result_preview: 'Three revisions recommended.', observations_available: true,
     },
   ],
@@ -39,6 +41,7 @@ describe('task overview', () => {
     expect(within(first).getByText('Pending approvals: 2')).toBeVisible()
     expect(within(first).getByText('SDK estimated cost: $1.2356')).toBeVisible()
     expect(within(first).getByText('Run budget: $10.00')).toBeVisible()
+    expect(within(first).getByText('SDK budget threshold: $80.00')).toBeVisible()
     expect(screen.getByText('Three revisions recommended.').closest('a')).toHaveAttribute('href', '/app?project=project_second&run=run_second')
     fireEvent.click(screen.getByRole('button', { name: 'Refresh' }))
     await waitFor(() => expect(listTasks).toHaveBeenCalledTimes(2))

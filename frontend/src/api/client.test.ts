@@ -42,6 +42,14 @@ describe('API client', () => {
       }),
     }))
   })
+  it('sends a task-specific spend cap with run creation', async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ id: 'run_next' }), { status: 202 }))
+    vi.stubGlobal('fetch', fetchMock)
+    await startRun('project_1', 'Research', null, 'standard', null, null, null, 2.5)
+    expect(fetchMock).toHaveBeenCalledWith('/api/projects/project_1/runs', expect.objectContaining({
+      body: JSON.stringify({ prompt: 'Research', mode: 'standard', max_budget_usd: 2.5 }),
+    }))
+  })
   it.each(['version', 'enablement'])('rejects stale Installed Skill %s before making a selection write', async (change) => {
     const hash = 'a'.repeat(64)
     const skill = { id: 'ophira-tenant:private-research', name: 'private-research', content_hash: hash }

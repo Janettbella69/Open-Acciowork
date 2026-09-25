@@ -8,6 +8,7 @@ vi.mock('../api/useOpportunityRuntime', () => ({ useOpportunityRuntime: vi.fn() 
 vi.mock('../api/client', () => ({
   listProviders: vi.fn(async () => []),
   getOrgPolicy: vi.fn(),
+  getRunLimits: vi.fn(async () => ({ max_budget_usd: 10 })),
   saveOrgPolicy: vi.fn(),
   submitFeedback: vi.fn(),
   errorMessage: (error: unknown) => error instanceof Error ? error.message : 'unknown error',
@@ -161,7 +162,7 @@ describe('Workspace approval mode', () => {
     expect(screen.getByRole('button', { name: 'Send' })).toBeEnabled()
     expect(screen.getByRole('button', { name: /start new branch/i })).toBeEnabled()
     fireEvent.click(screen.getByRole('button', { name: 'Send' }))
-    expect(runtime.start).toHaveBeenCalledWith('Review the supplier quote', [], 'standard', null, null)
+    expect(runtime.start).toHaveBeenCalledWith('Review the supplier quote', [], 'standard', null, null, undefined)
   })
 
   it('restores sending after a policy save fails and keeps the selected mode and draft', async () => {
@@ -188,6 +189,22 @@ describe('Workspace approval mode', () => {
 })
 
 describe('Workspace new task', () => {
+  it('sets a separate task budget within the operator cap', async () => {
+    const runtime = vi.mocked(useOpportunityRuntime)()
+    render(<Workspace />)
+    const budget = await screen.findByRole('spinbutton', { name: /Task budget \(USD\)/ })
+    expect(budget).toHaveAttribute('max', '10')
+    fireEvent.change(budget, { target: { value: '2.5' } })
+    fireEvent.change(screen.getByRole('textbox', { name: /ask trademind/i }), {
+      target: { value: 'Compare suppliers' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }))
+    await waitFor(() => expect(runtime.start).toHaveBeenCalledWith(
+      'Compare suppliers', [], 'standard', null, null, 2.5,
+    ))
+    fireEvent.click(screen.getByRole('button', { name: /new task/i }))
+    expect(screen.getByRole('spinbutton', { name: /Task budget \(USD\)/ })).toHaveValue(null)
+  })
   it('starts manual compaction for the selected completed SDK session', async () => {
     const runtime = vi.mocked(useOpportunityRuntime)()
     const completed = { ...failedRun, status: 'completed' as const, sdk_session_id: 'session_1' }
@@ -215,7 +232,7 @@ describe('Workspace new task', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: 'Approve and execute' })).toBeEnabled())
     fireEvent.click(screen.getByRole('button', { name: 'Approve and execute' }))
     await waitFor(() => expect(runtime.continueProject).toHaveBeenCalledWith(
-      expect.stringContaining('I approve the plan'), [], 'standard', null, null, 'run_plan',
+      expect.stringContaining('I approve the plan'), [], 'standard', null, null, 'run_plan', undefined,
     ))
     await waitFor(() => expect(screen.getByRole('button', { name: 'Request revised plan' })).toBeDisabled())
     fireEvent.change(screen.getByRole('textbox', { name: 'Changes to the plan' }), {
@@ -224,7 +241,7 @@ describe('Workspace new task', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Request revised plan' }))
     await waitFor(() => expect(runtime.continueProject).toHaveBeenLastCalledWith(
       expect.stringContaining('Check compliance before supplier outreach'),
-      [], 'plan', null, null, 'run_plan',
+      [], 'plan', null, null, 'run_plan', undefined,
     ))
   })
 
@@ -295,7 +312,7 @@ describe('Workspace new task', () => {
     expect(screen.queryByText('supplier-quote.csv')).not.toBeInTheDocument()
     fireEvent.change(screen.getByRole('textbox', { name: /ask trademind/i }), { target: { value: 'A separate task' } })
     fireEvent.click(screen.getByRole('button', { name: 'Send' }))
-    expect(runtime.start).toHaveBeenCalledWith('A separate task', [], 'standard', null, null)
+    expect(runtime.start).toHaveBeenCalledWith('A separate task', [], 'standard', null, null, undefined)
   })
 })
 

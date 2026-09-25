@@ -896,6 +896,11 @@ def test_profile_budget_scale_compensates_sdk_list_price_accounting(tmp_path: Pa
         settings.max_budget_usd * 8.0
     )
 
+    custom = ledger.create_run(
+        project.id, "Capped task", provider_profile_id="deepseek", max_budget_usd=2.5,
+    )
+    assert runtime._build_options(custom).max_budget_usd == pytest.approx(2.5 * 8.0)
+
     unscaled = ledger.create_run(project.id, "Start")
     assert runtime._build_options(unscaled).max_budget_usd == pytest.approx(
         settings.max_budget_usd

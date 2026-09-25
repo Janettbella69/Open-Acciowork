@@ -27,6 +27,7 @@ class TaskRow(APIModel):
     created_at: datetime
     pending_approvals: int
     max_budget_usd: float | None
+    sdk_budget_usd: float | None
     estimated_cost_usd: float | None
     result_preview: str | None
     observations_available: bool
@@ -84,6 +85,7 @@ def read_task_overview(
             run_id=run.id, project_id=run.project_id, project_name=projects[run.project_id],
             prompt=_redact_text(run.prompt)[:300], status=run.status, created_at=run.created_at,
             pending_approvals=approvals.get(run.id, 0), max_budget_usd=run.max_budget_usd,
+            sdk_budget_usd=run.sdk_budget_usd,
             estimated_cost_usd=cost, result_preview=preview,
             observations_available=available,
         ))

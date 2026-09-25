@@ -167,6 +167,7 @@ export type RunRecord = {
   provider_profile_id: string | null
   provider_snapshot: Record<string, unknown> | null
   skill_snapshot: Array<Record<string, unknown>>
+  max_budget_usd?: number | null
   status: RunStatus
   sdk_session_id: string | null
   error: string | null

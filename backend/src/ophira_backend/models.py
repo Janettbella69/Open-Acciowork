@@ -477,6 +477,7 @@ class RunCreate(APIModel):
     plan_source_run_id: str | None = Field(default=None, min_length=1, max_length=160)
     mode: RunMode = RunMode.STANDARD
     provider_profile_id: str | None = None
+    max_budget_usd: float | None = Field(default=None, gt=0, le=1_000)
 
 
 class RunRetryRequest(APIModel):

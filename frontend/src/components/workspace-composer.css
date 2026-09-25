@@ -497,6 +497,9 @@
 .conversation-attachments span > button { display: grid; width: 24px; height: 24px; flex: 0 0 auto; place-items: center; border: 0; border-radius: 7px; color: #7d8184; background: transparent; font-size: 17px; }
 .conversation-attachments span > button:hover { color: var(--ophira-ink); background: #e8e9e9; }
 .conversation-attachments > small { color: #929598; font-size: 11px; }
+.conversation-budget { display: flex !important; grid-column: 1 / -1; align-items: center; gap: 8px; }
+.conversation-budget input { width: 86px; min-height: 32px; border: 1px solid #dedfdf; border-radius: 8px; padding: 4px 7px; color: var(--ophira-ink); background: #fff; font: inherit; }
+.conversation-budget small { color: #85898a; font-size: 11px; font-weight: 400; }
 .conversation-composer-footer { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: center; gap: 10px; border-top: 1px solid #eeeded; padding-top: 13px; }
 .conversation-composer-dock[data-inline='true'] .conversation-composer-footer { display: flex; justify-content: flex-start; border-top: 0; padding-top: 7px; gap: 8px; }
 .conversation-composer-dock[data-inline='true'] .conversation-composer-coordinator { display: none; }

@@ -9,6 +9,7 @@ export type TaskRow = {
   created_at: string
   pending_approvals: number
   max_budget_usd: number | null
+  sdk_budget_usd: number | null
   estimated_cost_usd: number | null
   result_preview: string | null
   observations_available: boolean

@@ -17,6 +17,7 @@ async def test_task_list_is_run_scoped_with_cost_result_and_approvals(tmp_path):
     project = ledger.create_project(ProjectCreate(name="Market", objective="Research"))
     other = ledger.create_project(ProjectCreate(name="Private", objective="Research"))
     run = ledger.create_run(project.id, "Compare ceramics", max_budget_usd=2)
+    ledger.update_run(run.id, sdk_budget_usd=16)
     ledger.create_run(other.id, "Secret")
     await EventPublisher(ledger).publish(run.id, EventType.RUN_RESULT, {
         "result": "Ceramics look promising", "total_cost_usd": 0.15,
@@ -33,6 +34,7 @@ async def test_task_list_is_run_scoped_with_cost_result_and_approvals(tmp_path):
     row = overview.rows[0]
     assert row.run_id == run.id and row.pending_approvals == 1
     assert row.estimated_cost_usd == 0.15 and row.max_budget_usd == 2
+    assert row.sdk_budget_usd == 16
     assert row.result_preview == "Ceramics look promising"
     assert read_task_overview(
         FileLedger(tmp_path), can_read_run=lambda _: True, pending=[],
@@ -67,6 +69,46 @@ async def test_tasks_api_filters_project_membership_before_reading_results(tmp_p
         )
         assert outsider.status_code == 200 and outsider.json()["rows"] == []
         assert "Private" not in outsider.text
+
+
+@pytest.mark.asyncio
+async def test_interactive_runs_freeze_independent_budgets_within_operator_limit(tmp_path):
+    app = create_app(trusted_settings(tmp_path), runtime=FakeRuntime())
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="https://gateway.test",
+    ) as client:
+        limits = await request_as(
+            client, "GET", "/api/meta/run-limits", "owner@example.com", PrincipalRole.OWNER,
+        )
+        assert limits.status_code == 200
+        operator_limit = limits.json()["max_budget_usd"]
+        project = await request_as(
+            client, "POST", "/api/projects", "owner@example.com", PrincipalRole.OWNER,
+            json={"name": "Market", "objective": "Research"},
+        )
+        path = f"/api/projects/{project.json()['id']}/runs"
+        custom = await request_as(
+            client, "POST", path, "owner@example.com", PrincipalRole.OWNER,
+            json={"prompt": "Task with smaller cap", "max_budget_usd": 2},
+        )
+        default = await request_as(
+            client, "POST", path, "owner@example.com", PrincipalRole.OWNER,
+            json={"prompt": "Task with default cap"},
+        )
+        rejected = await request_as(
+            client, "POST", path, "owner@example.com", PrincipalRole.OWNER,
+            json={"prompt": "Task above cap", "max_budget_usd": operator_limit + 1},
+        )
+        assert custom.status_code == default.status_code == 202
+        assert custom.json()["max_budget_usd"] == 2
+        assert default.json()["max_budget_usd"] == operator_limit
+        assert rejected.status_code == 422
+        overview = await request_as(
+            client, "GET", "/api/tasks", "owner@example.com", PrincipalRole.OWNER,
+        )
+        budgets = {row["run_id"]: row["max_budget_usd"] for row in overview.json()["rows"]}
+        assert budgets[custom.json()["id"]] == 2
+        assert budgets[default.json()["id"]] == operator_limit
 
 
 def test_task_preview_redacts_before_truncating(tmp_path):

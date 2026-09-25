@@ -1107,6 +1107,10 @@ def _create_app(
             "presentation_components": list(PRESENTATION_COMPONENTS),
         }
 
+    @application.get("/api/meta/run-limits")
+    async def run_limits() -> dict[str, float]:
+        return {"max_budget_usd": settings.max_budget_usd}
+
     @application.post(
         "/api/projects",
         response_model=OpportunityProject,
@@ -1714,6 +1718,8 @@ def _create_app(
         project_id: str,
         payload: RunCreate,
     ) -> RunRecord:
+        if payload.max_budget_usd is not None and payload.max_budget_usd > settings.max_budget_usd:
+            raise HTTPException(422, "Run budget exceeds the operator limit")
         try:
             if payload.agent_id:
                 ledger.get_agent(payload.agent_id)
@@ -1731,6 +1737,10 @@ def _create_app(
                 provider_profile_id=provider_profile_id,
                 provider_snapshot=provider_snapshot,
                 skill_snapshot=skills.snapshot(),
+                max_budget_usd=(
+                    payload.max_budget_usd if payload.max_budget_usd is not None
+                    else settings.max_budget_usd
+                ),
                 principal=_request_principal(request),
             )
         except PolicyDeniedError as exc:

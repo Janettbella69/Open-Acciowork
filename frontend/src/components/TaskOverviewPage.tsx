@@ -63,6 +63,7 @@ export default function TaskOverviewPage() {
                   <span>{t('Pending approvals')}: {row.pending_approvals}</span>
                   <span>{t('SDK estimated cost')}: {row.estimated_cost_usd === null ? '—' : `$${row.estimated_cost_usd.toFixed(4)}`}</span>
                   <span>{t('Run budget')}: {row.max_budget_usd === null ? '—' : `$${row.max_budget_usd.toFixed(2)}`}</span>
+                  {row.sdk_budget_usd !== null && row.max_budget_usd !== row.sdk_budget_usd && <span>{t('SDK budget threshold')}: ${row.sdk_budget_usd.toFixed(2)}</span>}
                   <span>{t('View run')} →</span>
                 </footer>
               </a>

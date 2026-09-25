@@ -389,6 +389,7 @@ export function startRun(
   providerProfileId?: string | null,
   agentId?: string | null,
   planSourceRunId?: string | null,
+  maxBudgetUsd?: number,
 ): Promise<RunRecord> {
   return request<RunRecord>(`/api/projects/${projectId}/runs`, {
     method: 'POST',
@@ -399,8 +400,13 @@ export function startRun(
       ...(providerProfileId ? { provider_profile_id: providerProfileId } : {}),
       ...(agentId ? { agent_id: agentId } : {}),
       ...(planSourceRunId ? { plan_source_run_id: planSourceRunId } : {}),
+      ...(maxBudgetUsd !== undefined ? { max_budget_usd: maxBudgetUsd } : {}),
     }),
   })
+}
+
+export function getRunLimits(): Promise<{ max_budget_usd: number }> {
+  return request<{ max_budget_usd: number }>('/api/meta/run-limits', { cache: 'no-store' })
 }
 
 export function retryRun(runId: string, strategy: RunRetryStrategy): Promise<RunRecord> {

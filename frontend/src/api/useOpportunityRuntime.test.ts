@@ -98,10 +98,10 @@ describe('project selection isolation', () => {
     vi.mocked(api.startRun).mockResolvedValueOnce({ ...runA, id: 'run_execution' })
     const { result } = await setup()
     await act(async () => {
-      await result.current.continueProject('Execute', [], 'standard', null, null, plan.id)
+      await result.current.continueProject('Execute', [], 'standard', null, null, plan.id, 2.5)
     })
     expect(api.startRun).toHaveBeenCalledWith(
-      projectA.id, 'Execute', 'session_plan', 'standard', null, null, plan.id,
+      projectA.id, 'Execute', 'session_plan', 'standard', null, null, plan.id, 2.5,
     )
   })
   it('replays the exact Run selected from project search, never another project or the latest fallback', async () => {

@@ -418,6 +418,7 @@ export function useOpportunityRuntime(onProjectUnavailable?: (projectId: string)
     mode: RunMode = 'standard',
     agentId?: string | null,
     providerProfileId?: string | null,
+    maxBudgetUsd?: number,
   ) => {
     const selection = ++selectionRef.current
     closeStream()
@@ -439,7 +440,7 @@ export function useOpportunityRuntime(onProjectUnavailable?: (projectId: string)
       setProjects((current) => [nextProject, ...current])
       if (files.length) await Promise.all(files.map((file) => uploadProjectFile(nextProject.id, file)))
       if (selectionRef.current !== selection) return null
-      const nextRun = await startRun(nextProject.id, brief, null, mode, providerProfileId, agentId)
+      const nextRun = await startRun(nextProject.id, brief, null, mode, providerProfileId, agentId, null, maxBudgetUsd)
       if (selectionRef.current !== selection) return null
       runRef.current = nextRun
       setRun(nextRun)
@@ -464,10 +465,11 @@ export function useOpportunityRuntime(onProjectUnavailable?: (projectId: string)
     agentId?: string | null,
     providerProfileId?: string | null,
     planSourceRunId?: string | null,
+    maxBudgetUsd?: number,
   ) => {
     if (!project) {
       if (planSourceRunId) throw new Error('The reviewed plan project is unavailable.')
-      return start(brief, files, mode, agentId, providerProfileId)
+      return start(brief, files, mode, agentId, providerProfileId, maxBudgetUsd)
     }
     if (projectRef.current?.id !== project.id || discardedProjectsRef.current.has(project.id)) return null
 
@@ -486,8 +488,8 @@ export function useOpportunityRuntime(onProjectUnavailable?: (projectId: string)
       if (files.length) await Promise.all(files.map((file) => uploadProjectFile(project.id, file)))
       if (selectionRef.current !== selection) return null
       const nextRun = planSourceRunId
-        ? await startRun(project.id, brief, run?.sdk_session_id, mode, providerProfileId, agentId, planSourceRunId)
-        : await startRun(project.id, brief, run?.sdk_session_id, mode, providerProfileId, agentId)
+        ? await startRun(project.id, brief, run?.sdk_session_id, mode, providerProfileId, agentId, planSourceRunId, maxBudgetUsd)
+        : await startRun(project.id, brief, run?.sdk_session_id, mode, providerProfileId, agentId, null, maxBudgetUsd)
       if (selectionRef.current !== selection) return null
       runRef.current = nextRun
       setRun(nextRun)
