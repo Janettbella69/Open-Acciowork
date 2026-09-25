@@ -51,6 +51,9 @@ from .workspace_checkpoints import (
 
 FORMAT = "ophira-application-cold-backup"
 DEFAULT_LIMITS = BackupLimits()
+DELETION_LIMITS = BackupLimits(
+    files=20_000, entries=40_000, total_bytes=512 * 1024 * 1024,
+)
 
 
 def implementation() -> dict[str, str]:
@@ -81,6 +84,7 @@ def inspect_application(data: Path, plugin: Path) -> dict:
     for name in ("projects", "runs", "skill-proposals"):
         if not (data / name).is_dir():
             raise BackupError("application_store_missing")
+    _deletion_register(data)
     ledger = FileLedger(data)
     registry = SkillRegistry(plugin, data / "skills")
     proposals = SkillProposalService(ledger, registry)
@@ -430,13 +434,68 @@ def create_backup(
                 remove_staging(stage)
 
 
-def restore_backup(
+def _deletion_register(data: Path) -> dict:
+    """Read only the committed project and conversation deletion stores."""
+    from .conversation_deletion_state import ConversationDeletionStates
+    from .project_deletion_proofs import deleted_project_ids
+    from .project_lifecycle import ProjectLifecycle
+
+    with directory_fd(data):
+        pass
+    lifecycle = ProjectLifecycle(data)
+    conversations = ConversationDeletionStates(lifecycle)
+    inventories = {}
+    for name in ("project-deletions", "conversation-deletions"):
+        path = data / name
+        if path.exists() or path.is_symlink():
+            inventories[name] = tree_inventory(path, DELETION_LIMITS)
+        else:
+            inventories[name] = {"files": [], "directories": []}
+    if lifecycle.pending_ids() or conversations.pending():
+        raise BackupError("pending_deletion_reconciliation")
+    project_ids = deleted_project_ids(data)
+    if set(load_deletion_proofs(data)) != project_ids:
+        raise BackupError("project_deletion_register_invalid")
+    project_inventory = inventories["project-deletions"]
+    if (
+        {row["path"] for row in project_inventory["directories"]} != project_ids
+        or {row["path"] for row in project_inventory["files"]}
+        != {f"{identifier}/{name}" for identifier in project_ids
+            for name in ("state.json", "proofs.json")}
+    ):
+        raise BackupError("project_deletion_register_invalid")
+    conversation_count = 0
+    expected_files = set()
+    for row in inventories["conversation-deletions"]["directories"]:
+        if "/" in row["path"]:
+            raise BackupError("conversation_deletion_register_invalid")
+        project_id = row["path"]
+        states = conversations.list(project_id)
+        if any(state["status"] != "deleted" for state in states):
+            raise BackupError("pending_deletion_reconciliation")
+        conversations.origins(project_id)
+        conversation_count += len(states)
+        expected_files.update(
+            f"{project_id}/{state['operation_id']}.json" for state in states
+        )
+    if {row["path"] for row in inventories["conversation-deletions"]["files"]} != expected_files:
+        raise BackupError("conversation_deletion_register_invalid")
+    return {
+        "inventory": inventories,
+        "project_deletions": len(project_ids),
+        "conversation_deletions": conversation_count,
+    }
+
+
+def _restore_backup(
     backup: Path,
     target: Path,
     *,
+    current_data_dir: Path | None,
     limits: BackupLimits = DEFAULT_LIMITS,
 ) -> dict:
-    target = _new_target(target, backup)
+    sources = (backup,) if current_data_dir is None else (backup, current_data_dir)
+    target = _new_target(target, *sources)
     raw = read_relative(backup, "manifest.json", limits.manifest_bytes)
     manifest = parse_json(raw)
     if (
@@ -482,6 +541,17 @@ def restore_backup(
             raise BackupError("implementation_changed")
         if read_relative(backup, "manifest.json", limits.manifest_bytes) != raw:
             raise BackupError("backup_changed")
+        reconciliation = None
+        if current_data_dir is not None:
+            current = _deletion_register(current_data_dir)
+            recovered = _deletion_register(restored / "data")
+            if current["inventory"] != recovered["inventory"]:
+                raise BackupError("deletion_register_mismatch")
+            reconciliation = {
+                "scope": "project_and_conversation",
+                "project_deletions": current["project_deletions"],
+                "conversation_deletions": current["conversation_deletions"],
+            }
         sync_directories(restored)
         publish_exclusive(restored, target)
         with directory_fd(target.parent) as descriptor:
@@ -495,11 +565,35 @@ def restore_backup(
             "proposal_recovery": recovery.model_dump(),
             "canonical_preserved": True,
             "provider_invoked": False,
+            "deletion_reconciliation": reconciliation,
         }
     finally:
         # After publication stage contains no target. Failure never removes a
         # target created by another process or overwrites an existing deployment.
         remove_staging(stage)
+
+
+def restore_backup(
+    backup: Path,
+    target: Path,
+    *,
+    current_data_dir: Path | None = None,
+    acknowledge_unreconciled_history: bool = False,
+    limits: BackupLimits = DEFAULT_LIMITS,
+) -> dict:
+    """Restore with the latest deletion register or explicit operator acknowledgement."""
+    if (current_data_dir is None) != acknowledge_unreconciled_history:
+        raise BackupError("deletion_reconciliation_choice_required")
+    if current_data_dir is None:
+        return _restore_backup(backup, target, current_data_dir=None, limits=limits)
+    current_data_dir = current_data_dir.absolute()
+    backup = backup.absolute()
+    if current_data_dir.is_relative_to(backup) or backup.is_relative_to(current_data_dir):
+        raise BackupError("overlapping_paths")
+    with data_directory_lease(current_data_dir, exclusive=True):
+        return _restore_backup(
+            backup, target, current_data_dir=current_data_dir, limits=limits,
+        )
 
 
 def main() -> int:
@@ -516,12 +610,18 @@ def main() -> int:
     )
     restore.add_argument("--backup", type=Path, required=True)
     restore.add_argument("--output", type=Path, required=True)
+    restore.add_argument("--current-data-dir", type=Path)
+    restore.add_argument("--acknowledge-unreconciled-history", action="store_true")
     args = parser.parse_args()
     try:
         result = (
             create_backup(args.data_dir, args.plugin_dir, args.output)
             if args.mode == "create"
-            else restore_backup(args.backup, args.output)
+            else restore_backup(
+                args.backup, args.output,
+                current_data_dir=args.current_data_dir,
+                acknowledge_unreconciled_history=args.acknowledge_unreconciled_history,
+            )
         )
     except (OSError, ValueError, RuntimeError, KeyError) as error:
         reason = (

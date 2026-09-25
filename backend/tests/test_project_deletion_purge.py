@@ -166,12 +166,16 @@ def test_published_skill_retains_registry_artifact_and_backup_proof(tmp_path):
     assert plan.proofs.publications == [proposal.publication_receipt]
     persist(root, plan)
     purge_project_deletion(root, plan)
+    state_path = root / "project-deletions" / first.id / "state.json"
+    state = json.loads(state_path.read_text())
+    state["status"] = "deleted"
+    state_path.write_text(json.dumps(state))
     summary = inspect_application(root, plugin)
     assert summary["projects"] == [] and summary["proposals"] == {}
     assert registry.publication_receipt(proposal.id) == proposal.publication_receipt
     backup, restored = tmp_path / "backup", tmp_path / "restored"
     create_backup(root, plugin, backup)
-    restore_backup(backup, restored)
+    restore_backup(backup, restored, acknowledge_unreconciled_history=True)
     copied = inspect_application(restored / "data", restored / "application-plugin")
     assert copied["projects"] == []
     assert proposal.id in copied["canonical_state"]["publication_receipts"]

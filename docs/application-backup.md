@@ -21,6 +21,8 @@ Run/事件、提案冻结包和审阅记录、Skill 历史/发布凭证，以及
 
 停止所有使用源数据目录的 API、worker、浏览器及独立维护程序，并确认 Run 均已终态。
 等待审批、排队、执行或暂停的 Run 会使备份失败；须在应用内完成或取消，并完成正常关闭。
+项目或会话删除仍处于 deleting/blocked，或其登记目录含未提交的残留文件时，
+备份也会失败；先在原安装中核对并完成删除。
 新 API 从构造开始以及整个 ASGI lifespan（含启动恢复与关闭等待）持有共享租约；
 备份使用非阻塞独占租约，忙时立即失败。首次升级时必须先停止旧版本进程，旧代码不认识
 新锁；自行绕开应用入口或关闭 lifespan 的服务不在该租约协议保证范围内。
@@ -36,8 +38,18 @@ PYTHONPATH=backend/src .venv/bin/python -m ophira_backend.application_backup cre
 
 PYTHONPATH=backend/src .venv/bin/python -m ophira_backend.application_backup restore \
   --backup /absolute/private-backups/snapshot-001 \
+  --current-data-dir /absolute/app-data \
   --output /absolute/private-restores/recovered-001
 ```
+
+恢复时必须选择一个删除历史处理方式。若仍能取得**最新且已停机**的应用数据目录，
+使用 `--current-data-dir`。CLI 对该目录持有独占维护租约，验证项目与会话的删除登记
+均已完成，再将登记文件、目录和哈希与候选恢复目录逐项比较；不一致即拒绝发布。
+当前目录不得取自该备份内部。若原目录已经丢失，只能改用
+`--acknowledge-unreconciled-history` 明确承认无法对账后恢复。结果中的
+`deletion_reconciliation` 会记录本次对账范围与数量；无法对账时为 `null`。
+此门禁只覆盖应用内项目及独立会话删除登记，不能证明记忆、凭据、下载副本、外部
+服务和历史备份已擦除。旧快照不会被自动修改或销毁。
 
 备份输出：`manifest.json` 和 `payload/{data,application-plugin}/`。
 恢复输出：`{data,application-plugin}/`，可在停机检查后分别配置为 `OPHIRA_DATA_DIR`
@@ -48,6 +60,9 @@ PYTHONPATH=backend/src .venv/bin/python -m ophira_backend.application_backup res
 首次恢复检查应在隔离环境进行。目录包含原有计划、通知和外部服务配置；启动真实应用会
 重新加载这些配置，需要操作者决定何时恢复服务。环境变量、`.env`、操作系统钥匙串、
 外部服务状态和数据目录之外的 SDK/浏览器文件不在快照里，须由部署方单独保存与配置。
+对账需由操作者提供可信的最新目录；恢复程序无法从一份孤立旧快照推断其后发生的删除。
+必须使用包含此门禁的当前恢复程序；旧版 CLI 不会执行新对账。对账未通过的目标不会发布，
+但备份本身依然存在，须按备份保留政策另行清理。
 
 ## 一致性与恢复顺序
 
@@ -75,6 +90,8 @@ PYTHONPATH=backend/src .venv/bin/python -m ophira_backend.application_backup res
 
 - 默认最多 50,000 个文件、100,000 个条目、单文件 64 MiB、文件内容总计 2 GiB、
   manifest 32 MiB、32 层目录。校验会多次读取，限制不是累计 I/O 预算。
+- 项目与会话删除登记各自最多扫描 20,000 个文件、40,000 个条目和 512 MiB，
+  且只接受已完成删除的标准登记文件；超限或未完成操作须在原安装中处理。
 - 所有路径组件用目录描述符解析，拒绝软/硬链接、FIFO、设备等特殊文件；备份无法包含
   含这些条目的源目录。支持空目录与 owner 可执行位，清除 group/other 权限，最终根目录 0700。
 - 快照包含凭据文件，采用本地私有权限保存，**没有新增备份加密或签名**。能同时改写文件

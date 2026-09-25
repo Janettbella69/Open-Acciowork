@@ -197,6 +197,7 @@ def main() -> int:
                     str(case_archive),
                     "--output",
                     str(target),
+                    "--acknowledge-unreconciled-history",
                 ]
                 completed = subprocess.run(
                     command,

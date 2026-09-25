@@ -279,7 +279,9 @@ def test_cold_backup_preserves_skill_provenance_after_conversation_erasure(tmp_p
     restored = tmp_path / "restored"
     try:
         assert create_backup(data, plugin, archive)["published"]
-        assert restore_backup(archive, restored)["published"]
+        assert restore_backup(
+            archive, restored, acknowledge_unreconciled_history=True,
+        )["published"]
         restored_ledger = FileLedger(restored / "data")
         restored_proposals = SkillProposalService(
             restored_ledger,

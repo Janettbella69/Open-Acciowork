@@ -7,6 +7,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+from uuid import uuid4
 
 import pytest
 from test_skill_proposals import approve, write_candidate
@@ -24,6 +25,14 @@ from ophira_backend.skill_proposal_models import SkillProposalReviewRequest
 from ophira_backend.skill_proposals import SkillProposalService
 from ophira_backend.skills import SkillRegistry
 from ophira_backend.storage import FileLedger
+
+_restore_backup_impl = backup.restore_backup
+
+
+def restore_unreconciled(*args, **kwargs):
+    return _restore_backup_impl(
+        *args, acknowledge_unreconciled_history=True, **kwargs,
+    )
 
 
 class SimulatedCrash(BaseException):
@@ -124,7 +133,7 @@ def test_cold_restore_preserves_private_imports_and_publication_receipts(source,
         items.append(item)
     archive = make_backup(source, tmp_path)
     target = tmp_path / "restored"
-    backup.restore_backup(archive, target)
+    restore_unreconciled(archive, target)
     restored_ledger = FileLedger(target / "data")
     restored_registry = SkillRegistry(target / "application-plugin", target / "data/skills")
     restored = SkillRepository(restored_ledger, restored_registry, scope=store.scope)
@@ -160,7 +169,7 @@ def test_cold_restore_preserves_plugin_report_and_rejects_broken_skill_binding(
     identifier = submitted["import"]["id"]
     archive = make_backup(source, tmp_path)
     target = tmp_path / "restored"
-    backup.restore_backup(archive, target)
+    restore_unreconciled(archive, target)
     restored_data = target / "data"
     restored_repository = SkillRepository(
         FileLedger(restored_data),
@@ -199,7 +208,7 @@ def test_mcp_only_plugin_backup_binds_scope_without_skill_imports(source, tmp_pa
     assert (data / "skill-imports/scope.json").is_file()
     archive = make_backup(source, tmp_path)
     target = tmp_path / "restored"
-    backup.restore_backup(archive, target)
+    restore_unreconciled(archive, target)
     assert backup.inspect_application(target / "data", target / "application-plugin")[
         "plugin_imports"
     ][submitted["import"]["id"]]["skill_imports"] == []
@@ -252,7 +261,7 @@ def test_cold_restore_retains_history_without_workspace_file(source, tmp_path):
     path.unlink()
     archive = make_backup(source, tmp_path)
     target = tmp_path / "restored"
-    backup.restore_backup(archive, target)
+    restore_unreconciled(archive, target)
     restored = FileLedger(target / "data")
     assert restored.capture_artifact(project.id, first.id)[1] == b"Original version"
     assert restored.capture_artifact(project.id, second.id)[1] == b"Revised version"
@@ -273,7 +282,7 @@ def test_cold_restore_rebuilds_office_reference_index_from_exact_artifact(source
     artifact = ledger.save_upload(project.id, "proposal.docx", output.getvalue())
     archive = make_backup(source, tmp_path)
     target = tmp_path / "restored"
-    backup.restore_backup(archive, target)
+    restore_unreconciled(archive, target)
     result = search_project_knowledge(FileLedger(target / "data"), project.id, query="supplier")
     assert result.matches[0].artifact_id == artifact.id
     assert result.matches[0].source_location == "Body paragraph 1"
@@ -304,7 +313,7 @@ def test_cold_restore_preserves_discussions_and_rejects_corrupt_history(source, 
     change(comments, project.id, reply, "remove")
     archive = make_backup(source, tmp_path)
     target = tmp_path / "restored"
-    backup.restore_backup(archive, target)
+    restore_unreconciled(archive, target)
     restored = make_store(target / "data")
     assert restored.thread(project.id, root["id"], None)["root"]["text"] == "Updated team comment"
     assert restored.thread(project.id, root["id"], None)["replies"][0]["text"] is None
@@ -330,7 +339,7 @@ def test_cold_restore_preserves_project_templates_and_created_project_lineage(so
     created = applications.apply(project.id, template["id"], request, None)["project"]
     archive = make_backup(source, tmp_path)
     target = tmp_path / "restored"
-    backup.restore_backup(archive, target)
+    restore_unreconciled(archive, target)
     restored, restored_applications = services(target / "data")
     assert (
         restored.reference(project.id, template["id"], 1, artifact.id, None)[1]
@@ -393,7 +402,7 @@ def test_cold_backup_preserves_recoverable_workspaces_and_applied_history(source
     applied = service.apply(project.id, preview.id, **options())
     archive = make_backup(source, tmp_path)
     destination = tmp_path / "restored"
-    backup.restore_backup(archive, destination)
+    restore_unreconciled(archive, destination)
     restored = FileLedger(destination / "data")
     recovery = WorkspaceCheckpoints(restored)
     assert recovery.get_restore(project.id, applied.id) == applied
@@ -436,7 +445,7 @@ def test_cold_backup_accepts_discarded_copy_and_archived_review(source, tmp_path
     )
     archive = make_backup(source, tmp_path)
     destination = tmp_path / "restored"
-    backup.restore_backup(archive, destination)
+    restore_unreconciled(archive, destination)
     restored = WorkspaceCheckpoints(FileLedger(destination / "data"))
     assert restored.retention(project.id, authorize=lambda: None).archived_reviews == 1
     assert restored.get_restore(project.id, preview.id).archived_by == "admin"
@@ -499,7 +508,7 @@ def test_complete_snapshot_preserves_source_and_recovers_only_proposal_intents(s
     remove_staging(data)
     remove_staging(plugin)
     target = tmp_path / "restored"
-    result = backup.restore_backup(archive, target)
+    result = restore_unreconciled(archive, target)
     assert result["published"] and result["canonical_preserved"]
     assert result["proposal_states"] == {"pending": 2, "published": 2, "rejected": 1}
     assert result["proposal_recovery"] == {
@@ -587,7 +596,7 @@ def test_transport_consistent_but_incoherent_state_never_publishes(
     rehash(archive)
     target = tmp_path / "restored"
     with pytest.raises((ValueError, RuntimeError, KeyError)) as error:
-        backup.restore_backup(archive, target)
+        restore_unreconciled(archive, target)
     if reason:
         assert str(error.value) == reason
     assert not target.exists()
@@ -603,7 +612,7 @@ def test_failed_scan_pending_candidate_is_retained_without_becoming_installed(so
     assert not candidate.scan.ok
     archive = make_backup(source, tmp_path)
     target = tmp_path / "restored"
-    backup.restore_backup(archive, target)
+    restore_unreconciled(archive, target)
     restored = SkillProposalService(
         FileLedger(target / "data"),
         SkillRegistry(
@@ -640,7 +649,7 @@ def test_linked_and_special_files_are_rejected_without_publishing(source, tmp_pa
     target = tmp_path / "target"
     with pytest.raises((ValueError, OSError)):
         if archive:
-            backup.restore_backup(archive, target)
+            restore_unreconciled(archive, target)
         else:
             backup.create_backup(data, plugin, target)
     assert not target.exists()
@@ -658,7 +667,7 @@ def test_existing_and_concurrently_created_targets_are_never_overwritten(
         backup.create_backup(data, plugin, target)
     archive = make_backup(source, tmp_path)
     with pytest.raises(BackupError, match="target_exists"):
-        backup.restore_backup(archive, target)
+        restore_unreconciled(archive, target)
     original_publish = backup.publish_exclusive
     racing = tmp_path / "racing"
 
@@ -669,7 +678,7 @@ def test_existing_and_concurrently_created_targets_are_never_overwritten(
 
     monkeypatch.setattr(backup, "publish_exclusive", publish)
     with pytest.raises(BackupError, match="target_exists"):
-        backup.restore_backup(archive, racing)
+        restore_unreconciled(archive, racing)
     assert marker.read_text() == "original"
     assert (racing / "keep").read_text() == "concurrent"
 
@@ -701,7 +710,7 @@ def test_bounds_are_enforced_and_manifest_is_not_trusted_for_paths(source, tmp_p
     manifest["tree"]["files"][0]["path"] = "../../escape"
     manifest_path.write_text(json.dumps(manifest))
     with pytest.raises(BackupError, match="file_inventory_mismatch"):
-        backup.restore_backup(archive, tmp_path / "restored")
+        restore_unreconciled(archive, tmp_path / "restored")
     assert not (tmp_path / "escape").exists()
 
 
@@ -788,6 +797,7 @@ def test_new_process_cli_recovers_without_source_and_keeps_private_values_out_of
             str(archive),
             "--output",
             str(target),
+            "--acknowledge-unreconciled-history",
         ],
         cwd=tmp_path,
         env={
@@ -801,6 +811,7 @@ def test_new_process_cli_recovers_without_source_and_keeps_private_values_out_of
         check=False,
     )
     assert completed.returncode == 0, completed.stderr
+    assert json.loads(completed.stdout)["deletion_reconciliation"] is None
     assert json.loads(completed.stdout)["proposal_states"] == {
         "pending": 2,
         "published": 2,
@@ -857,7 +868,7 @@ def test_new_empty_application_is_backed_up_without_creating_proposal_state(tmp_
     archive = tmp_path / "backup"
     backup.create_backup(data, plugin, archive)
     assert tree_inventory(data, backup.DEFAULT_LIMITS) == before
-    result = backup.restore_backup(archive, tmp_path / "restored")
+    result = restore_unreconciled(archive, tmp_path / "restored")
     assert result["projects"] == result["runs"] == 0
     assert result["proposal_states"] == {}
     assert app.state.ledger.list_projects() == []
@@ -893,7 +904,7 @@ def test_recovery_failure_does_not_publish_or_change_backup(source, tmp_path, mo
     monkeypatch.setattr(SkillProposalService, "recover", unexpected_write)
     target = tmp_path / "restored"
     with pytest.raises(BackupError, match="unexpected_recovery_write"):
-        backup.restore_backup(archive, target)
+        restore_unreconciled(archive, target)
     assert not target.exists()
     assert tree_inventory(archive, backup.DEFAULT_LIMITS) == before
     assert not list(tmp_path.glob(".application-restore-*"))
@@ -926,8 +937,162 @@ def test_restore_rejects_corrupt_or_incompatible_transport(source, tmp_path, cha
     manifest_path.write_text(json.dumps(manifest))
     target = tmp_path / "restored"
     with pytest.raises(BackupError, match=reason):
-        backup.restore_backup(archive, target)
+        restore_unreconciled(archive, target)
     assert not target.exists()
+
+
+def test_restore_requires_a_deletion_history_choice(source, tmp_path):
+    archive = make_backup(source, tmp_path)
+    target = tmp_path / "restored"
+    with pytest.raises(BackupError, match="deletion_reconciliation_choice_required"):
+        backup.restore_backup(archive, target)
+    with pytest.raises(BackupError, match="deletion_reconciliation_choice_required"):
+        backup.restore_backup(
+            archive, target, current_data_dir=source[0],
+            acknowledge_unreconciled_history=True,
+        )
+    with pytest.raises(BackupError, match="overlapping_paths"):
+        backup.restore_backup(
+            archive, target, current_data_dir=archive / "payload/data",
+        )
+    assert not target.exists()
+
+
+def test_restore_cli_returns_a_private_error_without_history_choice(
+    source, tmp_path, monkeypatch, capsys,
+):
+    archive = make_backup(source, tmp_path)
+    target = tmp_path / "restored"
+    monkeypatch.setattr(sys, "argv", [
+        "application_backup", "restore", "--backup", str(archive),
+        "--output", str(target),
+    ])
+    assert backup.main() == 1
+    assert json.loads(capsys.readouterr().out) == {
+        "passed": False,
+        "reason": "deletion_reconciliation_choice_required",
+        "target_visible": False,
+    }
+    monkeypatch.setattr(sys, "argv", [
+        "application_backup", "restore", "--backup", str(archive),
+        "--current-data-dir", str(source[0]),
+        "--acknowledge-unreconciled-history", "--output", str(target),
+    ])
+    assert backup.main() == 1
+    assert json.loads(capsys.readouterr().out)["reason"] == (
+        "deletion_reconciliation_choice_required"
+    )
+    assert not target.exists()
+
+
+def test_restore_cli_reconciles_a_matching_current_directory(
+    source, tmp_path, monkeypatch, capsys,
+):
+    archive = make_backup(source, tmp_path)
+    target = tmp_path / "restored"
+    monkeypatch.setattr(sys, "argv", [
+        "application_backup", "restore", "--backup", str(archive),
+        "--current-data-dir", str(source[0]), "--output", str(target),
+    ])
+    assert backup.main() == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result["passed"] is True
+    assert result["deletion_reconciliation"] == {
+        "scope": "project_and_conversation",
+        "project_deletions": 0, "conversation_deletions": 0,
+    }
+    assert target.is_dir()
+
+
+def test_restore_reconciliation_requires_an_idle_current_directory(source, tmp_path):
+    archive = make_backup(source, tmp_path)
+    target = tmp_path / "restored"
+    with data_directory_lease(source[0], exclusive=False):
+        with pytest.raises(DataDirectoryBusyError):
+            backup.restore_backup(archive, target, current_data_dir=source[0])
+    assert not target.exists()
+
+
+def test_restore_reconciliation_rejects_an_unfinished_deletion(source, tmp_path):
+    archive = make_backup(source, tmp_path)
+    data, plugin, _ledger, _registry, _proposals, project, *_ = source
+    directory = data / "project-deletions" / project.id
+    directory.mkdir(parents=True)
+    (directory / "state.json").write_text(json.dumps({
+        "schema_version": 1, "project_id": project.id, "status": "deleting",
+    }))
+    target = tmp_path / "restored"
+    with pytest.raises(BackupError, match="pending_deletion_reconciliation"):
+        backup.restore_backup(archive, target, current_data_dir=data)
+    assert not target.exists()
+    with pytest.raises(BackupError, match="pending_deletion_reconciliation"):
+        backup.create_backup(data, plugin, tmp_path / "pending-backup")
+    assert not (tmp_path / "pending-backup").exists()
+
+
+def test_restore_rejects_backup_older_than_a_completed_project_deletion(source, tmp_path):
+    from ophira_backend.auth import ProjectAccessStore
+    from ophira_backend.project_deletion import ProjectDeletionService
+    from ophira_backend.project_deletion_models import ProjectDeletionRequest
+
+    data, plugin, ledger, *_ = source
+    removed = ledger.create_project(ProjectCreate(name="Erase after backup", objective="Fixture"))
+    old = make_backup(source, tmp_path)
+    service = ProjectDeletionService(ledger, ProjectAccessStore(data / "auth/projects"))
+    preview = service.preview(removed.id, None)
+    assert preview.can_delete, preview.blockers
+    deleted = service.start(removed.id, ProjectDeletionRequest(
+        operation_id=str(uuid4()), fingerprint=preview.fingerprint,
+        confirmation_name=removed.name, reason="fixture deletion",
+    ), None)
+    assert deleted.status == "deleted"
+    with pytest.raises(BackupError, match="deletion_register_mismatch"):
+        backup.restore_backup(old, tmp_path / "old-restore", current_data_dir=data)
+    assert not (tmp_path / "old-restore").exists()
+
+    recent = tmp_path / "recent-backup"
+    backup.create_backup(data, plugin, recent)
+    recovered = tmp_path / "recent-restore"
+    result = backup.restore_backup(recent, recovered, current_data_dir=data)
+    assert result["deletion_reconciliation"] == {
+        "scope": "project_and_conversation",
+        "project_deletions": 1, "conversation_deletions": 0,
+    }
+    assert not (recovered / "data/projects" / removed.id).exists()
+
+
+def test_restore_rejects_backup_older_than_a_completed_conversation_deletion(
+    source, tmp_path,
+):
+    from ophira_backend.auth import ProjectAccessStore
+    from ophira_backend.conversation_deletion import ConversationDeletionService
+    from ophira_backend.project_deletion_models import ProjectDeletionRequest
+
+    data, plugin, ledger, *_ = source
+    project = ledger.create_project(
+        ProjectCreate(name="Conversation later erased", objective="Fixture")
+    )
+    removed = ledger.create_run(project.id, "Delete this conversation after backup")
+    ledger.update_run(removed.id, status=RunStatus.COMPLETED, finished_at=utc_now())
+    old = make_backup(source, tmp_path)
+    service = ConversationDeletionService(ledger, ProjectAccessStore(data / "auth/projects"))
+    preview = service.preview(project.id, removed.id, None)
+    assert preview.can_delete, preview.blockers
+    deleted = service.start(project.id, removed.id, ProjectDeletionRequest(
+        operation_id=str(uuid4()), fingerprint=preview.fingerprint,
+        confirmation_name=project.name, reason="fixture deletion",
+    ), None)
+    assert deleted.status == "deleted"
+    with pytest.raises(BackupError, match="deletion_register_mismatch"):
+        backup.restore_backup(old, tmp_path / "old-restore", current_data_dir=data)
+    assert not (tmp_path / "old-restore").exists()
+
+    recent = tmp_path / "recent-backup"
+    backup.create_backup(data, plugin, recent)
+    result = backup.restore_backup(
+        recent, tmp_path / "recent-restore", current_data_dir=data,
+    )
+    assert result["deletion_reconciliation"]["conversation_deletions"] == 1
 
 
 def test_cli_rejects_invalid_private_record_without_printing_contents(source, tmp_path):
@@ -946,6 +1111,7 @@ def test_cli_rejects_invalid_private_record_without_printing_contents(source, tm
             str(archive),
             "--output",
             str(tmp_path / "restored"),
+            "--acknowledge-unreconciled-history",
         ],
         cwd=tmp_path,
         env={
