@@ -208,6 +208,14 @@ and delegated scratch reads receive neither receipts nor trusted receipt context
 Aggregate native-search responses retain an honest `ophira-search://` canonical source;
 the Green Path verifier accepts it only when the Evidence points to an integrity-checked
 Web receipt issued by the same Run.
+
+`ophira_fx.get_ecb_fx_reference` retrieves the ECB's public EUR reference-rate CSV
+without credentials and returns a dated EUR rate or a same-date derived cross rate.
+It rejects missing, mismatched, future, and more than seven-day-old observations;
+the host attaches a Run/session-bound source receipt to successful results. These
+rates are for information, not transaction quotes. See
+[FX reference rates](../docs/fx-reference-rates.md) for source and limitations.
+
 Receipts can be listed and replayed read-only at
 `GET /api/projects/{project_id}/source-receipts` and
 `GET /api/projects/{project_id}/source-receipts/{receipt_id}`. Authenticated receipts

@@ -23,6 +23,7 @@ from pydantic import Field, ValidationError, model_validator
 from .commercial_adapters import CommercialTargetObservation
 from .constants import (
     TOOL_FETCH_PAGE_SNAPSHOT,
+    TOOL_GET_ECB_FX_REFERENCE,
     TOOL_READ_COMMERCIAL_TARGET,
     TOOL_SEARCH_PUBLIC_WEB,
     CommercialActionOperation,
@@ -43,7 +44,8 @@ from .storage import (
 from .untrusted import UntrustedSource, sanitize_untrusted_payload
 
 RECEIPT_WEB_TOOLS = frozenset(
-    {"WebSearch", "WebFetch", TOOL_SEARCH_PUBLIC_WEB, TOOL_FETCH_PAGE_SNAPSHOT}
+    {"WebSearch", "WebFetch", TOOL_SEARCH_PUBLIC_WEB, TOOL_FETCH_PAGE_SNAPSHOT,
+     TOOL_GET_ECB_FX_REFERENCE}
 )
 SOURCE_RECEIPT_MARKER = "OPHIRA_SOURCE_RECEIPT_ID"
 MAX_MODEL_VISIBLE_SOURCE_RECEIPTS = 20
@@ -294,7 +296,8 @@ def _receipt_id(receipt: ToolReceipt) -> dict[str, str]:
 def _metadata(payload: Any, tool_input: dict[str, Any]) -> dict[str, Any]:
     result: dict[str, Any] = {}
     if isinstance(payload, dict):
-        for key in ("title", "provider", "content_type", "browser_level"):
+        for key in ("title", "provider", "content_type", "browser_level",
+                    "observation_date", "base_currency", "quote_currency"):
             value = payload.get(key)
             if isinstance(value, (str, int, float, bool)) or value is None:
                 result[key] = value
@@ -429,7 +432,11 @@ def _annotate_fetch_payload(
         tool_input,
         payload,
         canonical_source=source,
-        object_type="web_page_snapshot",
+        object_type=(
+            "fx_reference_observation"
+            if tool_name == TOOL_GET_ECB_FX_REFERENCE
+            else "web_page_snapshot"
+        ),
     )
     issued_receipt_ids.append(receipt.id)
     if isinstance(payload, dict):

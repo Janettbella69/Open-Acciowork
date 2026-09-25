@@ -323,6 +323,7 @@ SUPPLIER_MCP_SERVER_NAME = "ophira_supplier"
 CUSTOMER_MCP_SERVER_NAME = "ophira_customer"
 COMMERCE_MATH_MCP_SERVER_NAME = "ophira_commerce_math"
 WEB_MCP_SERVER_NAME = "ophira_web"
+FX_MCP_SERVER_NAME = "ophira_fx"
 AUTOMATION_MCP_SERVER_NAME = "ophira_automation"
 COMPLIANCE_MCP_SERVER_NAME = "ophira_compliance"
 BROWSER_MCP_SERVER_NAME = "ophira_browser"
@@ -351,6 +352,7 @@ TOOL_SEARCH_PROJECT_SESSIONS = "mcp__ophira_ledger__search_project_sessions"
 
 TOOL_SEARCH_PUBLIC_WEB = "mcp__ophira_web__search_public_web"
 TOOL_FETCH_PAGE_SNAPSHOT = "mcp__ophira_web__fetch_page_snapshot"
+TOOL_GET_ECB_FX_REFERENCE = "mcp__ophira_fx__get_ecb_fx_reference"
 
 TOOL_COMPARE_SUPPLIER_QUOTES = "mcp__ophira_supplier__compare_supplier_quotes"
 TOOL_SEARCH_SUPPLIERS = "mcp__ophira_supplier__search_suppliers"
@@ -447,6 +449,8 @@ WEB_TOOL_NAMES = [
     TOOL_FETCH_PAGE_SNAPSHOT,
 ]
 
+FX_TOOL_NAMES = [TOOL_GET_ECB_FX_REFERENCE]
+
 TOOL_CREATE_SCHEDULE = "mcp__ophira_automation__create_schedule"
 TOOL_PAUSE_SCHEDULE = "mcp__ophira_automation__pause_schedule"
 TOOL_CREATE_STANDING_INTENT = "mcp__ophira_automation__create_standing_intent"
@@ -482,6 +486,7 @@ OPHIRA_TOOL_NAMES = [
     *MEMORY_TOOL_NAMES,
     *DOMAIN_TOOL_NAMES,
     *WEB_TOOL_NAMES,
+    *FX_TOOL_NAMES,
     *AUTOMATION_TOOL_NAMES,
     *BROWSER_TOOL_NAMES,
     *MEDIA_TOOL_NAMES,
@@ -510,6 +515,7 @@ READ_ONLY_MCP_TOOL_NAMES = [
     *PRESENTATION_TOOL_NAMES,
     # FR-23 fallback retrieval: public read-only, same trust level as native Web tools.
     *WEB_TOOL_NAMES,
+    *FX_TOOL_NAMES,
 ]
 
 READ_ONLY_BUILTIN_TOOLS = ["Read", "Glob", "Grep", "WebSearch", "WebFetch"]

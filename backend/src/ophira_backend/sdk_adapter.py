@@ -56,6 +56,7 @@ from .constants import (
     SHELL_BUILTIN_TOOLS,
     TOOL_ACT_ON_PAGE,
     TOOL_FETCH_PAGE_SNAPSHOT,
+    TOOL_GET_ECB_FX_REFERENCE,
     TOOL_GET_PROJECT_CONTEXT,
     TOOL_LIST_STANDING_INTENTS,
     TOOL_READ_MARKETPLACE,
@@ -197,7 +198,7 @@ _UNTRUSTED_LEDGER_TOOL_NAMES = frozenset(
 )
 _UNTRUSTED_JSON_TOOL_NAMES = frozenset(
     {*_UNTRUSTED_LEDGER_TOOL_NAMES, TOOL_SEARCH_PUBLIC_WEB, TOOL_FETCH_PAGE_SNAPSHOT,
-     TOOL_READ_MARKETPLACE}
+     TOOL_GET_ECB_FX_REFERENCE, TOOL_READ_MARKETPLACE}
 )
 
 
@@ -217,7 +218,7 @@ def _post_tool_untrusted_source(
         return UntrustedSource.WEB_PAGE
     if tool_name == TOOL_SEARCH_PUBLIC_WEB:
         return UntrustedSource.WEB_SEARCH
-    if tool_name == TOOL_FETCH_PAGE_SNAPSHOT:
+    if tool_name in {TOOL_FETCH_PAGE_SNAPSHOT, TOOL_GET_ECB_FX_REFERENCE}:
         return UntrustedSource.WEB_PAGE
     if tool_name == TOOL_READ_MARKETPLACE:
         return UntrustedSource.MARKETPLACE_PAGE

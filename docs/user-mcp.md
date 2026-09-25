@@ -42,5 +42,14 @@ compaction, and standing-intent Runs receive no user MCP servers.
   checks every remote request. Live compatibility of stateful remote servers
   needs acceptance testing; the gateway currently starts a fresh MCP session
   for each tool call.
+- The installed MCP Python SDK 1.29.0 advertises protocol `2025-11-25`, and
+  the gateway uses an `initialize` exchange for each call. The [2026-07-28 MCP
+  specification](https://modelcontextprotocol.io/specification/2026-07-28/basic/versioning)
+  introduced a handshake-free HTTP path; the [Python SDK v2 migration
+  guide](https://github.com/modelcontextprotocol/python-sdk/blob/main/docs/migration.md)
+  describes that compatibility boundary. A server requiring only the new path
+  has not been certified here. Moving the gateway to SDK v2 also requires
+  checking the Claude Agent SDK's in-process MCP API and Provider contracts,
+  so it remains deferred.
 - OAuth authorization and token refresh are not implemented; the advanced form
   accepts a user-supplied bearer token only.

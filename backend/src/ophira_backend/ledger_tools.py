@@ -17,6 +17,7 @@ from .constants import (
     COMMERCIAL_ACTION_MCP_SERVER_NAME,
     COMPLIANCE_MCP_SERVER_NAME,
     CUSTOMER_MCP_SERVER_NAME,
+    FX_MCP_SERVER_NAME,
     LEDGER_MCP_SERVER_NAME,
     MEDIA_MCP_SERVER_NAME,
     PRESENTATION_MCP_SERVER_NAME,
@@ -1423,10 +1424,12 @@ def build_mcp_servers(
     if settings is not None:
         from .browser_tools import build_browser_mcp_server
         from .compliance_tools import build_compliance_mcp_server
+        from .fx_rates import build_fx_mcp_server
         from .media_tools import build_media_mcp_server
         from .web_tools import build_web_mcp_server
 
         servers[WEB_MCP_SERVER_NAME] = build_web_mcp_server(settings)
+        servers[FX_MCP_SERVER_NAME] = build_fx_mcp_server(settings)
         servers[COMPLIANCE_MCP_SERVER_NAME] = build_compliance_mcp_server()
         org_policy = policy or OrgPolicy()
         if org_policy.browser_enabled:

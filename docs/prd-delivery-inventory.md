@@ -21,7 +21,7 @@
 | FR-08 隔离 | delivered：项目路径、符号链接、独立 worker 配置 | deferred：生产 worker 资源包络与租户物理隔离演练 |
 | FR-09 来源账本 | delivered：同 Run/session 的服务器 source receipt | 保持来源、失效、回放和内容完整性回归 |
 | FR-10 决策 | delivered：证据关联与失效联动 | 开放任务质量另行验收 |
-| FR-11 领域 MCP | delivered：确定性商业计算、用户记录加工、显式结算计划的现金流/日末与保守日内资金缺口；TikTok Shop项目指定店铺的主Agent只读MCP与来源凭证 | deferred：真实供应商/客户/市场/法规/物流/汇率授权数据适配及已实现商家接口的真实验收 |
+| FR-11 领域 MCP | delivered：确定性商业计算、用户记录加工、显式结算计划的现金流/日末与保守日内资金缺口；TikTok Shop项目指定店铺的主Agent只读MCP与来源凭证；ECB公开参考汇率的日期匹配/过期拒绝、欧元交叉计算及同Run来源凭证（见 `docs/fx-reference-rates.md`） | deferred：真实供应商/客户/市场/法规/物流/交易汇率授权数据适配及已实现商家接口的真实验收；本工作区公网DNS被安全策略拒绝，尚未完成汇率工具的完整在线调用 |
 | FR-12 Skill 生命周期 | delivered：发现/启停/扫描/不可变版本/配额/租约/回滚；13个内置Skill的证据参考与输出模板、固定包原生只读访问；Agent候选冻结、人审发布默认关闭、凭证恢复与独立审阅UI；独立Skill备份及含项目账本/候选库的应用冷备份、新进程恢复 | deferred：真实模型提案质量、真端点回滚重跑、跨宿主/生产恢复及其余子系统的恢复认证 |
 | FR-13 权限 | delivered：范围/有效期/审计、删除确认、沙箱拒绝逃逸；可信设备单次审批；原生SDK持久等待、原Run恢复、跨进程决议竞争、消费前撤销复验；工作台内切换组织授权模式，仅 SDK 原生 default/auto 两档 | deferred：真实远程审批与生产故障矩阵；原生多工具批次须拆为单次审批 |
 | FR-14 记忆 | delivered：提案人审、TTL/过期/检索/导出/删除恢复；跨进程scope事务、批准容量一致校验、中英文导出/续期/停用/确认删除UI与真实本地HTTP/浏览器验收 | deferred：真实蒸馏质量、生产备份删除边界与恢复演练 |
@@ -50,7 +50,7 @@
 | FR-30 任务进度 | delivered（本地）：钉版 SDK 原生 Task/Todo 工具允许与事件回放清单；主 Run/失败过滤测试 | deferred：真实 Provider 产出任务清单、浏览器刷新验收 |
 | FR-31 运行中插话 | delivered（本地代码/离线测试，2026-09-24）：用户消息先入 Run 事件序列，支持当前 SDK 流会话发送、排到下一轮及中断后替换；跨 worker 由持有会话的进程接收，具备 SDK session 的交互 Run 在实时投递不可用时自动启动同会话下一 Run；请求幂等、投递不确定/设备授权撤销状态、原 Run 回放和续行跳转、桌面及获准发起任务的配对手机入口均已覆盖 | deferred：真实 Provider 的中途插话/打断语义、浏览器与手机 HTTPS 目视验收；SDK 写入与持久确认之间的崩溃窗口只能标为不确定，不能盲目重试 |
 | FR-32 并行任务列表 | delivered（本地列表）：新任务不取消旧 Run；授权过滤列表展示独立 Run 状态、审批、预算、已报告的 SDK 费用和结果，精确 Run 跳转 | deferred：运行中的可靠实时花费、真实多个 SDK Run 并发、预算熔断与浏览器验收 |
-| FR-33 用户 MCP/连接器 | partial（本地）：项目级目录首项一键添加+在线工具清单审查、进阶 HTTPS/Bearer 配置、组织主机白名单、逐工具允许/每次询问/禁止、撤销、Run 快照与 SDK 显式装配；运行期经每次地址钉住的受控 MCP 网关，外部输出不可信过滤；见 `docs/user-mcp.md` | deferred：真实 MCP/Provider E2E、OAuth、更多已验证目录项、状态型服务器兼容与浏览器目视验收 |
+| FR-33 用户 MCP/连接器 | partial（本地）：项目级目录首项一键添加+在线工具清单审查、进阶 HTTPS/Bearer 配置、组织主机白名单、逐工具允许/每次询问/禁止、撤销、Run 快照与 SDK 显式装配；运行期经每次地址钉住的受控 MCP 网关，外部输出不可信过滤；见 `docs/user-mcp.md` | deferred：真实 MCP/Provider E2E、OAuth、更多已验证目录项、状态型服务器兼容与浏览器目视验收；当前 MCP Python SDK 1.x 网关按旧握手/逐调用新会话运行，尚未迁移到 2026-07-28 无握手协议，见 `docs/user-mcp.md` |
 | FR-34 上下文压缩 | delivered（本地代码/离线测试，2026-09-24）：钉版 SDK `get_context_usage()` 采样有效窗口占用并随 Run 事件回放；原生压缩边界事件提示自动/手动压缩、崩溃后修复 epoch 并强制完整业务上下文刷新；用户可在已完成会话启动独立无工具 `/compact` Run，只有 SDK 手动边界确认才算成功，账本及产物不被压缩 Run 改写 | deferred：真实 Provider 用量/手动与自动压缩语义、长时采样及浏览器目视验收；SDK 不提供用量时显示未知，不从累计 token 推算 |
 | FR-35 会话检索 | delivered（本地）：项目内有界 Run 提问、用户插话、主 Agent 回复与结果检索，RUN_READ 校验、只读 MCP、Run ID 回放及截断提示 | deferred：大历史性能/覆盖、浏览器与真实会话质量验收 |
 | FR-36 首次引导 | delivered（本地）：示例任务、模型选择及设置页密钥/条款/预检/返回步骤 | deferred：新用户可用性测试和实际 Provider 配置 E2E |
@@ -61,7 +61,7 @@
 | FR-41 发布网页 | partial（本地）：不可变 HTML 产物版本按校验和暂存，沙箱预览后由项目管理员明确批准；独立 HTTPS 域名公开、无缓存与脚本/表单隔离，持久撤回及项目删除清理；见 `docs/site-publications.md` | deferred：真实公网部署、浏览器/缓存验收；动态脚本和远程资源需要隔离的发布运行时，现仅支持自包含静态页面 |
 | FR-42 L3 桌面 GUI | deferred：未实现 | 桌面壳、OS 授权及 L1/L2 证据/域策略复用未做 |
 
-2026-09-24 自动化：后端全量（排除在文件沙箱内无法 `bind` 的 socket 专项）`2179 passed / 13 skipped`；socket 专项在允许绑定环境中 `9 passed`。FR-33 专项 `14 passed`，Ruff 通过。前端全量 `513 passed / 51 files`、ESLint 与 TypeScript/Vite 通过。浏览器工具实例不可用，未完成目视验收；公开 MCP 真握手因本机 DNS 解析为非公网地址而安全拒绝。未使用付费模型或真实凭据。尚不能声称 PRD 全部功能完成。
+2026-09-24 自动化：后端全量在文件沙箱内 `2259 passed / 13 skipped / 4 failed`，4 项均为 Unix socket `bind` 权限失败；整个 socket 专项在允许绑定环境中 `9 passed`。FR-11 ECB 汇率专项及来源凭证回归已通过，Ruff 与 `pip check` 通过。前端上次全量 `513 passed / 51 files`、ESLint 与 TypeScript/Vite 通过，本轮未改前端。浏览器工具实例不可用，未完成目视验收；公开 MCP 真握手及汇率工具在线调用均因本机 DNS 解析为非公网地址而安全拒绝，ECB 公开 CSV 已另行获取并通过真实格式解析。未使用付费模型或真实凭据。尚不能声称 PRD 全部功能完成。
 
 2026-09-24 FR-37 增量：最终事件专项 `8 passed`，权限/SDK 相关定向 `45 passed`，Ruff 通过。后端全量在最后小范围修正前 `2186 passed / 13 skipped`，socket 专项在允许绑定环境中 `9 passed`。前端全量在最后权限选项调整前 `515 passed / 52 files`；随后事件/定时任务定向 `13 passed`，ESLint 与 TypeScript/Vite 通过；本地桌面和手机 Chromium 已完成页面目视及创建/密钥交互。真实 Provider/邮箱/店铺和公共 HTTPS 仍未验收。
 
