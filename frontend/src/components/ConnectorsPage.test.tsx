@@ -25,11 +25,11 @@ vi.mock('../api/client', () => ({
 import { checkConnectorHealth, getShopifyOAuthStatus, listConnectors, listMarketplaceGuides, listProjects, revokeConnector } from '../api/client'
 
 const connector: Connector = {
-  id: 'connector_outlook',
-  type: 'outlook',
-  display_name: 'Outlook Inbox',
-  scope: 'mail:read',
-  secret_env: 'OPHIRA_CONNECTOR_OUTLOOK_KEY',
+  id: 'connector_search',
+  type: 'search',
+  display_name: 'Public web search',
+  scope: 'web:search',
+  secret_env: 'OPHIRA_SEARCH_API_KEY',
   endpoint: null,
   enabled: true,
   health: 'unknown',
@@ -61,13 +61,13 @@ describe('ConnectorsPage', () => {
   it('lists credential-safe connector metadata and performs a health check', async () => {
     render(<ConnectorsPage />)
 
-    const card = (await screen.findByText('Outlook Inbox')).closest('article')!
-    expect(screen.getByText('OPHIRA_CONNECTOR_OUTLOOK_KEY')).toBeInTheDocument()
+    const card = (await screen.findByText('Public web search')).closest('article')!
+    expect(screen.getByText('OPHIRA_SEARCH_API_KEY')).toBeInTheDocument()
     expect(screen.getByText('Not verified')).toBeInTheDocument()
     expect(screen.getByText('Configure store access')).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: /check configuration/i }))
-    await waitFor(() => expect(checkConnectorHealth).toHaveBeenCalledWith('connector_outlook'))
+    await waitFor(() => expect(checkConnectorHealth).toHaveBeenCalledWith('connector_search'))
     expect(card.querySelector('[data-health="ok"]')).toHaveTextContent('Configured · not verified')
     expect(screen.queryByText('Connected')).not.toBeInTheDocument()
   })
@@ -76,10 +76,10 @@ describe('ConnectorsPage', () => {
     vi.mocked(listConnectors).mockResolvedValue([connector])
     render(<ConnectorsPage />)
 
-    await screen.findByText('Outlook Inbox')
+    await screen.findByText('Public web search')
     fireEvent.click(screen.getByRole('button', { name: 'Revoke' }))
 
-    await waitFor(() => expect(revokeConnector).toHaveBeenCalledWith('connector_outlook'))
+    await waitFor(() => expect(revokeConnector).toHaveBeenCalledWith('connector_search'))
     expect(screen.getByText('Revoked')).toBeInTheDocument()
     expect(screen.getByText(/cannot be restored here/i)).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /check configuration/i })).not.toBeInTheDocument()

@@ -18,6 +18,7 @@ import { memoryZh } from './memory-zh'
 import { deletionZh } from './deletion-zh'
 import { mcpZh } from './mcp-zh'
 import { eventTriggersZh } from './event-triggers-zh'
+import { outlookZh } from './outlook-zh'
 import { voiceZh } from './voice-zh'
 import { sitePublicationsZh } from './site-publications-zh'
 import { pluginImportsZh } from './plugin-imports-zh'
@@ -28,6 +29,7 @@ export const zh: Record<string, string> = {
   ...sitePublicationsZh,
   ...voiceZh,
   ...eventTriggersZh,
+  ...outlookZh,
   ...mcpZh,
   ...deletionZh,
   ...memoryZh,

@@ -230,12 +230,14 @@ def _validate_plan_paths(plan):
         fixed = path in {
             f"auth/marketplaces/{project}.json",
             f"auth/gmail/{project}.json",
+            f"auth/outlook/{project}.json",
             f"collaboration/comments/{project}.json",
         }
         temporary = (
             len(parts) == 3
             and "/".join(parts[:2]) in {
-                "auth/marketplaces", "auth/gmail", "collaboration/comments",
+                "auth/marketplaces", "auth/gmail", "auth/outlook",
+                "collaboration/comments",
             }
             and parts[-1].startswith(f".{project}.json.")
         )

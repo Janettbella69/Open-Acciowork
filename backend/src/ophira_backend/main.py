@@ -230,6 +230,9 @@ from .models import (
     new_id,
     utc_now,
 )
+from .outlook import OUTLOOK_CALLBACK_RE, OutlookService
+from .outlook_access import OutlookAccessService
+from .outlook_api import register_outlook_routes
 from .permissions import PermissionBroker, PermissionNotFoundError
 from .policy import OrgPolicyStore, PolicyDeniedError
 from .presentation_tools import PRESENTATION_COMPONENTS, PRESENTATION_SCHEMA_VERSION
@@ -496,6 +499,10 @@ def _create_app(
     gmail_access = GmailAccessService(
         ledger, gmail, settings=settings, access=project_access,
     )
+    outlook = OutlookService(settings, connectors)
+    outlook_access = OutlookAccessService(
+        ledger, outlook, settings=settings, access=project_access,
+    )
     if settings.auth_mode == "local_only":
         loopback_host = (
             f"[{settings.host}]" if ":" in settings.host else settings.host
@@ -538,6 +545,7 @@ def _create_app(
         user_mcp=user_mcp,
         marketplace_access=marketplace_access,
         gmail_access=gmail_access,
+        outlook_access=outlook_access,
         shop_browsers=shop_browsers,
         policy=policy,
         commercial_actions=commercial_actions,
@@ -608,7 +616,10 @@ def _create_app(
                                 try:
                                     yield
                                 finally:
-                                    await gmail.stop()
+                                    try:
+                                        await gmail.stop()
+                                    finally:
+                                        await outlook.close()
                             finally:
                                 await companion_push.stop()
                         finally:
@@ -651,6 +662,8 @@ def _create_app(
     application.state.connectors = connectors
     application.state.gmail = gmail
     application.state.gmail_access = gmail_access
+    application.state.outlook = outlook
+    application.state.outlook_access = outlook_access
     application.state.user_mcp = user_mcp
     application.state.notifications = notifications
     application.state.intents = intents
@@ -856,6 +869,17 @@ def _create_app(
             response.headers["Referrer-Policy"] = "no-referrer"
             return response
         if request.method == "GET" and GMAIL_CALLBACK_RE.fullmatch(path):
+            expected_host = urlsplit(settings.event_public_origin or "").netloc
+            if (
+                settings.auth_mode != "trusted_gateway" or not expected_host
+                or request.headers.get("host", "").casefold() != expected_host.casefold()
+            ):
+                return JSONResponse(status_code=404, content={"detail": "Not found"})
+            response = await call_next(request)
+            response.headers["Cache-Control"] = "no-store"
+            response.headers["Referrer-Policy"] = "no-referrer"
+            return response
+        if request.method == "GET" and OUTLOOK_CALLBACK_RE.fullmatch(path):
             expected_host = urlsplit(settings.event_public_origin or "").netloc
             if (
                 settings.auth_mode != "trusted_gateway" or not expected_host
@@ -2136,12 +2160,15 @@ def _create_app(
                 prior_type = connectors.get(connector_id).type
             except ConnectorNotFoundError:
                 prior_type = None
-            if payload.type == "gmail" or prior_type == "gmail":
-                raise HTTPException(403, "Tenant administrator required for Gmail")
+            if payload.type in {"gmail", "outlook"} or prior_type in {"gmail", "outlook"}:
+                raise HTTPException(403, "Tenant administrator required for mailbox")
         if principal is not None:
             owned, owner = gmail.token_owner(connector_id)
             if owned and owner != principal.tenant_id:
                 raise HTTPException(403, "Gmail account is outside this tenant")
+            owned, owner = outlook.token_owner(connector_id)
+            if owned and owner != principal.tenant_id:
+                raise HTTPException(403, "Outlook account is outside this tenant")
         try:
             return connectors.upsert(
                 connector_id,
@@ -2162,12 +2189,15 @@ def _create_app(
             owned, owner = gmail.token_owner(connector_id)
             if owned and owner != principal.tenant_id:
                 raise HTTPException(403, "Gmail account is outside this tenant")
+            owned, owner = outlook.token_owner(connector_id)
+            if owned and owner != principal.tenant_id:
+                raise HTTPException(403, "Outlook account is outside this tenant")
         if principal is not None and principal.role not in {
             PrincipalRole.OWNER, PrincipalRole.ADMIN,
         }:
             try:
-                if connectors.get(connector_id).type == "gmail":
-                    raise HTTPException(403, "Tenant administrator required for Gmail")
+                if connectors.get(connector_id).type in {"gmail", "outlook"}:
+                    raise HTTPException(403, "Tenant administrator required for mailbox")
             except ConnectorNotFoundError:
                 pass
         try:
@@ -3767,6 +3797,10 @@ def _create_app(
         require_project_authorization=require_project_authorization,
         read_bounded_body=_read_bounded_body, dispatch=dispatch_event_trigger,
         authorize_trigger=authorize_gmail_trigger,
+    )
+    register_outlook_routes(
+        application, service=outlook, access=outlook_access,
+        require_project_authorization=require_project_authorization,
     )
 
     @application.post("/api/projects/{project_id}/event-triggers/{trigger_id}/deliver")

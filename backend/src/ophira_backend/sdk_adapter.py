@@ -63,6 +63,7 @@ from .constants import (
     TOOL_LIST_STANDING_INTENTS,
     TOOL_READ_GMAIL,
     TOOL_READ_MARKETPLACE,
+    TOOL_READ_OUTLOOK,
     TOOL_READ_SOURCE_RECEIPT,
     TOOL_SEARCH_EVIDENCE,
     TOOL_SEARCH_PROJECT_KNOWLEDGE,
@@ -102,6 +103,7 @@ from .models import (
     utc_now,
 )
 from .native_hooks import NativeHookBridge
+from .outlook_access import OutlookAccessService
 from .permissions import PermissionBroker
 from .policy import OrgPolicyStore
 from .presentation_tools import presentation_event_response, presentation_frame_event
@@ -207,7 +209,8 @@ _UNTRUSTED_LEDGER_TOOL_NAMES = frozenset(
 )
 _UNTRUSTED_JSON_TOOL_NAMES = frozenset(
     {*_UNTRUSTED_LEDGER_TOOL_NAMES, TOOL_SEARCH_PUBLIC_WEB, TOOL_FETCH_PAGE_SNAPSHOT,
-     TOOL_GET_ECB_FX_REFERENCE, TOOL_READ_MARKETPLACE, TOOL_READ_GMAIL}
+     TOOL_GET_ECB_FX_REFERENCE, TOOL_READ_MARKETPLACE, TOOL_READ_GMAIL,
+     TOOL_READ_OUTLOOK}
 )
 
 
@@ -233,6 +236,8 @@ def _post_tool_untrusted_source(
         return UntrustedSource.MARKETPLACE_PAGE
     if tool_name == TOOL_READ_GMAIL:
         return UntrustedSource.GMAIL_PAGE
+    if tool_name == TOOL_READ_OUTLOOK:
+        return UntrustedSource.OUTLOOK_PAGE
     if tool_name in {TOOL_SNAPSHOT_PAGE, TOOL_ACT_ON_PAGE} and (
         tool_input.get("shop_id") or tool_input.get("list_shops")
     ):
@@ -268,7 +273,8 @@ def _is_subagent_restricted_tool(tool_name: str) -> bool:
     # Private connector reads mint receipts for the main SDK session. Research
     # branches work from the main Agent's returned observations.
     if (
-        tool_name in {TOOL_SNAPSHOT_PAGE, TOOL_READ_MARKETPLACE, TOOL_READ_GMAIL}
+        tool_name in {TOOL_SNAPSHOT_PAGE, TOOL_READ_MARKETPLACE, TOOL_READ_GMAIL,
+                      TOOL_READ_OUTLOOK}
         or tool_name in PRESENTATION_TOOL_NAMES
     ):
         return True
@@ -319,6 +325,7 @@ class ClaudeAgentRuntime:
         skill_proposals: SkillProposalService | None = None,
         marketplace_access: MarketplaceAccessService | None = None,
         gmail_access: GmailAccessService | None = None,
+        outlook_access: OutlookAccessService | None = None,
         shop_browsers: ShopBrowserService | None = None,
         user_mcp: UserMcpRegistry | None = None,
         desktop_control: DesktopControl | None = None,
@@ -357,6 +364,7 @@ class ClaudeAgentRuntime:
             else None
         )
         self.gmail_access = gmail_access
+        self.outlook_access = outlook_access
         self.policy = policy or OrgPolicyStore(settings.data_dir / "org" / "policy.json")
         self.shop_browsers = shop_browsers or (
             ShopBrowserService(self.marketplace_access, self.policy)
@@ -1137,6 +1145,7 @@ class ClaudeAgentRuntime:
                 skill_proposals=self.skill_proposals,
                 marketplace_access=self.marketplace_access,
                 gmail_access=self.gmail_access,
+                outlook_access=self.outlook_access,
                 shop_browsers=self.shop_browsers,
             )
         )

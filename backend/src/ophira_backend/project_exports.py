@@ -38,6 +38,7 @@ from .models import (
     ToolReceipt,
     utc_now,
 )
+from .outlook_access import OutlookAccessRecord
 from .project_comments import CommentLedger
 from .project_deletion_proofs import proof_hash
 from .project_export_capture import ExportCapture, json_bytes
@@ -305,6 +306,8 @@ class ProjectExports:
              MarketplaceAccessRecord),
             (f"auth/gmail/{project.id}.json", "access/gmail.json", "access",
              GmailAccessRecord),
+            (f"auth/outlook/{project.id}.json", "access/outlook.json", "access",
+             OutlookAccessRecord),
             (f"collaboration/comments/{project.id}.json", "comments.json", "collaboration",
              CommentLedger),
         ):

@@ -188,7 +188,7 @@ Accio Work 官方对标口径为 "agentic platforms like Claude Cowork and OpenC
 | Skill 自创建 | ◐ 用户发起 | ? | ◐ 演示后生成 | ✅ | ✅ | 已实现：Agent 提案，人审后发布（FR-12） |
 | 记忆写入 | 自动 | 自动 | 自动 | 自动，可开人审 | 自动 | 强制人审（FR-14） |
 | 会话检索 | ◐ | ✅ | ◐ | ✅ | ✅ | 未实现（FR-35） |
-| 事件触发 | ✅ | ? | ✅ | ✅ | ✅ | 部分实现：飞书入站、项目级签名 webhook、规范化询盘和订单事件、Mailgun 收件路由验签，以及 Shopify 订单原生验签与店铺级订阅管理；Gmail 和其他店铺原生订阅、真实服务验收待做（FR-37） |
+| 事件触发 | ✅ | ? | ✅ | ✅ | ✅ | 部分实现：飞书入站、项目级签名 webhook、规范化询盘和订单事件、Mailgun 收件路由验签、Shopify 订单原生验签与店铺级订阅管理、Gmail Inbox watch/Pub/Sub 增量触发；Outlook 和其他店铺原生订阅、真实服务验收待做（FR-37） |
 | 条件巡检（有变化才通知） | ◐ | ? | ◐ | ✅ | ✅ | 已实现（FR-26） |
 | 手机上看进度、插话 | ✅ | ✅ | ✅ | ◐ | ✅ | 部分实现：配对、审批、发起任务（FR-25） |
 | 国内 IM | 未见 | 未见 | 未见 | ✅ | ◐ | 部分实现：飞书本地闭环（FR-24、FR-38） |
@@ -409,7 +409,7 @@ Accio 同时也**抬高了 table stakes**：权限四态与审计日志、分层
 | FR-18 | P0 | 错误恢复 | 失败保留证据与产物，可重试/分支恢复，并分类 Provider/MCP/权限/网络错误 | **已实现**（本地代码/测试）：含运行前工作区快照、Bash 修改恢复，经人确认后恢复 |
 | FR-19 | P0/Beta | Deep Research | 显式启用恰好 3 个只读研究子代理；共享主 Run 预算、统一取消、墙钟时限；不设轮数上限；仅主 Agent 写最终台账 | **已实现**（本地代码/测试）：输入框显式开关、运行中资源面板（共享预算、已报告花费、剩余预算）；真实 DeepSeek 合成来源上的三单元验收已通过，开放互联网研究质量未验收 |
 | FR-20 | P1 | GUI 操作（L1/L2） | L1 独立 profile；L2 只接已启用且健康的 loopback Chrome CDP；域策略/SSRF/重定向防护；动作与截图进 Artifact/Evidence | **部分实现**：L1/L2 后端安全和账本路径已有测试，并于 2026-09-03 分别通过真实 Chromium/Chrome-CDP smoke acceptance；项目独立店铺 profile、用户登录确认、页面动作与来源落账已实现；2026-09-24 离线真实 Chromium/CDP 的禁止域脚本、私网/同源重定向和失败恢复子集通过，公网目标与更完整攻击矩阵仍未验收。L3 拆为 FR-42（P2） |
-| FR-21 | P1 | 连接器管理 | 管理能力、范围、凭据、健康状态与撤销；业务适配器按授权接入 | **部分实现**：catalog、vault、health/revoke、Chrome CDP，以及受 review/apply 治理的 HTTPS JSON `send_message` adapter；TikTok Shop、Shopify 店铺只读 adapter；Shopify 组织外商家授权码、回调验证与可刷新限时离线令牌；Gmail 只读 OAuth、项目邮箱授权与主 Agent Inbox 来源凭证均已本地实现。尚无授权 test-account 真实外发/商家同意验收及 Gmail 真账号/Provider 联调，TikTok Shop OAuth 和社媒等垂直 adapter 仍缺失 |
+| FR-21 | P1 | 连接器管理 | 管理能力、范围、凭据、健康状态与撤销；业务适配器按授权接入 | **部分实现**：catalog、vault、health/revoke、Chrome CDP，以及受 review/apply 治理的 HTTPS JSON `send_message` adapter；TikTok Shop、Shopify 店铺只读 adapter；Shopify 组织外商家授权码、回调验证与可刷新限时离线令牌；Gmail 与 Outlook 只读 OAuth、项目邮箱授权与主 Agent Inbox 来源凭证均已本地实现。尚无授权 test-account 真实外发/商家同意验收及邮箱真账号/Provider 联调，TikTok Shop OAuth 和 CRM/社媒等垂直 adapter 仍缺失 |
 | FR-22 | P2 | 组织治理 | 组织策略约束 Provider、Skill、浏览器、域和渠道，运行仍由一个主 Agent 负责 | **部分实现**：OrgPolicy、request-bound trusted-gateway principal、持久项目 membership/role 与 Provider/Skill/browser/channel 运行时门禁已有代码/测试；当前仅为单 deployment tenant，全球 store 未物理分租户且 `multi_tenant=false`。v2.3 按个人使用场景改为 P2 |
 | FR-23 | P0 | Web 能力降级 | 原生 Web 不可用时可走安全检索/抓取 MCP；能力等级显式呈现 | **部分实现**：Web MCP 有 URL/重定向/SSRF 防护与测试；真实搜索服务配置和 Provider 降级 E2E 未验证 |
 | FR-24 | P1 | IM 渠道 | 群内 @ 触发同一主 Agent Run，安全接收并回帖；支持权限与账本关联 | **部分实现**：飞书入站安全门、Run-bound 官方 reply adapter、durable delivery/retry，以及 signed-body tenant/chat/user → principal/project binding 均已本地实现并测试；尚无真实租户 E2E，微信未实现 |
@@ -425,7 +425,7 @@ Accio 同时也**抬高了 table stakes**：权限四态与审计日志、分层
 | FR-34 | P2 | 上下文用量显示与压缩 | 显示当前会话的上下文占用；支持手动压缩；自动压缩时在执行流里提示；压缩事件可回放，账本和产物不受影响 | **本地代码/离线测试已实现（2026-09-24）**：使用钉版 SDK `get_context_usage()` 采样当前窗口占用，原生 `compact_boundary` 事件持久化并在执行流提示；手动压缩只向同一会话发送 `/compact`，收到手动边界才成功；压缩 Run 无工具、MCP 或业务产物写入。真实 Provider 的用量和压缩行为、浏览器验收待做 |
 | FR-35 | P1 | 会话检索 | 用户和 Agent 可在项目内检索过去的会话和运行结果；只检索本项目并遵守权限；每条结果带 Run ID，可回溯到原运行 | **本地代码/测试已实现**：项目权限限定的有界 Run 提问/用户插话/主 Agent 回复/结果检索、只读 MCP 和 UI 精确 Run 回放；大历史的截断会明确提示，真实数据规模与浏览器验收待做 |
 | FR-36 | P1 | 首次使用引导 | 空状态页给出几个示例任务；一步步引导用户配置模型；新用户不看文档也能发起第一个任务（依据是目标用户为出海小白，不是对标产品） | **本地代码/测试已实现**：空状态示例与模型选择、设置页添加密钥/条款/预检/返回步骤；真实新用户可用性与 Provider 实测待做 |
-| FR-37 | P1 | 事件触发 | 外部事件可启动一次运行，例如收到询盘邮件、店铺来了新订单、调用了指定 webhook；每个触发器绑定项目、预算和权限策略；入站请求验证签名或来源并幂等去重；触发的运行仍是单主 Agent、走同一套权限，对外动作仍要先批准 | **部分实现（本地）**：项目级签名 webhook 与规范化询盘邮件/订单事件；Mailgun 收件路由原生表单验签、精确收件地址和持久去重；Shopify `orders/create` 原生验签入站、项目店铺授权绑定及管理员触发的订阅注册/核验/移除；HMAC/时间窗/持久去重、项目身份与预算/权限上限、前端管理；缺真实 Mailgun/Shopify/Provider 与公共 HTTPS 联调、Gmail/其他店铺原生订阅及部署验收，见 `docs/event-triggers.md` |
+| FR-37 | P1 | 事件触发 | 外部事件可启动一次运行，例如收到询盘邮件、店铺来了新订单、调用了指定 webhook；每个触发器绑定项目、预算和权限策略；入站请求验证签名或来源并幂等去重；触发的运行仍是单主 Agent、走同一套权限，对外动作仍要先批准 | **部分实现（本地）**：项目级签名 webhook 与规范化询盘邮件/订单事件；Mailgun 收件路由原生表单验签、精确收件地址和持久去重；Shopify `orders/create` 原生验签入站、项目店铺授权绑定及管理员触发的订阅注册/核验/移除；Gmail Inbox watch、Pub/Sub 验证与 history 增量触发；HMAC/时间窗/持久去重、项目身份与预算/权限上限、前端管理；缺真实 Mailgun/Shopify/Gmail/Provider 与公共 HTTPS 联调、Outlook/其他店铺原生订阅及部署验收，见 `docs/event-triggers.md` |
 | FR-38 | P1 | 钉钉和企微渠道 | 在飞书、微信之后接入钉钉、企微，复用飞书的入站安全校验、身份绑定和回复投递；每接一个渠道都满足 FR-24 的验收标准 | **部分实现（本地）**：钉钉官方 Stream SDK 与企微官方智能机器人 SDK 的认证入站、精确身份绑定、Run 启动、持久回复与重放/断线防护已有离线测试；微信路径、两个真实租户端到端及实际送达/轮换验收待完成，见 `docs/prd-delivery-inventory.md` |
 | FR-39 | P2 | 插件导入 | 支持导入官方插件格式（`.claude-plugin/plugin.json`，可带 Skills 和 MCP）；导入走现有安全扫描和人审；插件带的 MCP 受 FR-33 约束；插件里的子 Agent 定义不支持，导入时忽略并在结果里说明（红线：普通模式 `agents=None`） | **部分实现（本地）**：官方插件 ZIP 的多 Skill 暂存、逐件安全扫描/人审、远程 MCP 地址转入 FR-33 项目审核入口、子 Agent 与其它不支持组件明确忽略；Anthropic marketing 真包的 8 个 Skill 扫描通过、11 个远程 MCP 地址列出；仍缺远程 MCP/Provider 与部署验收，见 `docs/plugin-imports.md` |
 | FR-40 | P2 | 语音输入 | 先做语音输入，手机端优先；转写结果给用户确认后走普通消息流程 | **部分实现（本地）**：支持浏览器的语音识别接入手机任务/插话及工作台输入框，转写可编辑且需用户确认填入后再提交；真实手机麦克风、跨浏览器与 HTTPS 部署验收待做，见 `docs/voice-input.md` |

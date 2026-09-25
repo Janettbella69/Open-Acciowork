@@ -1126,6 +1126,63 @@ export function revokeGmailProjectAccess(projectId: string, grantId: string, rev
   })
 }
 
+export type OutlookOAuthStatus = {
+  authorized: boolean
+  email: string | null
+  callback_url: string | null
+}
+
+export function getOutlookOAuthStatus(id: string): Promise<OutlookOAuthStatus> {
+  return request(`/api/connectors/${encodeURIComponent(id)}/outlook-oauth`, { cache: 'no-store' })
+}
+
+export function startOutlookOAuth(id: string): Promise<{
+  authorization_url: string
+  callback_url: string
+}> {
+  return request(`/api/connectors/${encodeURIComponent(id)}/outlook-oauth/start`, {
+    method: 'POST', cache: 'no-store',
+  })
+}
+
+export type OutlookProjectGrant = {
+  id: string
+  connector_id: string
+  connector_revision: number
+  user_id: string
+  mailbox: string
+  created_by: string
+  created_at: string
+  expires_at: string
+  revoked_at: string | null
+  revoked_by: string | null
+  active: boolean
+}
+
+export type OutlookProjectAccess = {
+  project_id: string
+  revision: number
+  grants: OutlookProjectGrant[]
+}
+
+export function getOutlookProjectAccess(projectId: string): Promise<OutlookProjectAccess> {
+  return request(`/api/projects/${encodeURIComponent(projectId)}/outlook-access`, { cache: 'no-store' })
+}
+
+export function grantOutlookProjectAccess(projectId: string, input: {
+  expected_revision: number; connector_id: string; expires_in_seconds: number
+}): Promise<OutlookProjectAccess> {
+  return request(`/api/projects/${encodeURIComponent(projectId)}/outlook-access`, {
+    method: 'POST', body: JSON.stringify(input),
+  })
+}
+
+export function revokeOutlookProjectAccess(projectId: string, grantId: string, revision: number): Promise<OutlookProjectAccess> {
+  return request(`/api/projects/${encodeURIComponent(projectId)}/outlook-access/${encodeURIComponent(grantId)}/revoke`, {
+    method: 'POST', body: JSON.stringify({ expected_revision: revision }),
+  })
+}
+
 export type ShopifyOAuthStatus = {
   auth_mode: 'client_credentials' | 'merchant_oauth'
   authorized: boolean

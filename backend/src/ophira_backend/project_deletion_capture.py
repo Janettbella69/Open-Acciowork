@@ -388,6 +388,7 @@ def _capture_project_deletion(root: Path, project_id: str, *, limits=LIMITS) -> 
     for path in (
         f"auth/marketplaces/{project_id}.json",
         f"auth/gmail/{project_id}.json",
+        f"auth/outlook/{project_id}.json",
         f"collaboration/comments/{project_id}.json",
     ):
         value = capture.json(path, optional=True)
@@ -395,7 +396,8 @@ def _capture_project_deletion(root: Path, project_id: str, *, limits=LIMITS) -> 
             _scope(value, project)
             capture.entry(path, "access")
     # Known project-specific atomic staging beside flat canonical records.
-    for directory in ("auth/marketplaces", "auth/gmail", "collaboration/comments"):
+    for directory in ("auth/marketplaces", "auth/gmail", "auth/outlook",
+                      "collaboration/comments"):
         for name in capture.names(directory):
             if name.startswith(f".{project_id}.json.") and name.endswith(".tmp"):
                 capture.entry(f"{directory}/{name}", "staging")

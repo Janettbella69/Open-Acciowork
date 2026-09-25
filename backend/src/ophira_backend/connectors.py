@@ -27,6 +27,7 @@ from .marketplaces import (
     parse_tiktok_shop_credentials,
 )
 from .models import Connector, utc_now
+from .outlook import OUTLOOK_SCOPE, outlook_oauth_vault_keys, parse_outlook_credentials
 from .providers import FileSecretVault
 from .shopify import (
     SHOPIFY_DEFAULT_SCOPE,
@@ -47,7 +48,7 @@ CONNECTOR_CATALOG: list[dict[str, str | None]] = [
         "id": "outlook",
         "type": "outlook",
         "display_name": "Outlook",
-        "scope": "mail:read mail:send",
+        "scope": OUTLOOK_SCOPE,
         "secret_env": "OPHIRA_CONNECTOR_OUTLOOK_KEY",
     },
     {
@@ -399,6 +400,10 @@ class ConnectorRegistry:
             parse_gmail_credentials(secret)
             if self.vault is None:
                 raise ValueError("connector vault is not configured")
+        if type == "outlook" and secret is not None:
+            parse_outlook_credentials(secret)
+            if self.vault is None:
+                raise ValueError("connector vault is not configured")
         if type == SHOPIFY_TYPE:
             # The catalog record starts without a store; credentials always need one.
             if endpoint is not None or secret is not None:
@@ -441,6 +446,11 @@ class ConnectorRegistry:
             ):
                 for key in gmail_oauth_vault_keys(connector_id):
                     self.vault.delete(key)
+            if self.vault is not None and (existing is not None or secret is not None) and (
+                type == "outlook" or (existing is not None and existing.type == "outlook")
+            ):
+                for key in outlook_oauth_vault_keys(connector_id):
+                    self.vault.delete(key)
             if secret and self.vault is not None:
                 self.vault.set(connector.id, secret)
         return connector
@@ -454,6 +464,8 @@ class ConnectorRegistry:
                 parse_shopify_credentials(secret)
             elif connector.type == "gmail":
                 parse_gmail_credentials(secret)
+            elif connector.type == "outlook":
+                parse_outlook_credentials(secret)
             if self.vault is None:
                 raise ValueError("connector vault is not configured")
             updated = connector.model_copy(update={
@@ -466,6 +478,9 @@ class ConnectorRegistry:
                     self.vault.delete(key)
             if connector.type == "gmail":
                 for key in gmail_oauth_vault_keys(connector_id):
+                    self.vault.delete(key)
+            if connector.type == "outlook":
+                for key in outlook_oauth_vault_keys(connector_id):
                     self.vault.delete(key)
             self.vault.set(connector.id, secret)
             return updated
@@ -486,6 +501,9 @@ class ConnectorRegistry:
                         self.vault.delete(key)
                 if connector.type == "gmail":
                     for key in gmail_oauth_vault_keys(connector_id):
+                        self.vault.delete(key)
+                if connector.type == "outlook":
+                    for key in outlook_oauth_vault_keys(connector_id):
                         self.vault.delete(key)
         return updated
 
