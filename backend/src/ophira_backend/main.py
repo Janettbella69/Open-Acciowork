@@ -304,6 +304,7 @@ from .user_mcp import (
     MCP_CATALOG,
     OAUTH_CALLBACK_PATH,
     OAUTH_COMPLETE_PATH,
+    OAUTH_METADATA_PATH,
     UserMcpConflictError,
     UserMcpConnector,
     UserMcpRegistry,
@@ -826,7 +827,7 @@ def _create_app(
                 return response
         if not (path == "/api" or path.startswith("/api/")):
             return await call_next(request)
-        if path in {OAUTH_CALLBACK_PATH, OAUTH_COMPLETE_PATH} and (
+        if path in {OAUTH_CALLBACK_PATH, OAUTH_COMPLETE_PATH, OAUTH_METADATA_PATH} and (
             request.method == "GET"
         ):
             if settings.auth_mode == "trusted_gateway":
@@ -1914,6 +1915,22 @@ def _create_app(
             "connector review result.</p></body></html>",
             headers={"Content-Security-Policy": "default-src 'none'; style-src 'none'"},
         )
+
+    @application.get(OAUTH_METADATA_PATH)
+    async def user_mcp_oauth_client_metadata() -> dict[str, object]:
+        if settings.auth_mode != "trusted_gateway" or user_mcp.oauth_client_metadata_url is None:
+            raise HTTPException(404, "OAuth client metadata is unavailable")
+        return user_mcp.oauth_client_metadata()
+
+    @application.get("/api/projects/{project_id}/mcp/oauth/setup")
+    async def user_mcp_oauth_setup(request: Request, project_id: str) -> dict[str, str | None]:
+        require_project_authorization(
+            project_id, _request_principal(request), ProjectPermission.PROJECT_READ,
+        )
+        return {
+            "redirect_uri": user_mcp.oauth_redirect_url,
+            "client_metadata_url": user_mcp.oauth_client_metadata_url,
+        }
 
     @application.get(
         "/api/projects/{project_id}/mcp", response_model=list[UserMcpConnector],

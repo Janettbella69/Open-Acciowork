@@ -650,6 +650,8 @@ export type UserMcpConnector = {
   review_error: string | null
   auth_mode: 'bearer' | 'oauth'
   oauth_issuer: string | null
+  oauth_client_configured: boolean
+  oauth_client_auth_method: 'none' | 'client_secret_basic' | 'client_secret_post' | null
   credential_configured: boolean
   tools: UserMcpTool[]
 }
@@ -658,6 +660,10 @@ export type UserMcpCatalogItem = {
   name: string
   url: string
   description: string
+}
+export type UserMcpOAuthSetup = {
+  redirect_uri: string | null
+  client_metadata_url: string | null
 }
 
 export type PermissionGrant = {

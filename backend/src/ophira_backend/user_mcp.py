@@ -55,6 +55,7 @@ _TOOL = re.compile(r"^[A-Za-z0-9_-]{1,100}$")
 MAX_REVIEW_RESPONSE_BYTES = 2_000_000
 OAUTH_CALLBACK_PATH = "/api/mcp/oauth/callback"
 OAUTH_COMPLETE_PATH = "/api/mcp/oauth/complete"
+OAUTH_METADATA_PATH = "/api/mcp/oauth/client-metadata"
 
 
 class UserMcpTool(BaseModel):
@@ -76,6 +77,10 @@ class UserMcpConnector(BaseModel):
     review_error: str | None = None
     auth_mode: Literal["bearer", "oauth"] = "bearer"
     oauth_issuer: str | None = None
+    oauth_client_configured: bool = False
+    oauth_client_auth_method: Literal[
+        "none", "client_secret_basic", "client_secret_post",
+    ] | None = None
     credential_configured: bool = False
     tools: list[UserMcpTool] = Field(default_factory=list, max_length=100)
 
@@ -92,6 +97,17 @@ class UserMcpUpsert(BaseModel):
     url: str = Field(min_length=12, max_length=2_000)
     bearer_token: str | None = Field(default=None, min_length=1, max_length=8_000)
     oauth_issuer: str | None = Field(default=None, min_length=12, max_length=2_000)
+    oauth_client_id: str | None = Field(default=None, min_length=1, max_length=500)
+    oauth_client_secret: str | None = Field(default=None, min_length=1, max_length=8_000)
+    oauth_client_auth_method: Literal[
+        "none", "client_secret_basic", "client_secret_post",
+    ] | None = None
+
+
+class _OAuthPreset(BaseModel):
+    client_id: str
+    client_secret: str | None = None
+    auth_method: Literal["none", "client_secret_basic", "client_secret_post"]
 
 
 class UserMcpToolPolicyUpdate(BaseModel):
@@ -328,10 +344,24 @@ class _McpOAuthStorage(TokenStorage):
     async def get_client_info(self) -> OAuthClientInformationFull | None:
         if not self.registry._oauth_storage_valid(self.connector):
             return None
+        if self.connector.oauth_client_configured:
+            raw_preset = self.registry.vault.get(self._key("preset"))
+            if raw_preset is None or self.registry.oauth_redirect_url is None:
+                raise UserMcpConflictError("Remote MCP pre-registered client is unavailable")
+            preset = _OAuthPreset.model_validate_json(raw_preset)
+            return OAuthClientInformationFull(
+                client_id=preset.client_id,
+                client_secret=preset.client_secret,
+                token_endpoint_auth_method=preset.auth_method,
+                redirect_uris=[self.registry.oauth_redirect_url],
+                issuer=self.connector.oauth_issuer,
+            )
         raw = self.registry.vault.get(self._key("client"))
         return OAuthClientInformationFull.model_validate_json(raw) if raw else None
 
     async def set_client_info(self, client_info: OAuthClientInformationFull) -> None:
+        if self.connector.oauth_client_configured:
+            raise UserMcpConflictError("Remote MCP pre-registered client cannot be replaced")
         serialized = client_info.model_dump_json()
         if len(serialized) > 32_000:
             raise UserMcpConflictError("Remote MCP OAuth registration is too large")
@@ -506,8 +536,28 @@ class UserMcpRegistry:
         self._lock = threading.RLock()
         self._held_transaction = threading.local()
         self.oauth_redirect_url = oauth_redirect_url
+        self.oauth_client_metadata_url = (
+            oauth_redirect_url.removesuffix(OAUTH_CALLBACK_PATH) + OAUTH_METADATA_PATH
+            if oauth_redirect_url is not None
+            and oauth_redirect_url.startswith("https://")
+            and oauth_redirect_url.endswith(OAUTH_CALLBACK_PATH)
+            else None
+        )
         self._oauth_flows: dict[tuple[str, str], _PendingOAuth] = {}
         self._oauth_states: dict[str, _PendingOAuth] = {}
+
+    def oauth_client_metadata(self) -> dict[str, Any]:
+        if self.oauth_client_metadata_url is None or self.oauth_redirect_url is None:
+            raise UserMcpConflictError("Public MCP OAuth client metadata is not configured")
+        return {
+            "client_id": self.oauth_client_metadata_url,
+            "client_name": "OPHIRA",
+            "redirect_uris": [self.oauth_redirect_url],
+            "grant_types": ["authorization_code", "refresh_token"],
+            "response_types": ["code"],
+            "token_endpoint_auth_method": "none",
+            "application_type": "web",
+        }
 
     @staticmethod
     def _id(value: str) -> str:
@@ -532,14 +582,19 @@ class UserMcpRegistry:
 
     def _clear_credentials(self, project_id: str, connector_id: str) -> None:
         self.vault.delete(self._vault_id(project_id, connector_id))
+        self.vault.delete(self._oauth_vault_id(project_id, connector_id, "preset"))
+        self._clear_oauth_session(project_id, connector_id)
+
+    def _clear_oauth_session(self, project_id: str, connector_id: str) -> None:
         for kind in ("token", "client", "metadata"):
             self.vault.delete(self._oauth_vault_id(project_id, connector_id, kind))
 
     def _credential_available(self, item: UserMcpConnector) -> bool:
         if item.auth_mode == "oauth":
+            client_kind = "preset" if item.oauth_client_configured else "client"
             return all(self.vault.has(self._oauth_vault_id(
                 item.project_id, item.id, kind,
-            )) for kind in ("token", "client"))
+            )) for kind in ("token", client_kind))
         return not item.credential_configured or self.vault.has(
             self._vault_id(item.project_id, item.id)
         )
@@ -581,6 +636,10 @@ class UserMcpRegistry:
         if not self.oauth_redirect_url or not item.oauth_issuer:
             raise UserMcpConflictError("Remote MCP OAuth callback origin is not configured")
         self._check_oauth_issuer(item.oauth_issuer, item.url)
+        if item.oauth_client_configured and not self.vault.has(
+            self._oauth_vault_id(item.project_id, item.id, "preset")
+        ):
+            raise UserMcpConflictError("Remote MCP pre-registered client is unavailable")
         provider = _IssuerBoundOAuthProvider(
             expected_issuer=item.oauth_issuer,
             server_url=item.url,
@@ -594,6 +653,9 @@ class UserMcpRegistry:
             storage=_McpOAuthStorage(self, item),
             redirect_handler=redirect_handler,
             callback_handler=callback_handler,
+            client_metadata_url=(
+                None if item.oauth_client_configured else self.oauth_client_metadata_url
+            ),
         )
         raw_metadata = self.vault.get(self._oauth_vault_id(item.project_id, item.id, "metadata"))
         if raw_metadata:
@@ -695,6 +757,17 @@ class UserMcpRegistry:
             self._check_oauth_issuer(payload.oauth_issuer, payload.url)
         if payload.oauth_issuer is not None and payload.bearer_token is not None:
             raise ValueError("Choose OAuth or a bearer token, not both")
+        if payload.oauth_client_id is None and (
+            payload.oauth_client_secret is not None
+            or payload.oauth_client_auth_method is not None
+        ):
+            raise ValueError("Pre-registered OAuth client ID is required")
+        if any(
+            ord(character) < 32 or ord(character) == 127
+            for value in (payload.oauth_client_id, payload.oauth_client_secret)
+            if value is not None for character in value
+        ):
+            raise ValueError("OAuth client credentials contain control characters")
         if payload.bearer_token is not None and not re.fullmatch(
             r"[A-Za-z0-9._~+/-]+={0,8}", payload.bearer_token
         ):
@@ -716,6 +789,22 @@ class UserMcpRegistry:
                 payload.oauth_issuer or (current.oauth_issuer if preserve_oauth else None)
             )
             auth_mode = "oauth" if oauth_issuer else "bearer"
+            if payload.oauth_client_id is not None and auth_mode != "oauth":
+                raise ValueError("Pre-registered client requires an OAuth issuer")
+            preset: _OAuthPreset | None = None
+            if payload.oauth_client_id is not None:
+                method = payload.oauth_client_auth_method or (
+                    "client_secret_basic" if payload.oauth_client_secret else "none"
+                )
+                if method == "none" and payload.oauth_client_secret is not None:
+                    raise ValueError("Public OAuth client must not include a secret")
+                if method != "none" and payload.oauth_client_secret is None:
+                    raise ValueError("Confidential OAuth client requires a secret")
+                preset = _OAuthPreset(
+                    client_id=payload.oauth_client_id,
+                    client_secret=payload.oauth_client_secret,
+                    auth_method=method,
+                )
             preserve_credential = (
                 current is not None and current.url == payload.url
                 and payload.bearer_token is None and auth_mode == "bearer"
@@ -724,7 +813,11 @@ class UserMcpRegistry:
             preserve_oauth_token = bool(
                 current is not None and current.auth_mode == "oauth"
                 and auth_mode == "oauth" and current.url == payload.url
-                and current.oauth_issuer == oauth_issuer
+                and current.oauth_issuer == oauth_issuer and preset is None
+            )
+            preserve_preset = bool(
+                preserve_oauth_token and current is not None
+                and current.oauth_client_configured
             )
             updated = UserMcpConnector(
                 id=self._id(connector_id), project_id=self._project(project_id),
@@ -732,6 +825,11 @@ class UserMcpRegistry:
                 revision=current.revision + 1 if current else 1,
                 auth_mode=auth_mode,
                 oauth_issuer=oauth_issuer,
+                oauth_client_configured=preset is not None or preserve_preset,
+                oauth_client_auth_method=(
+                    preset.auth_method if preset is not None else
+                    current.oauth_client_auth_method if preserve_preset and current else None
+                ),
                 credential_configured=(
                     bool(payload.bearer_token)
                     or (preserve_credential and self.vault.has(vault_id))
@@ -749,6 +847,11 @@ class UserMcpRegistry:
             self._write(updated)
             if payload.bearer_token is not None:
                 self.vault.set(vault_id, payload.bearer_token)
+            if preset is not None:
+                self.vault.set(
+                    self._oauth_vault_id(project_id, connector_id, "preset"),
+                    preset.model_dump_json(),
+                )
             return updated
 
     def add_catalog(self, project_id: str, catalog_id: str) -> UserMcpConnector:
@@ -814,6 +917,8 @@ class UserMcpRegistry:
         key = (self._project(project_id), self._id(connector_id))
         existing = self._oauth_flows.get(key)
         if existing is not None:
+            if not self._oauth_storage_valid(existing.connector):
+                raise UserMcpConflictError("Remote MCP changed during OAuth authorization")
             url = await asyncio.wait_for(asyncio.shield(existing.authorization_url), 30)
             if url is None:
                 raise UserMcpRemoteError("Remote MCP OAuth discovery failed")
@@ -832,7 +937,7 @@ class UserMcpRegistry:
                 "credential_configured": False,
                 "tools": [],
             })
-            self._clear_credentials(project_id, connector_id)
+            self._clear_oauth_session(project_id, connector_id)
             self._write(pinned)
         loop = asyncio.get_running_loop()
         flow = _PendingOAuth(
@@ -918,7 +1023,7 @@ class UserMcpRegistry:
         except BaseException:
             with self._transaction(pinned.project_id):
                 if self._oauth_storage_valid(pinned):
-                    self._clear_credentials(pinned.project_id, pinned.id)
+                    self._clear_oauth_session(pinned.project_id, pinned.id)
                     self._write(pinned.model_copy(update={
                         "review_error": "OAuth authorization or tool review failed",
                     }))
@@ -980,7 +1085,9 @@ class UserMcpRegistry:
             current = self.get(project_id, connector_id)
             updated = current.model_copy(update={
                 "revision": current.revision + 1, "enabled": False,
-                "reviewed_at": None, "credential_configured": False, "tools": [],
+                "reviewed_at": None, "credential_configured": False,
+                "oauth_client_configured": False, "oauth_client_auth_method": None,
+                "tools": [],
             })
             self._write(updated)
             self._clear_credentials(project_id, connector_id)

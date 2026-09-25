@@ -3,6 +3,7 @@ import type { FormEvent } from 'react'
 import {
   addCatalogMcp,
   errorMessage,
+  getUserMcpOAuthSetup,
   listProjects,
   listUserMcp,
   listUserMcpCatalog,
@@ -12,7 +13,7 @@ import {
   startUserMcpOAuth,
   setUserMcpToolPolicy,
 } from '../api/client'
-import type { OpportunityProject, UserMcpCatalogItem, UserMcpConnector, UserMcpTool } from '../api/types'
+import type { OpportunityProject, UserMcpCatalogItem, UserMcpConnector, UserMcpOAuthSetup, UserMcpTool } from '../api/types'
 import { useT } from '../i18n'
 
 export default function UserMcpPanel() {
@@ -26,6 +27,7 @@ export default function UserMcpPanel() {
   const [projectId, setProjectId] = useState('')
   const [catalog, setCatalog] = useState<UserMcpCatalogItem[]>([])
   const [servers, setServers] = useState<UserMcpConnector[]>([])
+  const [oauthSetup, setOauthSetup] = useState<UserMcpOAuthSetup | null>(null)
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState('')
   const [error, setError] = useState('')
@@ -34,6 +36,9 @@ export default function UserMcpPanel() {
   const [url, setUrl] = useState(pluginUrl)
   const [token, setToken] = useState('')
   const [oauthIssuer, setOauthIssuer] = useState('')
+  const [oauthClientId, setOauthClientId] = useState('')
+  const [oauthClientSecret, setOauthClientSecret] = useState('')
+  const [oauthClientAuthMethod, setOauthClientAuthMethod] = useState<'client_secret_basic' | 'client_secret_post'>('client_secret_basic')
   const [oauthLink, setOauthLink] = useState<{ id: string; url: string } | null>(null)
   const busyRef = useRef(false)
   const advancedRef = useRef<HTMLDetailsElement>(null)
@@ -57,11 +62,13 @@ export default function UserMcpPanel() {
     if (!projectId) return
     let active = true
     setLoading(true)
-    void Promise.all([listUserMcpCatalog(projectId), listUserMcp(projectId)])
-      .then(([available, configured]) => {
+    setOauthSetup(null)
+    void Promise.all([listUserMcpCatalog(projectId), listUserMcp(projectId), getUserMcpOAuthSetup(projectId)])
+      .then(([available, configured, setup]) => {
         if (!active) return
         setCatalog(available)
         setServers(configured)
+        setOauthSetup(setup)
         setError('')
       })
       .catch((loadError) => { if (active) setError(errorMessage(loadError)) })
@@ -106,6 +113,11 @@ export default function UserMcpPanel() {
       name: name.trim(), url: url.trim(),
       ...(token ? { bearer_token: token } : {}),
       ...(oauthIssuer.trim() ? { oauth_issuer: oauthIssuer.trim() } : {}),
+      ...(oauthIssuer.trim() && oauthClientId.trim() ? {
+        oauth_client_id: oauthClientId.trim(),
+        oauth_client_auth_method: oauthClientSecret ? oauthClientAuthMethod : 'none',
+        ...(oauthClientSecret ? { oauth_client_secret: oauthClientSecret } : {}),
+      } : {}),
     }))
     if (saved) {
       setName('')
@@ -113,6 +125,9 @@ export default function UserMcpPanel() {
       setUrl('')
       setToken('')
       setOauthIssuer('')
+      setOauthClientId('')
+      setOauthClientSecret('')
+      setOauthClientAuthMethod('client_secret_basic')
     }
   }
 
@@ -171,11 +186,25 @@ export default function UserMcpPanel() {
           <p>{t('Custom hosts need organization approval in Settings. Saving a server keeps it disabled until its live tool review succeeds.')}</p>
           <form onSubmit={(event) => void saveCustom(event)}>
             <label>{t('Server name')}<input value={name} onChange={(event) => setName(event.target.value)} maxLength={160} required /></label>
-            <label>{t('Server ID')}<input value={id} onChange={(event) => setId(event.target.value)} pattern="[a-z][a-z0-9_]{2,63}" placeholder="my_mcp" required /></label>
-            <label>{t('HTTPS MCP address')}<input type="url" value={url} onChange={(event) => setUrl(event.target.value)} placeholder="https://mcp.example.com/mcp" required /></label>
+            <label>{t('Server ID')}<input value={id} onChange={(event) => { setId(event.target.value); setOauthClientId(''); setOauthClientSecret('') }} pattern="[a-z][a-z0-9_]{2,63}" placeholder="my_mcp" required /></label>
+            <label>{t('HTTPS MCP address')}<input type="url" value={url} onChange={(event) => { setUrl(event.target.value); setOauthClientId(''); setOauthClientSecret('') }} placeholder="https://mcp.example.com/mcp" required /></label>
             <label>{t('Bearer token (optional)')}<input type="password" value={token} onChange={(event) => setToken(event.target.value)} autoComplete="off" disabled={Boolean(oauthIssuer)} /></label>
-            <label>{t('OAuth issuer URL (optional)')}<input type="url" value={oauthIssuer} onChange={(event) => setOauthIssuer(event.target.value)} disabled={Boolean(token)} placeholder="https://auth.example.com" /></label>
+            <label>{t('OAuth issuer URL (optional)')}<input type="url" value={oauthIssuer} onChange={(event) => { setOauthIssuer(event.target.value); setOauthClientId(''); setOauthClientSecret('') }} disabled={Boolean(token)} placeholder="https://auth.example.com" /></label>
             <p>{t('For OAuth, approve the issuer host in organization settings, then save and connect in the browser.')}</p>
+            {oauthIssuer && <>
+              {oauthSetup?.redirect_uri
+                ? <p>{t('Register this OAuth redirect URI with the authorization server:')} <code>{oauthSetup.redirect_uri}</code></p>
+                : <p>{t('OAuth callback origin is not configured by the operator.')}</p>}
+              {oauthSetup?.client_metadata_url && <p>{t('When supported, OPHIRA automatically uses this client ID metadata URL:')} <code>{oauthSetup.client_metadata_url}</code></p>}
+              <label>{t('Pre-registered OAuth client ID (optional)')}<input value={oauthClientId} onChange={(event) => { setOauthClientId(event.target.value); setOauthClientSecret('') }} maxLength={500} autoComplete="off" /></label>
+              {oauthClientId && <>
+                <label>{t('OAuth client secret (if required)')}<input type="password" value={oauthClientSecret} onChange={(event) => setOauthClientSecret(event.target.value)} autoComplete="off" /></label>
+                {oauthClientSecret && <label>{t('Token endpoint authentication')}<select value={oauthClientAuthMethod} onChange={(event) => setOauthClientAuthMethod(event.target.value as 'client_secret_basic' | 'client_secret_post')}>
+                  <option value="client_secret_basic">{t('HTTP Basic')}</option>
+                  <option value="client_secret_post">{t('Form body')}</option>
+                </select></label>}
+              </>}
+            </>}
             <button type="submit" disabled={Boolean(busy)}>{t('Save for review')}</button>
           </form>
         </details>
@@ -188,6 +217,7 @@ export default function UserMcpPanel() {
             </header>
             {server.review_error && <p role="alert">{t(server.review_error)}</p>}
             {server.auth_mode === 'oauth' && server.oauth_issuer && <p>{t('OAuth issuer')}: {server.oauth_issuer}</p>}
+            {server.oauth_client_configured && <p>{t('Pre-registered OAuth client configured')}</p>}
             {oauthLink?.id === server.id && <p><a href={oauthLink.url} target="_blank" rel="noopener noreferrer">{t('Open OAuth authorization')}</a> · {t('Waiting for authorization and tool review…')}</p>}
             {server.enabled && <div className="user-mcp-tools">
               {server.tools.map((tool: UserMcpTool) => <label key={tool.name}>
@@ -207,7 +237,7 @@ export default function UserMcpPanel() {
               </label>)}
             </div>}
             <div className="user-mcp-actions">
-              {server.auth_mode === 'oauth' && <button type="button" disabled={Boolean(busy)} onClick={() => void beginOAuth(server.id)}>{t('Connect with OAuth')}</button>}
+              {server.auth_mode === 'oauth' && <button type="button" disabled={Boolean(busy) || !oauthSetup?.redirect_uri} onClick={() => void beginOAuth(server.id)}>{t('Connect with OAuth')}</button>}
               <button type="button" disabled={Boolean(busy) || (server.auth_mode === 'oauth' && !server.credential_configured)} onClick={() => void act(`${server.id}:review`, () => reviewUserMcp(projectId, server.id))}>{t('Review tools')}</button>
               <button type="button" disabled={Boolean(busy)} onClick={() => void act(`${server.id}:revoke`, () => revokeUserMcp(projectId, server.id))}>{t('Revoke')}</button>
             </div>

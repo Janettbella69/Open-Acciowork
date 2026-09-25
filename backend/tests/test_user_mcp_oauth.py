@@ -20,6 +20,7 @@ from ophira_backend.policy import OrgPolicyStore
 from ophira_backend.providers import FileSecretVault
 from ophira_backend.user_mcp import (
     OAUTH_CALLBACK_PATH,
+    OAUTH_METADATA_PATH,
     UserMcpConflictError,
     UserMcpRegistry,
     UserMcpUpsert,
@@ -28,12 +29,71 @@ from ophira_backend.user_mcp import (
 from ophira_backend.web_tools import PinnedPublicDestination
 
 
+def test_pre_registered_client_is_preserved_only_for_same_configuration(tmp_path: Path) -> None:
+    service = UserMcpRegistry(
+        tmp_path / "user-mcp",
+        FileSecretVault(tmp_path / "secrets", filename="mcp-secrets.json"),
+        OrgPolicyStore(tmp_path / "org" / "policy.json"),
+        oauth_redirect_url="http://127.0.0.1:8000/api/mcp/oauth/callback",
+    )
+    service.policy.save(OrgPolicy(allowed_mcp_hosts=[
+        "mcp.example.test", "other.example.test", "auth.example.test",
+    ]))
+    resource = "https://mcp.example.test/mcp"
+    issuer = "https://auth.example.test"
+    with pytest.raises(ValueError, match="requires an OAuth issuer"):
+        service.upsert("project_one", "client_mcp", UserMcpUpsert(
+            name="Client", url=resource, oauth_client_id="id",
+        ))
+    with pytest.raises(ValueError, match="requires a secret"):
+        service.upsert("project_one", "client_mcp", UserMcpUpsert(
+            name="Client", url=resource, oauth_issuer=issuer,
+            oauth_client_id="id", oauth_client_auth_method="client_secret_basic",
+        ))
+    saved = service.upsert("project_one", "client_mcp", UserMcpUpsert(
+        name="Client", url=resource, oauth_issuer=issuer,
+        oauth_client_id="old-id", oauth_client_secret="old-secret",
+    ))
+    assert saved.oauth_client_configured
+    assert "old-secret" not in saved.model_dump_json()
+    token_key = service._oauth_vault_id("project_one", saved.id, "token")
+    preset_key = service._oauth_vault_id("project_one", saved.id, "preset")
+    service.vault.set(token_key, "held-token")
+    renamed = service.upsert("project_one", saved.id, UserMcpUpsert(
+        name="Renamed", url=resource,
+    ))
+    assert renamed.oauth_client_configured
+    assert service.vault.has(token_key) and service.vault.has(preset_key)
+    rotated = service.upsert("project_one", saved.id, UserMcpUpsert(
+        name="Rotated", url=resource, oauth_issuer=issuer,
+        oauth_client_id="new-id", oauth_client_secret="new-secret",
+        oauth_client_auth_method="client_secret_post",
+    ))
+    assert rotated.oauth_client_auth_method == "client_secret_post"
+    assert not service.vault.has(token_key)
+    assert "new-secret" in (service.vault.get(preset_key) or "")
+    assert "old-secret" not in (service.vault.get(preset_key) or "")
+    moved = service.upsert("project_one", saved.id, UserMcpUpsert(
+        name="Moved", url="https://other.example.test/mcp",
+    ))
+    assert not moved.oauth_client_configured
+    assert not service.vault.has(preset_key)
+
+
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "client_auth_method", [None, "cimd", "none", "client_secret_basic", "client_secret_post"],
+)
 async def test_oauth_authorization_review_refresh_and_revoke_are_bound_to_approved_hosts(
-    tmp_path: Path, monkeypatch,
+    tmp_path: Path, monkeypatch, client_auth_method: str | None,
 ) -> None:
     issuer = "https://auth.example.test"
     resource = "https://mcp.example.test/mcp"
+    redirect_uri = (
+        "https://gateway.example.test" + OAUTH_CALLBACK_PATH
+        if client_auth_method == "cimd" else "http://127.0.0.1:8000" + OAUTH_CALLBACK_PATH
+    )
+    metadata_uri = "https://gateway.example.test" + OAUTH_METADATA_PATH
     requests: list[tuple[str, str, str | None]] = []
     token_count = 0
 
@@ -77,22 +137,38 @@ async def test_oauth_authorization_review_refresh_and_revoke_are_bound_to_approv
                     "resource": resource, "authorization_servers": [issuer],
                 }, request=request)
             if host == "auth.example.test" and path == "/.well-known/oauth-authorization-server":
-                return httpx2.Response(200, json={
+                metadata = {
                     "issuer": issuer,
                     "authorization_endpoint": issuer + "/authorize",
                     "token_endpoint": issuer + "/token",
-                    "registration_endpoint": issuer + "/register",
                     "code_challenge_methods_supported": ["S256"],
-                }, request=request)
+                }
+                if client_auth_method == "cimd":
+                    metadata["client_id_metadata_document_supported"] = True
+                else:
+                    metadata["registration_endpoint"] = issuer + "/register"
+                return httpx2.Response(200, json=metadata, request=request)
             if host == "auth.example.test" and path == "/register":
+                assert client_auth_method is None, "pre-registered clients must skip DCR"
                 return httpx2.Response(201, json={
                     "client_id": "ophira-client",
-                    "redirect_uris": ["http://127.0.0.1:8000/api/mcp/oauth/callback"],
+                    "redirect_uris": [redirect_uri],
                     "token_endpoint_auth_method": "none",
                 }, request=request)
             if host == "auth.example.test" and path == "/token":
                 form = parse_qs((await request.aread()).decode())
                 assert form["grant_type"][0] in {"authorization_code", "refresh_token"}
+                if client_auth_method == "client_secret_basic":
+                    assert authorization is not None and authorization.startswith("Basic ")
+                    assert "client_secret" not in form
+                elif client_auth_method == "client_secret_post":
+                    assert form["client_secret"] == ["registered-secret"]
+                elif client_auth_method == "none":
+                    assert form["client_id"] == ["registered-client"]
+                    assert "client_secret" not in form
+                elif client_auth_method == "cimd":
+                    assert form["client_id"] == [metadata_uri]
+                    assert "client_secret" not in form
                 token_count += 1
                 return httpx2.Response(200, json={
                     "access_token": f"access-{token_count}",
@@ -126,17 +202,26 @@ async def test_oauth_authorization_review_refresh_and_revoke_are_bound_to_approv
         tmp_path / "user-mcp",
         FileSecretVault(tmp_path / "secrets", filename="mcp-secrets.json"),
         OrgPolicyStore(tmp_path / "org" / "policy.json"),
-        oauth_redirect_url="http://127.0.0.1:8000/api/mcp/oauth/callback",
+        oauth_redirect_url=redirect_uri,
     )
     service.policy.save(OrgPolicy(allowed_mcp_hosts=["mcp.example.test", "auth.example.test"]))
     with pytest.raises(ValueError, match="OAuth issuer host"):
         service.upsert("project_one", "unapproved_mcp", UserMcpUpsert(
             name="Unapproved", url=resource, oauth_issuer="https://other.example.test",
         ))
+    registration = (
+        {"oauth_client_id": "registered-client",
+         "oauth_client_auth_method": client_auth_method,
+         **({"oauth_client_secret": "registered-secret"}
+            if client_auth_method in {"client_secret_basic", "client_secret_post"} else {})}
+        if client_auth_method not in {None, "cimd"} else {}
+    )
     saved = service.upsert("project_one", "oauth_mcp", UserMcpUpsert(
-        name="OAuth MCP", url=resource, oauth_issuer=issuer,
+        name="OAuth MCP", url=resource, oauth_issuer=issuer, **registration,
     ))
     assert not saved.enabled and saved.auth_mode == "oauth"
+    assert saved.oauth_client_configured == (client_auth_method not in {None, "cimd"})
+    assert "registered-secret" not in saved.model_dump_json()
     async with mcp_app.router.lifespan_context(mcp_app):
         authorization_url = await asyncio.wait_for(
             service.begin_oauth("project_one", saved.id), 5,
@@ -145,6 +230,10 @@ async def test_oauth_authorization_review_refresh_and_revoke_are_bound_to_approv
         auth_params = parse_qs(auth_parts.query)
         assert auth_parts.netloc == "auth.example.test"
         assert auth_params["code_challenge_method"] == ["S256"]
+        assert auth_params["client_id"] == [
+            "ophira-client" if client_auth_method is None else
+            metadata_uri if client_auth_method == "cimd" else "registered-client"
+        ]
         state = auth_params["state"][0]
         assert not service.complete_oauth_callback(
             state="wrong", code="accepted", issuer=issuer, error=None,
@@ -186,7 +275,9 @@ async def test_oauth_authorization_review_refresh_and_revoke_are_bound_to_approv
         )
         revoked = service.revoke("project_one", saved.id)
         assert not revoked.credential_configured
+        assert not revoked.oauth_client_configured
         assert not service.vault.has(secret_id)
+        assert not service.vault.has(service._oauth_vault_id("project_one", saved.id, "preset"))
         assert not service.active("project_one")
 
 
@@ -274,6 +365,30 @@ async def test_oauth_start_requires_project_write_and_public_callback_host(
             headers=signed_headers("POST", "/api/projects", "owner", PrincipalRole.OWNER),
         )
         assert project.status_code == 201
+        setup_path = f"/api/projects/{project.json()['id']}/mcp/oauth/setup"
+        setup_outsider = await client.get(
+            setup_path,
+            headers=signed_headers("GET", setup_path, "outsider", PrincipalRole.MEMBER),
+        )
+        assert setup_outsider.status_code == 403
+        setup = await client.get(
+            setup_path,
+            headers=signed_headers("GET", setup_path, "owner", PrincipalRole.OWNER),
+        )
+        assert setup.status_code == 200
+        assert setup.json() == {
+            "redirect_uri": "https://gateway.example.com" + OAUTH_CALLBACK_PATH,
+            "client_metadata_url": "https://gateway.example.com" + OAUTH_METADATA_PATH,
+        }
+        metadata = await client.get(OAUTH_METADATA_PATH, headers={"Sec-Fetch-Site": "cross-site"})
+        assert metadata.status_code == 200
+        assert metadata.json()["client_id"] == setup.json()["client_metadata_url"]
+        assert metadata.json()["redirect_uris"] == [setup.json()["redirect_uri"]]
+        assert metadata.json()["token_endpoint_auth_method"] == "none"
+        assert metadata.headers["cache-control"] == "no-store"
+        assert "client_secret" not in metadata.text
+        wrong_metadata_host = await client.get("https://other.test" + OAUTH_METADATA_PATH)
+        assert wrong_metadata_host.status_code == 404
         path = f"/api/projects/{project.json()['id']}/mcp/sample_mcp/oauth/start"
         outsider = await client.post(
             path, headers=signed_headers("POST", path, "outsider", PrincipalRole.MEMBER),

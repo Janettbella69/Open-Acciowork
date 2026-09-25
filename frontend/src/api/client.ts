@@ -5,6 +5,7 @@ import type {
   Connector,
   UserMcpCatalogItem,
   UserMcpConnector,
+  UserMcpOAuthSetup,
   Evidence,
   EvidenceStatus,
   EvidenceStatusChange,
@@ -949,6 +950,12 @@ export function listUserMcp(projectId: string): Promise<UserMcpConnector[]> {
   return request<UserMcpConnector[]>(projectMcpPath(projectId))
 }
 
+export function getUserMcpOAuthSetup(projectId: string): Promise<UserMcpOAuthSetup> {
+  return request<UserMcpOAuthSetup>(`${projectMcpPath(projectId)}/oauth/setup`, {
+    cache: 'no-store',
+  })
+}
+
 export function addCatalogMcp(projectId: string, catalogId: string): Promise<UserMcpConnector> {
   return request<UserMcpConnector>(
     `${projectMcpPath(projectId)}/catalog/${encodeURIComponent(catalogId)}`,
@@ -958,6 +965,8 @@ export function addCatalogMcp(projectId: string, catalogId: string): Promise<Use
 
 export function saveUserMcp(projectId: string, id: string, input: {
   name: string; url: string; bearer_token?: string; oauth_issuer?: string
+  oauth_client_id?: string; oauth_client_secret?: string
+  oauth_client_auth_method?: 'none' | 'client_secret_basic' | 'client_secret_post'
 }): Promise<UserMcpConnector> {
   return request<UserMcpConnector>(`${projectMcpPath(projectId)}/${encodeURIComponent(id)}`, {
     method: 'PUT', body: JSON.stringify(input),

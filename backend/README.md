@@ -39,11 +39,13 @@ it later. See [site publication setup](../docs/site-publications.md).
 
 Remote MCP OAuth in trusted-gateway mode requires an operator-owned
 `OPHIRA_MCP_OAUTH_PUBLIC_ORIGIN=https://work.example.com` on the control-plane
-host. Route the two `/api/mcp/oauth/` browser callback pages to this backend;
-the callback uses a one-time SDK state and does not require the gateway's
-identity header. Exclude callback query strings from proxy access logs; the
-backend already redacts them from Uvicorn access logs. All connector management
-still requires project permission.
+host. Route `/api/mcp/oauth/callback`, `/api/mcp/oauth/complete`, and
+`/api/mcp/oauth/client-metadata` to this backend without the gateway's identity
+header. The callback uses a one-time SDK state. The connector page shows the
+exact callback and metadata URLs for administrator registration. Exclude
+callback query strings from proxy access logs; the backend already redacts
+them from Uvicorn access logs. All connector management still requires project
+permission.
 See [remote MCP setup](../docs/user-mcp.md).
 
 Browser L1/L2 support is an explicit optional install because Playwright also
