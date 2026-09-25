@@ -399,7 +399,7 @@ Accio 同时也**抬高了 table stakes**：权限四态与审计日志、分层
 | FR-08 | P0 | 项目工作区 | 项目隔离目录；拒绝路径越界、敏感路径和符号链接逃逸 | **已实现**（本地代码/测试） |
 | FR-09 | P0 | 证据账本 | Evidence/Artifact 带来源、时间、类型、置信度与来源运行；UI 可审查 | **已实现**（本地代码/测试）：主 Agent Web/Browser 读取由 host 签发可回放 source receipt，外部 Evidence 的来源、时间、hash、版本和 Run/SDK session scope 由服务端补全并校验 |
 | FR-10 | P0 | 结论可追溯 | Decision 回链证据；证据失效时联动标记受影响结论 | **已实现**（本地代码/测试） |
-| FR-11 | P0 | MCP 领域工具 | 台账、供应商、客户、商业计算等工具返回结构化结果与明确错误 | **部分实现**：确定性工具与数据加工切片存在；TikTok Shop 项目指定店铺的只读 MCP 与来源凭证已实现；供应商/客户等尚无真实业务数据适配器，不能宣称实时业务数据 |
+| FR-11 | P0 | MCP 领域工具 | 台账、供应商、客户、商业计算等工具返回结构化结果与明确错误 | **部分实现**：确定性工具与数据加工切片、TikTok Shop 项目店铺只读 MCP、ECB 参考汇率及现有 Web MCP 下有界的世界银行 WDI 国家级宏观指标均有来源凭证；供应商/客户、商品级市场等仍无真实业务数据适配器，不能宣称实时品类需求 |
 | FR-12 | P0 | Skills | `SKILL.md` 可发现、启停、测试并由 Run 固化版本 | **已实现并有当前调用证明**：不可变内容寻址历史、存储配额、Run 快照、只读运行时物化、活跃会话租约与人工回滚均已接通；内置 Skill 14 个；组织私有 Skill 导入（人审）与 Agent 自创建提案（人审后发布、默认关闭）已实现；2026-09-04 DeepSeek Green Path 连续 3 轮实际调用 Plugin Skill，回滚后的真端点重跑仍待专项验收 |
 | FR-13 | P0 | 权限 | 路径/工具/副作用策略、once/run/persistent 授权、删除强制确认、Auto 模式和审计 | **已实现**（本地代码/测试）：工作台可切换 SDK 原生 default、auto 两档授权模式；权限等待可持久挂起并跨进程恢复 |
 | FR-14 | P0 | 记忆 | 仅提案可进入稳定记忆；审批、撤回、来源、容量与当前运行蒸馏受控 | **已实现**（本地代码/测试）：除人审/版本外，已有绝对 expiry/TTL、过期召回排除、确定性 request-signal retrieval、授权 JSON 导出、tombstone-first 硬删除与启动恢复；不等同于真实模型召回质量或基础设施备份擦除 |
@@ -669,7 +669,7 @@ v2.0 增补建议（不改变红线，按需采纳）：
 | `ophira_customer` | 候选排序、记录互动 | 真实 CRM/联系人适配器与受控触达 | 数据加工低；写外部 CRM/触达高 |
 | `ophira_commerce_math` | 到岸成本、单位经济、敏感性表 | 更多现金流模型 | 纯确定性计算 |
 | `ophira_compliance` | 内置来源目录查询 | 授权法规数据源与有效性更新 | 读取；输出不是法律意见 |
-| `ophira_web` | `search_public_web`、`fetch_page_snapshot`，含 URL/重定向/SSRF 防护 | 认证真实搜索服务与 Provider 降级 E2E | 公开读取低；内容视为不可信数据 |
+| `ophira_web` | `search_public_web`、`fetch_page_snapshot`，含 URL/重定向/SSRF 防护；后者对限定世界银行 WDI URL 返回国家级宏观观察和来源信息 | 认证真实搜索服务、WDI 在线调用与 Provider 降级 E2E | 公开读取低；内容视为不可信数据 |
 | `ophira_browser` | `snapshot_page`、`act_on_page`；OrgPolicy 门禁、L1/L2、安全导航和截图账本；L1/L2 已通过真实浏览器 smoke acceptance | 扩展真实浏览器攻击/恢复回归与实现 L3 | 读取按域策略；动作需治理 |
 | `ophira_automation` | 计划创建/暂停、standing intent 管理/触发、通知写入；自主 watcher 已接入标准单主 Agent Run | 真实 Provider/数据源长时验证与真实渠道投递 | 创建承诺/外发需授权；支线 Agent 禁用 |
 | `ophira_media` | `generate_media` 通用安全接入、OpenAI Image API 单张 PNG、Runway Dev 视频任务及 Artifact/Evidence 关联 | 配置并认证真实图像/视频账号及成品质量 | 下载与落盘受大小、类型、URL 和路径约束 |

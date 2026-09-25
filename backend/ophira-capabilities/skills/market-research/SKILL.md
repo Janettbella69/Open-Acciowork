@@ -1,7 +1,7 @@
 ---
 name: market-research
 description: 当用户要做市场调研、需求验证、竞品对照、趋势时机、公开数据检索或判断一个市场是否值得进入时使用。
-version: 1.2.0
+version: 1.3.0
 ---
 
 # Market Research
@@ -29,4 +29,5 @@ version: 1.2.0
 ## 按需资源
 
 - 设计检索与比较口径时读 [输入与证据规则](references/evidence-and-inputs.md)。
+- 需要国家级进口、消费或人口的公开宏观参照时读 [世界银行 WDI 观察](references/world-bank-wdi.md)；不能把这些指标当作具体品类销量。
 - 需要研究产物时，在项目工作区用 [市场假设与证据简报](templates/market-evidence-brief.md) 新建可编辑底稿；按问题删减模块，未知数据不以示例数字补齐，不修改 Plugin 模板。

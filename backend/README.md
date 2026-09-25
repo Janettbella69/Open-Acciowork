@@ -261,6 +261,11 @@ the host attaches a Run/session-bound source receipt to successful results. Thes
 rates are for information, not transaction quotes. See
 [FX reference rates](../docs/fx-reference-rates.md) for source and limitations.
 
+The existing Web fetch tool also projects bounded World Bank WDI country indicators
+into dated macro observations with the same Run/session receipt path. It does not
+represent product-level demand. See [market indicators](../docs/market-indicators.md)
+for the supported URL, indicator set, provenance and limits.
+
 Receipts can be listed and replayed read-only at
 `GET /api/projects/{project_id}/source-receipts` and
 `GET /api/projects/{project_id}/source-receipts/{receipt_id}`. Authenticated receipts
