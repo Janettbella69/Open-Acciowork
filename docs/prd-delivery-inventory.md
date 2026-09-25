@@ -59,7 +59,7 @@
 | FR-39 插件导入 | partial（本地）：官方插件 ZIP 多 Skill 拆分后复用私有仓库安全扫描和逐件人审；远程 MCP 地址引导至 FR-33 项目审批/逐工具策略，插件子 Agent 与其它可执行组件明确忽略；Anthropic marketing 真包的 8 个 Skill 扫描通过、11 个远程 MCP 地址列出；冷备报告/子 Skill 绑定校验；见 `docs/plugin-imports.md` | deferred：远程 MCP/Provider E2E、认证部署验收和更多真实包兼容性；OAuth、stdio MCP 和 Claude marketplace 安装机制不在当前 FR-33 远程 HTTPS 边界内 |
 | FR-40 语音输入 | partial（本地）：支持浏览器 SpeechRecognition 的手机任务/插话与工作台听写；语言选择、可编辑转写草稿、明确填入确认和原有提交路径；取消、页面隐藏及卸载中止录音，未提供音频上传端点；见 `docs/voice-input.md` | deferred：真实手机麦克风授权/转写质量、Safari/Android 与受限浏览器兼容、HTTPS 部署验收；不支持 Web Speech API 的浏览器目前仍需键盘听写或文字输入 |
 | FR-41 发布网页 | partial（本地）：不可变 HTML 产物版本按校验和暂存，沙箱预览后由项目管理员明确批准；独立 HTTPS 域名公开、无缓存与脚本/表单隔离，持久撤回及项目删除清理；见 `docs/site-publications.md` | deferred：真实公网部署、浏览器/缓存验收；动态脚本和远程资源需要隔离的发布运行时，现仅支持自包含静态页面 |
-| FR-42 L3 桌面 GUI | partial：macOS 开发版 WebKit 宿主、私有 sidecar、ScreenCaptureKit 系统窗口选择/截图桥；Agent 主线仅在组织策略/精确 App 白名单和 attended Run 下调用，选择、截图和各输入动作逐次人审；截图进 Run receipt/Evidence/Artifact，AXPress、完整值校验的文本替换及有限无修饰按键均绑定最近截图、生成独立 Run receipt；已知浏览器 Bundle 禁止进入 L3 | deferred：真实系统输入与窗口/隐私权限验收、广泛 App 输入兼容、嵌入式 WebView 完整域策略、独立 Python 打包签名与恢复矩阵 |
+| FR-42 L3 桌面 GUI | partial：macOS 开发版 WebKit 宿主、私有 sidecar、ScreenCaptureKit 系统窗口选择/截图桥；Agent 主线仅在组织策略/精确 App 白名单和 attended Run 下调用，选择、截图和各输入动作逐次人审；截图进 Run receipt/Evidence/Artifact，AXPress、完整值校验的文本替换及有限无修饰按键均绑定最近截图、生成独立 Run receipt；已知浏览器 Bundle 禁止进入 L3；WebView 精确 sidecar 源规则、CSP 和逐帧导航限制已有本机烟测 | deferred：真实系统输入与窗口/隐私权限验收、广泛 App 输入兼容、WebView 更完整的攻击/恢复矩阵、独立 Python 打包签名与恢复矩阵 |
 
 2026-09-24 FR-20 浏览器复验：真实 Chromium L1 经生产浏览器工具访问无跳转的
 公网 IP 目标，截图、Artifact、Evidence、来源凭证和 Run 关联等 **9 项检查全过**，
@@ -1135,3 +1135,19 @@ TypeScript/Vite 构建通过。Swift 宿主构建和隔离临时目录中的真�
 合成桥验证；真实窗口动作、隐私权限、更多 App 兼容、完整 WebView 域策略和独立签名
 仍未验收。本机 `security find-identity -v -p codesigning` 返回 **0 valid identities**。
 FR-42 与完整 PRD 保持未完成。
+
+## 2026-09-24：FR-42 嵌入式 WebView 精确源边界增量
+
+桌面 sidecar 给工作台入口（`/`、`/index.html`、`/app*`）发同源 CSP，限制脚本、
+连接、子框架、worker、表单和资源；本地 blob 图片及下载保留。原生 WebKit 在
+首次页面加载前编译并安装内容规则：HTTP(S) 只放行本次 sidecar 的精确
+`http://127.0.0.1:<port>/`，WebSocket 全部阻断；规则装载失败则终止启动。
+导航动作和响应对每个框架核对同一源，手动点击的主框架外部网页链接交给系统浏览器，
+本地下载经保存面板，下载重定向不能跨源。
+
+验证：后端桌面宿主 **7 passed**、改动文件 Ruff 通过；Swift 类型检查与开发版 App
+构建通过。真实 macOS WebKit 烟测在复制 App 与临时数据目录下运行：无 CSP 的
+同源诊断页向另一个 loopback 端口尝试图片、脚本、iframe、fetch、WebSocket 和
+同源跳转后的外部重定向；外部接收端请求数为零，同源原生状态 API 返回 200。
+该验证不覆盖所有 WebKit 版本、外部 OS 浏览器行为或完整攻击/恢复矩阵。
+真实窗口输入、系统权限、独立 Python 打包签名等 FR-42 项仍未完成；完整 PRD 未完成。

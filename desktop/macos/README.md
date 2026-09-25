@@ -72,6 +72,23 @@ WebSocket connections. macOS may ask for Screen Recording access when selecting
 or capturing a window.
 Approval inside OPHIRA does not grant macOS privacy permission.
 
+## Embedded WebView network boundary
+
+The shell's HTML responses use a same-origin Content Security Policy for
+scripts, connections, frames, workers, forms, and ordinary assets. The native
+WebKit host installs a compiled content rule before its first load: HTTP(S)
+requests are blocked except for HTTP on the exact `127.0.0.1` sidecar port;
+WebSocket requests are all blocked.
+Startup fails if the rule cannot be installed. Every frame navigation and its
+response must also remain on that origin; only user-clicked main-frame web links
+can open in the system browser. UI-created local blob downloads use WebKit's
+download delegate and a save panel. Download redirects to other origins are
+cancelled. The webview uses a nonpersistent data store.
+
+After building the app, run `python3 desktop/macos/tests/network_policy_smoke.py`
+in a macOS GUI session. It tests a copied app and temporary data directory,
+including another loopback port, a local API request, and an HTTP redirect.
+
 ## Remaining FR-42 work
 
 - Extend action coverage for native apps whose controls do not expose `AXPress`

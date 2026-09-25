@@ -6,7 +6,7 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 from ophira_backend.config import Settings
-from ophira_backend.desktop_host import DESKTOP_COOKIE_NAME, DesktopHost
+from ophira_backend.desktop_host import DESKTOP_COOKIE_NAME, DESKTOP_UI_CSP, DesktopHost
 from ophira_backend.main import create_app
 
 PORT = 41273
@@ -39,16 +39,27 @@ def desktop_app(tmp_path: Path) -> DesktopHost:
 async def test_desktop_session_guards_ui_api_and_health(tmp_path: Path) -> None:
     app = desktop_app(tmp_path)
     async with AsyncClient(transport=ASGITransport(app=app), base_url=ORIGIN) as client:
-        paths = ("/", "/app", "/app/settings", "/assets/main.js", "/api/auth/status", "/health")
+        paths = (
+            "/", "/index.html", "/app", "/app/settings", "/assets/main.js",
+            "/api/auth/status", "/health",
+        )
         for path in paths:
             assert (await client.get(path)).status_code == 401
 
         client.cookies.set(DESKTOP_COOKIE_NAME, TOKEN)
-        index = await client.get("/app/settings")
-        assert index.status_code == 200
-        assert "Desktop UI" in index.text
-        assert index.headers["cache-control"] == "no-store"
-        assert (await client.get("/assets/main.js")).status_code == 200
+        for path in ("/", "/index.html", "/app", "/app/settings"):
+            index = await client.get(path)
+            assert index.status_code == 200
+            assert "Desktop UI" in index.text
+            assert index.headers["cache-control"] == "no-store"
+            assert index.headers["content-security-policy"] == DESKTOP_UI_CSP
+            assert "connect-src 'self'" in DESKTOP_UI_CSP
+            assert "frame-src 'self'" in DESKTOP_UI_CSP
+            assert "script-src 'self'" in DESKTOP_UI_CSP
+            assert "object-src 'none'" in DESKTOP_UI_CSP
+        asset = await client.get("/assets/main.js")
+        assert asset.status_code == 200
+        assert "content-security-policy" not in asset.headers
         assert (await client.get("/favicon.svg")).status_code == 200
         assert (await client.get("/api/auth/status")).status_code == 200
         assert (await client.get("/health")).status_code == 200

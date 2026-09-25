@@ -26,6 +26,22 @@ if TYPE_CHECKING:
 DESKTOP_COOKIE_NAME = "ophira_desktop_session"
 DESKTOP_HEALTH_HEADER = "x-ophira-desktop-token"
 _TOKEN_PATTERN = re.compile(r"[0-9a-f]{64}\Z")
+DESKTOP_UI_CSP = "; ".join((
+    "default-src 'self'",
+    "script-src 'self'",
+    "style-src 'self' 'unsafe-inline'",
+    "img-src 'self' blob: data:",
+    "font-src 'self' data:",
+    "media-src 'self' blob:",
+    "connect-src 'self'",
+    "frame-src 'self'",
+    "worker-src 'self'",
+    "manifest-src 'self'",
+    "object-src 'none'",
+    "base-uri 'none'",
+    "form-action 'self'",
+    "frame-ancestors 'none'",
+))
 
 
 class DesktopHost:
@@ -112,17 +128,18 @@ class DesktopHost:
                         headers={"Cache-Control": "no-store"},
                     )
             await response(scope, receive, send)
-        elif path == "/app" or path.startswith("/app/"):
+        elif path in ("/", "/index.html", "/app") or path.startswith("/app/"):
             response = FileResponse(
                 self.ui_dir / "index.html",
                 headers={
                     "Cache-Control": "no-store",
                     "Referrer-Policy": "no-referrer",
                     "X-Content-Type-Options": "nosniff",
+                    "Content-Security-Policy": DESKTOP_UI_CSP,
                 },
             )
             await response(scope, receive, send)
-        elif path == "/" or path.startswith("/assets/") or (
+        elif path.startswith("/assets/") or (
             path.count("/") == 1 and (self.ui_dir / path.lstrip("/")).is_file()
         ):
             await self.static(scope, receive, send)

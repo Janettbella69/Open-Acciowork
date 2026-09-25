@@ -10,12 +10,14 @@ private enum DesktopError: LocalizedError {
     case missingResource(String)
     case invalidHandshake
     case startupFailed
+    case networkPolicyUnavailable
 
     var errorDescription: String? {
         switch self {
         case .missingResource(let name): "Missing desktop resource: \(name)"
         case .invalidHandshake: "The local service returned an invalid startup response."
         case .startupFailed: "The local service did not become ready."
+        case .networkPolicyUnavailable: "The desktop network policy could not be installed."
         }
     }
 }
@@ -72,7 +74,7 @@ private final class ReadyState: @unchecked Sendable {
 
 @MainActor
 private final class DesktopApplication: NSObject, NSApplicationDelegate,
-    WKNavigationDelegate, @preconcurrency SCContentSharingPickerObserver {
+    WKNavigationDelegate, WKDownloadDelegate, @preconcurrency SCContentSharingPickerObserver {
     private var sidecar: Sidecar?
     private var window: NSWindow?
     private var webView: WKWebView?
@@ -272,8 +274,33 @@ private final class DesktopApplication: NSObject, NSApplicationDelegate,
             showStartupError(DesktopError.invalidHandshake)
             return
         }
-        configuration.websiteDataStore.httpCookieStore.setCookie(cookie) {
-            webView.load(URLRequest(url: url))
+        let rules: [[String: [String: String]]] = [
+            ["trigger": ["url-filter": "^https?://"], "action": ["type": "block"]],
+            ["trigger": ["url-filter": "^wss?://"], "action": ["type": "block"]],
+            [
+                "trigger": ["url-filter": "^http://127\\.0\\.0\\.1:\(sidecar.port)/"],
+                "action": ["type": "ignore-previous-rules"],
+            ],
+        ]
+        guard let data = try? JSONSerialization.data(withJSONObject: rules),
+              let encoded = String(data: data, encoding: .utf8) else {
+            showStartupError(DesktopError.networkPolicyUnavailable)
+            return
+        }
+        WKContentRuleListStore.default().compileContentRuleList(
+            forIdentifier: "ophira-desktop-loopback-v1", encodedContentRuleList: encoded
+        ) { [weak self, weak webView] rule, error in
+            DispatchQueue.main.async {
+                guard let self, let webView else { return }
+                guard let rule, error == nil else {
+                    self.showStartupError(error ?? DesktopError.networkPolicyUnavailable)
+                    return
+                }
+                configuration.userContentController.add(rule)
+                configuration.websiteDataStore.httpCookieStore.setCookie(cookie) {
+                    webView.load(URLRequest(url: url))
+                }
+            }
         }
     }
 
@@ -577,22 +604,119 @@ private final class DesktopApplication: NSObject, NSApplicationDelegate,
         sidecar.input.fileHandleForWriting.write(data + Data([10]))
     }
 
+    private func isLocalWebURL(_ url: URL) -> Bool {
+        guard let sidecar else { return false }
+        return url.scheme == "http" && url.host == "127.0.0.1"
+            && url.port == sidecar.port && url.user == nil && url.password == nil
+    }
+
+    private func isLocalBlobDownload(_ url: URL, action: WKNavigationAction) -> Bool {
+        guard let sidecar, url.scheme == "blob", action.shouldPerformDownload,
+              action.sourceFrame.isMainFrame,
+              let source = action.sourceFrame.request.url, isLocalWebURL(source) else {
+            return false
+        }
+        return url.absoluteString.hasPrefix("blob:http://127.0.0.1:\(sidecar.port)/")
+    }
+
     func webView(
         _ webView: WKWebView,
         decidePolicyFor navigationAction: WKNavigationAction,
         decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
     ) {
-        guard navigationAction.targetFrame?.isMainFrame != false,
-              let url = navigationAction.request.url else {
+        guard let url = navigationAction.request.url else {
+            decisionHandler(.cancel)
+            return
+        }
+        if isLocalWebURL(url) {
+            if navigationAction.shouldPerformDownload {
+                if navigationAction.sourceFrame.isMainFrame,
+                   let source = navigationAction.sourceFrame.request.url,
+                   isLocalWebURL(source) {
+                    decisionHandler(.download)
+                } else {
+                    decisionHandler(.cancel)
+                }
+            } else if navigationAction.targetFrame == nil {
+                if navigationAction.navigationType == .linkActivated,
+                   navigationAction.sourceFrame.isMainFrame {
+                    webView.load(navigationAction.request)
+                }
+                decisionHandler(.cancel)
+            } else {
+                decisionHandler(.allow)
+            }
+            return
+        }
+        if isLocalBlobDownload(url, action: navigationAction) {
+            decisionHandler(.download)
+            return
+        }
+        if ["about:blank", "about:srcdoc"].contains(url.absoluteString),
+           navigationAction.targetFrame?.isMainFrame == false {
             decisionHandler(.allow)
             return
         }
-        if let sidecar, url.scheme == "http", url.host == "127.0.0.1", url.port == sidecar.port {
-            decisionHandler(.allow)
-        } else {
-            if navigationAction.navigationType == .linkActivated { NSWorkspace.shared.open(url) }
-            decisionHandler(.cancel)
+        if navigationAction.navigationType == .linkActivated,
+           navigationAction.sourceFrame.isMainFrame,
+           let source = navigationAction.sourceFrame.request.url, isLocalWebURL(source),
+           ["http", "https"].contains(url.scheme ?? "") {
+            NSWorkspace.shared.open(url)
         }
+        decisionHandler(.cancel)
+    }
+
+    func webView(
+        _ webView: WKWebView,
+        decidePolicyFor navigationResponse: WKNavigationResponse,
+        decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void
+    ) {
+        guard let url = navigationResponse.response.url,
+              isLocalWebURL(url) else {
+            decisionHandler(.cancel)
+            return
+        }
+        if navigationResponse.isForMainFrame && !navigationResponse.canShowMIMEType {
+            decisionHandler(.download)
+        } else {
+            decisionHandler(.allow)
+        }
+    }
+
+    func webView(
+        _ webView: WKWebView, navigationAction: WKNavigationAction, didBecome download: WKDownload
+    ) {
+        download.delegate = self
+    }
+
+    func webView(
+        _ webView: WKWebView, navigationResponse: WKNavigationResponse,
+        didBecome download: WKDownload
+    ) {
+        download.delegate = self
+    }
+
+    func download(
+        _ download: WKDownload, decideDestinationUsing response: URLResponse,
+        suggestedFilename: String, completionHandler: @escaping (URL?) -> Void
+    ) {
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = URL(fileURLWithPath: suggestedFilename).lastPathComponent
+        panel.canCreateDirectories = true
+        if panel.runModal() == .OK, let destination = panel.url,
+           !FileManager.default.fileExists(atPath: destination.path) {
+            completionHandler(destination)
+        } else {
+            completionHandler(nil)
+        }
+    }
+
+    func download(
+        _ download: WKDownload, willPerformHTTPRedirection response: HTTPURLResponse,
+        newRequest request: URLRequest,
+        decisionHandler: @escaping (WKDownload.RedirectPolicy) -> Void
+    ) {
+        decisionHandler(request.url.map(isLocalWebURL) == true ? .allow : .cancel)
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
