@@ -55,6 +55,7 @@ document.body.append(pixel);
 BUNDLE_HTML = b"""<!doctype html><html><head>
 <link rel="stylesheet" href="assets/site.css"></head><body>
 <h1 id="bundle-state">Waiting</h1><img id="bundle-image" src="assets/logo.png" alt="Logo">
+<video id="bundle-video" src="assets/clip.webm" preload="metadata"></video>
 <button id="bundle-change">Change</button>
 <script src="assets/site.js"></script></body></html>"""
 BUNDLE_JS = b"""document.querySelector('#bundle-change').onclick = () => {
@@ -73,15 +74,37 @@ MODULE_MAIN_JS = (
     b'document.querySelector("#module-state").textContent = label;'
 )
 MODULE_HELPER_JS = b'export const label = "Module ready";'
+SITE_FONT = (ROOT / "frontend" / "public" / "fonts" / "inter-var.woff2").read_bytes()
+SITE_VIDEO = (ROOT / "backend" / "tests" / "fixtures" / "site-clip.webm").read_bytes()
+
+
+_VIDEO_READY = """element => new Promise(resolve => {
+  const done = () => resolve(element.videoWidth === 16 && element.videoHeight === 16);
+  if (element.readyState >= 1) return done();
+  element.addEventListener('loadedmetadata', done, {once: true});
+  element.addEventListener('error', () => resolve(false), {once: true});
+  element.load();
+  setTimeout(() => resolve(false), 5000);
+})"""
+_FONT_READY = """async () => {
+  const faces = await document.fonts.load('16px InterSite');
+  return faces.length === 1 && faces[0].status === 'loaded';
+}"""
 
 
 def bundle_zip() -> bytes:
     output = io.BytesIO()
     with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as archive:
         archive.writestr("index.html", BUNDLE_HTML)
-        archive.writestr("assets/site.css", b"h1 { color: rgb(0, 128, 0); }")
+        archive.writestr(
+            "assets/site.css",
+            b'@font-face {font-family: InterSite; src: url("site.woff2");}'
+            b"h1 { color: rgb(0, 128, 0); font-family: InterSite; }",
+        )
         archive.writestr("assets/site.js", BUNDLE_JS)
         archive.writestr("assets/logo.png", BUNDLE_PNG)
+        archive.writestr("assets/site.woff2", SITE_FONT)
+        archive.writestr("assets/clip.webm", SITE_VIDEO)
     return output.getvalue()
 
 
@@ -328,6 +351,8 @@ async def run() -> dict[str, bool]:
                     bundle_image = await page.locator("#bundle-image").evaluate(
                         "element => element.complete && element.naturalWidth === 1"
                     )
+                    bundle_font = await page.locator("#bundle-state").evaluate(_FONT_READY)
+                    bundle_video = await page.locator("#bundle-video").evaluate(_VIDEO_READY)
 
                     await page.goto(urls["bundle_static"])
                     await page.locator("#bundle-change").click()
@@ -346,6 +371,12 @@ async def run() -> dict[str, bool]:
                     )
                     bundle_preview_image = await bundle_frame.locator("#bundle-image").evaluate(
                         "element => element.complete && element.naturalWidth === 1"
+                    )
+                    bundle_preview_font = await bundle_frame.locator("#bundle-state").evaluate(
+                        _FONT_READY
+                    )
+                    bundle_preview_video = await bundle_frame.locator("#bundle-video").evaluate(
+                        _VIDEO_READY
                     )
 
                     await page.goto("https://gateway.example.com/static-bundle-preview-container")
@@ -398,10 +429,14 @@ async def run() -> dict[str, bool]:
                 "bundled_script_runs": bundle_script,
                 "bundled_css_renders": bundle_css,
                 "bundled_image_renders": bundle_image,
+                "bundled_font_loads": bundle_font,
+                "bundled_video_loads": bundle_video,
                 "bundle_script_inert_without_approval": bundle_script_inert,
                 "bundle_preview_script_runs": bundle_preview_script,
                 "bundle_preview_css_renders": bundle_preview_css,
                 "bundle_preview_image_renders": bundle_preview_image,
+                "bundle_preview_font_loads": bundle_preview_font,
+                "bundle_preview_video_loads": bundle_preview_video,
                 "static_bundle_preview_css_and_image_without_cookie": (
                     static_preview_css and static_preview_image and static_preview_script_inert
                     and draft_asset_cookies

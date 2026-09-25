@@ -23,6 +23,10 @@ ASSET_MEDIA_TYPES = {
     ".webp": "image/webp",
     ".gif": "image/gif",
     ".ico": "image/x-icon",
+    ".woff": "font/woff",
+    ".woff2": "font/woff2",
+    ".mp4": "video/mp4",
+    ".webm": "video/webm",
 }
 
 
@@ -55,6 +59,10 @@ def _validate_asset(name: str, raw: bytes) -> None:
         "image/webp": raw.startswith(b"RIFF") and raw[8:12] == b"WEBP",
         "image/gif": raw.startswith((b"GIF87a", b"GIF89a")),
         "image/x-icon": raw.startswith(b"\x00\x00\x01\x00"),
+        "font/woff": raw.startswith(b"wOFF"),
+        "font/woff2": raw.startswith(b"wOF2"),
+        "video/mp4": len(raw) >= 12 and raw[4:8] == b"ftyp",
+        "video/webm": raw.startswith(b"\x1aE\xdf\xa3"),
     }
     if not signatures[media_type]:
         raise InvalidSiteBundle("Site asset does not match its file type")

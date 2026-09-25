@@ -28,10 +28,16 @@ HTML = (
 SITE_HTML = (
     b'<!doctype html><html><head><link rel="stylesheet" href="assets/site.css"></head>'
     b'<body><img src="assets/logo.png" alt="Logo"><h1>Bundle</h1>'
+    b'<video src="assets/clip.mp4" controls></video>'
     b'<script src="assets/site.js"></script></body></html>'
 )
-SITE_CSS = b"h1 { color: rgb(0, 128, 0); }"
+SITE_CSS = (
+    b'@font-face {font-family: site; src: url("site.woff2");}'
+    b"h1 { color: rgb(0, 128, 0); font-family: site; }"
+)
 SITE_JS = b'document.body.dataset.script="ran";'
+SITE_WOFF2 = b"wOF2" + b"test-font"
+SITE_MP4 = b"\x00\x00\x00\x18ftypisom" + b"test-video"
 SITE_PNG = (
     b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
     b"\x08\x04\x00\x00\x00\xb5\x1c\x0c\x02\x00\x00\x00\x0bIDATx\xdac\xfc\xff\x1f"
@@ -47,6 +53,8 @@ def site_zip(entries: dict[str, bytes] | None = None) -> bytes:
             "assets/site.css": SITE_CSS,
             "assets/site.js": SITE_JS,
             "assets/logo.png": SITE_PNG,
+            "assets/site.woff2": SITE_WOFF2,
+            "assets/clip.mp4": SITE_MP4,
         }).items():
             archive.writestr(name, raw)
     return output.getvalue()
@@ -354,6 +362,9 @@ async def test_site_zip_assets_are_pinned_previewed_published_and_revoked(tmp_pa
         assert private_preview.status_code == 200
         assert private_preview.content == SITE_HTML
         assert token_path + "assets/" in private_preview.headers["content-security-policy"]
+        preview_csp = private_preview.headers["content-security-policy"]
+        assert "font-src data: gateway.example.com" + token_path + "assets/" in preview_csp
+        assert "media-src gateway.example.com" + token_path + "assets/" in preview_csp
         assert "allow-same-origin" not in private_preview.headers["content-security-policy"]
         draft_css = await managed("GET", preview_path + "assets/site.css")
         assert draft_css.content == SITE_CSS
@@ -369,6 +380,13 @@ async def test_site_zip_assets_are_pinned_previewed_published_and_revoked(tmp_pa
         assert token_js.content == SITE_JS
         assert token_js.headers["access-control-allow-origin"] == "null"
         assert token_js.headers["vary"] == "Origin"
+        token_font = await client.get(
+            token_path + "assets/site.woff2", headers={"Origin": "null"},
+        )
+        assert token_font.content == SITE_WOFF2
+        assert token_font.headers["content-type"].startswith("font/woff2")
+        assert token_font.headers["access-control-allow-origin"] == "null"
+        assert (await client.get(token_path + "assets/clip.mp4")).content == SITE_MP4
         assert (await client.get(
             token_path + "assets/site.js", headers={"Origin": "https://evil.example"},
         )).headers.get("access-control-allow-origin") is None
@@ -391,6 +409,8 @@ async def test_site_zip_assets_are_pinned_previewed_published_and_revoked(tmp_pa
         assert page.status_code == 200
         assert page.content == SITE_HTML
         assert f"/{site_id}/assets/" in page.headers["content-security-policy"]
+        assert "font-src data: " in page.headers["content-security-policy"]
+        assert "media-src " in page.headers["content-security-policy"]
         assert (await client.get(public_url.rstrip("/"))).status_code == 404
         css = await client.get(public_url + "assets/site.css")
         assert css.content == SITE_CSS
@@ -401,6 +421,10 @@ async def test_site_zip_assets_are_pinned_previewed_published_and_revoked(tmp_pa
         )
         assert public_module.headers["access-control-allow-origin"] == "null"
         assert (await client.get(public_url + "assets/logo.png")).content == SITE_PNG
+        assert (await client.get(
+            public_url + "assets/site.woff2", headers={"Origin": "null"},
+        )).headers["access-control-allow-origin"] == "null"
+        assert (await client.get(public_url + "assets/clip.mp4")).content == SITE_MP4
         assert (await client.get(public_url + "assets/missing.css")).status_code == 404
         assert (await client.get(
             f"https://gateway.example.com/published/{project_id}/{site_id}/assets/site.css",
@@ -417,6 +441,8 @@ async def test_site_zip_assets_are_pinned_previewed_published_and_revoked(tmp_pa
         })
         assert revoked.status_code == 200
         assert (await client.get(public_url + "assets/site.css")).status_code == 404
+        assert (await client.get(public_url + "assets/site.woff2")).status_code == 404
+        assert (await client.get(public_url + "assets/clip.mp4")).status_code == 404
 
 
 @pytest.mark.asyncio
@@ -484,8 +510,24 @@ async def test_local_only_mode_does_not_expose_preview_capability_path(tmp_path:
     {"index.html": SITE_HTML, "assets/../bad.css": SITE_CSS},
     {"index.html": SITE_HTML, "assets/program.exe": b"alert(1)"},
     {"index.html": SITE_HTML, "assets/logo.png": b"not a PNG"},
+    {"index.html": SITE_HTML, "assets/site.woff2": b"not a font"},
+    {"index.html": SITE_HTML, "assets/clip.mp4": b"not a video"},
+    {"index.html": SITE_HTML, "assets/clip.webm": b"not a video"},
+    {"index.html": SITE_HTML, "assets/site.woff": b"not a font"},
     {"other.html": SITE_HTML},
 ])
 def test_site_zip_rejects_unsafe_entries(entries: dict[str, bytes]):
     with pytest.raises(InvalidSiteBundle):
         read_site_bundle(site_zip(entries))
+
+
+def test_site_zip_accepts_bounded_woff_and_webm_assets():
+    font = b"wOFF" + b"font-data"
+    video = b"\x1aE\xdf\xa3" + b"webm-data"
+    files = read_site_bundle(site_zip({
+        "index.html": SITE_HTML,
+        "assets/site.woff": font,
+        "assets/clip.webm": video,
+    }))
+    assert files["assets/site.woff"] == font
+    assert files["assets/clip.webm"] == video

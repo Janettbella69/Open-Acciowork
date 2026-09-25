@@ -29,12 +29,13 @@ from .storage import LedgerNotFoundError
 
 _PAGE_CSP = (
     "sandbox; default-src 'none'; script-src 'none'; style-src 'unsafe-inline'; "
-    "img-src data:; font-src data:; connect-src 'none'; frame-src 'none'; "
+    "img-src data:; font-src data:; media-src 'none'; connect-src 'none'; frame-src 'none'; "
     "object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
 )
 _SCRIPT_CSP = _PAGE_CSP.replace("sandbox;", "sandbox allow-scripts;").replace(
     "script-src 'none'", "script-src 'unsafe-inline'",
 )
+_OPAQUE_CORS_TYPES = frozenset({"text/javascript", "font/woff", "font/woff2"})
 PREVIEW_TOKEN_TTL_SECONDS = 300
 _PREVIEW_TOKEN = re.compile(r"[0-9a-f]{16}\.[0-9a-f]{64}")
 
@@ -47,7 +48,9 @@ def _page_headers(
     if asset_source:
         csp = csp.replace(
             "style-src 'unsafe-inline'", f"style-src 'unsafe-inline' {asset_source}",
-        ).replace("img-src data:", f"img-src data: {asset_source}")
+        ).replace("img-src data:", f"img-src data: {asset_source}").replace(
+            "font-src data:", f"font-src data: {asset_source}",
+        ).replace("media-src 'none'", f"media-src {asset_source}")
         if allow_scripts:
             csp = csp.replace(
                 "script-src 'unsafe-inline'",
@@ -83,15 +86,15 @@ def _asset_source(
     return host + path
 
 
-def _asset_headers(*, module_cors: bool = False) -> dict[str, str]:
+def _asset_headers(*, opaque_cors: bool = False) -> dict[str, str]:
     headers = {
         "Cache-Control": "no-store, max-age=0",
         "X-Content-Type-Options": "nosniff",
         "Referrer-Policy": "no-referrer",
     }
-    if module_cors:
-        # A sandboxed module has an opaque Origin. The preview capability in
-        # its asset path, not Origin:null, authorizes private draft bytes.
+    if opaque_cors:
+        # Sandboxed modules and fonts have an opaque Origin. The preview
+        # capability in its asset path authorizes private draft bytes.
         headers["Access-Control-Allow-Origin"] = "null"
         headers["Vary"] = "Origin"
     return headers
@@ -312,9 +315,12 @@ def register_site_publication_routes(
             )
         except Exception as exc:
             raise _site_error(exc) from exc
-        module_cors = media_type == "text/javascript" and request.headers.get("origin") == "null"
+        opaque_cors = (
+            media_type in _OPAQUE_CORS_TYPES
+            and request.headers.get("origin") == "null"
+        )
         return Response(
-            raw, media_type=media_type, headers=_asset_headers(module_cors=module_cors),
+            raw, media_type=media_type, headers=_asset_headers(opaque_cors=opaque_cors),
         )
 
     @app.post(
@@ -398,7 +404,10 @@ def register_site_publication_routes(
             raise HTTPException(404, "Page not found") from None
         except (SitePublicationConflict, ProjectLifecycleBusyError, OSError, ValueError):
             raise HTTPException(503, "Page is temporarily unavailable") from None
-        module_cors = media_type == "text/javascript" and request.headers.get("origin") == "null"
+        opaque_cors = (
+            media_type in _OPAQUE_CORS_TYPES
+            and request.headers.get("origin") == "null"
+        )
         return Response(
-            raw, media_type=media_type, headers=_asset_headers(module_cors=module_cors),
+            raw, media_type=media_type, headers=_asset_headers(opaque_cors=opaque_cors),
         )

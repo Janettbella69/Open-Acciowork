@@ -15,9 +15,10 @@ directly from **Project files → Published pages** in the workspace.
 Select an immutable saved `.html` or `.htm` artifact version of at most 512 KiB,
 or a site `.zip` of at most 12 MiB. A ZIP contains `index.html` at the root and
 up to 32 files in `assets/` with flat names. CSS, classic or module JavaScript
-(`.js`), PNG, JPEG, WebP, GIF, and ICO are supported. Modules may import other
-relative `.js` files in `assets/`. The expanded archive is capped at
-20 MiB and each asset at 4 MiB. The HTML must use relative paths such as
+(`.js`), PNG, JPEG, WebP, GIF, ICO, WOFF/WOFF2 fonts, and MP4/WebM video are
+supported. Modules may import other relative `.js` files in `assets/`. The
+expanded archive is capped at 20 MiB and each asset at 4 MiB. The HTML must
+use relative paths such as
 `assets/site.css`; the ZIP page URL ends with `/` so these paths resolve inside
 that one publication. Other files, traversal, symlinks, ambiguous duplicates,
 encrypted entries and unsupported compression are rejected. A site ZIP can be
@@ -40,16 +41,19 @@ no-store`. Static pages keep the no-script [CSP sandbox](https://developer.mozil
 Explicitly reviewed interactive pages use `sandbox allow-scripts` with an opaque
 origin, allowing inline JavaScript and only the ZIP's local JS files while
 denying origin storage, forms, framing, third-party scripts and resources, and
-background requests. CSS and image assets are allowed only under that site's
-fixed asset path. ZIP assets are read from the same checksum-pinned artifact;
+background requests. CSS, image, font and video assets are allowed only under
+that site's fixed asset path. ZIP assets are read from the same checksum-pinned
+artifact;
 they become unavailable with the page on withdrawal or project deletion.
 The review iframe uses the matching script mode and another sandbox layer.
 Neither mode allows `allow-same-origin` or access to control-plane APIs. A
 public top-level page can still link or navigate visitors to another site, so
 the administrator must review the HTML and its scripts before approval.
-Self-contained HTML can include inline CSS and data images. Remote CDNs,
-fonts, media, and third-party network APIs remain outside this publication
-format. A direct page visit can still follow normal links.
+Self-contained HTML can include inline CSS and data images. WOFF/WOFF2 fonts and
+MP4/WebM video must be bundled, have matching file signatures, and fit the
+4 MiB per-asset limit. Remote CDNs, remote fonts/media, standalone audio files,
+and third-party network APIs remain outside this publication format. A direct
+page visit can still follow normal links.
 
 Sandboxed draft frames have an opaque origin and may omit the control-plane
 session cookie on asset requests. For every ZIP draft, the authenticated preview
@@ -62,7 +66,7 @@ URL if a late module import fails after expiry. The response is never cached;
 the iframe and page send no referrer. Redact the capability segment from
 gateway and application access logs, and exclude these URLs from analytics.
 
-Module requests from the sandbox send `Origin: null`. JavaScript responses
+Module and font requests from the sandbox send `Origin: null`. Their responses
 under a valid capability (or from a published site) return
 `Access-Control-Allow-Origin: null` without credential access; protected draft
 asset URLs never return CORS permission. The bearer URL, rather than `null`
@@ -75,7 +79,7 @@ edits, host separation, withdrawal, and project deletion. Chromium review at
 1360px and 390px uses a local simulated gateway to exercise staging and
 approval. Real Chromium with actual ASGI responses verifies that old static
 pages keep scripts inert; an opted-in page and its review iframe run scripts,
-and ZIP page and preview load fixed CSS, image, classic JS and module imports
-while storage and background network attempts are blocked. Real public
-HTTPS routing, CDN behavior, wider browser compatibility, and a live generated
+and ZIP page and preview load fixed CSS, image, bundled WOFF2/WebM, classic JS
+and module imports while storage and background network attempts are blocked.
+Real public HTTPS routing, CDN behavior, wider browser compatibility, and a live generated
 page remain deployment acceptance work.

@@ -58,7 +58,7 @@
 | FR-38 钉钉/企微 | partial（本地）：钉钉官方 Stream SDK 验证回调接入、群 @ /单聊文字门禁、管理员绑定 corp/conversation/staff 至项目与成员、角色即时复验、跨 worker 去重与投递互斥、Run 结果经官方 robot API 回到原会话；企微官方智能机器人 SDK 验证 WebSocket 帧接入、群/单聊文字、bot/conversation/sender 精确绑定、Run 结果经主动发送命令回到会话，断线时未发送结果保持待处理；两者的无幂等字段投递异常停止自动重试并留痕；见 `backend/README.md` | deferred：钉钉及企微真实租户收发/权限/轮换 E2E 与实际送达确认；微信路径仍待确定。PRD 的微信先行顺序尚未满足 |
 | FR-39 插件导入 | partial（本地）：官方插件 ZIP 多 Skill 拆分后复用私有仓库安全扫描和逐件人审；远程 MCP 地址引导至 FR-33 项目审批/逐工具策略，插件子 Agent 与其它可执行组件明确忽略；Anthropic marketing 真包的 8 个 Skill 扫描通过、11 个远程 MCP 地址列出；冷备报告/子 Skill 绑定校验；见 `docs/plugin-imports.md` | deferred：远程 MCP/Provider E2E、认证部署验收和更多真实包兼容性；OAuth、stdio MCP 和 Claude marketplace 安装机制不在当前 FR-33 远程 HTTPS 边界内 |
 | FR-40 语音输入 | partial（本地）：支持浏览器 SpeechRecognition 的手机任务/插话与工作台听写；语言选择、可编辑转写草稿、明确填入确认和原有提交路径；取消、页面隐藏及卸载中止录音，未提供音频上传端点；见 `docs/voice-input.md` | deferred：真实手机麦克风授权/转写质量、Safari/Android 与受限浏览器兼容、HTTPS 部署验收；不支持 Web Speech API 的浏览器目前仍需键盘听写或文字输入 |
-| FR-41 发布网页 | partial（本地）：不可变 HTML 或受限站点 ZIP 产物版本按校验和暂存，沙箱预览后由项目管理员明确批准；独立 HTTPS 域名公开、无缓存与表单隔离，持久撤回及项目删除清理；脚本须显式逐版审批，既有网页仍禁脚本；ZIP 内 CSS/图片/经典 JS 与模块导入经固定资产路径提供；ZIP 草稿使用五分钟、绑定修订和站点的只读预览地址加载无 Cookie 资源，Chromium 已验证；见 `docs/site-publications.md` | deferred：真实公网部署、缓存与跨浏览器验收；字体/媒体和第三方远程资源未纳入受限站点包，真实站点与长期容量仍待验收 |
+| FR-41 发布网页 | partial（本地）：不可变 HTML 或受限站点 ZIP 产物版本按校验和暂存，沙箱预览后由项目管理员明确批准；独立 HTTPS 域名公开、无缓存与表单隔离，持久撤回及项目删除清理；脚本须显式逐版审批，既有网页仍禁脚本；ZIP 内 CSS/图片/WOFF 字体/MP4 与 WebM 视频/经典 JS 与模块导入经固定资产路径提供；ZIP 草稿使用五分钟、绑定修订和站点的只读预览地址加载无 Cookie 资源，Chromium 已验证；见 `docs/site-publications.md` | deferred：真实公网部署、缓存与跨浏览器验收；第三方远程资源、独立音频等未纳入受限站点包，真实站点与长期容量仍待验收 |
 | FR-42 L3 桌面 GUI | partial：macOS 开发版 WebKit 宿主、私有 sidecar、ScreenCaptureKit 系统窗口选择/截图桥；Agent 主线仅在组织策略/精确 App 白名单和 attended Run 下调用，选择、截图和各输入动作逐次人审；截图进 Run receipt/Evidence/Artifact，AXPress、完整值校验的文本替换及有限无修饰按键均绑定最近截图、生成独立 Run receipt；已知浏览器 Bundle 禁止进入 L3；WebView 精确 sidecar 源规则、CSP 和逐帧导航限制已有本机烟测；冻结 Python/SDK CLI 的便携 App 本机复制启动与 ad hoc 签名验收通过 | deferred：真实系统输入与窗口/隐私权限验收、广泛 App 输入兼容、WebView 更完整的攻击/恢复矩阵、Developer ID 签名/公证及干净 Mac 恢复矩阵 |
 
 2026-09-25 FR-21 Shopify 商家授权增量：同组织 client credentials 保留；组织外商家可经管理员发起的授权码同意页、十分钟一次性 state、Shopify HMAC 与固定店铺校验取得限时离线令牌。令牌只存连接器私有 vault，按官方 refresh_token 流程提前刷新，并用跨 worker 文件锁串行化轮换；重配/撤销删除 state 与令牌。后端全量 `2319 passed / 13 skipped`；最后两处失效保护后 Shopify 与控制面基准定向 `65 passed`，Ruff 通过。前端全量 `546 passed / 56 files`、ESLint 与 TypeScript/Vite 构建通过。Browser 技能返回空可用浏览器列表，故未做页面目视；真实 Shopify 商家授权、HTTPS 网关、Admin API 和模型 Run 验收仍未完成。
@@ -66,6 +66,8 @@
 2026-09-25 FR-27 图像适配增量：仅显式启用后访问官方固定 Image API，独立密钥不进入 Agent worker，也不会发送给通用媒体端点；请求一张固定 PNG，并对 JSON/base64 和落盘文件逐层限额与校验。视频保留原二进制接口。后端全量 `2331 passed / 13 skipped`、Ruff 通过；无真实 OpenAI 账号/计费/画质或视频厂商验收，详见 `docs/media-generation.md`。
 
 2026-09-25 FR-27 视频适配增量：显式选择 Runway Dev 后，使用独立密钥提交 Gen-4.5 文字生成视频任务，并持久保存任务 ID 与原始 Run/目标路径；相同参数续查，付费创建结果不确定时停止自动重试。完成后对签名结果链接逐跳执行公网 HTTPS 钉住、250 MB 流式上限及 MP4 签名校验，登记来源与 Artifact，下载或登记中断后按租约恢复。后端全量 `2339 passed / 13 skipped`、Ruff 通过；无真实 Runway 账号/计费/视频质量与长时验收，详见 `docs/media-generation.md`。
+
+2026-09-25 FR-41 本地站点资源增量：受限 ZIP 新增 WOFF/WOFF2 与 MP4/WebM，沿用 4 MiB 单文件、12 MiB 压缩包和 20 MiB 展开总量限制；签名、路径、CSP 与草稿短时预览凭证校验保持生效，沙箱字体仅对 `Origin: null` 返回无凭据 CORS，草稿仍须持有有效预览凭证。后端全量 `2344 passed / 13 skipped`、Ruff 通过；真实 Chromium/ASGI 站点脚本 21 项检查全过，含公开页与草稿的字体和 WebM 加载。真实公网域名/CDN 与跨浏览器验收仍未完成，见 `docs/site-publications.md`。
 
 2026-09-24 FR-20 浏览器复验：真实 Chromium L1 经生产浏览器工具访问无跳转的
 公网 IP 目标，截图、Artifact、Evidence、来源凭证和 Run 关联等 **9 项检查全过**，
