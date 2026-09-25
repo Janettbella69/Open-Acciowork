@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 
 import pytest
-from mcp.types import CallToolRequest, CallToolRequestParams
+from mcp_test_client import call_sdk_tool
 
 from ophira_backend import ingest
 from ophira_backend.ledger_tools import (
@@ -246,12 +246,8 @@ def test_ocr_ingest_uses_same_boundary_and_sanitizer(
 
 async def _mcp_call(server_config: dict, name: str, arguments: dict) -> dict:
     server = server_config["instance"]
-    handler = server.request_handlers[CallToolRequest]
-    request = CallToolRequest(
-        params=CallToolRequestParams(name=name, arguments=arguments)
-    )
-    result = await handler(request)
-    return json.loads(result.root.content[0].text)
+    result = await call_sdk_tool(server, name, arguments)
+    return json.loads(result.content[0].text)
 
 
 @pytest.mark.asyncio

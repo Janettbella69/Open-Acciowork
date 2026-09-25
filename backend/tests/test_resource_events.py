@@ -3,7 +3,7 @@
 import json
 
 import pytest
-from mcp.types import CallToolRequest, CallToolRequestParams
+from mcp_test_client import call_sdk_tool
 
 from ophira_backend.constants import (
     LEDGER_MCP_SERVER_NAME,
@@ -45,11 +45,9 @@ async def test_native_mcp_registers_each_version_once_and_binds_memory_source(tm
     )[LEDGER_MCP_SERVER_NAME]["instance"]
 
     async def request(name, arguments):
-        result = await server.request_handlers[CallToolRequest](CallToolRequest(
-            params=CallToolRequestParams(name=name, arguments=arguments),
-        ))
-        assert not result.root.isError
-        return json.loads(result.root.content[0].text)
+        result = await call_sdk_tool(server, name, arguments)
+        assert not result.is_error
+        return json.loads(result.content[0].text)
 
     path = ledger.workspace_for_project(project.id) / "report.md"
     path.write_text("Original report: api_key=private-body", encoding="utf-8")

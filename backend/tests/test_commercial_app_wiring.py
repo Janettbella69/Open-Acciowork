@@ -8,7 +8,7 @@ from pathlib import Path
 import httpx
 import pytest
 from httpx import ASGITransport, AsyncClient
-from mcp.types import CallToolRequest, CallToolRequestParams
+from mcp_test_client import call_sdk_tool
 
 from ophira_backend.auth import build_gateway_assertion_headers
 from ophira_backend.commercial_adapters import HttpsJsonMessageAdapter
@@ -60,8 +60,8 @@ def gateway_headers(
 
 
 def mcp_payload(result) -> dict:
-    assert result.root.isError is False
-    block = result.root.content[0]
+    assert result.is_error is False
+    block = result.content[0]
     return json.loads(block.text)
 
 
@@ -155,28 +155,19 @@ async def test_app_wires_receipt_first_mcp_and_authenticated_cancel(
     try:
         options = app.state.runtime._build_options(run)
         server_config = options.mcp_servers[COMMERCIAL_ACTION_MCP_SERVER_NAME]
-        handler = server_config["instance"].request_handlers[CallToolRequest]
-        read_result = await handler(
-            CallToolRequest(
-                params=CallToolRequestParams(
-                    name="read_commercial_target",
-                    arguments={
+        read_result = await call_sdk_tool(
+            server_config["instance"], "read_commercial_target", {
                         "connector_id": CONNECTOR_ID,
                         "resource_type": "supplier_inquiry",
                         "resource_key": "inquiry-100",
-                    },
-                )
-            )
+            },
         )
         observation = mcp_payload(read_result)["target_observation"]
         receipt_id = observation["source_receipt"]["id"]
         assert observation["target"]["expected_version"] == "etag-7"
 
-        stage_result = await handler(
-            CallToolRequest(
-                params=CallToolRequestParams(
-                    name="stage_commercial_action",
-                    arguments={
+        stage_result = await call_sdk_tool(
+            server_config["instance"], "stage_commercial_action", {
                         "receipt_id": receipt_id,
                         "changes": [
                             {
@@ -186,9 +177,7 @@ async def test_app_wires_receipt_first_mcp_and_authenticated_cancel(
                             }
                         ],
                         "reason": "Stage the host-observed supplier inquiry",
-                    },
-                )
-            )
+            },
         )
         staged = mcp_payload(stage_result)["staged_action"]
         action_id = staged["id"]

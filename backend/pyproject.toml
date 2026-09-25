@@ -13,8 +13,9 @@ dependencies = [
   "croniter>=2,<7",
   "cryptography>=43,<51",
   "fastapi>=0.115,<1",
-  # Claude Agent SDK 0.2.143 uses the MCP 1.x low-level Server decorator API.
-  "mcp>=1.23,<2",
+  # Claude Agent SDK 0.2.143 supports MCP 2.x via its in-process compatibility layer.
+  "mcp>=2.2,<3",
+  "httpx2>=2.5,<3",
   "pydantic-settings>=2.7,<3",
   "Pillow>=10,<13",
   "pypdf>=5,<7",

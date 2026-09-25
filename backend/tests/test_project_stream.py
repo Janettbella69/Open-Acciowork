@@ -8,7 +8,7 @@ from datetime import timedelta
 
 import pytest
 from httpx import ASGITransport, AsyncClient
-from mcp.types import CallToolRequest, CallToolRequestParams
+from mcp_test_client import call_sdk_tool
 from test_auth_api import principal, request_as, trusted_settings
 
 from ophira_backend.config import Settings
@@ -85,15 +85,13 @@ async def test_production_sdk_options_inject_projector_into_native_mcp_handler(t
     run = ledger.create_run(project.id, "Local tool request")
     options = app.state.runtime._build_options(run)
     server = options.mcp_servers[LEDGER_MCP_SERVER_NAME]["instance"]
-    response = await server.request_handlers[CallToolRequest](CallToolRequest(
-        params=CallToolRequestParams(name="record_decision", arguments={
+    response = await call_sdk_tool(server, "record_decision", {
             "question": "Proceed?", "outcome": "Run a small test", "decision_type": "test",
             "rationale": "Synthetic fixture", "evidence_ids": [], "hypothesis_ids": [],
             "assumptions": [], "conditions": [], "next_actions": [], "made_by": "main-agent",
-        }),
-    ))
-    assert response.root.isError is False
-    decision = json.loads(response.root.content[0].text)
+    })
+    assert response.is_error is False
+    decision = json.loads(response.content[0].text)
     events = ledger.list_events(run.id)
     assert len(events) == 1
     assert events[0].type == EventType.DECISION_RECORDED

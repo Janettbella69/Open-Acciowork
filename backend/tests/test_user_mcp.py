@@ -1,14 +1,17 @@
+import json
 from pathlib import Path
 
-import httpx
+import httpx2
 import pytest
 from httpx import ASGITransport, AsyncClient
+from mcp import Client
+from mcp.server.lowlevel import Server
+from mcp.server.transport_security import TransportSecuritySettings
 from mcp.types import (
-    CallToolRequest,
-    CallToolRequestParams,
     CallToolResult,
-    ListToolsRequest,
+    ListToolsResult,
     TextContent,
+    Tool,
 )
 from pydantic import ValidationError
 from test_auth_api import signed_headers, trusted_settings
@@ -165,7 +168,7 @@ async def test_review_failure_stays_disabled_and_private_destinations_are_reject
     transport = _PinnedMcpTransport("https://127.0.0.1/mcp")
     try:
         with pytest.raises(UserMcpConflictError):
-            await transport.handle_async_request(httpx.Request("POST", "https://127.0.0.1/mcp"))
+            await transport.handle_async_request(httpx2.Request("POST", "https://127.0.0.1/mcp"))
     finally:
         await transport.aclose()
 
@@ -181,14 +184,14 @@ async def test_review_transport_pins_host_and_rejects_redirects(monkeypatch) -> 
 
     def respond(request):
         observed.append(request)
-        return httpx.Response(302, headers={"Location": "http://127.0.0.1/private"})
+        return httpx2.Response(302, headers={"Location": "http://127.0.0.1/private"})
 
     transport = _PinnedMcpTransport("https://mcp.example.test/mcp")
     await transport.inner.aclose()
-    transport.inner = httpx.MockTransport(respond)
+    transport.inner = httpx2.MockTransport(respond)
     try:
         with pytest.raises(UserMcpConflictError, match="redirects"):
-            await transport.handle_async_request(httpx.Request(
+            await transport.handle_async_request(httpx2.Request(
                 "POST", "https://mcp.example.test/mcp",
                 headers={"Authorization": "Bearer test"},
             ))
@@ -197,7 +200,7 @@ async def test_review_transport_pins_host_and_rejects_redirects(monkeypatch) -> 
         assert observed[0].extensions["sni_hostname"] == "mcp.example.test"
         assert observed[0].headers["Authorization"] == "Bearer test"
         with pytest.raises(UserMcpConflictError, match="approved endpoint"):
-            await transport.handle_async_request(httpx.Request(
+            await transport.handle_async_request(httpx2.Request(
                 "POST", "https://other.example.test/mcp",
                 headers={"Authorization": "Bearer test"},
             ))
@@ -206,16 +209,108 @@ async def test_review_transport_pins_host_and_rejects_redirects(monkeypatch) -> 
 
     oversized = _PinnedMcpTransport("https://mcp.example.test/mcp")
     await oversized.inner.aclose()
-    oversized.inner = httpx.MockTransport(lambda _request: httpx.Response(
+    oversized.inner = httpx2.MockTransport(lambda _request: httpx2.Response(
         200, headers={"Content-Length": "2000001"},
     ))
     try:
         with pytest.raises(UserMcpConflictError, match="size"):
-            await oversized.handle_async_request(httpx.Request(
+            await oversized.handle_async_request(httpx2.Request(
                 "POST", "https://mcp.example.test/mcp",
             ))
     finally:
         await oversized.aclose()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("force_legacy", "expected_version"),
+    [(False, "2026-07-28"), (True, "2025-11-25")],
+)
+async def test_version_negotiated_http_review_and_call_use_pinned_transport(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+    force_legacy: bool, expected_version: str,
+) -> None:
+    observed_requests: list[httpx2.Request] = []
+    negotiated_versions: list[str] = []
+
+    async def list_tools(context, _params):
+        negotiated_versions.append(context.protocol_version)
+        return ListToolsResult(tools=[Tool(
+            name="echo", inputSchema={
+                "type": "object",
+                "properties": {"text": {"type": "string"}},
+                "required": ["text"],
+            },
+        )])
+
+    async def call_tool(context, params):
+        negotiated_versions.append(context.protocol_version)
+        return CallToolResult(
+            content=[TextContent(type="text", text=params.arguments["text"])],
+            structuredContent={"value": params.arguments["text"]},
+        )
+
+    remote = Server("remote", on_list_tools=list_tools, on_call_tool=call_tool)
+    app = remote.streamable_http_app(
+        json_response=True, stateless_http=True,
+        transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
+    )
+
+    class RecordingTransport(httpx2.AsyncBaseTransport):
+        def __init__(self):
+            self.asgi = httpx2.ASGITransport(app=app)
+
+        async def handle_async_request(self, request: httpx2.Request) -> httpx2.Response:
+            observed_requests.append(request)
+            if force_legacy and request.method == "POST":
+                body = await request.aread()
+                if json.loads(body).get("method") == "server/discover":
+                    return httpx2.Response(400, json={"error": "legacy only"}, request=request)
+            return await self.asgi.handle_async_request(request)
+
+        async def aclose(self):
+            await self.asgi.aclose()
+
+    monkeypatch.setattr(
+        "ophira_backend.user_mcp.pin_public_http_url",
+        lambda _url: (
+            PinnedPublicDestination(
+                request_url="https://93.184.216.34/mcp",
+                host_header="mcp.example.test",
+                sni_hostname="mcp.example.test",
+                resolved_ip="93.184.216.34",
+            ),
+            None,
+        ),
+    )
+    monkeypatch.setattr(
+        "ophira_backend.user_mcp.httpx2.AsyncHTTPTransport",
+        lambda **_kwargs: RecordingTransport(),
+    )
+    service = registry(tmp_path)
+    service.policy.save(OrgPolicy(allowed_mcp_hosts=["mcp.example.test"]))
+    item = service.upsert(
+        "project_one", "modern_mcp",
+        UserMcpUpsert(name="Modern", url="https://mcp.example.test/mcp"),
+    )
+    async with app.router.lifespan_context(app):
+        reviewed = await service.review("project_one", item.id)
+        assert [tool.name for tool in reviewed.tools] == ["echo"]
+        result = await service._invoke_remote(
+            reviewed, reviewed.tools[0], {"text": "verified"}
+        )
+
+    assert result.content[0].text == "verified"
+    assert result.structured_content == {"value": "verified"}
+    assert len(negotiated_versions) >= 3
+    assert set(negotiated_versions) == {expected_version}
+    assert observed_requests
+    assert all(request.url.host == "93.184.216.34" for request in observed_requests)
+    assert all(request.headers["Host"] == "mcp.example.test" for request in observed_requests)
+    assert all(
+        request.extensions["sni_hostname"] == "mcp.example.test"
+        for request in observed_requests
+    )
 
 
 @pytest.mark.asyncio
@@ -290,8 +385,12 @@ async def test_sdk_explicit_servers_hook_and_untrusted_output(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("mode", "expected_version"),
+    [("auto", "2026-07-28"), ("legacy", "2025-11-25")],
+)
 async def test_sdk_gateway_exposes_reviewed_tools_and_pins_call_authority(
-    tmp_path: Path, monkeypatch,
+    tmp_path: Path, monkeypatch, mode: str, expected_version: str,
 ) -> None:
     service = registry(tmp_path)
     item = service.add_catalog("project_one", "claude_code_docs")
@@ -303,9 +402,6 @@ async def test_sdk_gateway_exposes_reviewed_tools_and_pins_call_authority(
     reviewed = await service.review("project_one", item.id)
     reviewed = service.set_tool_policy("project_one", item.id, "get_page", "deny")
     server = service.sdk_server(reviewed)["instance"]
-    listed = await server.request_handlers[ListToolsRequest](ListToolsRequest())
-    assert [tool.name for tool in listed.root.tools] == ["search_docs"]
-    assert "https://" not in listed.root.tools[0].description
 
     calls = []
 
@@ -314,16 +410,18 @@ async def test_sdk_gateway_exposes_reviewed_tools_and_pins_call_authority(
         return CallToolResult(content=[TextContent(type="text", text="ok")])
 
     monkeypatch.setattr(service, "_invoke_remote", invoke)
-    request = CallToolRequest(params=CallToolRequestParams(
-        name="search_docs", arguments={"query": "market"},
-    ))
-    result = await server.request_handlers[CallToolRequest](request)
-    assert not result.root.isError
-    assert calls == [("search_docs", {"query": "market"})]
-    service.revoke("project_one", item.id)
-    blocked = await server.request_handlers[CallToolRequest](request)
-    assert blocked.root.isError
-    assert len(calls) == 1
+    async with Client(server, mode=mode) as client:
+        assert client.protocol_version == expected_version
+        listed = await client.list_tools()
+        assert [tool.name for tool in listed.tools] == ["search_docs"]
+        assert "https://" not in listed.tools[0].description
+        result = await client.call_tool("search_docs", {"query": "market"})
+        assert not result.is_error
+        assert calls == [("search_docs", {"query": "market"})]
+        service.revoke("project_one", item.id)
+        blocked = await client.call_tool("search_docs", {"query": "market"})
+        assert blocked.is_error
+        assert len(calls) == 1
 
 
 @pytest.mark.asyncio
@@ -392,6 +490,42 @@ async def test_catalog_api_adds_reviews_and_exposes_only_metadata(
         )
         assert changed.status_code == 200 and changed.json()["tools"][0]["policy"] == "deny"
         assert len((await client.get(root)).json()) == 1
+
+
+@pytest.mark.asyncio
+async def test_remote_review_errors_are_private_and_leave_connector_disabled(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def failed_client(*_args, **_kwargs):
+        raise ValueError("remote response included Bearer private-credential")
+
+    monkeypatch.setattr("ophira_backend.user_mcp.Client", failed_client)
+
+    class Runtime:
+        async def run(self, _run):
+            pass
+
+        async def cancel(self, _run_id):
+            pass
+
+    app = create_app(Settings(data_dir=tmp_path), runtime=Runtime())
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://localhost") as client:
+        project = (await client.post(
+            "/api/projects", json={"name": "Kettle", "objective": "Validate"},
+        )).json()
+        root = f"/api/projects/{project['id']}/mcp"
+        added = await client.post(f"{root}/catalog/claude_code_docs")
+        assert added.status_code == 502
+        assert added.json()["detail"] == "Remote MCP handshake or tool review failed"
+        assert "private-credential" not in added.text
+        connector = (await client.get(root)).json()[0]
+        assert not connector["enabled"]
+        assert connector["tools"] == []
+
+        reviewed = await client.post(f"{root}/{connector['id']}/review")
+        assert reviewed.status_code == 502
+        assert reviewed.json()["detail"] == "Remote MCP handshake or tool review failed"
+        assert not (await client.get(root)).json()[0]["enabled"]
 
 
 @pytest.mark.asyncio

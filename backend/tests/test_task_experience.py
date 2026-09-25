@@ -13,6 +13,7 @@ from pathlib import Path
 import pytest
 from fastapi import FastAPI, HTTPException, Request
 from httpx import ASGITransport, AsyncClient
+from mcp_test_client import call_sdk_tool
 
 from ophira_backend.automation import IntentStore, NotificationStore
 from ophira_backend.automation_tools import build_automation_tools
@@ -691,8 +692,6 @@ async def test_sdk_pretooluse_denies_branch_before_experience_mcp_write(tmp_path
 
 @pytest.mark.asyncio
 async def test_mcp_schema_and_errors_are_real_sdk_results(tmp_path):
-    from mcp.types import CallToolRequest, CallToolRequestParams
-
     from ophira_backend.automation_tools import build_automation_mcp_server
 
     ledger, schedule, store = setup_store(tmp_path)
@@ -702,12 +701,12 @@ async def test_mcp_schema_and_errors_are_real_sdk_results(tmp_path):
         ledger, IntentStore(tmp_path / "intents"), NotificationStore(tmp_path / "notifications"),
         run.project_id, run_id=run.id, schedule_id=schedule.id, task_experiences=store,
     )
-    handler = server["instance"].request_handlers[CallToolRequest]
-    result = await handler(CallToolRequest(params=CallToolRequestParams(
-        name="record_schedule_experience", arguments=payload.model_dump(mode="json"),
-    )))
-    assert result.root.isError is False
-    denied = await handler(CallToolRequest(params=CallToolRequestParams(
-        name="record_schedule_experience", arguments={**payload.model_dump(), "budget": 999},
-    )))
-    assert denied.root.isError is True
+    result = await call_sdk_tool(
+        server["instance"], "record_schedule_experience", payload.model_dump(mode="json")
+    )
+    assert result.is_error is False
+    denied = await call_sdk_tool(
+        server["instance"], "record_schedule_experience",
+        {**payload.model_dump(), "budget": 999},
+    )
+    assert denied.is_error is True

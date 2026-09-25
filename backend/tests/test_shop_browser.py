@@ -10,7 +10,7 @@ from types import SimpleNamespace
 
 import httpx
 import pytest
-from mcp.types import CallToolRequest, CallToolRequestParams
+from mcp_test_client import call_sdk_tool
 from test_marketplace_api import FakeRuntime
 
 from ophira_backend import browser_tools, web_tools
@@ -304,22 +304,13 @@ async def test_native_sdk_mcp_hook_preserves_shop_sources_and_requires_action_pe
     assert options.strict_mcp_config is True
     assert str(service.store.root.resolve()) in options.sandbox["filesystem"]["denyRead"]
     hook = runtime._hook(run.id, service.ledger.workspace_for_project(project.id))
-    handler = options.mcp_servers[BROWSER_MCP_SERVER_NAME]["instance"].request_handlers[
-        CallToolRequest
-    ]
+    server = options.mcp_servers[BROWSER_MCP_SERVER_NAME]["instance"]
     request = {"shop_id": shop["id"]}
     async with running(service, shop) as session:
         await allow(service, project, shop, session)
-        native = await handler(
-            CallToolRequest(
-                params=CallToolRequestParams(
-                    name="snapshot_page",
-                    arguments=request,
-                )
-            )
-        )
-        assert native.root.isError is False
-        raw = json.loads(native.root.content[0].text)
+        native = await call_sdk_tool(server, "snapshot_page", request)
+        assert native.is_error is False
+        raw = json.loads(native.content[0].text)
         assert len(raw["elements"]) == 60
         transformed = await hook(
             {
@@ -327,7 +318,7 @@ async def test_native_sdk_mcp_hook_preserves_shop_sources_and_requires_action_pe
                 "tool_name": TOOL_SNAPSHOT_PAGE,
                 "tool_input": request,
                 "tool_response": {
-                    "content": [block.model_dump(mode="json") for block in native.root.content]
+                    "content": [block.model_dump(mode="json") for block in native.content]
                 },
                 "tool_use_id": "shop-capture",
             },

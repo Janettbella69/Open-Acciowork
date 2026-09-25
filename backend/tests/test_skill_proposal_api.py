@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import pytest
 from claude_agent_sdk import PermissionResultDeny
 from httpx import ASGITransport, AsyncClient
-from mcp.types import CallToolRequest, CallToolRequestParams
+from mcp_test_client import call_sdk_tool
 from test_auth_api import FakeRuntime, principal, request_as, signed_headers, trusted_settings
 
 from ophira_backend.agent_core import SECURITY_PREAMBLE, SKILL_PROPOSAL_GUIDANCE
@@ -388,13 +388,11 @@ async def test_actual_sdk_mcp_requires_explicit_submission_and_keeps_native_tool
     )
     assert isinstance(denied, PermissionResultDeny)
     server = options.mcp_servers[LEDGER_MCP_SERVER_NAME]["instance"]
-    response = await server.request_handlers[CallToolRequest](CallToolRequest(
-        params=CallToolRequestParams(name="register_artifact", arguments={
+    response = await call_sdk_tool(server, "register_artifact", {
             "path": row.path, "source_ids": [], "mime": "application/json",
-        }),
-    ))
-    assert response.root.isError is False
-    returned = json.loads(response.root.content[0].text)
+    })
+    assert response.is_error is False
+    returned = json.loads(response.content[0].text)
     assert returned["id"] == row.artifact.id
     assert returned["skill_proposal"]["state"] == "pending"
     assert len(app.state.skill_proposals.list()) == 1

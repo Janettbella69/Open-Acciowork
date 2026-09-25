@@ -2,7 +2,9 @@
 
 Remote MCP connectors belong to one project. The connector page offers the
 official Claude Code documentation MCP as the initial catalog entry. Adding it
-performs a live MCP `initialize` and paginated `tools/list` review in one action.
+negotiates the server's MCP version and performs a paginated `tools/list` review
+in one action. The gateway supports the handshake-free `2026-07-28` path and
+falls back to the legacy `initialize` exchange for older servers.
 The advanced form accepts a Streamable HTTP HTTPS address and an optional bearer
 token. A custom hostname must first be added to the organization allowlist by
 an owner or administrator (in local-only mode, by the local operator).
@@ -33,23 +35,22 @@ compaction, and standing-intent Runs receive no user MCP servers.
 - The built-in directory contains one official server. More entries need
   verified endpoints, authentication, tool review, and product-specific E2E.
 - Live review and an actual Agent call to the official server have not been
-  exercised in this workspace. Tests stub the remote MCP exchange. A direct
-  handshake attempt on 2026-09-24 failed closed because this machine's DNS
-  returned a non-public address for `code.claude.com` (including outside
-  the filesystem sandbox).
+  exercised in this workspace. Offline HTTP tests run real MCP client and
+  server exchanges for both protocol paths, including pinned requests and a
+  tool call. A direct connection attempt on 2026-09-24 failed closed because
+  this machine's DNS returned a non-public address for `code.claude.com`
+  (including outside the filesystem sandbox).
 - Production deployments still need their normal outbound network policy for
   the Provider, browser, and other tools. The user MCP gateway itself pins and
   checks every remote request. Live compatibility of stateful remote servers
   needs acceptance testing; the gateway currently starts a fresh MCP session
   for each tool call.
-- The installed MCP Python SDK 1.29.0 advertises protocol `2025-11-25`, and
-  the gateway uses an `initialize` exchange for each call. The [2026-07-28 MCP
-  specification](https://modelcontextprotocol.io/specification/2026-07-28/basic/versioning)
-  introduced a handshake-free HTTP path; the [Python SDK v2 migration
-  guide](https://github.com/modelcontextprotocol/python-sdk/blob/main/docs/migration.md)
-  describes that compatibility boundary. A server requiring only the new path
-  has not been certified here. Moving the gateway to SDK v2 also requires
-  checking the Claude Agent SDK's in-process MCP API and Provider contracts,
-  so it remains deferred.
+- The gateway uses MCP Python SDK 2.2 with automatic version negotiation for
+  the [2026-07-28 handshake-free protocol](https://modelcontextprotocol.io/specification/2026-07-28/basic/versioning)
+  and older servers, following the [official v2 migration
+  guide](https://github.com/modelcontextprotocol/python-sdk/blob/main/docs/migration.md).
+  The pinned Claude Agent SDK 0.2.143 accepts the v2 in-process server in
+  offline modern and legacy tests. A public server requiring only the new path
+  and a real Provider run still need acceptance testing.
 - OAuth authorization and token refresh are not implemented; the advanced form
   accepts a user-supplied bearer token only.

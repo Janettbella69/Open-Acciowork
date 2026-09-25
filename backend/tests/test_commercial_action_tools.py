@@ -195,9 +195,9 @@ def test_agent_surface_contains_read_and_stage_but_not_review_or_apply(
     assert TOOL_STAGE_COMMERCIAL_ACTION.endswith("__stage_commercial_action")
     assert all("review" not in item.name and "apply" not in item.name for item in tools)
     assert tools[0].annotations is not None
-    assert tools[0].annotations.readOnlyHint is True
-    assert tools[0].annotations.idempotentHint is False
-    assert tools[0].annotations.openWorldHint is True
+    assert tools[0].annotations.read_only_hint is True
+    assert tools[0].annotations.idempotent_hint is False
+    assert tools[0].annotations.open_world_hint is True
     assert tools[1].annotations is not None
-    assert tools[1].annotations.readOnlyHint is False
-    assert tools[1].annotations.destructiveHint is False
+    assert tools[1].annotations.read_only_hint is False
+    assert tools[1].annotations.destructive_hint is False

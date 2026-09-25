@@ -9,7 +9,7 @@ from types import SimpleNamespace
 
 import httpx
 import pytest
-from mcp.types import CallToolRequest, CallToolRequestParams
+from mcp_test_client import call_sdk_tool
 from test_marketplaces import CREDENTIALS, PRODUCT, SHOP, response
 
 from ophira_backend import web_tools
@@ -134,12 +134,11 @@ async def test_native_sdk_mcp_and_posttool_hook_preserve_receipt_payload(service
     assert options.tools == {"type": "preset", "preset": "claude_code"}
     assert options.strict_mcp_config is True
     request = {"operation": "products", "binding_id": binding_id}
-    mcp_handler = options.mcp_servers["ophira_ledger"]["instance"].request_handlers[CallToolRequest]
-    native = await mcp_handler(CallToolRequest(params=CallToolRequestParams(
-        name="read_marketplace", arguments=request,
-    )))
-    assert native.root.isError is False
-    output = {"content": [block.model_dump(mode="json") for block in native.root.content]}
+    native = await call_sdk_tool(
+        options.mcp_servers["ophira_ledger"]["instance"], "read_marketplace", request
+    )
+    assert native.is_error is False
+    output = {"content": [block.model_dump(mode="json") for block in native.content]}
     hook = runtime._hook(run.id, service.ledger.workspace_for_project(project.id))
     sanitized = await hook({
         "hook_event_name": "PostToolUse", "tool_name": TOOL_READ_MARKETPLACE,

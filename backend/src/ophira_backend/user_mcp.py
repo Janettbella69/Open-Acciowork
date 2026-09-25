@@ -15,15 +15,14 @@ from pathlib import Path
 from typing import Any, Literal
 from urllib.parse import urlsplit
 
-import httpx
-from mcp import ClientSession
+import httpx2
+from mcp import Client
 from mcp.client.streamable_http import streamable_http_client
 from mcp.server.lowlevel import Server
 from mcp.types import (
-    CallToolRequest,
     CallToolRequestParams,
     CallToolResult,
-    ClientRequest,
+    ListToolsResult,
     TextContent,
     Tool,
 )
@@ -88,8 +87,12 @@ class UserMcpConflictError(RuntimeError):
     pass
 
 
-class _CappedReviewStream(httpx.AsyncByteStream):
-    def __init__(self, source: httpx.AsyncByteStream) -> None:
+class UserMcpRemoteError(RuntimeError):
+    """A remote exchange failed; raw server and transport errors stay private."""
+
+
+class _CappedReviewStream(httpx2.AsyncByteStream):
+    def __init__(self, source: httpx2.AsyncByteStream) -> None:
         self.source = source
 
     async def __aiter__(self):
@@ -104,14 +107,14 @@ class _CappedReviewStream(httpx.AsyncByteStream):
         await self.source.aclose()
 
 
-class _PinnedMcpTransport(httpx.AsyncBaseTransport):
+class _PinnedMcpTransport(httpx2.AsyncBaseTransport):
     """Resolve and pin every review request; redirects are disabled by the client."""
 
     def __init__(self, approved_url: str) -> None:
         self.approved = urlsplit(approved_url)
-        self.inner = httpx.AsyncHTTPTransport(trust_env=False)
+        self.inner = httpx2.AsyncHTTPTransport(trust_env=False)
 
-    async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+    async def handle_async_request(self, request: httpx2.Request) -> httpx2.Response:
         requested = urlsplit(str(request.url))
         if (
             requested.scheme != self.approved.scheme
@@ -123,9 +126,9 @@ class _PinnedMcpTransport(httpx.AsyncBaseTransport):
         destination, reason = await asyncio.to_thread(pin_public_http_url, str(request.url))
         if destination is None or request.url.scheme != "https":
             raise UserMcpConflictError(reason or "Remote MCP requires a public HTTPS endpoint")
-        headers = httpx.Headers(request.headers)
+        headers = httpx2.Headers(request.headers)
         headers["Host"] = destination.host_header
-        pinned = httpx.Request(
+        pinned = httpx2.Request(
             request.method,
             destination.request_url,
             headers=headers,
@@ -187,21 +190,21 @@ def _reviewed_schema(raw: dict[str, Any]) -> dict[str, Any]:
     return schema
 
 
-async def _read_tool_manifest(session: ClientSession) -> list[UserMcpTool]:
+async def _read_tool_manifest(client: Client) -> list[UserMcpTool]:
     tools: list[UserMcpTool] = []
     cursor: str | None = None
     for _ in range(10):
-        page = await session.list_tools(cursor=cursor)
+        page = await client.list_tools(cursor=cursor, cache_mode="bypass")
         for tool in page.tools:
             if not _TOOL.fullmatch(tool.name) or any(t.name == tool.name for t in tools):
                 raise UserMcpConflictError("Remote MCP tool names are invalid or duplicated")
             tools.append(UserMcpTool(
                 name=tool.name,
-                input_schema=_reviewed_schema(tool.inputSchema),
+                input_schema=_reviewed_schema(tool.input_schema),
             ))
         if len(tools) > 50:
             raise UserMcpConflictError("Remote MCP exposes too many tools")
-        cursor = page.nextCursor
+        cursor = page.next_cursor
         if not cursor:
             break
     if cursor or not tools:
@@ -210,17 +213,20 @@ async def _read_tool_manifest(session: ClientSession) -> list[UserMcpTool]:
 
 
 async def discover_remote_tools(url: str, bearer_token: str | None) -> list[UserMcpTool]:
-    """Use MCP's own initialize/tools-list exchange; never invoke remote tools."""
+    """Use MCP's version-negotiated tools-list exchange; never invoke remote tools."""
     headers = {"Authorization": f"Bearer {bearer_token}"} if bearer_token else {}
-    async with httpx.AsyncClient(
-        transport=_PinnedMcpTransport(url), headers=headers, follow_redirects=False,
-        timeout=httpx.Timeout(8, read=15), trust_env=False,
-    ) as http_client:
-        async with asyncio.timeout(25):
-            async with streamable_http_client(url, http_client=http_client) as streams:
-                async with ClientSession(streams[0], streams[1]) as session:
-                    await session.initialize()
-                    return await _read_tool_manifest(session)
+    try:
+        async with httpx2.AsyncClient(
+            transport=_PinnedMcpTransport(url), headers=headers, follow_redirects=False,
+            timeout=httpx2.Timeout(8, read=15), trust_env=False,
+        ) as http_client:
+            async with asyncio.timeout(25):
+                async with Client(streamable_http_client(url, http_client=http_client)) as client:
+                    return await _read_tool_manifest(client)
+    except UserMcpConflictError:
+        raise
+    except Exception as exc:
+        raise UserMcpRemoteError("Remote MCP handshake or tool review failed") from exc
 
 
 class UserMcpRegistry:
@@ -472,31 +478,21 @@ class UserMcpRegistry:
         if pinned.credential_configured and credential is None:
             raise UserMcpConflictError("Remote MCP credential is unavailable")
         headers = {"Authorization": f"Bearer {credential}"} if credential else {}
-        async with httpx.AsyncClient(
+        async with httpx2.AsyncClient(
             transport=_PinnedMcpTransport(pinned.url), headers=headers,
-            follow_redirects=False, timeout=httpx.Timeout(8, read=60), trust_env=False,
+            follow_redirects=False, timeout=httpx2.Timeout(8, read=60), trust_env=False,
         ) as http_client:
             async with asyncio.timeout(75):
-                async with streamable_http_client(
-                    pinned.url, http_client=http_client,
-                ) as streams:
-                    async with ClientSession(streams[0], streams[1]) as session:
-                        await session.initialize()
-                        observed = await _read_tool_manifest(session)
-                        matching = next(
-                            (tool for tool in observed if tool.name == reviewed_tool.name), None,
-                        )
-                        if (matching is None
-                                or matching.input_schema != reviewed_tool.input_schema):
-                            raise UserMcpConflictError(
-                                "Remote MCP tool changed since review"
-                            )
-                        request = ClientRequest(CallToolRequest(
-                            params=CallToolRequestParams(
-                                name=reviewed_tool.name, arguments=arguments,
-                            ),
-                        ))
-                        return await session.send_request(request, CallToolResult)
+                async with Client(
+                    streamable_http_client(pinned.url, http_client=http_client)
+                ) as client:
+                    observed = await _read_tool_manifest(client)
+                    matching = next(
+                        (tool for tool in observed if tool.name == reviewed_tool.name), None,
+                    )
+                    if matching is None or matching.input_schema != reviewed_tool.input_schema:
+                        raise UserMcpConflictError("Remote MCP tool changed since review")
+                    return await client.call_tool(reviewed_tool.name, arguments)
 
     def sdk_server(self, item: UserMcpConnector) -> dict:
         """Register reviewed remote tools as an in-process SDK MCP gateway.
@@ -506,13 +502,10 @@ class UserMcpRegistry:
         """
         if not self._current_authorized(item):
             raise UserMcpConflictError("Remote MCP connector is no longer approved")
-        server = Server(item.server_name)
-
-        @server.list_tools()
-        async def list_tools() -> list[Tool]:
+        async def list_tools(_context: Any, _params: Any) -> ListToolsResult:
             if not self._current_authorized(item):
-                return []
-            return [
+                return ListToolsResult(tools=[])
+            return ListToolsResult(tools=[
                 Tool(
                     name=tool.name,
                     description=(
@@ -522,12 +515,14 @@ class UserMcpRegistry:
                     inputSchema=tool.input_schema,
                 )
                 for tool in item.tools if tool.policy != "deny"
-            ]
+            ])
 
-        @server.call_tool()
-        async def call_tool(name: str, arguments: dict[str, Any]) -> CallToolResult:
+        async def call_tool(
+            _context: Any, params: CallToolRequestParams
+        ) -> CallToolResult:
             reviewed = next(
-                (tool for tool in item.tools if tool.name == name and tool.policy != "deny"),
+                (tool for tool in item.tools
+                 if tool.name == params.name and tool.policy != "deny"),
                 None,
             )
             if reviewed is None or not self._current_authorized(item):
@@ -536,7 +531,7 @@ class UserMcpRegistry:
                     isError=True,
                 )
             try:
-                return await self._invoke_remote(item, reviewed, arguments)
+                return await self._invoke_remote(item, reviewed, params.arguments or {})
             except Exception:
                 # Remote exception text can contain tool-output injections or
                 # credentials. Keep errors fixed and let the host audit the call.
@@ -547,4 +542,7 @@ class UserMcpRegistry:
                     isError=True,
                 )
 
+        server = Server(
+            item.server_name, on_list_tools=list_tools, on_call_tool=call_tool
+        )
         return {"type": "sdk", "name": item.server_name, "instance": server}

@@ -8,7 +8,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from mcp.types import CallToolRequest, CallToolRequestParams
+from mcp_test_client import call_sdk_tool
 
 from ophira_backend import browser_tools
 from ophira_backend.constants import LEDGER_MCP_SERVER_NAME, EventType, EvidenceStatus
@@ -261,11 +261,9 @@ async def test_mcp_server_builder_passes_projector_to_actual_tool_request(tmp_pa
     server = build_mcp_servers(
         ledger, project.id, run_id=run.id, project_events=projector,
     )[LEDGER_MCP_SERVER_NAME]["instance"]
-    response = await server.request_handlers[CallToolRequest](CallToolRequest(
-        params=CallToolRequestParams(name="record_evidence", arguments=_evidence()),
-    ))
-    assert response.root.isError is False
-    returned = json.loads(response.root.content[0].text)
+    response = await call_sdk_tool(server, "record_evidence", _evidence())
+    assert response.is_error is False
+    returned = json.loads(response.content[0].text)
     assert ledger.list_events(run.id)[0].data["resource_id"] == returned["id"]
 
 

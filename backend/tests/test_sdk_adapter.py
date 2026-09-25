@@ -15,7 +15,7 @@ from claude_agent_sdk import (
     ThinkingBlock,
     ToolUseBlock,
 )
-from mcp.types import CallToolRequest, CallToolRequestParams
+from mcp_test_client import call_sdk_tool
 
 from ophira_backend.config import Settings
 from ophira_backend.connectors import ConnectorRegistry
@@ -231,19 +231,13 @@ async def test_presentation_response_is_structured_before_event_string_bounds(
 
     options = runtime._build_options(run)
     server_config = options.mcp_servers[PRESENTATION_MCP_SERVER_NAME]
-    handler = server_config["instance"].request_handlers[CallToolRequest]
-    mcp_result = await handler(
-        CallToolRequest(
-            params=CallToolRequestParams(
-                name="present_evidence_comparison",
-                arguments=tool_input,
-            )
-        )
+    mcp_result = await call_sdk_tool(
+        server_config["instance"], "present_evidence_comparison", tool_input
     )
-    assert mcp_result.root.isError is False
+    assert mcp_result.is_error is False
     response = [
         block.model_dump(mode="json", by_alias=True, exclude_none=True)
-        for block in mcp_result.root.content
+        for block in mcp_result.content
     ]
     assert response[0]["type"] == "text"
     assert len(response[0]["text"]) > 20_000

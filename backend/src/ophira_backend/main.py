@@ -304,6 +304,7 @@ from .user_mcp import (
     UserMcpConflictError,
     UserMcpConnector,
     UserMcpRegistry,
+    UserMcpRemoteError,
     UserMcpToolPolicyUpdate,
     UserMcpUpsert,
 )
@@ -1835,6 +1836,8 @@ def _create_app(
             raise HTTPException(400, str(exc)) from exc
         except UserMcpConflictError as exc:
             raise HTTPException(409, str(exc)) from exc
+        except UserMcpRemoteError as exc:
+            raise HTTPException(502, str(exc)) from exc
         except (OSError, TimeoutError, httpx.HTTPError, ExceptionGroup) as exc:
             raise HTTPException(502, "Remote MCP handshake or tool review failed") from exc
 
@@ -1871,6 +1874,8 @@ def _create_app(
             raise HTTPException(400, str(exc)) from exc
         except UserMcpConflictError as exc:
             raise HTTPException(409, str(exc)) from exc
+        except UserMcpRemoteError as exc:
+            raise HTTPException(502, str(exc)) from exc
         except (OSError, TimeoutError, httpx.HTTPError, ExceptionGroup) as exc:
             raise HTTPException(502, "Remote MCP handshake or tool review failed") from exc
 
