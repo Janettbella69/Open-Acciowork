@@ -327,6 +327,7 @@ FX_MCP_SERVER_NAME = "ophira_fx"
 AUTOMATION_MCP_SERVER_NAME = "ophira_automation"
 COMPLIANCE_MCP_SERVER_NAME = "ophira_compliance"
 BROWSER_MCP_SERVER_NAME = "ophira_browser"
+DESKTOP_MCP_SERVER_NAME = "ophira_desktop"
 MEDIA_MCP_SERVER_NAME = "ophira_media"
 PRESENTATION_MCP_SERVER_NAME = "ophira_presentation"
 COMMERCIAL_ACTION_MCP_SERVER_NAME = "ophira_commercial_actions"
@@ -366,6 +367,8 @@ TOOL_SENSITIVITY_TABLE = "mcp__ophira_commerce_math__sensitivity_table"
 TOOL_LOOKUP_REQUIREMENTS = "mcp__ophira_compliance__lookup_requirements"
 TOOL_SNAPSHOT_PAGE = "mcp__ophira_browser__snapshot_page"
 TOOL_ACT_ON_PAGE = "mcp__ophira_browser__act_on_page"
+TOOL_SELECT_DESKTOP_WINDOW = "mcp__ophira_desktop__select_window"
+TOOL_SNAPSHOT_DESKTOP = "mcp__ophira_desktop__snapshot_window"
 TOOL_GENERATE_MEDIA = "mcp__ophira_media__generate_media"
 TOOL_PRESENT_EVIDENCE_COMPARISON = (
     "mcp__ophira_presentation__present_evidence_comparison"
@@ -424,6 +427,11 @@ DOMAIN_TOOL_NAMES = [
 BROWSER_TOOL_NAMES = [
     TOOL_SNAPSHOT_PAGE,
     TOOL_ACT_ON_PAGE,
+]
+
+DESKTOP_TOOL_NAMES = [
+    TOOL_SELECT_DESKTOP_WINDOW,
+    TOOL_SNAPSHOT_DESKTOP,
 ]
 
 MEDIA_TOOL_NAMES = [
@@ -489,6 +497,7 @@ OPHIRA_TOOL_NAMES = [
     *FX_TOOL_NAMES,
     *AUTOMATION_TOOL_NAMES,
     *BROWSER_TOOL_NAMES,
+    *DESKTOP_TOOL_NAMES,
     *MEDIA_TOOL_NAMES,
     *PRESENTATION_TOOL_NAMES,
     *COMMERCIAL_ACTION_TOOL_NAMES,

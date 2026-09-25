@@ -17,6 +17,8 @@ from pathlib import Path
 
 import uvicorn
 
+from .desktop_bridge import DesktopBridge
+from .desktop_control import DesktopControl
 from .desktop_host import DesktopHost
 
 
@@ -54,17 +56,20 @@ def main() -> None:
         # at import time for the ordinary uvicorn entry point.
         from .main import app  # noqa: PLC0415
 
-        desktop = DesktopHost(app, ui_dir=args.ui_dir, token=token, port=port)
+        native_disconnected = threading.Event()
+        bridge = DesktopBridge(
+            sys.stdin.buffer, sys.stdout.buffer,
+            on_disconnect=native_disconnected.set,
+        )
+        app.state.runtime.attach_desktop_control(DesktopControl(
+            bridge, app.state.ledger, app.state.policy, app.state.project_events,
+        ))
+        desktop = DesktopHost(app, ui_dir=args.ui_dir, token=token, port=port, bridge=bridge)
         server = uvicorn.Server(uvicorn.Config(desktop, log_level="warning", access_log=False))
 
         def stop_with_native_host() -> None:
-            # The native app keeps stdin open for its lifetime. EOF means the
-            # owning app exited, including a crash or forced termination.
-            try:
-                while sys.stdin.buffer.read(1):
-                    pass
-            finally:
-                server.should_exit = True
+            native_disconnected.wait()
+            server.should_exit = True
 
         threading.Thread(target=stop_with_native_host, daemon=True).start()
         print(json.dumps({"port": port}), flush=True)

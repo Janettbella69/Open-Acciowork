@@ -23,6 +23,7 @@ const organizationPolicy: OrgPolicy = {
   allowed_mcp_hosts: [],
   browser_enabled: true,
   computer_control_enabled: false,
+  allowed_desktop_bundle_ids: [],
   channel_delivery_enabled: false,
   domain_allowlist: [],
   commercial_actions_enabled: false,

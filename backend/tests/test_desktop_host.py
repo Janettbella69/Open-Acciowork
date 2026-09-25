@@ -93,3 +93,22 @@ def test_desktop_requires_private_token_and_complete_ui(tmp_path: Path) -> None:
         DesktopHost(None, ui_dir=ui, token="guess", port=PORT)  # type: ignore[arg-type]
     with pytest.raises(ValueError, match="incomplete"):
         DesktopHost(None, ui_dir=ui, token=TOKEN, port=PORT)  # type: ignore[arg-type]
+
+
+@pytest.mark.asyncio
+async def test_native_status_requires_desktop_cookie(tmp_path: Path) -> None:
+    class Bridge:
+        async def request(self, operation: str, **_kwargs):
+            assert operation == "status"
+            return {"platform": "macos", "accessibility_authorized": False}
+
+    app = desktop_app(tmp_path)
+    app.bridge = Bridge()  # type: ignore[assignment]
+    async with AsyncClient(transport=ASGITransport(app=app), base_url=ORIGIN) as client:
+        assert (await client.get("/api/desktop/status")).status_code == 401
+        client.cookies.set(DESKTOP_COOKIE_NAME, TOKEN)
+        response = await client.get("/api/desktop/status")
+        assert response.status_code == 200
+        assert response.json() == {"platform": "macos", "accessibility_authorized": False}
+        assert response.headers["cache-control"] == "no-store"
+        assert (await client.post("/api/desktop/status")).status_code == 405

@@ -44,6 +44,8 @@ from .constants import (
     CLARIFYING_TOOL,
     DELEGATION_TOOL,
     DELETE_BUILTIN_TOOLS,
+    DESKTOP_MCP_SERVER_NAME,
+    DESKTOP_TOOL_NAMES,
     ENVELOPE_APPROVED_MCP_TOOL_NAMES,
     NATIVE_TASK_TRACKING_TOOLS,
     OPHIRA_TOOL_NAMES,
@@ -82,6 +84,7 @@ from .context_protocol import (
     prepare_run_context,
     reconcile_compaction_epoch,
 )
+from .desktop_control import DesktopControl
 from .destructive import is_destructive_delete
 from .durable_permissions import DurablePermissionConflict
 from .events import EventPublisher, redact
@@ -309,6 +312,7 @@ class ClaudeAgentRuntime:
         marketplace_access: MarketplaceAccessService | None = None,
         shop_browsers: ShopBrowserService | None = None,
         user_mcp: UserMcpRegistry | None = None,
+        desktop_control: DesktopControl | None = None,
     ) -> None:
         from .auth import ProjectAccessStore
 
@@ -332,6 +336,7 @@ class ClaudeAgentRuntime:
         )
         self.connectors = connectors
         self.user_mcp = user_mcp
+        self.desktop_control = desktop_control
         self.marketplace_access = marketplace_access or (
             MarketplaceAccessService(
                 ledger,
@@ -363,6 +368,14 @@ class ClaudeAgentRuntime:
         self._batch_ready: dict[tuple[str, str], asyncio.Event] = {}
         self._approved_invocations: dict[str, dict[str, tuple[str, dict, Any]]] = {}
         self._last_context_usage: dict[str, tuple[int, int, str | None, int]] = {}
+
+    def attach_desktop_control(self, service: DesktopControl) -> None:
+        """Bind the native-only adapter after the desktop sidecar constructs the API."""
+        if self.desktop_control is not None:
+            raise ValueError("desktop control is already attached")
+        if service.ledger is not self.ledger or service.policy is not self.policy:
+            raise ValueError("desktop control must share the Run ledger and policy")
+        self.desktop_control = service
 
     async def run(self, run: RunRecord) -> None:
         if (pending := self.permissions.durable.active(run)) is not None:
@@ -1130,6 +1143,21 @@ class ClaudeAgentRuntime:
                 bound_intent_id=run.standing_intent_id,
                 task_experiences=self.task_experiences,
             )
+        if (
+            self.desktop_control is not None
+            and org_policy.computer_control_enabled
+            and org_policy.allowed_desktop_bundle_ids
+            and run.mode != RunMode.PLAN
+            and not run.manual_compaction
+            and run.schedule_id is None
+            and run.event_trigger_id is None
+            and run.standing_intent_id is None
+        ):
+            from .desktop_tools import build_desktop_mcp_server
+
+            mcp_servers[DESKTOP_MCP_SERVER_NAME] = build_desktop_mcp_server(
+                self.desktop_control, run.project_id, run.id,
+            )
         if self.user_mcp is not None:
             for connector in remote_connectors.values():
                 if any(item.policy != "deny" for item in connector.tools):
@@ -1642,6 +1670,29 @@ class ClaudeAgentRuntime:
                             ),
                         }
                     }
+                if tool_name in DESKTOP_TOOL_NAMES:
+                    if (
+                        self.desktop_control is None
+                        or not self.policy.get().computer_control_enabled
+                        or run.schedule_id is not None
+                        or run.event_trigger_id is not None
+                        or run.standing_intent_id is not None
+                    ):
+                        return {"hookSpecificOutput": {
+                            "hookEventName": "PreToolUse",
+                            "permissionDecision": "deny",
+                            "permissionDecisionReason": (
+                                "Desktop control is unavailable for this Run."
+                            ),
+                        }}
+                    return {"hookSpecificOutput": {
+                        "hookEventName": "PreToolUse",
+                        "permissionDecision": "ask",
+                        "permissionDecisionReason": (
+                            "Every native window selection and screenshot requires "
+                            "confirmation for this invocation."
+                        ),
+                    }}
             elif event_name == "PostToolUse":
                 tool_name = str(input_data.get("tool_name") or "")
                 tool_input = input_data.get("tool_input", {})

@@ -30,7 +30,7 @@
 | FR-17 可观测性 | delivered：trace、三层日志、脱敏、类型化卡片；项目范围Provider/模型/Skill/MCP/错误分组指标与工作区面板 | deferred：细分事件与生产指标/性能验收 |
 | FR-18 恢复 | delivered：保存产物、错误分类、重试与重启恢复；Run 起点的完整可支持工作区快照、Bash 修改恢复、人工变更预览/确认/结果重试、中断目录切换修复、真实进程退出与冷备往返；同项目执行与产物收尾租约 | deferred：真实 SDK 故障注入、生产/跨宿主恢复、容量保留管理、性能与浏览器目视验收 |
 | FR-19 Deep Research | delivered：输入框内显式开关发起（默认关闭、运行中锁定）；三种原生只读研究单元的一次新建/同 Run 续接约束；共享预算/取消/原始截止时间；运行中资源 UI、来源包与主 Agent 去重落账；真实 DeepSeek 合成来源上的三单元并行/来源复核/证据合并与报告验收 | deferred：开放互联网研究质量、真实取消/耗尽/长时墙钟故障矩阵、其他 Provider 与浏览器目视验收 |
-| FR-20 GUI | delivered：L1/L2 真实浏览器 smoke；项目独立店铺 profile、用户登录确认、当前页观察引用、主Agent页面动作/报表下载与来源/产物落账、真实Chromium离线链路 | deferred：真实卖家后台/验证码/风控兼容性和模型联调；真实攻击/恢复矩阵；L3 桌面桥与 OS 权限治理未实现 |
+| FR-20 GUI | delivered：L1/L2 真实浏览器 smoke；项目独立店铺 profile、用户登录确认、当前页观察引用、主Agent页面动作/报表下载与来源/产物落账、真实Chromium离线链路 | deferred：真实卖家后台/验证码/风控兼容性和模型联调；真实攻击/恢复矩阵；L3 输入动作与 OS 权限真机验收归 FR-42 |
 | FR-21 Connector | delivered：Catalog/Vault/health/revoke、HTTPS JSON send_message；六平台官方入口，TikTok Shop授权店铺/商品与Shopify同组织自有店铺/商品/近期订单只读adapter、项目店铺授权/到期/撤销、主Agent来源凭证与中英文管理员UI；含Shopify的店铺身份配置、同平台Connector关联、独立浏览器授权及数据展示 | deferred：其余邮箱/店铺/CRM/社媒垂直adapter；TikTok Shop OAuth/refresh、Shopify组织外店铺授权、真实授权test-account及模型调用验收/外发全链；API与浏览器数据自动合并 |
 | FR-22 组织治理 | delivered：单部署租户 principal/membership/策略；共享项目成员管理UI与版本冲突保护；持久团队讨论/回复/对象关联/编辑历史/解决状态；可复用项目模板、固定参考版本与来源、核对后创建和中断恢复；组织私有Skill导入人审、固定版本查看/导出、独立启停/恢复、跨进程凭证与冷备恢复 | deferred：真实身份网关联调、租户分区与隔离 runner、长期容量与浏览器目视验收 |
 | FR-23 Web 兜底 | delivered：Serper/Tavily 适配与 SSRF 防护 | deferred：真实配置搜索服务和 Provider 降级 E2E |
@@ -59,7 +59,7 @@
 | FR-39 插件导入 | partial（本地）：官方插件 ZIP 多 Skill 拆分后复用私有仓库安全扫描和逐件人审；远程 MCP 地址引导至 FR-33 项目审批/逐工具策略，插件子 Agent 与其它可执行组件明确忽略；Anthropic marketing 真包的 8 个 Skill 扫描通过、11 个远程 MCP 地址列出；冷备报告/子 Skill 绑定校验；见 `docs/plugin-imports.md` | deferred：远程 MCP/Provider E2E、认证部署验收和更多真实包兼容性；OAuth、stdio MCP 和 Claude marketplace 安装机制不在当前 FR-33 远程 HTTPS 边界内 |
 | FR-40 语音输入 | partial（本地）：支持浏览器 SpeechRecognition 的手机任务/插话与工作台听写；语言选择、可编辑转写草稿、明确填入确认和原有提交路径；取消、页面隐藏及卸载中止录音，未提供音频上传端点；见 `docs/voice-input.md` | deferred：真实手机麦克风授权/转写质量、Safari/Android 与受限浏览器兼容、HTTPS 部署验收；不支持 Web Speech API 的浏览器目前仍需键盘听写或文字输入 |
 | FR-41 发布网页 | partial（本地）：不可变 HTML 产物版本按校验和暂存，沙箱预览后由项目管理员明确批准；独立 HTTPS 域名公开、无缓存与脚本/表单隔离，持久撤回及项目删除清理；见 `docs/site-publications.md` | deferred：真实公网部署、浏览器/缓存验收；动态脚本和远程资源需要隔离的发布运行时，现仅支持自包含静态页面 |
-| FR-42 L3 桌面 GUI | delivered：macOS 开发版原生 WebKit 宿主、Python sidecar 与私有 loopback 会话门禁 | deferred：OS 截图/动作桥、每步人审与证据/域策略复用、独立 Python 打包签名及系统权限真机验收 |
+| FR-42 L3 桌面 GUI | delivered：macOS 开发版 WebKit 宿主、私有 sidecar、ScreenCaptureKit 系统窗口选择/截图桥；Agent 主线仅在组织策略/精确 App 白名单和 attended Run 下调用，选择和截图逐次人审，PNG 连到 Run receipt/Evidence/Artifact；已知浏览器 Bundle 禁止进入 L3 | deferred：Accessibility 输入动作、真实系统窗口/隐私权限验收、嵌入式 WebView 完整域策略、独立 Python 打包签名与恢复矩阵 |
 
 2026-09-24 FR-20 浏览器复验：真实 Chromium L1 经生产浏览器工具访问无跳转的
 公网 IP 目标，截图、Artifact、Evidence、来源凭证和 Run 关联等 **9 项检查全过**，
@@ -1072,3 +1072,24 @@ AppKit/WebKit 实际加载页面，宿主结束后单个子进程自行退出。
 这不是 L3 完成：原生屏幕选择/Accessibility 动作桥、逐步人审、截图证据与组织域策略
 联动、独立 Python 运行时打包签名及系统权限真机验收仍 deferred。开发版使用仓库
 `.venv`；[构建与范围说明](../desktop/macos/README.md)。
+
+## 2026-09-24：FR-42 单窗口选择与截图证据增量
+
+macOS 宿主与 sidecar 使用现有私有匿名管道交换限长 JSON 命令。主 Agent 的
+`select_window` 启动 ScreenCaptureKit 系统单窗口选择器；`snapshot_window` 只对
+同一 attended Run 的选择结果截图。两个工具均由 SDK PreToolUse 逐次请求人工批准，
+不能持久授权、进入定时/事件/常驻意图 Run，或由子代理调用。服务端在选择后和截图后
+重读 Run/组织策略，检查精确 Bundle 白名单及窗口 ID、进程 ID、Bundle 一致性；
+默认关闭，已知浏览器 Bundle 转由 URL/域策略保护的 L1/L2 路径处理。PNG 经尺寸、
+格式和字节上限校验后，进入项目工作区并生成 Run/session 绑定 receipt、Evidence、
+Artifact。设置页使用后端组织策略，移除了此前无执行效力的浏览器本地电脑控制开关。
+
+验证：后端定向最终 **65 passed**；全量在最后一项软链接防护测试加入前，于默认沙箱下
+**2278 passed / 13 skipped**，
+另有 4 项 Unix socket 测试因沙箱禁止 bind 失败；该文件在允许本地 socket 的环境下
+**9 passed**。Ruff 通过；前端全量 **537 passed / 56 files**、ESLint 及 TypeScript/Vite
+构建通过；Swift App 构建与真实 WebKit→sidecar→原生状态往返通过，宿主退出后
+sidecar 自行退出。窗口选择与截图的成功/拒绝路径目前使用合成
+PNG 和假原生桥验证；尚未在系统选择器中选择真实窗口，也未验收 Screen Recording
+授权、取消和应用切换。Accessibility 输入动作、嵌入式 WebView 的完整域策略和
+独立 Python 打包签名仍 deferred；FR-42 与完整 PRD 未完成。

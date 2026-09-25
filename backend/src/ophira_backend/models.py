@@ -22,6 +22,7 @@ from pydantic import (
 from .constants import (
     CLARIFYING_TOOL,
     DELETE_BUILTIN_TOOLS,
+    DESKTOP_TOOL_NAMES,
     SHELL_BUILTIN_TOOLS,
     TOOL_ACT_ON_PAGE,
     AgentTemplate,
@@ -1253,6 +1254,7 @@ class SchedulePermissionRule(APIModel):
             *SHELL_BUILTIN_TOOLS,
             *DELETE_BUILTIN_TOOLS,
             TOOL_ACT_ON_PAGE.rsplit("__", 1)[-1],
+            *(name.rsplit("__", 1)[-1] for name in DESKTOP_TOOL_NAMES),
         }
         if leaf in never_persistable:
             raise ValueError("schedule permission tool is restricted to per-invocation approval")
@@ -1916,6 +1918,9 @@ class OrgPolicy(APIModel):
     allowed_mcp_hosts: list[str] = Field(default_factory=list, max_length=100)
     browser_enabled: bool = True
     computer_control_enabled: bool = False
+    # Native L3 never targets arbitrary installed apps. Web browsers use L1/L2
+    # where URL/domain checks are available; this is an exact native-app list.
+    allowed_desktop_bundle_ids: list[str] = Field(default_factory=list, max_length=50)
     channel_delivery_enabled: bool = False
     domain_allowlist: list[str] = Field(default_factory=list)
     # High-consequence commerce commits are default-deny. Enabling the feature still
@@ -1955,6 +1960,18 @@ class OrgPolicy(APIModel):
                 pass
             else:
                 raise ValueError("remote MCP allowlist requires DNS hostnames")
+        return normalized
+
+    @field_validator("allowed_desktop_bundle_ids")
+    @classmethod
+    def validate_desktop_bundle_ids(cls, values: list[str]) -> list[str]:
+        normalized = [value.strip().casefold() for value in values]
+        if len(normalized) != len(set(normalized)):
+            raise ValueError("desktop app allowlist contains duplicates")
+        pattern = re.compile(r"(?=.{3,200}$)(?:[a-z0-9][a-z0-9-]*\.)+[a-z0-9][a-z0-9-]*")
+        for bundle_id in normalized:
+            if not pattern.fullmatch(bundle_id):
+                raise ValueError("desktop app allowlist requires exact bundle identifiers")
         return normalized
 
     @model_validator(mode="after")

@@ -13,6 +13,7 @@ from urllib.parse import urlsplit
 
 from .constants import (
     CLARIFYING_TOOL,
+    DESKTOP_TOOL_NAMES,
     PERSISTENT_GRANT_DAYS,
     SHELL_BUILTIN_TOOLS,
     TOOL_ACT_ON_PAGE,
@@ -97,6 +98,10 @@ def is_persistable_permission(tool_name: str, tool_input: dict | None) -> bool:
     if leaf == CLARIFYING_TOOL or leaf in SHELL_BUILTIN_TOOLS:
         return False
     if is_destructive_delete(tool_name, tool_input):
+        return False
+    if tool_name in DESKTOP_TOOL_NAMES or leaf in {
+        _tool_leaf(item) for item in DESKTOP_TOOL_NAMES
+    }:
         return False
     if tool_name == TOOL_ACT_ON_PAGE or leaf == _tool_leaf(TOOL_ACT_ON_PAGE):
         return False

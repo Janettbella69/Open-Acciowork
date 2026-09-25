@@ -1,6 +1,8 @@
 import AppKit
+import ApplicationServices
 import Darwin
 import Foundation
+import ScreenCaptureKit
 import Security
 import WebKit
 
@@ -25,8 +27,16 @@ private struct SidecarHandshake: Decodable {
 private struct Sidecar {
     let process: Process
     let input: Pipe
+    let output: Pipe
     let port: Int
     let token: String
+}
+
+private struct NativeRequest: Decodable {
+    let v: Int
+    let id: String
+    let op: String
+    let run_id: String?
 }
 
 private final class ReadyState: @unchecked Sendable {
@@ -47,11 +57,18 @@ private final class ReadyState: @unchecked Sendable {
 }
 
 @MainActor
-private final class DesktopApplication: NSObject, NSApplicationDelegate, WKNavigationDelegate {
+private final class DesktopApplication: NSObject, NSApplicationDelegate,
+    WKNavigationDelegate, @preconcurrency SCContentSharingPickerObserver {
     private var sidecar: Sidecar?
     private var window: NSWindow?
     private var webView: WKWebView?
     private var initialPageLoaded = false
+    private var pickerRegistered = false
+    private var pendingPickerRequestID: String?
+    private var pendingPickerRunID: String?
+    private var selectedWindow: SCWindow?
+    private var selectedFilter: SCContentFilter?
+    private var selectedRunID: String?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         DispatchQueue.global(qos: .userInitiated).async {
@@ -92,6 +109,18 @@ private final class DesktopApplication: NSObject, NSApplicationDelegate, WKNavig
             }
             guard let byte = try handle.read(upToCount: 1), !byte.isEmpty else {
                 throw DesktopError.invalidHandshake
+            }
+            if byte == Data([10]) { return line }
+            line.append(byte)
+        }
+        throw DesktopError.invalidHandshake
+    }
+
+    private nonisolated static func readNativeLine(_ handle: FileHandle) throws -> Data? {
+        var line = Data()
+        while line.count < 16_384 {
+            guard let byte = try handle.read(upToCount: 1), !byte.isEmpty else {
+                return nil
             }
             if byte == Data([10]) { return line }
             line.append(byte)
@@ -180,7 +209,8 @@ private final class DesktopApplication: NSObject, NSApplicationDelegate, WKNavig
                 if !process.isRunning { throw DesktopError.startupFailed }
                 if ready(port: handshake.port, token: token) {
                     return Sidecar(
-                        process: process, input: input, port: handshake.port, token: token
+                        process: process, input: input, output: output,
+                        port: handshake.port, token: token
                     )
                 }
                 Thread.sleep(forTimeInterval: 0.25)
@@ -194,6 +224,7 @@ private final class DesktopApplication: NSObject, NSApplicationDelegate, WKNavig
 
     private func openWindow(for sidecar: Sidecar) {
         self.sidecar = sidecar
+        beginNativeCommands(for: sidecar)
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .nonPersistent()
         let webView = WKWebView(frame: .zero, configuration: configuration)
@@ -230,6 +261,179 @@ private final class DesktopApplication: NSObject, NSApplicationDelegate, WKNavig
         }
     }
 
+    private func beginNativeCommands(for sidecar: Sidecar) {
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            do {
+                while let line = try Self.readNativeLine(sidecar.output.fileHandleForReading) {
+                    guard let request = try? JSONDecoder().decode(NativeRequest.self, from: line),
+                          request.v == 1, request.id.count == 32 else {
+                        break
+                    }
+                    DispatchQueue.main.async { self?.handleNativeRequest(request) }
+                }
+            } catch {
+                // The sidecar's pipe protocol is no longer usable. The process
+                // will exit on its own; no native operation is performed.
+            }
+        }
+    }
+
+    private func handleNativeRequest(_ request: NativeRequest) {
+        if request.op == "status", request.run_id == nil {
+            reply(to: request.id, result: [
+                "platform": "macos",
+                "screen_recording_authorized": CGPreflightScreenCaptureAccess(),
+                "accessibility_authorized": AXIsProcessTrusted(),
+            ])
+        } else if request.op == "select_window", let runID = request.run_id {
+            selectWindow(for: runID, requestID: request.id)
+        } else if request.op == "snapshot", let runID = request.run_id {
+            snapshotWindow(for: runID, requestID: request.id)
+        } else {
+            reply(to: request.id, error: "unsupported native operation")
+        }
+    }
+
+    private func selectWindow(for runID: String, requestID: String) {
+        guard pendingPickerRequestID == nil else {
+            reply(to: requestID, error: "window selection is already in progress")
+            return
+        }
+        selectedWindow = nil
+        selectedFilter = nil
+        selectedRunID = nil
+        pendingPickerRequestID = requestID
+        pendingPickerRunID = runID
+        let picker = SCContentSharingPicker.shared
+        if !pickerRegistered {
+            picker.add(self)
+            pickerRegistered = true
+        }
+        var configuration = SCContentSharingPickerConfiguration()
+        configuration.allowedPickerModes = .singleWindow
+        if let bundleID = Bundle.main.bundleIdentifier {
+            configuration.excludedBundleIDs = [bundleID]
+        }
+        picker.configuration = configuration
+        picker.isActive = true
+        picker.present()
+    }
+
+    func contentSharingPicker(
+        _ picker: SCContentSharingPicker,
+        didUpdateWith filter: SCContentFilter,
+        for stream: SCStream?
+    ) {
+        guard let requestID = pendingPickerRequestID,
+              let runID = pendingPickerRunID else { return }
+        pendingPickerRequestID = nil
+        pendingPickerRunID = nil
+        guard filter.includedWindows.count == 1,
+              let window = filter.includedWindows.first,
+              let application = window.owningApplication,
+              application.bundleIdentifier != Bundle.main.bundleIdentifier else {
+            reply(to: requestID, error: "select exactly one external app window")
+            return
+        }
+        selectedWindow = window
+        selectedFilter = filter
+        selectedRunID = runID
+        reply(to: requestID, result: [
+            "window_id": Int(window.windowID),
+            "bundle_id": application.bundleIdentifier,
+            "process_id": Int(application.processID),
+            "title": window.title ?? "",
+        ])
+    }
+
+    func contentSharingPicker(
+        _ picker: SCContentSharingPicker,
+        didCancelFor stream: SCStream?
+    ) {
+        if let requestID = pendingPickerRequestID {
+            pendingPickerRequestID = nil
+            pendingPickerRunID = nil
+            reply(to: requestID, error: "window selection was cancelled")
+        }
+    }
+
+    func contentSharingPickerStartDidFailWithError(_ error: Error) {
+        if let requestID = pendingPickerRequestID {
+            pendingPickerRequestID = nil
+            pendingPickerRunID = nil
+            reply(to: requestID, error: "window selection is unavailable")
+        }
+    }
+
+    private func snapshotWindow(for runID: String, requestID: String) {
+        guard selectedRunID == runID,
+              let selectedWindow,
+              let selectedFilter,
+              let bundleID = selectedWindow.owningApplication?.bundleIdentifier else {
+            reply(to: requestID, error: "select a window for this Run first")
+            return
+        }
+        Task {
+            do {
+                let content = try await SCShareableContent.excludingDesktopWindows(
+                    false, onScreenWindowsOnly: true
+                )
+                guard let current = content.windows.first(where: {
+                    $0.windowID == selectedWindow.windowID
+                        && $0.owningApplication?.bundleIdentifier == bundleID
+                        && $0.owningApplication?.processID
+                            == selectedWindow.owningApplication?.processID
+                }) else {
+                    throw DesktopError.startupFailed
+                }
+                let configuration = SCStreamConfiguration()
+                let width = max(1, Int(selectedFilter.contentRect.width
+                    * CGFloat(selectedFilter.pointPixelScale)))
+                let height = max(1, Int(selectedFilter.contentRect.height
+                    * CGFloat(selectedFilter.pointPixelScale)))
+                let scale = min(1.0, 2560.0 / Double(width), 1600.0 / Double(height))
+                configuration.width = max(1, Int(Double(width) * scale))
+                configuration.height = max(1, Int(Double(height) * scale))
+                let image = try await SCScreenshotManager.captureImage(
+                    contentFilter: selectedFilter, configuration: configuration
+                )
+                guard let png = NSBitmapImageRep(cgImage: image).representation(
+                    using: .png, properties: [:]
+                ), png.count <= 12_000_000 else {
+                    throw DesktopError.startupFailed
+                }
+                reply(to: requestID, result: [
+                    "window_id": Int(current.windowID),
+                    "bundle_id": bundleID,
+                    "process_id": Int(current.owningApplication?.processID ?? 0),
+                    "title": current.title ?? "",
+                    "frame": [
+                        "x": current.frame.origin.x,
+                        "y": current.frame.origin.y,
+                        "width": current.frame.width,
+                        "height": current.frame.height,
+                    ],
+                    "image_base64": png.base64EncodedString(),
+                ])
+            } catch {
+                reply(to: requestID, error: "selected window capture is unavailable")
+            }
+        }
+    }
+
+    private func reply(
+        to requestID: String,
+        result: [String: Any]? = nil,
+        error: String? = nil
+    ) {
+        guard let sidecar else { return }
+        var message: [String: Any] = ["v": 1, "id": requestID, "ok": error == nil]
+        if let error { message["error"] = error }
+        else { message["result"] = result ?? [:] }
+        guard let data = try? JSONSerialization.data(withJSONObject: message) else { return }
+        sidecar.input.fileHandleForWriting.write(data + Data([10]))
+    }
+
     func webView(
         _ webView: WKWebView,
         decidePolicyFor navigationAction: WKNavigationAction,
@@ -252,6 +456,22 @@ private final class DesktopApplication: NSObject, NSApplicationDelegate, WKNavig
         if !initialPageLoaded {
             initialPageLoaded = true
             fputs("OPHIRA desktop UI loaded\n", stderr)
+            webView.callAsyncJavaScript(
+                "return (await fetch('/api/desktop/status')).status",
+                arguments: [:], in: nil, in: .page
+            ) { result in
+                switch result {
+                case .success(let value):
+                    let status = (value as? NSNumber)?.intValue ?? -1
+                    if status == 200 {
+                        fputs("OPHIRA native bridge ready\n", stderr)
+                    } else {
+                        fputs("OPHIRA native bridge HTTP \(status)\n", stderr)
+                    }
+                case .failure(let error):
+                    fputs("OPHIRA native bridge request failed: \(error.localizedDescription)\n", stderr)
+                }
+            }
         }
     }
 

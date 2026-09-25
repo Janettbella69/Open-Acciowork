@@ -11,6 +11,7 @@ import hmac
 import ipaddress
 import re
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from starlette.applications import Starlette
 from starlette.requests import Request
@@ -18,6 +19,9 @@ from starlette.responses import FileResponse, JSONResponse
 from starlette.routing import Mount
 from starlette.staticfiles import StaticFiles
 from starlette.types import ASGIApp, Receive, Scope, Send
+
+if TYPE_CHECKING:
+    from .desktop_bridge import DesktopBridge
 
 DESKTOP_COOKIE_NAME = "ophira_desktop_session"
 DESKTOP_HEALTH_HEADER = "x-ophira-desktop-token"
@@ -27,7 +31,15 @@ _TOKEN_PATTERN = re.compile(r"[0-9a-f]{64}\Z")
 class DesktopHost:
     """Serve the built UI and guard the existing API with a private session."""
 
-    def __init__(self, api: ASGIApp, *, ui_dir: Path, token: str, port: int) -> None:
+    def __init__(
+        self,
+        api: ASGIApp,
+        *,
+        ui_dir: Path,
+        token: str,
+        port: int,
+        bridge: DesktopBridge | None = None,
+    ) -> None:
         if not _TOKEN_PATTERN.fullmatch(token):
             raise ValueError("desktop session token must be 32 random bytes in hex")
         if not 1 <= port <= 65_535:
@@ -45,6 +57,7 @@ class DesktopHost:
         self.origin = f"http://127.0.0.1:{port}"
         self.host = f"127.0.0.1:{port}"
         self.ui_dir = ui_dir
+        self.bridge = bridge
         self.static = Starlette(routes=[Mount("/", app=StaticFiles(directory=ui_dir, html=True))])
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
@@ -79,7 +92,23 @@ class DesktopHost:
             return
 
         path = request.url.path
-        if path == "/app" or path.startswith("/app/"):
+        if path == "/api/desktop/status" and self.bridge is not None:
+            from .desktop_bridge import DesktopBridgeError
+
+            if request.method != "GET":
+                response = JSONResponse({"detail": "method not allowed"}, status_code=405)
+            else:
+                try:
+                    result = await self.bridge.request("status", timeout_seconds=5)
+                    response = JSONResponse(result, headers={"Cache-Control": "no-store"})
+                except DesktopBridgeError:
+                    response = JSONResponse(
+                        {"detail": "native desktop host is unavailable"},
+                        status_code=503,
+                        headers={"Cache-Control": "no-store"},
+                    )
+            await response(scope, receive, send)
+        elif path == "/app" or path.startswith("/app/"):
             response = FileResponse(
                 self.ui_dir / "index.html",
                 headers={

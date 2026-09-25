@@ -182,7 +182,7 @@ Accio Work 官方对标口径为 "agentic platforms like Claude Cowork and OpenC
 | 任务进度清单 | ✅ | ✅ | ✅ | ✅ | ✅ | 未实现（FR-30） |
 | 运行中插话纠偏 | ✅ | ✅ | ✅ | ✅ | ✅ | 未实现（FR-31） |
 | 并行任务列表 | ✅ | ◐ | ✅ | ✅ | ✅ | 部分实现（FR-32） |
-| 操作整台电脑 | ✅ | ✅ | ✅ | ✅ | ✅ | 浏览器 L1/L2 已实现；L3 未实现（FR-42） |
+| 操作整台电脑 | ✅ | ✅ | ✅ | ✅ | ✅ | 浏览器 L1/L2 已实现；L3 单窗口截图部分实现，输入动作未实现（FR-42） |
 | 用户接入 MCP | ✅ | ✅ | ✅ | ✅ | ✅ | 未实现（FR-33） |
 | 插件 | ✅ | ✅ | ✅ | ✅ | ✅ | 部分实现：只有内置插件（FR-39） |
 | Skill 自创建 | ◐ 用户发起 | ? | ◐ 演示后生成 | ✅ | ✅ | 已实现：Agent 提案，人审后发布（FR-12） |
@@ -339,7 +339,7 @@ Accio 同时也**抬高了 table stakes**：权限四态与审计日志、分层
 - **项目记录**：目标、已确认约束、决策、开放问题和经批准的记忆。
 - **Skills**：已安装能力、适用场景、来源、启停、测试、不可变版本历史与人工回滚；Run 使用内容哈希快照和只读运行时视图。
 - **自动化**：已连接后端计划任务、standing intent、自主 watcher 和通知收件箱；真实 Provider/数据源条件评估与真实渠道投递仍待验收。
-- **设置**：已有 Provider、Key、连接器与组织策略控制面；首个 `send_message` HTTPS JSON adapter 及项目范围移动设备配对已有本地实现，但真实 test-account/手机 HTTPS E2E、更多业务 adapter、原生移动推送和桌面桥仍缺；连接器目录与进阶的自定义 MCP（FR-33）是 v2.3 新增目标。
+- **设置**：已有 Provider、Key、连接器与组织策略控制面；首个 `send_message` HTTPS JSON adapter 及项目范围移动设备配对已有本地实现，但真实 test-account/手机 HTTPS E2E、更多业务 adapter、原生移动推送和完整桌面动作桥仍缺；连接器目录与进阶的自定义 MCP（FR-33）是 v2.3 新增目标。
 
 ### 3.7 首发范围（v2.2 更名：抛弃 MVP/demo 概念，教材口径——做真产品，只是还没上线）
 
@@ -366,7 +366,7 @@ Accio 同时也**抬高了 table stakes**：权限四态与审计日志、分层
 
 #### P2：观察项
 
-- **GUI L3 + 桌面版**（FR-42）：OS 级 computer use 与承载它的桌面壳；L1/L2 已完成真实 smoke acceptance，L3 当前未实现。定为 P2：目标用户的工作基本都在浏览器里（1688、Shopify 后台、TikTok 卖家中心），L1/L2 已经够用；L3 需要桌面壳和系统权限，成本高。
+- **GUI L3 + 桌面版**（FR-42）：OS 级 computer use 与承载它的桌面壳；L1/L2 已完成真实 smoke acceptance，L3 现有单窗口截图开发版，输入动作和真机系统权限验收未完成。定为 P2：目标用户的工作基本都在浏览器里（1688、Shopify 后台、TikTok 卖家中心），L1/L2 已经够用；L3 需要桌面壳和系统权限，成本高。
 - 组织策略（FR-22）：按个人使用场景定为 P2。团队协作、评论、项目模板、Skill 私有仓库、Skill 提案和知识库已交付，见 FR-12、FR-43、FR-44。
 - 上下文用量显示与压缩（FR-34）、插件导入（FR-39）、语音输入（FR-40）、发布网页（FR-41）。
 
@@ -430,7 +430,7 @@ Accio 同时也**抬高了 table stakes**：权限四态与审计日志、分层
 | FR-39 | P2 | 插件导入 | 支持导入官方插件格式（`.claude-plugin/plugin.json`，可带 Skills 和 MCP）；导入走现有安全扫描和人审；插件带的 MCP 受 FR-33 约束；插件里的子 Agent 定义不支持，导入时忽略并在结果里说明（红线：普通模式 `agents=None`） | **部分实现（本地）**：官方插件 ZIP 的多 Skill 暂存、逐件安全扫描/人审、远程 MCP 地址转入 FR-33 项目审核入口、子 Agent 与其它不支持组件明确忽略；Anthropic marketing 真包的 8 个 Skill 扫描通过、11 个远程 MCP 地址列出；仍缺远程 MCP/Provider 与部署验收，见 `docs/plugin-imports.md` |
 | FR-40 | P2 | 语音输入 | 先做语音输入，手机端优先；转写结果给用户确认后走普通消息流程 | **部分实现（本地）**：支持浏览器的语音识别接入手机任务/插话及工作台输入框，转写可编辑且需用户确认填入后再提交；真实手机麦克风、跨浏览器与 HTTPS 部署验收待做，见 `docs/voice-input.md` |
 | FR-41 | P2 | 发布网页 | 把产物发布成可访问的网页，例如商品落地页或独立站原型；发布属于对外动作，要先批准；发布的页面可以撤回 | **部分实现（本地）**：不可变 HTML 产物暂存、沙箱预览、项目管理员明确批准、独立公网域名公开与撤回；静态自包含网页已覆盖，动态脚本/远程资源及真实部署验收待做，见 `docs/site-publications.md` |
-| FR-42 | P2 | GUI 操作（L3） | OS 级操作和承载它的桌面壳；复用 FR-20 的域策略、截图证据和逐步授权。定为 P2：目标用户的工作基本都在浏览器里，L1/L2 已经够用；L3 需要桌面壳和系统权限，成本高 | **部分实现（2026-09-24）**：macOS 原生 WebKit 桌面宿主、本地 Python sidecar 与私有会话门禁已落地；OS 截图/动作桥、逐步授权/证据、独立打包签名及真机系统权限验收未完成 |
+| FR-42 | P2 | GUI 操作（L3） | OS 级操作和承载它的桌面壳；复用 FR-20 的域策略、截图证据和逐步授权。定为 P2：目标用户的工作基本都在浏览器里，L1/L2 已经够用；L3 需要桌面壳和系统权限，成本高 | **部分实现（2026-09-24）**：macOS 原生 WebKit 宿主、私有 sidecar、系统单窗口选择与截图桥已落地；Agent 主线在 attended Run、组织开关及精确 App 白名单下逐次人审，截图生成 Run receipt/Evidence/Artifact；已知浏览器 Bundle 拒绝 L3。Accessibility 输入动作、完整嵌入式 WebView 域策略、独立打包签名与真机隐私权限验收未完成 |
 | FR-43 | P2 | 项目协作、模板与导出 | 共享项目的成员与角色、团队讨论、可复用项目模板、项目 ZIP 导出和删除；运行仍由一个主 Agent 负责 | **已实现**（本地代码/测试）：成员管理、团队讨论、项目模板、owner/admin 审核后导出 ZIP、项目与独立会话删除；真实组织与浏览器目视验收未完成 |
 | FR-44 | P2 | 项目知识库 | 项目参考资料建索引，服务检索而不替代证据账本；结果带来源位置和版本；读取前复验权限 | **已实现**（本地代码/测试）：文本、OCR 伴随文件及有界 DOCX/XLSX/PPTX 原件索引，返回段落/单元格/幻灯片位置、版本与哈希；只读 MCP 与工作区检索。真实资料上的检索质量、大规模性能和图像/版式提取未验收 |
 
@@ -844,7 +844,7 @@ Prompt Injection 防线维持 v1.1：外部内容一律标记为不可信数据�
 | ✅ 本地实现 | 运行时边界 | Claude SDK 单主 Agent；普通模式可极少调用原生只读支线；支线写账本/自动化承诺代码级拒绝；Deep Research 3 个只读子代理，共享预算、统一取消、墙钟时限且无轮数上限 |
 | ✅ 本地实现 | 治理与账本 | 路径/删除/授权策略、OrgPolicy、Evidence/Decision/Artifact 来源 Run 关联、失效联动、事件脱敏及审计均有自动化测试 |
 | 🚧 部分实现 | Provider | Registry、Vault、隔离环境、预检、设置 UI 和错误分类已实现；2026-09-04 DeepSeek 真端点核心合约与 Green Path 3 连过，vision/无效凭据快速失败仍降级，其他厂商尚未逐一验证 |
-| 🚧 部分实现 | Browser | L1/L2 后端、域策略、SSRF/重定向防护、截图证据与 Chrome Connector 门禁已实现；2026-09-03 真实 Chromium/Chrome-CDP smoke acceptance 均通过；攻击边界仍主要靠确定性测试；L3 拆为 FR-42（P2），未实现 |
+| 🚧 部分实现 | Browser | L1/L2 后端、域策略、SSRF/重定向防护、截图证据与 Chrome Connector 门禁已实现；2026-09-03 真实 Chromium/Chrome-CDP smoke acceptance 均通过；攻击边界仍主要靠确定性测试；L3 拆为 FR-42（P2），单窗口截图开发版部分实现 |
 | 🚧 部分实现 | Connectors/Channels | Connector catalog/vault/health/revoke、首个 HTTPS JSON `send_message` adapter、飞书安全入站、Run-bound 回复和 durable identity mapping 已本地实现；真实商业 test account 与真实飞书租户 E2E 均未完成，微信未实现 |
 | 🚧 部分实现 | Commercial actions | Host read receipt → server-hydrated stage → 独立 reviewer → apply/cancel、可信网关 tenant/principal/project role、策略版本/外部版本重检、跨进程原子审计、稳定幂等键和 execution receipt 已实现；匹配的 `send_message` 可走 HTTPS JSON adapter，重试/并发/双击/成功后本地落账失败恢复均有离线测试。仍未在授权 sandbox/test account 对真实第三方 endpoint 完成 E2E，其他商业 operation/connector 仍诚实停在 `not_executed` |
 | 🚧 部分实现 | 主动与移动 | Scheduler、自动化 MCP、standing intent 自主 watcher/恢复/预算/静默未命中、Inbox 和项目范围移动配对/设备撤销存在；真实 Provider/数据源长时质量、手机 HTTPS 验收和原生推送未完成；可选 Web Push 已实现 |
@@ -907,7 +907,7 @@ Prompt Injection 防线维持 v1.1：外部内容一律标记为不可信数据�
 
 - 用真实 Provider/数据源对已有 standing intent 自主 watcher 做长时验证，并验证通知收件箱/真实渠道投递。
 - 在真实飞书/Lark 租户验收已有回复、身份绑定与权限行为，再实现微信，之后接钉钉和企微（FR-38）；验收移动配对/设备信任和可选 Web Push，补原生推送、手机端实时进度和插话（FR-25）。
-- 扩展 L1/L2 真实浏览器回归；L3 所需桌面宿主与 OS 权限治理按 FR-42（P2）排在最后。
+- 扩展 L1/L2 真实浏览器回归；FR-42（P2）继续补齐 L3 输入动作、OS 权限治理、独立打包和真实窗口验收。
 - 用户接入 MCP 与连接器目录、事件触发、并行任务列表（FR-33、FR-37、FR-32）。
 - 为 Connector 扩展真实垂直业务适配器并完成授权 test-account E2E；为 Skill Registry 增加生产级备份、恢复演练与更细粒度审计。
 

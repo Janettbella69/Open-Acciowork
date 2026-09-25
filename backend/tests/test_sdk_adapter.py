@@ -20,16 +20,20 @@ from mcp_test_client import call_sdk_tool
 from ophira_backend.config import Settings
 from ophira_backend.connectors import ConnectorRegistry
 from ophira_backend.constants import (
+    DESKTOP_MCP_SERVER_NAME,
     PRESENTATION_MCP_SERVER_NAME,
     TOOL_GET_PROJECT_CONTEXT,
     TOOL_PRESENT_EVIDENCE_COMPARISON,
+    TOOL_SELECT_DESKTOP_WINDOW,
+    TOOL_SNAPSHOT_DESKTOP,
     EventType,
     EvidenceKind,
     EvidenceSourceType,
     RunMode,
 )
+from ophira_backend.desktop_control import DesktopControl
 from ophira_backend.events import EventPublisher
-from ophira_backend.models import Evidence, ProjectCreate, ProviderProfileUpsert, utc_now
+from ophira_backend.models import Evidence, OrgPolicy, ProjectCreate, ProviderProfileUpsert, utc_now
 from ophira_backend.permissions import PermissionBroker
 from ophira_backend.providers import ProviderRegistry
 from ophira_backend.sdk_adapter import AgentRunError, ClaudeAgentRuntime
@@ -143,6 +147,55 @@ def test_default_sdk_options_keep_the_agent_general_and_observable(tmp_path: Pat
         "SubagentStart",
         "SubagentStop",
     }
+
+
+@pytest.mark.asyncio
+async def test_desktop_tools_require_native_host_org_policy_and_each_invocation(
+    tmp_path: Path,
+) -> None:
+    ledger, run, runtime = build_runtime(tmp_path)
+
+    class Bridge:
+        async def request(self, *_args, **_kwargs):
+            raise AssertionError("permission gate should run before the native bridge")
+
+    service = DesktopControl(Bridge(), ledger, runtime.policy)
+    assert DESKTOP_MCP_SERVER_NAME not in runtime._build_options(run).mcp_servers
+    runtime.attach_desktop_control(service)
+    assert DESKTOP_MCP_SERVER_NAME not in runtime._build_options(run).mcp_servers
+    runtime.policy.save(OrgPolicy(
+        computer_control_enabled=True,
+        allowed_desktop_bundle_ids=["com.apple.TextEdit"],
+    ))
+    options = runtime._build_options(run)
+    assert DESKTOP_MCP_SERVER_NAME in options.mcp_servers
+    assert TOOL_SELECT_DESKTOP_WINDOW not in options.allowed_tools
+    assert TOOL_SNAPSHOT_DESKTOP not in options.allowed_tools
+    subagent_callback = await options.can_use_tool(
+        TOOL_SNAPSHOT_DESKTOP, {"selection_id": "window_" + "a" * 32},
+        SimpleNamespace(agent_id="researcher", tool_use_id="desktop_1"),
+    )
+    assert subagent_callback.behavior == "deny"
+    hook = runtime._hook(run.id, ledger.workspace_for_project(run.project_id))
+    for tool_name in (TOOL_SELECT_DESKTOP_WINDOW, TOOL_SNAPSHOT_DESKTOP):
+        decision = await hook(
+            {"hook_event_name": "PreToolUse", "tool_name": tool_name, "tool_input": {}},
+            None, None,
+        )
+        assert decision["hookSpecificOutput"]["permissionDecision"] == "ask"
+        subagent_decision = await hook(
+            {"hook_event_name": "PreToolUse", "tool_name": tool_name,
+             "tool_input": {}, "agent_id": "researcher"},
+            None, None,
+        )
+        assert subagent_decision["hookSpecificOutput"]["permissionDecision"] == "deny"
+    runtime.policy.save(OrgPolicy())
+    revoked = await hook(
+        {"hook_event_name": "PreToolUse", "tool_name": TOOL_SNAPSHOT_DESKTOP,
+         "tool_input": {}},
+        None, None,
+    )
+    assert revoked["hookSpecificOutput"]["permissionDecision"] == "deny"
 
 
 @pytest.mark.asyncio

@@ -296,6 +296,16 @@ class FileLedger:
             return urlunsplit((scheme, netloc, parts.path or "/", parts.query, ""))
         if scheme == "ophira-search" and parts.netloc and not parts.fragment:
             return urlunsplit((scheme, parts.netloc.casefold(), parts.path, parts.query, ""))
+        if scheme == "ophira-desktop" and not parts.query and not parts.fragment:
+            bundle_id = parts.netloc.casefold()
+            if (
+                re.fullmatch(
+                    r"(?=.{3,200}$)(?:[a-z0-9][a-z0-9-]*\.)+[a-z0-9][a-z0-9-]*",
+                    bundle_id,
+                )
+                and re.fullmatch(r"/window/[1-9][0-9]*", parts.path)
+            ):
+                return urlunsplit((scheme, bundle_id, parts.path, "", ""))
         raise SourceReceiptIntegrityError("canonical source scheme is not supported")
 
     @staticmethod

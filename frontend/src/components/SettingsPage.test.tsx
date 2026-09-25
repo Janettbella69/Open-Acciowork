@@ -86,6 +86,7 @@ const orgPolicy: OrgPolicy = {
   allowed_mcp_hosts: [],
   browser_enabled: true,
   computer_control_enabled: false,
+  allowed_desktop_bundle_ids: [],
   channel_delivery_enabled: false,
   domain_allowlist: [],
   commercial_actions_enabled: false,
@@ -292,6 +293,18 @@ describe('SettingsPage · provider management', () => {
 })
 
 describe('SettingsPage · organization policy and grants', () => {
+  it('saves native desktop controls as organization policy', async () => {
+    stubLocalStorage()
+    render(<SettingsPage />)
+
+    const apps = await screen.findByRole('textbox', { name: 'Approved desktop app bundle IDs' })
+    fireEvent.change(apps, { target: { value: 'com.apple.TextEdit\ncom.microsoft.Excel' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save apps' }))
+    await waitFor(() => expect(saveOrgPolicy).toHaveBeenCalledWith({
+      ...orgPolicy, allowed_desktop_bundle_ids: ['com.apple.textedit', 'com.microsoft.excel'],
+    }))
+  })
+
   it('saves custom remote MCP hosts through organization policy', async () => {
     stubLocalStorage()
     render(<SettingsPage />)
@@ -363,11 +376,7 @@ describe('SettingsPage · local preferences', () => {
 
     expect(screen.getByRole('combobox', { name: /plugin access/i })).toHaveValue('ask')
     expect(screen.getByRole('combobox', { name: /browser access/i })).toHaveValue('ask')
-    const computerControl = screen.getByRole('combobox', { name: /computer control access/i })
-    expect(computerControl).toHaveValue('disabled')
-
-    fireEvent.change(computerControl, { target: { value: 'ask' } })
-    expect(stored.get('ophira-workspace-settings')).toContain('"computerControl":"ask"')
+    expect(screen.queryByRole('combobox', { name: /computer control access/i })).toBeNull()
   })
 
   it('localizes provider, memory, and permission controls in Chinese', async () => {

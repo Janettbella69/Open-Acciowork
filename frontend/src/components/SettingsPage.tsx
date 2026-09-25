@@ -39,6 +39,7 @@ function OrgPolicyPanel() {
   const [savingPolicy, setSavingPolicy] = useState(false)
   const [revokingGrant, setRevokingGrant] = useState('')
   const [mcpHostsDraft, setMcpHostsDraft] = useState('')
+  const [desktopBundlesDraft, setDesktopBundlesDraft] = useState('')
   const revokingGrantRef = useRef('')
   const policyRef = useRef<OrgPolicy | null>(null)
   const confirmedPolicyRef = useRef<OrgPolicy | null>(null)
@@ -56,6 +57,7 @@ function OrgPolicyPanel() {
           confirmedPolicyRef.current = policyResult.value
           setPolicy(policyResult.value)
           setMcpHostsDraft((policyResult.value.allowed_mcp_hosts || []).join('\n'))
+          setDesktopBundlesDraft((policyResult.value.allowed_desktop_bundle_ids || []).join('\n'))
         } else {
           failures.push(errorMessage(policyResult.reason))
         }
@@ -142,6 +144,17 @@ function OrgPolicyPanel() {
             <span><strong>{t('Browser (org policy)')}</strong><small>{t('Enable GUI L1/L2 browser tools for this organization.')}</small></span>
             <input type="checkbox" role="switch" checked={policy.browser_enabled} disabled={savingPolicy} onChange={(event) => save({ browser_enabled: event.target.checked })} />
           </label>
+          <label className="settings-row settings-toggle-row">
+            <span><strong>{t('Native desktop capture')}</strong><small>{t('Allow approved native apps on this Mac. Every window selection and screenshot asks again; browsers use L1/L2 domain checks.')}</small></span>
+            <input type="checkbox" role="switch" checked={policy.computer_control_enabled} disabled={savingPolicy} onChange={(event) => save({ computer_control_enabled: event.target.checked })} />
+          </label>
+          <div className="settings-row settings-mcp-hosts">
+            <span><strong>{t('Approved desktop app bundle IDs')}</strong><small>{t('One exact macOS bundle ID per line. The desktop host and system permission are required.')}</small></span>
+            <div>
+              <textarea aria-label={t('Approved desktop app bundle IDs')} value={desktopBundlesDraft} onChange={(event) => setDesktopBundlesDraft(event.target.value)} rows={4} placeholder="com.apple.TextEdit" disabled={savingPolicy} />
+              <button type="button" disabled={savingPolicy} onClick={() => save({ allowed_desktop_bundle_ids: [...new Set(desktopBundlesDraft.split(/\s+/).map((item) => item.trim().toLowerCase()).filter(Boolean))] })}>{t('Save apps')}</button>
+            </div>
+          </div>
           <label className="settings-row settings-toggle-row">
             <span><strong>{t('Channel delivery')}</strong><small>{t('Push inbox notifications to the configured IM webhook.')}</small></span>
             <input type="checkbox" role="switch" checked={policy.channel_delivery_enabled} disabled={savingPolicy} onChange={(event) => save({ channel_delivery_enabled: event.target.checked })} />
@@ -351,13 +364,6 @@ export default function SettingsPage() {
               <select aria-label={t('Browser access')} value={settings.browserAccess} onChange={(event) => update('browserAccess', event.target.value as LocalSettings['browserAccess'])}>
                 <option value="ask">{t('Ask before use')}</option>
                 <option value="disabled">{t('Disabled')}</option>
-              </select>
-            </label>
-            <label className="settings-row settings-select-row settings-integration-row">
-              <span><strong>{t('Computer control')}</strong><small>{t('Allow Agents to request control of approved desktop applications. Every session still requires explicit approval.')}</small><i>{t('High-risk setting')}</i></span>
-              <select aria-label={t('Computer control access')} value={settings.computerControl} onChange={(event) => update('computerControl', event.target.value as LocalSettings['computerControl'])}>
-                <option value="disabled">{t('Disabled')}</option>
-                <option value="ask">{t('Ask every session')}</option>
               </select>
             </label>
           </div>

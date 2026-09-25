@@ -620,6 +620,7 @@ export type OrgPolicy = {
   allowed_mcp_hosts: string[]
   browser_enabled: boolean
   computer_control_enabled: boolean
+  allowed_desktop_bundle_ids: string[]
   channel_delivery_enabled: boolean
   domain_allowlist: string[]
   commercial_actions_enabled: boolean

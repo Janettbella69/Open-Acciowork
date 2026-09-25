@@ -9,7 +9,6 @@ export type LocalSettings = {
   permissionTimeout: '120' | '300' | '600'
   pluginAccess: 'ask' | 'disabled'
   browserAccess: 'ask' | 'disabled'
-  computerControl: 'ask' | 'disabled'
   computerDiscoverable: boolean
   workspaceMemory: boolean
   conversationMemory: boolean
@@ -28,7 +27,6 @@ export const defaultLocalSettings: LocalSettings = {
   permissionTimeout: '300',
   pluginAccess: 'ask',
   browserAccess: 'ask',
-  computerControl: 'disabled',
   computerDiscoverable: false,
   workspaceMemory: true,
   conversationMemory: false,
