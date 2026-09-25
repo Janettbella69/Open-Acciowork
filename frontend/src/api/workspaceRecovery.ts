@@ -68,3 +68,18 @@ export type WorkspaceRetention = {
   checkpoints: RetentionCheckpoint[]
   reviews: RetentionReview[]
 }
+
+export type RetentionArchivedReview = {
+  id: string
+  checkpoint_id: string
+  created_at: string
+  archived_at: string
+  archived_by: string
+  fingerprint: string
+}
+
+export type RetentionArchivePage = {
+  project_id: string
+  reviews: RetentionArchivedReview[]
+  next_cursor: string | null
+}

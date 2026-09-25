@@ -449,6 +449,21 @@ def test_cold_backup_accepts_discarded_copy_and_archived_review(source, tmp_path
     restored = WorkspaceCheckpoints(FileLedger(destination / "data"))
     assert restored.retention(project.id, authorize=lambda: None).archived_reviews == 1
     assert restored.get_restore(project.id, preview.id).archived_by == "admin"
+    archived_row = service.archived_reviews(
+        project.id, cursor=None, authorize=lambda: None,
+    ).reviews[0]
+    service.delete_archived_review(
+        project.id, preview.id, expected_fingerprint=archived_row.fingerprint,
+        **retention_options(),
+    )
+    after = tmp_path / "after"
+    after.mkdir()
+    latest = make_backup(source, after)
+    restore_unreconciled(latest, after / "restored")
+    latest_service = WorkspaceCheckpoints(FileLedger(after / "restored/data"))
+    assert latest_service.retention(project.id, authorize=lambda: None).archived_reviews == 0
+    with pytest.raises(FileNotFoundError):
+        latest_service.get_restore(project.id, preview.id)
 
 
 def test_cold_backup_rejects_damaged_checkpoint_only_blob(source, tmp_path):

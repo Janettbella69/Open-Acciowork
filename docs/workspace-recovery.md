@@ -54,7 +54,7 @@ Claude Agent SDK 原生检查点继续启用。[官方文件检查点文档](htt
 ## 人工保留管理
 
 项目所有者或管理员可在 **Recovery history management / 恢复历史管理** 查看恢复点、
-活动审阅、已归档审阅数量、保留目录和内容快照用量。每次删除均需再次确认，提交时复验
+活动审阅、分页已归档审阅、保留目录和内容快照用量。每次删除均需再次确认，提交时复验
 项目权限、空闲状态及所选记录或清单的指纹。系统不会按时间自动删历史。
 
 1. 过期且未执行的预览可删除；仍被活动审阅引用的恢复点不可删除。未引用的恢复点可单独
@@ -67,8 +67,10 @@ Claude Agent SDK 原生检查点继续启用。[官方文件检查点文档](htt
 4. 内容快照与产物共用 `artifact-versions/`。清单只把既无产物版本引用、也无活动恢复点
    引用的完整哈希文件列为可回收；管理员按文件数、字节数及清单指纹确认后逐个清理。
    中途失败时已删除的文件保持无引用，刷新清单后可确认剩余部分。
+5. 已归档审阅可按 50 条一页查看并逐条永久删除。删除只移除该次审阅结果，释放归档名额；
+   工作区文件、恢复点、产物版本和已下载的备份不会被连带删除。删除后按 ID 查询返回 404。
 
-归档记录上限 100,000 条；当前没有归档二次删除或自动保留期限。保留管理不清理冷备份、
+归档记录上限 100,000 条；当前没有自动保留期限。保留管理不清理冷备份、
 下载副本或 `artifact-versions/` 中进程中断留下的隐藏 staging 文件。它不撤销对话、
 证据、商业操作或外部发送。
 
@@ -83,6 +85,8 @@ Claude Agent SDK 原生检查点继续启用。[官方文件检查点文档](htt
 | `GET /restores/{restore_id}` | 查询已保存结果，必要时完成已批准的中断恢复 |
 | `POST /restores/{restore_id}/apply` | `{"confirm_file_changes":true}`，执行或返回同次恢复的已执行结果 |
 | `GET /retention` | 容量、引用和可清理项清单 |
+| `GET /retention/archives?cursor=…` | 已归档审阅按 ID 倒序分页，每页最多 50 条；`next_cursor` 用于下一页 |
+| `POST /retention/archives/{restore_id}/delete` | 二次确认后永久删除一条已归档审阅 |
 | `POST /retention/checkpoints/{checkpoint_id}/delete` | 删除未引用恢复点 |
 | `POST /retention/restores/{restore_id}/delete` | 删除过期未执行审阅 |
 | `POST /retention/restores/{restore_id}/discard-copy` | 清理已执行恢复的额外目录 |
@@ -93,7 +97,7 @@ Claude Agent SDK 原生检查点继续启用。[官方文件检查点文档](htt
 替换前再次复验。执行只接受原审阅者及原会话；拒绝未确认、过期、跨项目、撤销权限
 或过时预览。成功响应 `Cache-Control: no-store`，不输出会话标识或目录 inode。
 输入请求最大 1 KiB。该接口没有对应的 Agent MCP 工具。
-保留管理要求 `PROJECT_DELETE`，即项目所有者或管理员。五项写操作都要求
+保留管理要求 `PROJECT_DELETE`，即项目所有者或管理员。六项写操作都要求
 `{"expected_fingerprint":"<清单中的64位哈希>","confirm_delete":true}`；快照清理使用
 `reclaim_fingerprint`，其余操作使用对应记录的 `fingerprint`。响应返回更新后的保留清单。
 

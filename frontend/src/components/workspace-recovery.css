@@ -24,4 +24,5 @@
 .recovery-retention-list { max-height: 340px; overflow: auto; }
 .recovery-retention-list li { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 0; border-bottom: 1px solid #e1e5e0; }
 .recovery-retention-list li > div { flex: 1; min-width: 160px; }
+.recovery-retention-list small { overflow-wrap: anywhere; }
 .recovery-retention-confirm { padding: 12px; margin-top: 14px; border: 1px solid #d9caa8; border-radius: 6px; background: #fffaf0; }

@@ -1,14 +1,14 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, expect, it, vi } from 'vitest'
-import type { WorkspaceRetention } from '../api/workspaceRecovery'
+import type { RetentionArchivePage, WorkspaceRetention } from '../api/workspaceRecovery'
 import { I18nContext } from '../i18n'
 import WorkspaceRetentionPanel from './WorkspaceRetentionPanel'
 
 vi.mock('../api/client', () => ({
-  getWorkspaceRetention: vi.fn(), changeWorkspaceRetention: vi.fn(),
+  getWorkspaceRetention: vi.fn(), getWorkspaceArchivePage: vi.fn(), changeWorkspaceRetention: vi.fn(),
   errorMessage: (reason: unknown) => String(reason instanceof Error ? reason.message : reason),
 }))
-import { changeWorkspaceRetention, getWorkspaceRetention } from '../api/client'
+import { changeWorkspaceRetention, getWorkspaceArchivePage, getWorkspaceRetention } from '../api/client'
 
 const inventory: WorkspaceRetention = {
   project_id: 'project_1', checkpoint_limit: 500, review_limit: 1000,
@@ -37,9 +37,41 @@ const inventory: WorkspaceRetention = {
 beforeEach(() => {
   vi.clearAllMocks()
   vi.mocked(getWorkspaceRetention).mockResolvedValue(inventory)
+  vi.mocked(getWorkspaceArchivePage).mockResolvedValue({ project_id: 'project_1', reviews: [], next_cursor: null })
   vi.mocked(changeWorkspaceRetention).mockResolvedValue({
     ...inventory, reviews: inventory.reviews.slice(1),
   })
+})
+
+it('pages archived reviews and confirms permanent deletion of one result', async () => {
+  const archived = { id: 'restore_archived', checkpoint_id: 'before-run_1',
+    created_at: '2026-09-08T12:00:00Z', archived_at: '2026-09-10T12:00:00Z',
+    archived_by: 'admin', fingerprint: 'f'.repeat(64) }
+  const first: RetentionArchivePage = { project_id: 'project_1', reviews: [archived], next_cursor: archived.id }
+  vi.mocked(getWorkspaceRetention).mockResolvedValueOnce({ ...inventory, archived_reviews: 2 })
+  vi.mocked(getWorkspaceArchivePage)
+    .mockResolvedValueOnce(first)
+    .mockResolvedValueOnce({ project_id: 'project_1', reviews: [{ ...archived, id: 'restore_older' }], next_cursor: null })
+    .mockResolvedValueOnce({ project_id: 'project_1', reviews: [{ ...archived, id: 'restore_older' }], next_cursor: null })
+  vi.mocked(changeWorkspaceRetention).mockResolvedValueOnce({ ...inventory, archived_reviews: 1 })
+  const changed = vi.fn()
+  render(<WorkspaceRetentionPanel projectId="project_1" onChanged={changed} />)
+  fireEvent.click(screen.getByRole('button', { name: 'Recovery history management' }))
+  fireEvent.click(await screen.findByRole('button', { name: 'View archived reviews' }))
+  await screen.findByText('restore_archived')
+  fireEvent.click(screen.getByRole('button', { name: 'Show more archived reviews' }))
+  await screen.findByText('restore_older')
+  expect(getWorkspaceArchivePage).toHaveBeenCalledWith('project_1', 'restore_archived', expect.any(AbortSignal))
+  fireEvent.click(screen.getAllByRole('button', { name: 'Delete archived review' })[0])
+  expect(screen.getByText('This archived review result will be permanently removed. Workspace files, recovery points and artifact versions remain.')).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('checkbox', { name: 'I confirm this recovery history deletion.' }))
+  fireEvent.click(screen.getAllByRole('button', { name: 'Delete archived review' })[0])
+  await waitFor(() => expect(changeWorkspaceRetention).toHaveBeenCalledWith(
+    'project_1', 'archived', 'restore_archived', 'f'.repeat(64), expect.any(AbortSignal),
+  ))
+  await waitFor(() => expect(screen.queryByText('restore_archived')).not.toBeInTheDocument())
+  expect(screen.getByText('restore_older')).toBeInTheDocument()
+  expect(changed).toHaveBeenCalledOnce()
 })
 
 it('loads on demand, protects referenced points and confirms exact expired review', async () => {

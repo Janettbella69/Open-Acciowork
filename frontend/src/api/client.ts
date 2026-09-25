@@ -46,7 +46,7 @@ import type { KnowledgeSearch } from './knowledge'
 import type { MarketplaceAccess, MarketplaceGuide, MarketplaceRead, MarketplaceReadInput } from './marketplaces'
 import type { ProjectShop, ShopData, ShopIdentityInput } from './shops'
 import type { ArtifactTextUpdate, ArtifactTextView } from './artifacts'
-import type { WorkspaceCheckpoint, WorkspaceRestore, WorkspaceRetention } from './workspaceRecovery'
+import type { RetentionArchivePage, WorkspaceCheckpoint, WorkspaceRestore, WorkspaceRetention } from './workspaceRecovery'
 import type { RunResources } from './runResources'
 import type { SessionSearch } from './sessionSearch'
 import type { TaskOverview } from './taskOverview'
@@ -262,12 +262,18 @@ export function getWorkspaceRetention(projectId: string, signal?: AbortSignal): 
   return request(`/api/projects/${encodeURIComponent(projectId)}/workspace/retention`, { signal, cache: 'no-store' })
 }
 
+export function getWorkspaceArchivePage(projectId: string, cursor?: string, signal?: AbortSignal): Promise<RetentionArchivePage> {
+  const query = cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''
+  return request(`/api/projects/${encodeURIComponent(projectId)}/workspace/retention/archives${query}`, { signal, cache: 'no-store' })
+}
+
 export function changeWorkspaceRetention(
-  projectId: string, kind: 'checkpoint' | 'review' | 'copy' | 'archive' | 'blobs', id: string,
+  projectId: string, kind: 'checkpoint' | 'review' | 'copy' | 'archive' | 'archived' | 'blobs', id: string,
   fingerprint: string, signal?: AbortSignal,
 ): Promise<WorkspaceRetention> {
   const suffix = kind === 'blobs' ? 'snapshots/reclaim'
     : kind === 'checkpoint' ? `checkpoints/${encodeURIComponent(id)}/delete`
+    : kind === 'archived' ? `archives/${encodeURIComponent(id)}/delete`
     : `restores/${encodeURIComponent(id)}/${kind === 'review' ? 'delete' : kind === 'copy' ? 'discard-copy' : 'archive'}`
   return request(`/api/projects/${encodeURIComponent(projectId)}/workspace/retention/${suffix}`, {
     method: 'POST', body: JSON.stringify({ expected_fingerprint: fingerprint, confirm_delete: true }),

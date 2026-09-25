@@ -201,6 +201,39 @@ async def test_retention_can_discard_duplicate_copy_without_losing_safety_point(
         assert archived.json()["reviews"] == [] and archived.json()["archived_reviews"] == 1
         status = await call(client, "GET", base + f"/restores/{row['id']}", owner)
         assert status.status_code == 200 and status.json()["archived_at"] is not None
+        archives = await call(client, "GET", base + "/retention/archives", owner)
+        assert archives.status_code == 200 and archives.headers["cache-control"] == "no-store"
+        archived_row = archives.json()["reviews"][0]
+        assert archived_row["id"] == row["id"] and archived_row["archived_by"] == owner.principal_id
+        assert archives.json()["next_cursor"] is None
+        for confirmation in (False, 1, None):
+            invalid = await call(
+                client, "POST", base + f"/retention/archives/{row['id']}/delete", owner,
+                json={"expected_fingerprint": archived_row["fingerprint"],
+                      "confirm_delete": confirmation},
+            )
+            assert invalid.status_code == 422
+        member = principal("member", PrincipalRole.MEMBER)
+        app.state.project_access.grant(
+            project.id, owner, principal_id=member.principal_id, role=member.role,
+        )
+        denied = await call(client, "GET", base + "/retention/archives", member)
+        assert denied.status_code == 403
+        denied = await call(
+            client, "POST", base + f"/retention/archives/{row['id']}/delete", member,
+            json={"expected_fingerprint": archived_row["fingerprint"], "confirm_delete": True},
+        )
+        assert denied.status_code == 403
+        deleted = await call(
+            client, "POST", base + f"/retention/archives/{row['id']}/delete", owner,
+            json={"expected_fingerprint": archived_row["fingerprint"], "confirm_delete": True},
+        )
+        assert deleted.status_code == 200 and deleted.json()["archived_reviews"] == 0
+        missing = await call(client, "GET", base + f"/restores/{row['id']}", owner)
+        assert missing.status_code == 404
+        assert app.state.workspace_checkpoints.load(
+            project.id, applied.json()["safety_checkpoint_id"],
+        )
 
 
 async def test_retention_reclaims_only_unreferenced_snapshot_files(ready):

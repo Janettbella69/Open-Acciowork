@@ -205,6 +205,21 @@ class WorkspaceRetentionView(APIModel):
     reviews: list[RetentionReview]
 
 
+class RetentionArchivedReview(APIModel):
+    id: str
+    checkpoint_id: str
+    created_at: datetime
+    archived_at: datetime
+    archived_by: str
+    fingerprint: str
+
+
+class RetentionArchivePage(APIModel):
+    project_id: str
+    reviews: list[RetentionArchivedReview]
+    next_cursor: str | None
+
+
 class RetentionDiscardIntent(APIModel):
     restore_id: str
     project_id: str
@@ -431,6 +446,59 @@ class WorkspaceCheckpoints:
             )
             authorize()
             return result
+
+    def archived_reviews(
+        self, project_id: str, *, cursor: str | None, authorize: Callable[[], None],
+    ) -> RetentionArchivePage:
+        with workspace_lease(self.ledger, project_id), self.ledger._lock_for(project_id):
+            authorize()
+            self.recover(project_id)
+            if cursor is not None:
+                self.ledger._safe_id(cursor)
+            identifiers = sorted(self._ids(
+                project_id, "workspace-restores-archive", MAX_ARCHIVED_RESTORES,
+            ), reverse=True)
+            page_ids = [identifier for identifier in identifiers
+                        if cursor is None or identifier < cursor][:51]
+            reviews = []
+            for identifier in page_ids[:50]:
+                value = self._archived_review(project_id, identifier)
+                reviews.append(RetentionArchivedReview(
+                    id=value.id, checkpoint_id=value.checkpoint_id,
+                    created_at=value.created_at, archived_at=value.archived_at,
+                    archived_by=value.archived_by,
+                    fingerprint=self._record_fingerprint(value),
+                ))
+            authorize()
+            return RetentionArchivePage(
+                project_id=project_id, reviews=reviews,
+                next_cursor=page_ids[49] if len(page_ids) > 50 else None,
+            )
+
+    def _archived_review(self, project_id: str, restore_id: str) -> WorkspaceRestore:
+        review = self._read(
+            project_id, "workspace-restores-archive", restore_id, WorkspaceRestore,
+        )
+        if (review.state != "applied" or review.archived_at is None
+                or not review.archived_by or review.retained_discarded_at is None
+                or review.retained_bytes != 0):
+            raise WorkspaceRecoveryError("Recovery review archive failed verification.")
+        return review
+
+    def delete_archived_review(
+        self, project_id: str, restore_id: str, *, expected_fingerprint: str,
+        authorize: Callable[[], None], assert_idle: Callable[[], None],
+    ) -> None:
+        with workspace_lease(self.ledger, project_id), self.ledger._lock_for(project_id):
+            authorize()
+            assert_idle()
+            self.recover(project_id)
+            review = self._archived_review(project_id, restore_id)
+            if self._record_fingerprint(review) != expected_fingerprint:
+                raise WorkspaceRecoveryError("Recovery review changed. Review retention again.")
+            authorize()
+            assert_idle()
+            self._unlink_record(project_id, "workspace-restores-archive", review.id)
 
     def _snapshot_inventory(
         self, project_id: str, checkpoints: list[WorkspaceCheckpoint],

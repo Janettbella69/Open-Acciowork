@@ -5,6 +5,8 @@ import {
   createSchedule,
   getCommercialAction,
   getProjectMetrics,
+  getWorkspaceArchivePage,
+  changeWorkspaceRetention,
   getProjectKnowledge,
   getProject,
   getRunTelemetry,
@@ -30,6 +32,23 @@ afterEach(() => {
 })
 
 describe('API client', () => {
+  it('scopes archived recovery paging and confirmed deletion to the selected project', async () => {
+    const fetchMock = vi.fn(async () => new Response('{}', { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+    const signal = new AbortController().signal
+    await getWorkspaceArchivePage('project/one', 'restore/older', signal)
+    await changeWorkspaceRetention('project/one', 'archived', 'restore/older', 'a'.repeat(64), signal)
+    expect(fetchMock).toHaveBeenNthCalledWith(1,
+      '/api/projects/project%2Fone/workspace/retention/archives?cursor=restore%2Folder',
+      expect.objectContaining({ signal, cache: 'no-store' }),
+    )
+    expect(fetchMock).toHaveBeenNthCalledWith(2,
+      '/api/projects/project%2Fone/workspace/retention/archives/restore%2Folder/delete',
+      expect.objectContaining({ method: 'POST', signal, cache: 'no-store', body: JSON.stringify({
+        expected_fingerprint: 'a'.repeat(64), confirm_delete: true,
+      }) }),
+    )
+  })
   it('binds plan continuation to the exact reviewed run', async () => {
     const fetchMock = vi.fn(async () => new Response(JSON.stringify({ id: 'run_next' }), { status: 202 }))
     vi.stubGlobal('fetch', fetchMock)

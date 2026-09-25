@@ -249,6 +249,60 @@ def test_applied_review_archive_preserves_result_and_releases_active_limits(sour
     assert restarted.get_restore(project_id, preview.id).state == "applied"
 
 
+def test_archived_reviews_are_paged_and_require_current_fingerprint_for_deletion(source):
+    ledger, project_id, service, point, first = source
+    change_workspace(source)
+    preview = review(source)
+    service.apply(project_id, preview.id, **options())
+    row = service.retention(project_id, authorize=lambda: None).reviews[0]
+    service.discard_retained_copy(
+        project_id, preview.id, expected_fingerprint=row.fingerprint, **retention_options(),
+    )
+    row = service.retention(project_id, authorize=lambda: None).reviews[0]
+    service.archive_review(
+        project_id, preview.id, expected_fingerprint=row.fingerprint,
+        archived_by="admin", **retention_options(),
+    )
+    archived = service.get_restore(project_id, preview.id)
+    directory = service._directory(project_id, "workspace-restores-archive")
+    for number in range(51):
+        item = archived.model_copy(update={"id": f"restore_page_{number:02d}"})
+        service._write(directory / f"{item.id}.json", item)
+    first_page = service.archived_reviews(project_id, cursor=None, authorize=lambda: None)
+    assert len(first_page.reviews) == 50 and first_page.next_cursor
+    assert all(item.archived_by == "admin" for item in first_page.reviews)
+    second_page = service.archived_reviews(
+        project_id, cursor=first_page.next_cursor, authorize=lambda: None,
+    )
+    assert len(second_page.reviews) == 2 and second_page.next_cursor is None
+    assert {item.id for item in first_page.reviews}.isdisjoint(
+        item.id for item in second_page.reviews
+    )
+    target = second_page.reviews[0]
+    with pytest.raises(WorkspaceRecoveryError, match="changed"):
+        service.delete_archived_review(
+            project_id, target.id, expected_fingerprint="0" * 64, **retention_options(),
+        )
+
+    def busy():
+        raise WorkspaceBusyError("Wait for all project runs to finish before recovering files.")
+
+    with pytest.raises(WorkspaceBusyError, match="Wait for all project runs"):
+        service.delete_archived_review(
+            project_id, target.id, expected_fingerprint=target.fingerprint,
+            authorize=lambda: None, assert_idle=busy,
+        )
+    service.delete_archived_review(
+        project_id, target.id, expected_fingerprint=target.fingerprint,
+        **retention_options(),
+    )
+    with pytest.raises(FileNotFoundError):
+        service.get_restore(project_id, target.id)
+    assert service.load(project_id, point.id).id == point.id
+    assert ledger.capture_artifact(project_id, first.id)[1]
+    assert service.retention(project_id, authorize=lambda: None).archived_reviews == 51
+
+
 def test_snapshot_reclaim_keeps_artifacts_and_recovery_points(source):
     ledger, project_id, service, point, first = source
     root = ledger._project_path(project_id).parent

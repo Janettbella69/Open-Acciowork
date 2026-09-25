@@ -1,6 +1,6 @@
 """Human-reviewed workspace recovery; never exposed as an Agent tool."""
 
-from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi import FastAPI, HTTPException, Query, Request, Response
 from starlette.concurrency import run_in_threadpool
 
 from .auth import ProjectPermission
@@ -10,6 +10,7 @@ from .workspace_checkpoints import (
     CheckpointSummary,
     RestoreApplyRequest,
     RestorePreviewRequest,
+    RetentionArchivePage,
     RetentionDeleteRequest,
     WorkspaceBusyError,
     WorkspaceCheckpoints,
@@ -122,6 +123,38 @@ def register_workspace_recovery_routes(
         return await result(response, authorize, lambda: service.retention(
             project_id, authorize=authorize,
         ))
+
+    @app.get(
+        "/api/projects/{project_id}/workspace/retention/archives",
+        response_model=RetentionArchivePage,
+    )
+    async def archived_reviews(
+        project_id: str, request: Request, response: Response,
+        cursor: str | None = Query(default=None, min_length=1, max_length=100),
+    ):
+        _, authorize = authorization(request, project_id, manage=True)
+        return await result(response, authorize, lambda: service.archived_reviews(
+            project_id, cursor=cursor, authorize=authorize,
+        ))
+
+    @app.post(
+        "/api/projects/{project_id}/workspace/retention/archives/{restore_id}/delete",
+        response_model=WorkspaceRetentionView,
+    )
+    async def delete_archived_review(
+        project_id: str, restore_id: str, request: Request, response: Response,
+    ):
+        _, authorize = authorization(request, project_id, manage=True)
+        data = await payload(request, RetentionDeleteRequest)
+
+        def operation():
+            service.delete_archived_review(
+                project_id, restore_id, expected_fingerprint=data.expected_fingerprint,
+                authorize=authorize, assert_idle=lambda: assert_idle(project_id),
+            )
+            return service.retention(project_id, authorize=authorize)
+
+        return await result(response, authorize, operation)
 
     @app.post(
         "/api/projects/{project_id}/workspace/retention/checkpoints/{checkpoint_id}/delete",
