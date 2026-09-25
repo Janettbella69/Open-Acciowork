@@ -1312,6 +1312,30 @@ export function controlProjectShop(projectId: string, shop: ProjectShop, operati
   })
 }
 
+export function deleteProjectShopLogin(projectId: string, shop: ProjectShop): Promise<ProjectShop> {
+  return request(`${shopPath(projectId, shop.id)}/login/delete`, {
+    method: 'POST',
+    body: JSON.stringify({ expected_revision: shop.revision, confirmation: 'delete' }),
+    cache: 'no-store',
+  })
+}
+
+export async function downloadProjectShopLogin(projectId: string, shop: ProjectShop): Promise<Blob> {
+  const response = await fetch(apiUrl(`${shopPath(projectId, shop.id)}/login/export`), {
+    method: 'POST',
+    body: JSON.stringify({ expected_revision: shop.revision, confirmation: 'export' }),
+    headers: { Accept: 'application/zip', 'Content-Type': 'application/json' },
+    cache: 'no-store',
+  })
+  if (!response.ok) throw await responseError(response)
+  if (response.headers.get('Content-Type')?.split(';')[0].trim().toLowerCase() !== 'application/zip') {
+    throw new Error('The browser profile export response was not a ZIP archive.')
+  }
+  const archive = await response.blob()
+  if (!archive.size) throw new Error('The browser profile export archive was empty.')
+  return archive
+}
+
 export function grantProjectShop(projectId: string, shop: ProjectShop, days: number): Promise<ProjectShop> {
   return request(`${shopPath(projectId, shop.id)}/grant`, { method: 'POST', body: JSON.stringify({
     expected_revision: shop.revision, session_id: shop.session_id, confirmed_identity: true,

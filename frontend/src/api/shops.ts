@@ -16,6 +16,8 @@ export type ProjectShop = ShopIdentityInput & {
   browser_state: 'closed' | 'starting' | 'open'
   session_id: string | null
   agent_access: boolean
+  browser_profile_present: boolean
+  browser_login_data_present: boolean
   grant_expires_at: string | null
   capture_count: number
 }

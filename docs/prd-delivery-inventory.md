@@ -143,7 +143,7 @@ Google Chrome；用户已登录浏览器、真实卖家后台和 Provider 端到
 | §4.16 任务经验 | delivered：专属工具与版本/来源账本、创建时配置指纹、低信任检索注入、容量/事务恢复与人工停用UI；deferred：真实Provider自主调用及长期判断质量 |
 | §4.12 事件 | delivered：有真实Run归属的evidence.added/decision.recorded、artifact.registered/updated、memory.proposed；实时产物刷新、固定版本下载、记忆审核入口、持久幂等补发与完整SSE尾部消费；deferred：无Run项目变更和 schedule/preflight 细分事件 |
 | §3.9 / §4.10 | delivered：自动调度跨进程抢占与事件汇总恢复；Bash 工作区快照与人审恢复、跨进程目录切换修复；deferred：其余事件故障矩阵、生产恢复/容量与性能、CPU/内存/进程/输出限制 |
-| §3.9 数据主权 | delivered：操作者CLI完整数据目录冷备份与新目录恢复，覆盖项目账本/提案/Registry/工作区检查点一致性；项目工作文件恢复UI；项目owner/admin审核清单后导出文件、应用可见会话、来源与相关账本ZIP。本地交付：项目及独立会话删除审核/API/UI、跨域擦除与原操作恢复，见project-deletion-design.md与conversation-deletion.md；Provider 密钥可由租户管理员独立导出/撤销，见provider-credentials.md；连接器和项目 MCP 的本地密钥仓凭据可按权限独立导出、经现有撤销路径删除，见connector-mcp-credentials.md；deferred：浏览器登录资料、主机环境变量与外部服务凭据的统一导出/删除、全应用恢复UI、历史备份删除登记对账与生产灾备；项目ZIP不含运行时会话、凭据和浏览器登录资料 |
+| §3.9 数据主权 | delivered：操作者CLI完整数据目录冷备份与新目录恢复，覆盖项目账本/提案/Registry/工作区检查点一致性；项目工作文件恢复UI；项目owner/admin审核清单后导出文件、应用可见会话、来源与相关账本ZIP。本地交付：项目及独立会话删除审核/API/UI、跨域擦除与原操作恢复，见project-deletion-design.md与conversation-deletion.md；Provider 密钥可由租户管理员独立导出/撤销，见provider-credentials.md；连接器和项目 MCP 的本地密钥仓凭据可按权限独立导出、经现有撤销路径删除，见connector-mcp-credentials.md；关闭窗口后的店铺浏览器持久 profile 可独立导出/删除，见shop-browsers.md；deferred：主机环境变量与平台远端凭据的删除对账、全应用恢复UI、历史备份删除登记对账与生产灾备、真实卖家登录和生产隔离验收；项目ZIP不含运行时会话、凭据和浏览器登录资料 |
 | §3.9 性能 | delivered：本地ASGI单/4并发各100样本，创建/首事件持久化/离线task取消P95基线；deferred：真实SDK进程、网络/SSE运输、多worker与生产负载验收 |
 | §3.9 / §3.10 | delivered：项目范围按Provider/model/Skill/tool/错误的有界指标汇总；deferred：业务成功指标、区域与数据流披露 |
 | §3.11 / §6.6 | deferred：当前 L2 基线、人亲自标注的 gold、judge 校准与 TPR/TNR 门槛；不能由 AI 伪造标注 |
@@ -1257,3 +1257,17 @@ ESLint、TypeScript/Vite 构建与 `git diff --check` 通过。令牌交换、�
 重复回调、跨实例并发刷新、权限缩减和撤销均由离线夹具验证。当前没有已授权的
 TikTok Shop 开发者应用、测试卖家店铺或公网 HTTPS 回调，所以真实商家同意、令牌
 响应和 Agent 模型调用仍未验收；FR-21 与完整 PRD 保持部分完成。
+
+## 2026-09-25：§3.9 店铺浏览器登录数据独立导出与删除
+
+项目 owner/admin 关闭店铺窗口后，可经二次确认导出该店铺全部历史 Chromium
+profile 代次的未加密 ZIP，或独立删除全部代次和残留会话文件。导出逐文件拒绝链接、
+特殊文件及路径歧义，并限制深度、文件数量和总字节数；临时 RPC 密钥不入包。
+删除先撤销旧会话与推进配置代次，中断后可按新修订号继续清理。店铺身份和已采集项目
+证据保留。前端区分可导出的 profile 与仅余的失败会话文件。
+
+验证：后端全套 **2414 passed / 13 skipped**，登录数据与访问定向
+**23 passed**；可选真实 Chromium 套件 **7 passed**，其中新增用例覆盖关闭后导出、删除、
+重新打开。前端全套 **569 passed / 59 files**，Ruff、ESLint、TypeScript/Vite 构建及
+`git diff --check` 通过。真实卖家账号、跨机器 profile 恢复、历史备份与外部平台令牌
+删除对账仍未验收；完整 PRD 仍未完成。

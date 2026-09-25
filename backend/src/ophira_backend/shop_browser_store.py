@@ -121,6 +121,14 @@ class ShopRevisionInput(BaseModel):
     expected_revision: int = Field(ge=1)
 
 
+class ShopLoginDeleteInput(ShopRevisionInput):
+    confirmation: Literal["delete"]
+
+
+class ShopLoginExportInput(ShopRevisionInput):
+    confirmation: Literal["export"]
+
+
 class ShopGrantInput(ShopRevisionInput):
     session_id: str = Field(pattern=SESSION_ID)
     confirmed_identity: Literal[True]
@@ -198,6 +206,37 @@ class ShopBrowserStore:
             if path.is_symlink():
                 raise ValueError("Invalid shop directory")
             return path
+
+    def profile_paths(self, shop_id: str) -> list[Path]:
+        """List every saved Chromium generation without following profile links."""
+        directory = self.directory(shop_id)
+        profiles = []
+        with os.scandir(directory) as entries:
+            for entry in entries:
+                if not entry.name.startswith("profile-"):
+                    continue
+                if (
+                    not re.fullmatch(r"profile-[1-9][0-9]*", entry.name)
+                    or not entry.is_dir(follow_symlinks=False)
+                ):
+                    raise ShopBrowserError(
+                        "SHOP_PROFILE_INVALID", "Browser profile directory failed validation."
+                    )
+                profiles.append(directory / entry.name)
+        return sorted(profiles)
+
+    def has_login_files(self, shop_id: str) -> bool:
+        directory = self.directory(shop_id)
+        with os.scandir(directory) as entries:
+            return any(
+                entry.name == "session.json" or entry.name.startswith("profile-")
+                for entry in entries
+            )
+
+    def has_profile_files(self, shop_id: str) -> bool:
+        directory = self.directory(shop_id)
+        with os.scandir(directory) as entries:
+            return any(entry.name.startswith("profile-") for entry in entries)
 
     def get(self, shop_id: str) -> ShopIdentity:
         shop = self._read(shop_id)

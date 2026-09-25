@@ -59,6 +59,12 @@ flowchart LR
 前须关闭窗口；更换平台、外部店铺标识、Connector 或入口主机将启用新的浏览器配置目录。
 撤销阻止后续 Agent 使用，同时保留用户登录窗口和已采集项目数据。权限冲突后先刷新状态。
 
+### 独立导出与删除登录数据
+
+项目 owner/admin 在关闭店铺窗口后，可选择 **Export saved browser data… / 导出已保存的浏览器数据…**，再次确认后下载未加密 ZIP。文件含该店铺全部历史 `profile-*` 代次中的 Cookie、Local Storage 等 Chromium 文件；不含临时 `session.json` RPC 密钥和 Chromium `Singleton*` 锁。导出逐文件禁止跟随链接并校验读取前后状态，上限为 20,000 个文件、单文件 256 MiB、源文件合计 512 MiB；超限或结构异常会明确失败。浏览器下载副本由用户另行保管或删除。
+
+**Delete saved browser data… / 删除已保存的浏览器数据…** 也需要二次确认、当前店铺 revision 和已关闭的窗口。服务端先撤销会话授权、推进 profile 代次，再删除所有历史 profile 和 `session.json`；中途失败时旧代次不会重新用于新窗口，刷新后可继续清理。店铺身份、已登记的采集证据和项目产物保留；冷备份、浏览器下载及平台远端登录令牌须分别处理。两项操作都只对当前项目管理员开放，POST 响应禁止缓存。真实卖家登录后的跨机器恢复尚未认证。
+
 ### Shopify 店铺身份
 
 在 **Shop platform / 店铺平台** 选择 **Shopify**，填写店铺识别名称或 ID，以及该店铺的
@@ -119,6 +125,7 @@ Run/SDK session、店铺、URL、时间和文件 SHA-256；报表经过字节大
 | GET / POST 基础路径 | 列表 / 创建身份 |
 | PUT `/{shop_id}` | 编辑，携带 expected_revision |
 | POST `/{shop_id}/open`、`/close`、`/revoke` | 窗口控制或撤销，携带 expected_revision |
+| POST `/{shop_id}/login/export`、`/login/delete` | 管理员独立导出或删除本地浏览器登录数据，携带 expected_revision 与对应 confirmation |
 | POST `/{shop_id}/grant` | 当前 revision、session_id、confirmed_identity=true 和有效秒数 |
 | GET `/{shop_id}/data` | 最近 50 个采集记录及已登记 Artifact 下载链接 |
 
@@ -134,7 +141,10 @@ OPHIRA_SHOP_BROWSER_E2E=1 PYTHONPATH=backend/src .venv/bin/pytest backend/tests/
 覆盖会话隔离/重开、登录墙、报告字节与来源回放、项目隔离、真实元素失效、socket 密钥、
 原生 MCP 与 PostToolUse 内容一致性、主 Agent 限制及逐次动作审批。权限取消、成员撤销、
 配置 CAS 和生产 HTTP 路由由 `test_shop_browser_access.py` 覆盖；UI 行为由
-`ProjectShopsPanel.test.tsx` 覆盖。真实平台、真实模型和人机登录验收仍待完成。
+`ProjectShopsPanel.test.tsx` 覆盖。独立登录数据导出/删除由
+`test_shop_browser_login_data.py` 验证管理员权限、二次确认、跨代次清理、失败重试、
+残留会话及链接拒绝；可选真实 Chromium 测试验证 profile 导出、删除和重新打开。
+真实平台、真实模型和人机登录验收仍待完成。
 
 本轮 Shopify 身份配置验证：
 

@@ -5,6 +5,7 @@ import base64
 import hashlib
 import json
 import os
+import zipfile
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
 
@@ -140,6 +141,31 @@ async def allow(service, project, shop, session):
         ),
         None,
     )
+
+
+async def test_real_chromium_profile_can_be_exported_deleted_and_reopened(setup):
+    _app, service, project, _run = setup
+    shop = await create_shop(service, project)
+    directory = service.store.directory(shop["id"])
+    async with running(service, shop):
+        pass
+    profile = directory / "profile-1"
+    assert profile.is_dir()
+    archive = service.export_login(project.id, shop["id"], shop["revision"], None)
+    try:
+        with zipfile.ZipFile(archive) as saved:
+            assert any(
+                name.startswith("profile-1/") and not name.endswith("/")
+                for name in saved.namelist()
+            )
+            assert "session.json" not in saved.namelist()
+    finally:
+        archive.close()
+    deleted = service.delete_login(project.id, shop["id"], shop["revision"], None)
+    assert deleted["browser_login_data_present"] is False
+    assert not profile.exists()
+    async with running(service, deleted):
+        assert (directory / "profile-2").is_dir()
 
 
 async def test_real_browser_rpc_download_persists_exact_report_and_sources(setup, monkeypatch):

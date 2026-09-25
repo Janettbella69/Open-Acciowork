@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
-import { apiBaseUrl, controlProjectShop, errorMessage, getProjectShopData, grantProjectShop, listConnectors, listProjectShops, saveProjectShop } from '../api/client'
+import { apiBaseUrl, controlProjectShop, deleteProjectShopLogin, downloadProjectShopLogin, errorMessage, getProjectShopData, grantProjectShop, listConnectors, listProjectShops, saveProjectShop } from '../api/client'
 import type { ProjectShop, ShopData, ShopIdentityInput } from '../api/shops'
 import type { Connector } from '../api/types'
 import { useT } from '../i18n'
+import { saveCredentialDownload } from '../utils/credentialDownload'
 import './project-shops.css'
 
 const platforms = { shein: 'SHEIN', temu: 'Temu', tiktok_shop: 'TikTok Shop', aliexpress: 'AliExpress', shopee: 'Shopee', shopify: 'Shopify', other: 'Other platform' } as const satisfies Record<ShopIdentityInput['platform'], string>
@@ -19,6 +20,7 @@ export default function ProjectShopsPanel({ projectId, onTask }: { projectId: st
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
+  const [loginAction, setLoginAction] = useState<{ id: string; action: 'export' | 'delete' } | null>(null)
   const [confirmed, setConfirmed] = useState<Record<string, boolean>>({})
   const [days, setDays] = useState(7)
   const [data, setData] = useState<{ shopId: string; records: ShopData[] } | null>(null)
@@ -55,6 +57,21 @@ export default function ProjectShopsPanel({ projectId, onTask }: { projectId: st
   const control = (shop: ProjectShop, operation: 'open' | 'close' | 'revoke') => act(async () => {
     replace(await controlProjectShop(projectId, shop, operation))
     if (mounted.current && operation === 'open') setNotice(t('The shop window opened on the computer running TradeMind. Complete sign-in there, then confirm the shop identity here.'))
+  })
+  const deleteLogin = (shop: ProjectShop) => act(async () => {
+    replace(await deleteProjectShopLogin(projectId, shop))
+    if (mounted.current) {
+      setLoginAction(null)
+      setNotice(t('Saved browser data deleted. Sign in again to use this shop browser.'))
+    }
+  })
+  const exportLogin = (shop: ProjectShop) => act(async () => {
+    const archive = await downloadProjectShopLogin(projectId, shop)
+    saveCredentialDownload(archive, `ophira-shop-login-${shop.id}.zip`)
+    if (mounted.current) {
+      setLoginAction(null)
+      setNotice(t('Browser data file sent to your downloads. Keep it private.'))
+    }
   })
   const grant = (shop: ProjectShop) => act(async () => {
     if (!confirmed[shop.id]) return
@@ -102,7 +119,16 @@ export default function ProjectShopsPanel({ projectId, onTask }: { projectId: st
           <button type="button" disabled={busy || shop.browser_state === 'closed'} onClick={() => void control(shop, 'close')}>{t('Close shop browser')}</button>
           <button type="button" disabled={busy || shop.browser_state !== 'closed'} onClick={() => { setEditing(shop); setForm({ name: shop.name, platform: shop.platform, seller_shop_id: shop.seller_shop_id, connector_id: shop.connector_id, entry_url: shop.entry_url, additional_domains: shop.additional_domains }); setDomains(shop.additional_domains.join(' ')) }}>{t('Edit shop identity')}</button>
           <button type="button" disabled={busy} onClick={() => void control(shop, 'revoke')}>{t('Revoke browser access')}</button>
+          {shop.browser_profile_present && <button type="button" disabled={busy || shop.browser_state !== 'closed'} onClick={() => setLoginAction({ id: shop.id, action: 'export' })}>{t('Export saved browser data…')}</button>}
+          {shop.browser_login_data_present && <button type="button" disabled={busy || shop.browser_state !== 'closed'} onClick={() => setLoginAction({ id: shop.id, action: 'delete' })}>{t('Delete saved browser data…')}</button>}
         </div>
+        {loginAction?.id === shop.id && <div className="project-shops-confirm">
+          <p>{loginAction.action === 'export'
+            ? t('Download an unencrypted ZIP of every saved browser login profile for this shop. The browser must be closed. Delete the downloaded copy separately.')
+            : t('Delete every saved login profile and session for this shop. Close its browser first. Collected project evidence and any backups remain separate.')}</p>
+          <button type="button" disabled={busy || shop.browser_state !== 'closed'} onClick={() => void (loginAction.action === 'export' ? exportLogin(shop) : deleteLogin(shop))}>{t(loginAction.action === 'export' ? 'Download browser data file' : 'Confirm browser data deletion')}</button>{' '}
+          <button type="button" disabled={busy} onClick={() => setLoginAction(null)}>{t('Cancel')}</button>
+        </div>}
         {shop.browser_state === 'open' && <div className="project-shops-confirm">
           <label><input type="checkbox" disabled={busy} checked={!!confirmed[shop.id]} onChange={(event) => setConfirmed({ ...confirmed, [shop.id]: event.target.checked })} />{t('I checked that this browser is signed in to {shop}.', { shop: `${shop.name} (${shop.seller_shop_id})` })}</label>
           <button type="button" disabled={busy || !confirmed[shop.id]} onClick={() => void grant(shop)}>{t('Confirm identity and allow Agent reads')}</button>

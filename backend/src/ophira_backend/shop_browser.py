@@ -7,6 +7,7 @@ import hashlib
 import json
 import os
 import re
+import shutil
 import stat
 import subprocess
 import sys
@@ -20,6 +21,7 @@ from .marketplace_access import MarketplaceAccessService
 from .models import PrincipalContext, new_id, utc_now
 from .policy import OrgPolicyStore
 from .shop_browser_host import session_lease
+from .shop_browser_login_archive import build_login_archive
 from .shop_browser_store import (
     MAX_SHOP_FILE_BYTES,
     MAX_SHOP_RPC_BYTES,
@@ -96,6 +98,8 @@ class ShopBrowserService:
                     and self.policy.get().browser_enabled
                 ),
                 "capture_count": len(evidence),
+                "browser_profile_present": self.store.has_profile_files(shop_id),
+                "browser_login_data_present": self.store.has_login_files(shop_id),
             }
 
     def list(self, project_id: str) -> list[dict]:
@@ -420,6 +424,94 @@ class ShopBrowserService:
                     )
                 )
             return self.view(project_id, shop_id)
+
+    def delete_login(self, project_id: str, shop_id: str, revision: int, principal):
+        """Remove every saved browser profile while retaining the shop and evidence."""
+        from .shop_browser_host import launch_lease
+
+        with self.ledger.lifecycle.lease(project_id):
+            try:
+                with (
+                    self.authority._identity_transaction(project_id),
+                    self.ledger._lock_for(f"shop:{shop_id}"),
+                ):
+                    actor = self.authority.authorize_admin(project_id, principal)
+                    shop = self._revision(project_id, shop_id, revision)
+                    if not shutil.rmtree.avoids_symlink_attacks:
+                        raise ShopBrowserError(
+                            "SHOP_PROFILE_DELETE_UNSAFE",
+                            "This host cannot safely remove browser profiles.",
+                        )
+                    with launch_lease(self.store, shop_id), session_lease(self.store, shop_id):
+                        profiles = self.store.profile_paths(shop_id)
+                        directory = self.store.directory(shop_id)
+                        session = directory / "session.json"
+                        if session.exists() and session.is_dir():
+                            raise ShopBrowserError(
+                                "SHOP_SESSION_INVALID", "Browser session failed validation."
+                            )
+                        # Publish the revoked generation first. An interrupted
+                        # deletion cannot make old login files usable again.
+                        self.store.write(shop.model_copy(update={
+                            "revision": shop.revision + 1,
+                            "profile_generation": shop.profile_generation + 1,
+                            "authorized_session_id": None,
+                            "grant_expires_at": None,
+                            "revoked_at": utc_now(),
+                            "revoked_by": actor,
+                        }))
+                        for profile in profiles:
+                            shutil.rmtree(profile)
+                        session.unlink(missing_ok=True)
+                        descriptor = os.open(
+                            directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                        )
+                        try:
+                            os.fsync(descriptor)
+                        finally:
+                            os.close(descriptor)
+            except BlockingIOError:
+                raise ShopBrowserError(
+                    "SHOP_BROWSER_OPEN", "Close the shop browser before deleting its login."
+                ) from None
+            except OSError:
+                raise ShopBrowserError(
+                    "SHOP_LOGIN_DELETE_FAILED", "Browser login deletion did not finish. Retry."
+                ) from None
+            return self.view(project_id, shop_id)
+
+    def export_login(self, project_id: str, shop_id: str, revision: int, principal):
+        """Capture closed browser profiles without copying live or linked files."""
+        from .shop_browser_host import launch_lease
+
+        with self.ledger.lifecycle.lease(project_id):
+            try:
+                with (
+                    self.authority._identity_transaction(project_id),
+                    self.ledger._lock_for(f"shop:{shop_id}"),
+                ):
+                    self.authority.authorize_admin(project_id, principal)
+                    shop = self._revision(project_id, shop_id, revision)
+                    with launch_lease(self.store, shop_id), session_lease(self.store, shop_id):
+                        directory = self.store.directory(shop_id)
+                        archive = build_login_archive(
+                            directory, self.store.profile_paths(shop_id),
+                            project_id=project_id, shop_id=shop_id, revision=shop.revision,
+                        )
+                    try:
+                        self.authority.authorize_admin(project_id, principal)
+                    except BaseException:
+                        archive.close()
+                        raise
+                    return archive
+            except BlockingIOError:
+                raise ShopBrowserError(
+                    "SHOP_BROWSER_OPEN", "Close the shop browser before exporting its login."
+                ) from None
+            except (OSError, ValueError):
+                raise ShopBrowserError(
+                    "SHOP_PROFILE_EXPORT_FAILED", "Browser profile export could not be verified."
+                ) from None
 
     def _staged_path(self, shop_id: str, name: str) -> Path:
         if not re.fullmatch(r"(?:page|report)_[a-f0-9]{32}\.[a-z]{2,5}", name):

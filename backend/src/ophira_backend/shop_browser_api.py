@@ -3,7 +3,8 @@
 from typing import Literal
 
 from fastapi import FastAPI, HTTPException, Request, Response
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
+from starlette.concurrency import run_in_threadpool
 
 from .auth import AuthenticationError, AuthorizationError, ProjectPermission
 from .connectors import ConnectorNotFoundError
@@ -12,6 +13,8 @@ from .shop_browser_store import (
     ShopBrowserError,
     ShopGrantInput,
     ShopIdentityInput,
+    ShopLoginDeleteInput,
+    ShopLoginExportInput,
     ShopRevisionInput,
     ShopUpdateInput,
 )
@@ -45,7 +48,18 @@ def register_shop_browser_routes(app: FastAPI, service: ShopBrowserService, auth
             raise HTTPException(403, "Project shop access is unavailable") from None
         except ConnectorNotFoundError:
             raise HTTPException(400, "Platform connector not found") from None
-        check(request, project_id, admin=admin)
+        try:
+            check(request, project_id, admin=admin)
+        except (AuthenticationError, AuthorizationError):
+            close = getattr(value, "close", None)
+            if callable(close):
+                close()
+            raise HTTPException(403, "Project shop access is unavailable") from None
+        except BaseException:
+            close = getattr(value, "close", None)
+            if callable(close):
+                close()
+            raise
         response.headers["Cache-Control"] = "no-store"
         return value
 
@@ -94,6 +108,52 @@ def register_shop_browser_routes(app: FastAPI, service: ShopBrowserService, auth
             project_id,
             lambda principal: service.grant(project_id, shop_id, payload, principal),
             admin=True,
+        )
+
+    @app.post("/api/projects/{project_id}/shops/{shop_id}/login/delete")
+    async def delete_shop_login(
+        project_id: str, shop_id: str, payload: ShopLoginDeleteInput,
+        request: Request, response: Response,
+    ):
+        async def action(principal):
+            return await run_in_threadpool(
+                service.delete_login,
+                project_id, shop_id, payload.expected_revision, principal,
+            )
+
+        return await result(
+            request, response, project_id, action, admin=True,
+        )
+
+    @app.post("/api/projects/{project_id}/shops/{shop_id}/login/export")
+    async def export_shop_login(
+        project_id: str, shop_id: str, payload: ShopLoginExportInput,
+        request: Request, response: Response,
+    ):
+        async def action(principal):
+            return await run_in_threadpool(
+                service.export_login,
+                project_id, shop_id, payload.expected_revision, principal,
+            )
+
+        archive = await result(request, response, project_id, action, admin=True)
+
+        def chunks():
+            try:
+                while chunk := archive.read(64 * 1024):
+                    yield chunk
+            finally:
+                archive.close()
+
+        return StreamingResponse(
+            chunks(), media_type="application/zip",
+            headers={
+                "Cache-Control": "no-store",
+                "X-Content-Type-Options": "nosniff",
+                "Content-Disposition": (
+                    f'attachment; filename="ophira-shop-login-{shop_id}.zip"'
+                ),
+            },
         )
 
     @app.get("/api/projects/{project_id}/shops/{shop_id}/data")

@@ -455,6 +455,11 @@ async def serve(
         ledger.lifecycle.lease(shop.project_id),
         session_lease(store, shop_id),
     ):
+        # A queued process must not reopen after a login deletion or identity change.
+        current = store.get(shop_id)
+        if current.revision != shop.revision:
+            raise ShopBrowserError("SHOP_CONFLICT", "Shop access changed. Refresh and try again.")
+        shop = current
         path = store.directory(shop_id) / "session.json"
         socket = store.socket_path(shop_id)
         ledger._atomic_write(path, session)

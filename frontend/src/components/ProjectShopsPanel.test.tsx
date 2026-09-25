@@ -5,15 +5,18 @@ import type { Connector } from '../api/types'
 import { I18nContext } from '../i18n'
 import ProjectShopsPanel from './ProjectShopsPanel'
 
+vi.mock('../utils/credentialDownload', () => ({ saveCredentialDownload: vi.fn() }))
+
 vi.mock('../api/client', () => ({
-  apiBaseUrl: '', controlProjectShop: vi.fn(), getProjectShopData: vi.fn(), grantProjectShop: vi.fn(),
+  apiBaseUrl: '', controlProjectShop: vi.fn(), deleteProjectShopLogin: vi.fn(), downloadProjectShopLogin: vi.fn(), getProjectShopData: vi.fn(), grantProjectShop: vi.fn(),
   listConnectors: vi.fn(), listProjectShops: vi.fn(), saveProjectShop: vi.fn(),
   errorMessage: (reason: unknown) => reason instanceof Error ? reason.message : 'Unknown error',
 }))
-import { controlProjectShop, getProjectShopData, grantProjectShop, listConnectors, listProjectShops, saveProjectShop } from '../api/client'
+import { controlProjectShop, deleteProjectShopLogin, downloadProjectShopLogin, getProjectShopData, grantProjectShop, listConnectors, listProjectShops, saveProjectShop } from '../api/client'
+import { saveCredentialDownload } from '../utils/credentialDownload'
 
 const identity = { name: 'US shop', platform: 'tiktok_shop' as const, seller_shop_id: 'seller-1', connector_id: null, entry_url: 'https://seller.example.com/', additional_domains: ['assets.example.com'] }
-const shop: ProjectShop = { ...identity, id: 'shop-1', project_id: 'project-1', revision: 2, browser_state: 'open', session_id: 'session-1', agent_access: false, grant_expires_at: null, capture_count: 1 }
+const shop: ProjectShop = { ...identity, id: 'shop-1', project_id: 'project-1', revision: 2, browser_state: 'open', session_id: 'session-1', agent_access: false, browser_profile_present: true, browser_login_data_present: true, grant_expires_at: null, capture_count: 1 }
 const shopifyIdentity = { ...identity, name: 'Shopify store', platform: 'shopify' as const, seller_shop_id: 'my-store', entry_url: 'https://admin.shopify.com/store/my-store', additional_domains: ['accounts.shopify.com'] }
 const shopify: Connector = { id: 'shopify-store', type: 'shopify', display_name: 'Shopify store connector', scope: 'read_products', secret_env: null, endpoint: 'https://my-store.myshopify.com', enabled: true, health: 'unknown', last_checked_at: null, created_at: '2026-09-19T00:00:00Z' }
 const tiktok: Connector = { ...shopify, id: 'tiktok-shop', type: 'tiktok_shop', display_name: 'TikTok seller connector' }
@@ -33,6 +36,54 @@ async function open() {
 }
 
 describe('ProjectShopsPanel', () => {
+  it('confirms and downloads an unencrypted browser profile file', async () => {
+    const closed = { ...shop, browser_state: 'closed' as const }
+    vi.mocked(listProjectShops).mockResolvedValue([closed])
+    vi.mocked(downloadProjectShopLogin).mockResolvedValue(new Blob(['archive']))
+    render(<ProjectShopsPanel projectId="project-1" />)
+    await open()
+    fireEvent.click(screen.getByRole('button', { name: 'Export saved browser data…' }))
+    expect(downloadProjectShopLogin).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: 'Download browser data file' }))
+    await waitFor(() => expect(downloadProjectShopLogin).toHaveBeenCalledWith('project-1', closed))
+    expect(saveCredentialDownload).toHaveBeenCalledWith(
+      expect.any(Blob), `ophira-shop-login-${closed.id}.zip`,
+    )
+  })
+
+  it('requires a second click and closed window to delete saved browser data', async () => {
+    const closed = { ...shop, browser_state: 'closed' as const }
+    vi.mocked(listProjectShops).mockResolvedValue([closed])
+    vi.mocked(deleteProjectShopLogin).mockResolvedValue({
+      ...closed, revision: closed.revision + 1, browser_profile_present: false, browser_login_data_present: false,
+    })
+    render(<ProjectShopsPanel projectId="project-1" />)
+    await open()
+    fireEvent.click(screen.getByRole('button', { name: 'Delete saved browser data…' }))
+    expect(deleteProjectShopLogin).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm browser data deletion' }))
+    await waitFor(() => expect(deleteProjectShopLogin).toHaveBeenCalledWith('project-1', closed))
+    expect(await screen.findByText('Saved browser data deleted. Sign in again to use this shop browser.')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Delete saved browser data…' })).not.toBeInTheDocument()
+  })
+
+  it('keeps browser data deletion disabled while the shop window is open', async () => {
+    render(<ProjectShopsPanel projectId="project-1" />)
+    await open()
+    expect(screen.getByRole('button', { name: 'Delete saved browser data…' })).toBeDisabled()
+    expect(deleteProjectShopLogin).not.toHaveBeenCalled()
+  })
+
+  it('offers deletion but not export for a leftover session without a profile', async () => {
+    vi.mocked(listProjectShops).mockResolvedValue([{
+      ...shop, browser_state: 'closed', session_id: null, browser_profile_present: false,
+    }])
+    render(<ProjectShopsPanel projectId="project-1" />)
+    await open()
+    expect(screen.queryByRole('button', { name: 'Export saved browser data…' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Delete saved browser data…' })).toBeEnabled()
+  })
+
   it.each([null, 'shopify-store'])('creates a Shopify identity with optional matching connector %s', async (connectorId) => {
     vi.mocked(listConnectors).mockResolvedValue([shopify, tiktok])
     vi.mocked(saveProjectShop).mockResolvedValue({ ...shop, ...shopifyIdentity, id: 'shopify-1', connector_id: connectorId, browser_state: 'closed', session_id: null })
