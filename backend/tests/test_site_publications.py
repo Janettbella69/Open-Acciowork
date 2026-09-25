@@ -29,6 +29,7 @@ SITE_HTML = (
     b'<!doctype html><html><head><link rel="stylesheet" href="assets/site.css"></head>'
     b'<body><img src="assets/logo.png" alt="Logo"><h1>Bundle</h1>'
     b'<video src="assets/clip.mp4" controls></video>'
+    b'<audio src="assets/tone.mp3" controls></audio>'
     b'<script src="assets/site.js"></script></body></html>'
 )
 SITE_CSS = (
@@ -38,6 +39,8 @@ SITE_CSS = (
 SITE_JS = b'document.body.dataset.script="ran";'
 SITE_WOFF2 = b"wOF2" + b"test-font"
 SITE_MP4 = b"\x00\x00\x00\x18ftypisom" + b"test-video"
+SITE_MP3 = (Path(__file__).parent / "fixtures" / "site-tone.mp3").read_bytes()
+SITE_WAV = (Path(__file__).parent / "fixtures" / "site-tone.wav").read_bytes()
 SITE_PNG = (
     b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
     b"\x08\x04\x00\x00\x00\xb5\x1c\x0c\x02\x00\x00\x00\x0bIDATx\xdac\xfc\xff\x1f"
@@ -55,6 +58,8 @@ def site_zip(entries: dict[str, bytes] | None = None) -> bytes:
             "assets/logo.png": SITE_PNG,
             "assets/site.woff2": SITE_WOFF2,
             "assets/clip.mp4": SITE_MP4,
+            "assets/tone.mp3": SITE_MP3,
+            "assets/tone.wav": SITE_WAV,
         }).items():
             archive.writestr(name, raw)
     return output.getvalue()
@@ -387,6 +392,12 @@ async def test_site_zip_assets_are_pinned_previewed_published_and_revoked(tmp_pa
         assert token_font.headers["content-type"].startswith("font/woff2")
         assert token_font.headers["access-control-allow-origin"] == "null"
         assert (await client.get(token_path + "assets/clip.mp4")).content == SITE_MP4
+        draft_audio = await client.get(
+            token_path + "assets/tone.mp3", headers={"Origin": "null"},
+        )
+        assert draft_audio.content == SITE_MP3
+        assert draft_audio.headers["content-type"].startswith("audio/mpeg")
+        assert draft_audio.headers.get("access-control-allow-origin") is None
         assert (await client.get(
             token_path + "assets/site.js", headers={"Origin": "https://evil.example"},
         )).headers.get("access-control-allow-origin") is None
@@ -425,6 +436,13 @@ async def test_site_zip_assets_are_pinned_previewed_published_and_revoked(tmp_pa
             public_url + "assets/site.woff2", headers={"Origin": "null"},
         )).headers["access-control-allow-origin"] == "null"
         assert (await client.get(public_url + "assets/clip.mp4")).content == SITE_MP4
+        public_audio = await client.get(
+            public_url + "assets/tone.mp3", headers={"Origin": "null"},
+        )
+        assert public_audio.content == SITE_MP3
+        assert public_audio.headers["content-type"].startswith("audio/mpeg")
+        assert public_audio.headers.get("access-control-allow-origin") is None
+        assert (await client.get(public_url + "assets/tone.wav")).content == SITE_WAV
         assert (await client.get(public_url + "assets/missing.css")).status_code == 404
         assert (await client.get(
             f"https://gateway.example.com/published/{project_id}/{site_id}/assets/site.css",
@@ -443,6 +461,8 @@ async def test_site_zip_assets_are_pinned_previewed_published_and_revoked(tmp_pa
         assert (await client.get(public_url + "assets/site.css")).status_code == 404
         assert (await client.get(public_url + "assets/site.woff2")).status_code == 404
         assert (await client.get(public_url + "assets/clip.mp4")).status_code == 404
+        assert (await client.get(public_url + "assets/tone.mp3")).status_code == 404
+        assert (await client.get(public_url + "assets/tone.wav")).status_code == 404
 
 
 @pytest.mark.asyncio
@@ -514,6 +534,8 @@ async def test_local_only_mode_does_not_expose_preview_capability_path(tmp_path:
     {"index.html": SITE_HTML, "assets/clip.mp4": b"not a video"},
     {"index.html": SITE_HTML, "assets/clip.webm": b"not a video"},
     {"index.html": SITE_HTML, "assets/site.woff": b"not a font"},
+    {"index.html": SITE_HTML, "assets/tone.mp3": b"ID3\x04\x00\x00\x00\x00\x00\x00"},
+    {"index.html": SITE_HTML, "assets/tone.wav": b"RIFFnot-wave"},
     {"other.html": SITE_HTML},
 ])
 def test_site_zip_rejects_unsafe_entries(entries: dict[str, bytes]):
@@ -531,3 +553,13 @@ def test_site_zip_accepts_bounded_woff_and_webm_assets():
     }))
     assert files["assets/site.woff"] == font
     assert files["assets/clip.webm"] == video
+
+
+def test_site_zip_accepts_real_mp3_and_wav_assets():
+    files = read_site_bundle(site_zip({
+        "index.html": SITE_HTML,
+        "assets/tone.mp3": SITE_MP3,
+        "assets/tone.wav": SITE_WAV,
+    }))
+    assert files["assets/tone.mp3"] == SITE_MP3
+    assert files["assets/tone.wav"] == SITE_WAV

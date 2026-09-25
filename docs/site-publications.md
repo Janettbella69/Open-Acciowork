@@ -15,11 +15,11 @@ directly from **Project files → Published pages** in the workspace.
 Select an immutable saved `.html` or `.htm` artifact version of at most 512 KiB,
 or a site `.zip` of at most 12 MiB. A ZIP contains `index.html` at the root and
 up to 32 files in `assets/` with flat names. CSS, classic or module JavaScript
-(`.js`), PNG, JPEG, WebP, GIF, ICO, WOFF/WOFF2 fonts, and MP4/WebM video are
-supported. Modules may import other relative `.js` files in `assets/`. The
-expanded archive is capped at 20 MiB and each asset at 4 MiB. The HTML must
-use relative paths such as
-`assets/site.css`; the ZIP page URL ends with `/` so these paths resolve inside
+(`.js`), PNG, JPEG, WebP, GIF, ICO, WOFF/WOFF2 fonts, MP4/WebM video, and
+MP3/WAV audio are supported. Modules may import other relative `.js` files in
+`assets/`. The expanded archive is capped at 20 MiB and each asset at 4 MiB.
+The HTML must use relative paths such as `assets/site.css`; the ZIP page URL
+ends with `/` so these paths resolve inside
 that one publication. Other files, traversal, symlinks, ambiguous duplicates,
 encrypted entries and unsupported compression are rejected. A site ZIP can be
 prepared in the project workspace or uploaded as a project file, then saved as
@@ -41,7 +41,7 @@ no-store`. Static pages keep the no-script [CSP sandbox](https://developer.mozil
 Explicitly reviewed interactive pages use `sandbox allow-scripts` with an opaque
 origin, allowing inline JavaScript and only the ZIP's local JS files while
 denying origin storage, forms, framing, third-party scripts and resources, and
-background requests. CSS, image, font and video assets are allowed only under
+background requests. CSS, image, font, video and audio assets are allowed only under
 that site's fixed asset path. ZIP assets are read from the same checksum-pinned
 artifact;
 they become unavailable with the page on withdrawal or project deletion.
@@ -50,8 +50,9 @@ Neither mode allows `allow-same-origin` or access to control-plane APIs. A
 public top-level page can still link or navigate visitors to another site, so
 the administrator must review the HTML and its scripts before approval.
 Self-contained HTML can include inline CSS and data images. WOFF/WOFF2 fonts and
-MP4/WebM video must be bundled, have matching file signatures, and fit the
-4 MiB per-asset limit. Remote CDNs, remote fonts/media, standalone audio files,
+MP4/WebM video and MP3/WAV audio must be bundled, have matching file signatures,
+and fit the 4 MiB per-asset limit. Audio uses the existing `media-src` sandbox
+policy and does not receive cross-origin access. Remote CDNs, remote media,
 and third-party network APIs remain outside this publication format. A direct
 page visit can still follow normal links.
 
@@ -81,5 +82,8 @@ approval. Real Chromium with actual ASGI responses verifies that old static
 pages keep scripts inert; an opted-in page and its review iframe run scripts,
 and ZIP page and preview load fixed CSS, image, bundled WOFF2/WebM, classic JS
 and module imports while storage and background network attempts are blocked.
+Local HTTP tests also verify MP3/WAV preview and published bytes, content types,
+and withdrawal. The audio fixtures are decodable with FFprobe; actual browser
+audio playback and public HTTPS delivery still need acceptance.
 Real public HTTPS routing, CDN behavior, wider browser compatibility, and a live generated
 page remain deployment acceptance work.

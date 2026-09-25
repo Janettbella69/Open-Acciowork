@@ -27,6 +27,8 @@ ASSET_MEDIA_TYPES = {
     ".woff2": "font/woff2",
     ".mp4": "video/mp4",
     ".webm": "video/webm",
+    ".mp3": "audio/mpeg",
+    ".wav": "audio/wav",
 }
 
 
@@ -39,6 +41,28 @@ def asset_media_type(name: str) -> str | None:
         return None
     extension = "." + name.rsplit(".", 1)[-1].lower()
     return ASSET_MEDIA_TYPES.get(extension)
+
+
+def _looks_like_mp3(raw: bytes) -> bool:
+    offset = 0
+    if raw.startswith(b"ID3"):
+        if len(raw) < 10 or raw[3] == 0xff or raw[4] == 0xff:
+            return False
+        size_bytes = raw[6:10]
+        if any(value & 0x80 for value in size_bytes):
+            return False
+        tag_size = sum(value << (21 - 7 * index) for index, value in enumerate(size_bytes))
+        offset = 10 + tag_size + (10 if raw[5] & 0x10 else 0)
+    if len(raw) < offset + 4:
+        return False
+    header = int.from_bytes(raw[offset:offset + 4], "big")
+    return (
+        header >> 21 == 0x7ff
+        and ((header >> 19) & 0b11) != 0b01  # Reserved MPEG version.
+        and ((header >> 17) & 0b11) == 0b01  # Layer III.
+        and ((header >> 12) & 0b1111) not in {0, 15}  # Valid bitrate.
+        and ((header >> 10) & 0b11) != 0b11  # Valid sample rate.
+    )
 
 
 def _validate_asset(name: str, raw: bytes) -> None:
@@ -63,6 +87,8 @@ def _validate_asset(name: str, raw: bytes) -> None:
         "font/woff2": raw.startswith(b"wOF2"),
         "video/mp4": len(raw) >= 12 and raw[4:8] == b"ftyp",
         "video/webm": raw.startswith(b"\x1aE\xdf\xa3"),
+        "audio/mpeg": _looks_like_mp3(raw),
+        "audio/wav": len(raw) >= 12 and raw.startswith(b"RIFF") and raw[8:12] == b"WAVE",
     }
     if not signatures[media_type]:
         raise InvalidSiteBundle("Site asset does not match its file type")
