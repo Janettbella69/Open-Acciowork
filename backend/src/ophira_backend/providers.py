@@ -129,7 +129,28 @@ class ProviderRegistry:
         self.root.mkdir(parents=True, exist_ok=True)
         self.vault = FileSecretVault(settings.data_dir / "secrets")
         self._lock = threading.RLock()
-        self._bootstrap_environment_profile()
+        self._held_transaction = threading.local()
+        with self._transaction():
+            self._bootstrap_environment_profile()
+
+    @contextmanager
+    def _transaction(self) -> Iterator[None]:
+        with self._lock:
+            if getattr(self._held_transaction, "active", False):
+                yield
+                return
+            descriptor = os.open(
+                self.root / ".registry.lock",
+                os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW | os.O_CLOEXEC,
+                0o600,
+            )
+            try:
+                fcntl.flock(descriptor, fcntl.LOCK_EX)
+                self._held_transaction.active = True
+                yield
+            finally:
+                self._held_transaction.active = False
+                os.close(descriptor)
 
     @staticmethod
     def _safe_id(value: str) -> str:
@@ -197,37 +218,91 @@ class ProviderRegistry:
 
     def upsert(self, profile_id: str, payload: ProviderProfileUpsert) -> ProviderProfile:
         self._safe_id(profile_id)
-        previous: ProviderProfile | None = None
-        try:
-            previous = self.get(profile_id)
-        except ProviderNotFoundError:
-            pass
-        profile = ProviderProfile(
-            id=profile_id,
-            **payload.model_dump(exclude={"secret"}),
-            last_verified_at=previous.last_verified_at if previous else None,
-            last_error_code=previous.last_error_code if previous else None,
-            last_error_message=previous.last_error_message if previous else None,
-        )
-        with self._lock:
-            self._write(profile)
+        with self._transaction():
+            try:
+                previous = self.get(profile_id)
+            except ProviderNotFoundError:
+                previous = None
+            if previous is not None and payload.secret is None and (
+                previous.base_url != payload.base_url
+                or previous.auth_env_name != payload.auth_env_name
+            ):
+                raise ValueError("A new Provider key is required when its endpoint changes")
+            profile = ProviderProfile(
+                id=profile_id,
+                **payload.model_dump(exclude={"secret"}),
+                last_verified_at=(
+                    previous.last_verified_at if previous and payload.secret is None else None
+                ),
+                last_error_code=(
+                    previous.last_error_code if previous and payload.secret is None else None
+                ),
+                last_error_message=(
+                    previous.last_error_message if previous and payload.secret is None else None
+                ),
+            )
             if payload.secret is not None:
+                if previous is not None:
+                    # A crash after changing the key must leave the old profile
+                    # unrunnable, never pair the new key with its old endpoint.
+                    self._write(previous.model_copy(update={"enabled": False}))
                 self.vault.set(profile_id, payload.secret)
-        return self.get(profile_id)
+            elif previous is None:
+                # A failed earlier create may have left a key with no profile.
+                self.vault.delete(profile_id)
+            self._write(profile)
+            return self.get(profile_id)
 
     def record_preflight(self, result: ProviderPreflightResult) -> ProviderProfile:
-        profile = self.get(result.provider_profile_id)
-        updated = profile.model_copy(
-            update={
-                "last_verified_at": result.checked_at if result.ok else profile.last_verified_at,
-                "last_error_code": result.error_code,
-                "last_error_message": None if result.ok else result.message,
-                "secret_configured": False,
-            }
-        )
-        with self._lock:
+        with self._transaction():
+            profile = self.get(result.provider_profile_id)
+            updated = profile.model_copy(
+                update={
+                    "last_verified_at": (
+                        result.checked_at if result.ok else profile.last_verified_at
+                    ),
+                    "last_error_code": result.error_code,
+                    "last_error_message": None if result.ok else result.message,
+                    "secret_configured": False,
+                }
+            )
             self._write(updated)
-        return self.get(profile.id)
+            return self.get(profile.id)
+
+    def export_credential(self, profile_id: str) -> dict[str, object]:
+        with self._transaction():
+            profile = self.get(profile_id)
+            secret = self.vault.get(profile_id)
+            if secret is None:
+                raise ProviderConfigurationError(
+                    "Provider credential is unavailable",
+                    ProviderErrorCode.AUTH_REVOKED_OR_INVALID,
+                )
+            return {
+                "schema_version": 1,
+                "provider": profile.model_dump(mode="json", exclude={
+                    "secret_configured", "last_error_message",
+                }),
+                "secret": secret,
+            }
+
+    def revoke_credential(self, profile_id: str) -> ProviderProfile:
+        with self._transaction():
+            profile = self.get(profile_id)
+            if profile_id == "environment" and (
+                self.settings.anthropic_auth_token or self.settings.anthropic_api_key
+            ):
+                raise ProviderConfigurationError(
+                    "Remove the host environment key before revoking this credential",
+                    ProviderErrorCode.AUTH_REVOKED_OR_INVALID,
+                )
+            self.vault.delete(profile_id)
+            self._write(profile.model_copy(update={
+                "last_verified_at": None,
+                "last_error_code": ProviderErrorCode.AUTH_REVOKED_OR_INVALID,
+                "last_error_message": "Provider credential was revoked",
+            }))
+            return self.get(profile_id)
 
     def default_profile_id(self) -> str | None:
         profiles = [item for item in self.list() if item.enabled and item.secret_configured]
@@ -245,6 +320,11 @@ class ProviderRegistry:
 
     def build_worker_env(self, profile_id: str) -> dict[str, str]:
         profile = self.get(profile_id)
+        if not profile.enabled:
+            raise ProviderConfigurationError(
+                f"Provider {profile.display_name} is disabled.",
+                ProviderErrorCode.AUTH_REVOKED_OR_INVALID,
+            )
         secret = self.vault.get(profile_id)
         if not secret:
             raise ProviderConfigurationError(

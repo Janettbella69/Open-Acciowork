@@ -15,7 +15,7 @@
 | FR-02 唯一 SDK runtime | delivered：架构静态门禁、DeepSeek 三轮真端点链路 | 每次 SDK 升级重新认证 |
 | FR-03 原生工具 | delivered：Read/Web/Skill/MCP/Bash/Write/Edit 实测 | 跨 Provider 能力归 FR-05/06 |
 | FR-04 自由规划 | delivered：无固定业务工作流 | 开放任务质量继续由 L2/L3 验收 |
-| FR-05 Provider | delivered：Registry/Vault/快照/UI | deferred：其他上架组合的真实合约、条款与区域复核；需要合法账号 |
+| FR-05 Provider | delivered：Registry/Vault/快照/UI；管理员独立导出和撤销 Provider 密钥、跨 worker 注册表事务、设置页配置区域与数据传输提示，见 `docs/provider-credentials.md` | deferred：其他上架组合的真实合约、条款与区域复核；需要合法账号 |
 | FR-06 预检 | delivered：SDK 预检、模型身份与错误分类 | deferred：其他 Provider 合约；DeepSeek vision/无效凭据快速失败仍明确降级 |
 | FR-07 Run/会话 | delivered：SSE、取消、恢复、重试、重启孤儿修复、并发事件序号与汇总恢复 | deferred：其余恢复故障矩阵、性能基线 |
 | FR-08 隔离 | delivered：项目路径、符号链接、独立 worker 配置 | deferred：生产 worker 资源包络与租户物理隔离演练 |
@@ -55,6 +55,8 @@
 2026-09-25 FR-37 Outlook 缺口补偿增量：注册时保存接收时间边界，后台约每分钟检查同步资格，正常情况至多每五分钟对 Graph Inbox 做一次 `created` delta，缺口在下一轮立即检查；私有游标仅在完整一轮后推进，新增邮件 ID 回灌同一持久去重队列；按项目触发器登记时间过滤，生命周期缺口在完整核对后才可清除。管理员可手动同步并查看基线与上次完成时间；Graph 续页 URL 限定固定域名及 Inbox delta 路径，重配连接器清除私有游标。旧登记无边界、初始边界超过七天、达到 5,000 条或 100 页、失败续页等情况保留显式缺口与人工核查要求；历史邮件后移入 Inbox 不在接收时间补偿范围。模拟 Graph 的基线/漏投/重复/失败续页/不安全续页/旧登记/过期绑定/自动同步测试覆盖，合同见 [事件触发](event-triggers.md#direct-outlook-inbox-trigger)。后端全量在最后缺口状态小修正前 `2397 passed / 13 skipped`，之后 Outlook 专项 `16 passed`、Ruff 通过；前端全量 `562 passed / 59 files`、ESLint 与构建通过。真实 Microsoft 帐号、公开 HTTPS 生命周期通知、Provider Run 与浏览器目视验收仍待完成。
 
 2026-09-25 FR-05/21 私有凭据持久化补强：凭据文件的读后写更新现在使用独立跨进程文件锁，避免 Outlook 令牌刷新、Graph delta 游标和其他连接器凭据在不同 worker 同时写入时互相覆盖；读取仍通过原子替换获得完整快照。独立进程交错写入测试确认两个私有键同时保留且锁文件权限为 `0600`；后端全量 `2398 passed / 13 skipped`，Ruff 通过。
+
+2026-09-25 FR-05/§3.9 Provider 凭据数据主权增量：租户 owner/admin 可二次确认后以 `no-store` 附件独立导出一个 Provider 的配置与明文密钥，或撤销密钥使新 Run 无法使用；已有 worker 到结束前仍可能持有密钥，环境变量托管密钥须先由宿主移除。Profile、密钥导出和撤销使用跨 worker 事务；端点变更要求新密钥，换钥失败保持旧档案禁用，孤儿密钥不绑定新档案。配置区域仅作为自填信息展示，同时提示用户核对真实数据存储及跨境传输条款。合同见 [Provider 凭据](provider-credentials.md)。后端全量 `2403 passed / 13 skipped`，Ruff 通过；前端全量 `563 passed / 59 files`、ESLint 与构建通过。Browser 连接列表为空，本批未做页面目视。连接器、MCP、浏览器登录等凭据的统一独立导出/删除仍未完成。
 
 | 要求 | 本轮状态与证据 | 尚需交付 / deferred 原因 |
 |---|---|---|
@@ -139,7 +141,7 @@ Google Chrome；用户已登录浏览器、真实卖家后台和 Provider 端到
 | §4.16 任务经验 | delivered：专属工具与版本/来源账本、创建时配置指纹、低信任检索注入、容量/事务恢复与人工停用UI；deferred：真实Provider自主调用及长期判断质量 |
 | §4.12 事件 | delivered：有真实Run归属的evidence.added/decision.recorded、artifact.registered/updated、memory.proposed；实时产物刷新、固定版本下载、记忆审核入口、持久幂等补发与完整SSE尾部消费；deferred：无Run项目变更和 schedule/preflight 细分事件 |
 | §3.9 / §4.10 | delivered：自动调度跨进程抢占与事件汇总恢复；Bash 工作区快照与人审恢复、跨进程目录切换修复；deferred：其余事件故障矩阵、生产恢复/容量与性能、CPU/内存/进程/输出限制 |
-| §3.9 数据主权 | delivered：操作者CLI完整数据目录冷备份与新目录恢复，覆盖项目账本/提案/Registry/工作区检查点一致性；项目工作文件恢复UI；项目owner/admin审核清单后导出文件、应用可见会话、来源与相关账本ZIP。本地交付：项目及独立会话删除审核/API/UI、跨域擦除与原操作恢复，见project-deletion-design.md与conversation-deletion.md；deferred：凭据独立授权导出与删除（记忆已交付）、全应用恢复UI、历史备份删除登记对账与生产灾备；项目ZIP不含运行时会话、凭据和浏览器登录资料 |
+| §3.9 数据主权 | delivered：操作者CLI完整数据目录冷备份与新目录恢复，覆盖项目账本/提案/Registry/工作区检查点一致性；项目工作文件恢复UI；项目owner/admin审核清单后导出文件、应用可见会话、来源与相关账本ZIP。本地交付：项目及独立会话删除审核/API/UI、跨域擦除与原操作恢复，见project-deletion-design.md与conversation-deletion.md；Provider 密钥可由租户管理员独立导出/撤销，见provider-credentials.md；deferred：连接器/MCP/浏览器登录等凭据的统一独立授权导出与删除（记忆已交付）、全应用恢复UI、历史备份删除登记对账与生产灾备；项目ZIP不含运行时会话、凭据和浏览器登录资料 |
 | §3.9 性能 | delivered：本地ASGI单/4并发各100样本，创建/首事件持久化/离线task取消P95基线；deferred：真实SDK进程、网络/SSE运输、多worker与生产负载验收 |
 | §3.9 / §3.10 | delivered：项目范围按Provider/model/Skill/tool/错误的有界指标汇总；deferred：业务成功指标、区域与数据流披露 |
 | §3.11 / §6.6 | deferred：当前 L2 基线、人亲自标注的 gold、judge 校准与 TPR/TNR 门槛；不能由 AI 伪造标注 |

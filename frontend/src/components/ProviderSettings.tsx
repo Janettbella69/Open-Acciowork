@@ -1,8 +1,10 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import {
+  downloadProviderCredential,
   errorMessage,
   listProviders,
   preflightProvider,
+  revokeProviderCredential,
   saveProvider,
   type ProviderInput,
 } from '../api/client'
@@ -92,6 +94,8 @@ export default function ProviderSettings() {
   const [preflights, setPreflights] = useState<Record<string, ProviderPreflightResult>>({})
   const [busy, setBusy] = useState('')
   const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
+  const [confirming, setConfirming] = useState<{ id: string; action: 'export' | 'revoke' } | null>(null)
 
   useEffect(() => {
     let active = true
@@ -143,9 +147,47 @@ export default function ProviderSettings() {
     }
   }
 
+  const manageCredential = async (providerId: string, action: 'export' | 'revoke') => {
+    if (busy) return
+    setBusy(`${action}:${providerId}`)
+    setError('')
+    setNotice('')
+    try {
+      if (action === 'export') {
+        const credential = await downloadProviderCredential(providerId)
+        const url = URL.createObjectURL(credential)
+        const link = document.createElement('a')
+        link.href = url
+        link.download = `ophira-provider-${providerId}.json`
+        link.hidden = true
+        document.body.appendChild(link)
+        try { link.click() } finally { link.remove() }
+        const revokeObjectUrl = URL.revokeObjectURL.bind(URL)
+        window.setTimeout(() => revokeObjectUrl(url), 1000)
+        setNotice(t('Credential file sent to your browser. Check downloads and store it securely.'))
+      } else {
+        const updated = await revokeProviderCredential(providerId)
+        setProviders((current) => current.map((item) => item.id === providerId ? updated : item))
+        setPreflights((current) => {
+          const next = { ...current }
+          delete next[providerId]
+          return next
+        })
+        setEditor((current) => current?.id === providerId ? null : current)
+        setNotice(t('Provider key revoked. New Runs cannot use it until a new key is saved.'))
+      }
+      setConfirming(null)
+    } catch (cause) {
+      setError(errorMessage(cause))
+    } finally {
+      setBusy('')
+    }
+  }
+
   return (
     <div className="settings-card provider-settings">
       {error && <p className="conversation-error" role="alert">{t(error)}</p>}
+      {notice && <p role="status">{notice}</p>}
 
       {providers.map((provider) => {
         const preflight = preflights[provider.id]
@@ -162,12 +204,14 @@ export default function ProviderSettings() {
               <div className="provider-row-actions">
                 <button
                   type="button"
-                  disabled={busy === `preflight:${provider.id}`}
+                  disabled={Boolean(busy) || !provider.secret_configured}
                   onClick={() => void runPreflight(provider.id)}
                 >
                   {busy === `preflight:${provider.id}` ? t('Preflighting…') : t('Run preflight')}
                 </button>
-                <button type="button" onClick={() => setEditor(editorFor(provider))}>{t('Edit')}</button>
+                <button type="button" disabled={Boolean(busy)} onClick={() => setEditor(editorFor(provider))}>{t('Edit')}</button>
+                {provider.secret_configured && <button type="button" disabled={Boolean(busy)} onClick={() => setConfirming({ id: provider.id, action: 'export' })}>{t('Export key…')}</button>}
+                {provider.secret_configured && <button type="button" disabled={Boolean(busy)} onClick={() => setConfirming({ id: provider.id, action: 'revoke' })}>{t('Revoke key…')}</button>}
               </div>
             </header>
             <div className="provider-row-badges">
@@ -189,6 +233,14 @@ export default function ProviderSettings() {
                 </span>
               ))}
             </div>
+            <p>{t('Choosing this Provider sends task content to its configured endpoint. Configured region: {region}. Check the Provider’s actual storage and cross-border transfer terms.', { region: provider.region })}</p>
+            {confirming?.id === provider.id && <div className="settings-integration-note">
+              <p>{confirming.action === 'export'
+                ? t('Download an unencrypted copy of this Provider key. Keep the file private; deleting OPHIRA data will not erase browser downloads.')
+                : t('Revoke this key for new Runs. A Run that already started may still hold its credential until it ends.')}</p>
+              <button type="button" disabled={Boolean(busy)} onClick={() => void manageCredential(provider.id, confirming.action)}>{t(confirming.action === 'export' ? 'Download key file' : 'Confirm key revocation')}</button>
+              <button type="button" disabled={Boolean(busy)} onClick={() => setConfirming(null)}>{t('Cancel')}</button>
+            </div>}
             <p className="provider-row-status">
               {provider.last_error_code ? (
                 <span data-tone="error">

@@ -496,6 +496,26 @@ export function saveProvider(providerId: string, input: ProviderInput): Promise<
   })
 }
 
+export async function downloadProviderCredential(providerId: string): Promise<Blob> {
+  const response = await fetch(apiUrl(`/api/providers/${encodeURIComponent(providerId)}/credential/export`), {
+    method: 'POST', body: JSON.stringify({ confirmation: 'export' }), cache: 'no-store',
+    headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+  })
+  if (!response.ok) throw await responseError(response)
+  if (response.headers.get('Content-Type')?.split(';')[0].trim().toLowerCase() !== 'application/json') {
+    throw new Error('The Provider credential export response was not JSON.')
+  }
+  const credential = await response.blob()
+  if (!credential.size) throw new Error('The Provider credential export was empty.')
+  return credential
+}
+
+export function revokeProviderCredential(providerId: string): Promise<ProviderProfile> {
+  return request<ProviderProfile>(`/api/providers/${encodeURIComponent(providerId)}/credential/revoke`, {
+    method: 'POST', body: JSON.stringify({ confirmation: 'revoke' }), cache: 'no-store',
+  })
+}
+
 export function preflightProvider(providerId: string): Promise<ProviderPreflightResult> {
   return request<ProviderPreflightResult>(
     `/api/providers/${encodeURIComponent(providerId)}/preflight`,

@@ -207,6 +207,7 @@ from .models import (
     PrincipalBinding,
     PrincipalContext,
     ProjectCreate,
+    ProviderCredentialActionRequest,
     ProviderPreflightResult,
     ProviderProfile,
     ProviderProfileUpsert,
@@ -253,6 +254,7 @@ from .project_scope import LOCAL_OPERATOR_ID
 from .project_template_api import register_project_template_routes
 from .providers import (
     FileSecretVault,
+    ProviderConfigurationError,
     ProviderNotFoundError,
     ProviderRegistry,
     provider_readiness_failures,
@@ -1878,6 +1880,59 @@ def _create_app(
             return providers.upsert(provider_id, payload)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @application.post("/api/providers/{provider_id}/credential/export")
+    async def export_provider_credential(
+        provider_id: str, payload: ProviderCredentialActionRequest, request: Request,
+    ) -> Response:
+        principal = _request_principal(request)
+        if principal is not None and principal.role not in {
+            PrincipalRole.OWNER, PrincipalRole.ADMIN,
+        }:
+            raise HTTPException(403, "Tenant administrator required for credentials")
+        if payload.confirmation != "export":
+            raise HTTPException(400, "Confirm provider credential export")
+        try:
+            exported = providers.export_credential(provider_id)
+        except ProviderNotFoundError as exc:
+            raise HTTPException(404, "Provider not found") from exc
+        except ProviderConfigurationError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(400, "Invalid Provider ID") from exc
+        return Response(
+            json.dumps(exported, ensure_ascii=False), media_type="application/json",
+            headers={
+                "Cache-Control": "no-store",
+                "Content-Disposition": (
+                    f'attachment; filename="ophira-provider-{provider_id}.json"'
+                ),
+                "X-Content-Type-Options": "nosniff",
+            },
+        )
+
+    @application.post(
+        "/api/providers/{provider_id}/credential/revoke",
+        response_model=ProviderProfile,
+    )
+    async def revoke_provider_credential(
+        provider_id: str, payload: ProviderCredentialActionRequest, request: Request,
+    ) -> ProviderProfile:
+        principal = _request_principal(request)
+        if principal is not None and principal.role not in {
+            PrincipalRole.OWNER, PrincipalRole.ADMIN,
+        }:
+            raise HTTPException(403, "Tenant administrator required for credentials")
+        if payload.confirmation != "revoke":
+            raise HTTPException(400, "Confirm provider credential revocation")
+        try:
+            return providers.revoke_credential(provider_id)
+        except ProviderNotFoundError as exc:
+            raise HTTPException(404, "Provider not found") from exc
+        except ProviderConfigurationError as exc:
+            raise HTTPException(409, str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(400, "Invalid Provider ID") from exc
 
     @application.post(
         "/api/providers/{provider_id}/preflight",

@@ -1,8 +1,10 @@
 from pathlib import Path
 
+import pytest
+
 from ophira_backend.config import Settings
 from ophira_backend.models import ProviderCapabilities, ProviderProfileUpsert
-from ophira_backend.providers import ProviderRegistry
+from ophira_backend.providers import ProviderConfigurationError, ProviderRegistry
 
 
 def build_registry(tmp_path: Path) -> ProviderRegistry:
@@ -115,6 +117,51 @@ def test_upsert_without_secret_keeps_existing_credential_and_preflight_history(
     assert profile.display_name == "DeepSeek renamed"
     assert profile.secret_configured is True
     assert profile.last_verified_at == verified_at
+
+
+def test_endpoint_change_requires_new_key_and_failed_replace_disables_profile(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    registry = build_registry(tmp_path)
+    upsert_profile(registry, "deepseek")
+    with pytest.raises(ValueError, match="new Provider key"):
+        upsert_profile(
+            registry, "deepseek", secret=None,
+            base_url="https://new.example.com/anthropic",
+        )
+    assert registry.get("deepseek").base_url == "https://api.deepseek.com/anthropic"
+    original_set = registry.vault.set
+
+    def unavailable(_key: str, _value: str) -> None:
+        raise OSError("simulated vault failure")
+
+    monkeypatch.setattr(registry.vault, "set", unavailable)
+    with pytest.raises(OSError, match="simulated vault failure"):
+        upsert_profile(
+            registry, "deepseek", secret="replacement-key",
+            base_url="https://new.example.com/anthropic",
+        )
+    profile = registry.get("deepseek")
+    assert profile.enabled is False
+    assert profile.base_url == "https://api.deepseek.com/anthropic"
+    assert registry.vault.get("deepseek") == "test-credential"
+    with pytest.raises(ProviderConfigurationError, match="disabled"):
+        registry.build_worker_env("deepseek")
+    monkeypatch.setattr(registry.vault, "set", original_set)
+    upsert_profile(
+        registry, "deepseek", secret="replacement-key",
+        base_url="https://new.example.com/anthropic",
+    )
+    assert registry.get("deepseek").enabled is True
+    assert registry.build_worker_env("deepseek")["ANTHROPIC_AUTH_TOKEN"] == "replacement-key"
+
+
+def test_new_profile_without_key_discards_orphaned_vault_entry(tmp_path: Path) -> None:
+    registry = build_registry(tmp_path)
+    registry.vault.set("orphan", "stale-private-key")
+    upsert_profile(registry, "orphan", secret=None)
+    assert registry.get("orphan").secret_configured is False
+    assert registry.vault.get("orphan") is None
 
 
 def test_default_profile_requires_an_enabled_profile_with_a_credential(tmp_path: Path) -> None:

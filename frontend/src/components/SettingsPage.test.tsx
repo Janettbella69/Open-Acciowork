@@ -8,6 +8,8 @@ vi.mock('../api/client', () => ({
   listProviders: vi.fn(),
   saveProvider: vi.fn(),
   preflightProvider: vi.fn(),
+  downloadProviderCredential: vi.fn(),
+  revokeProviderCredential: vi.fn(),
   listMemory: vi.fn(),
   decideMemory: vi.fn(),
   correctMemory: vi.fn(),
@@ -22,12 +24,14 @@ vi.mock('../api/client', () => ({
 import {
   correctMemory,
   decideMemory,
+  downloadProviderCredential,
   getDesktopStatus,
   getOrgPolicy,
   listMemory,
   listPermissionGrants,
   listProviders,
   preflightProvider,
+  revokeProviderCredential,
   revokePermissionGrant,
   saveOrgPolicy,
   saveProvider,
@@ -132,6 +136,10 @@ beforeEach(() => {
     discovered_skills: ['ophira-core:global-opportunity-execution'],
     checked_at: '2026-08-20T12:00:00Z',
   })
+  vi.mocked(downloadProviderCredential).mockResolvedValue(new Blob(['private-provider-key']))
+  vi.mocked(revokeProviderCredential).mockResolvedValue({
+    ...deepseekProfile, secret_configured: false, last_verified_at: null,
+  })
   vi.mocked(getOrgPolicy).mockResolvedValue(orgPolicy)
   vi.mocked(getDesktopStatus).mockRejectedValue(new Error('Desktop host unavailable'))
   vi.mocked(saveOrgPolicy).mockImplementation(async (policy) => policy)
@@ -171,6 +179,39 @@ describe('SettingsPage · provider management', () => {
     expect(within(row).getByText(/key configured/i)).toBeInTheDocument()
     expect(within(row).getByText(/verified/i)).toBeInTheDocument()
     expect(within(row).queryByDisplayValue(/sk-/)).not.toBeInTheDocument()
+    expect(within(row).getByText(/Configured region: cn/)).toBeInTheDocument()
+  })
+
+  it('requires a second action to export or revoke the Provider key', async () => {
+    stubLocalStorage()
+    Object.defineProperty(URL, 'createObjectURL', {
+      configurable: true, value: vi.fn(() => 'blob:provider-key'),
+    })
+    Object.defineProperty(URL, 'revokeObjectURL', {
+      configurable: true, value: vi.fn(),
+    })
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+    try {
+      render(<SettingsPage />)
+      const row = (await screen.findByText('DeepSeek (api.deepseek.com)')).closest('article')!
+      fireEvent.click(within(row).getByRole('button', { name: 'Export key…' }))
+      expect(within(row).getByText(/unencrypted copy/)).toBeInTheDocument()
+      expect(downloadProviderCredential).not.toHaveBeenCalled()
+      fireEvent.click(within(row).getByRole('button', { name: 'Download key file' }))
+      await waitFor(() => expect(downloadProviderCredential).toHaveBeenCalledWith('deepseek'))
+      expect(click).toHaveBeenCalledOnce()
+      expect(screen.queryByText('private-provider-key')).not.toBeInTheDocument()
+      fireEvent.click(within(row).getByRole('button', { name: 'Revoke key…' }))
+      expect(revokeProviderCredential).not.toHaveBeenCalled()
+      fireEvent.click(within(row).getByRole('button', { name: 'Confirm key revocation' }))
+      await waitFor(() => expect(revokeProviderCredential).toHaveBeenCalledWith('deepseek'))
+      await waitFor(() => expect(within(row).getByText('No key stored')).toBeInTheDocument())
+      expect(within(row).queryByRole('button', { name: 'Export key…' })).not.toBeInTheDocument()
+    } finally {
+      click.mockRestore()
+      Reflect.deleteProperty(URL, 'createObjectURL')
+      Reflect.deleteProperty(URL, 'revokeObjectURL')
+    }
   })
 
   it('saves edits without echoing or resending a blank secret', async () => {
