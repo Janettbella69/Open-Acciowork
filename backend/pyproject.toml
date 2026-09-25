@@ -36,6 +36,9 @@ ocr = [
 browser = [
   "playwright>=1.49,<2",
 ]
+desktop-build = [
+  "pyinstaller==6.22.3",
+]
 dingtalk = [
   "dingtalk-stream==0.24.4b1",
 ]

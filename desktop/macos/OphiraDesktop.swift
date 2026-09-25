@@ -171,17 +171,26 @@ private final class DesktopApplication: NSObject, NSApplicationDelegate,
         let ui = resources.appendingPathComponent("ui")
         let backend = resources.appendingPathComponent("backend/src")
         let plugin = resources.appendingPathComponent("backend/ophira-capabilities")
+        let bundledSidecar = resources.appendingPathComponent("sidecar/OPHIRA-sidecar")
+        let hasBundledSidecar = FileManager.default.fileExists(atPath: bundledSidecar.path)
         let defaultPython = Bundle.main.object(forInfoDictionaryKey: "OphiraPythonExecutable") as? String
-        guard let pythonPath = ProcessInfo.processInfo.environment["OPHIRA_DESKTOP_PYTHON"]
-            ?? defaultPython else {
-            throw DesktopError.missingResource("Python runtime")
-        }
-        guard FileManager.default.isExecutableFile(atPath: pythonPath) else {
-            throw DesktopError.missingResource("Python runtime")
+        let pythonPath = ProcessInfo.processInfo.environment["OPHIRA_DESKTOP_PYTHON"]
+            ?? defaultPython
+        let executablePath: String
+        if hasBundledSidecar {
+            guard FileManager.default.isExecutableFile(atPath: bundledSidecar.path) else {
+                throw DesktopError.missingResource("bundled sidecar")
+            }
+            executablePath = bundledSidecar.path
+        } else {
+            guard let pythonPath, FileManager.default.isExecutableFile(atPath: pythonPath) else {
+                throw DesktopError.missingResource("Python runtime")
+            }
+            executablePath = pythonPath
         }
         guard FileManager.default.fileExists(atPath: ui.appendingPathComponent("index.html").path),
-              FileManager.default.fileExists(atPath: backend.path),
-              FileManager.default.fileExists(atPath: plugin.path) else {
+              FileManager.default.fileExists(atPath: plugin.path),
+              (hasBundledSidecar || FileManager.default.fileExists(atPath: backend.path)) else {
             throw DesktopError.missingResource("UI or backend")
         }
 
@@ -201,15 +210,21 @@ private final class DesktopApplication: NSObject, NSApplicationDelegate,
 
         let token = randomToken()
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: pythonPath)
-        process.arguments = [
+        process.executableURL = URL(fileURLWithPath: executablePath)
+        process.arguments = (hasBundledSidecar ? [] : [
             "-m", "ophira_backend.desktop_server",
+        ]) + [
             "--ui-dir", ui.path,
             "--data-dir", support.path,
             "--plugin-dir", plugin.path,
         ]
         var environment = ProcessInfo.processInfo.environment
-        environment["PYTHONPATH"] = backend.path
+        if hasBundledSidecar {
+            environment.removeValue(forKey: "PYTHONPATH")
+            environment.removeValue(forKey: "PYTHONHOME")
+        } else {
+            environment["PYTHONPATH"] = backend.path
+        }
         process.environment = environment
         let input = Pipe()
         let output = Pipe()

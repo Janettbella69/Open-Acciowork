@@ -59,7 +59,7 @@
 | FR-39 插件导入 | partial（本地）：官方插件 ZIP 多 Skill 拆分后复用私有仓库安全扫描和逐件人审；远程 MCP 地址引导至 FR-33 项目审批/逐工具策略，插件子 Agent 与其它可执行组件明确忽略；Anthropic marketing 真包的 8 个 Skill 扫描通过、11 个远程 MCP 地址列出；冷备报告/子 Skill 绑定校验；见 `docs/plugin-imports.md` | deferred：远程 MCP/Provider E2E、认证部署验收和更多真实包兼容性；OAuth、stdio MCP 和 Claude marketplace 安装机制不在当前 FR-33 远程 HTTPS 边界内 |
 | FR-40 语音输入 | partial（本地）：支持浏览器 SpeechRecognition 的手机任务/插话与工作台听写；语言选择、可编辑转写草稿、明确填入确认和原有提交路径；取消、页面隐藏及卸载中止录音，未提供音频上传端点；见 `docs/voice-input.md` | deferred：真实手机麦克风授权/转写质量、Safari/Android 与受限浏览器兼容、HTTPS 部署验收；不支持 Web Speech API 的浏览器目前仍需键盘听写或文字输入 |
 | FR-41 发布网页 | partial（本地）：不可变 HTML 产物版本按校验和暂存，沙箱预览后由项目管理员明确批准；独立 HTTPS 域名公开、无缓存与脚本/表单隔离，持久撤回及项目删除清理；见 `docs/site-publications.md` | deferred：真实公网部署、浏览器/缓存验收；动态脚本和远程资源需要隔离的发布运行时，现仅支持自包含静态页面 |
-| FR-42 L3 桌面 GUI | partial：macOS 开发版 WebKit 宿主、私有 sidecar、ScreenCaptureKit 系统窗口选择/截图桥；Agent 主线仅在组织策略/精确 App 白名单和 attended Run 下调用，选择、截图和各输入动作逐次人审；截图进 Run receipt/Evidence/Artifact，AXPress、完整值校验的文本替换及有限无修饰按键均绑定最近截图、生成独立 Run receipt；已知浏览器 Bundle 禁止进入 L3；WebView 精确 sidecar 源规则、CSP 和逐帧导航限制已有本机烟测 | deferred：真实系统输入与窗口/隐私权限验收、广泛 App 输入兼容、WebView 更完整的攻击/恢复矩阵、独立 Python 打包签名与恢复矩阵 |
+| FR-42 L3 桌面 GUI | partial：macOS 开发版 WebKit 宿主、私有 sidecar、ScreenCaptureKit 系统窗口选择/截图桥；Agent 主线仅在组织策略/精确 App 白名单和 attended Run 下调用，选择、截图和各输入动作逐次人审；截图进 Run receipt/Evidence/Artifact，AXPress、完整值校验的文本替换及有限无修饰按键均绑定最近截图、生成独立 Run receipt；已知浏览器 Bundle 禁止进入 L3；WebView 精确 sidecar 源规则、CSP 和逐帧导航限制已有本机烟测；冻结 Python/SDK CLI 的便携 App 本机复制启动与 ad hoc 签名验收通过 | deferred：真实系统输入与窗口/隐私权限验收、广泛 App 输入兼容、WebView 更完整的攻击/恢复矩阵、Developer ID 签名/公证及干净 Mac 恢复矩阵 |
 
 2026-09-24 FR-20 浏览器复验：真实 Chromium L1 经生产浏览器工具访问无跳转的
 公网 IP 目标，截图、Artifact、Evidence、来源凭证和 Run 关联等 **9 项检查全过**，
@@ -1165,3 +1165,22 @@ L1 验证 Service Worker 注册未产生 worker 脚本请求；L2 验证原有�
 Ruff 通过。公网 DNS 固定/私网拒绝仍由单元合约覆盖，本轮真实浏览器测试的运输层为
 夹具，不能据此声称真实公网重定向、恶意 Service Worker 全矩阵或商家后台兼容验收。
 FR-20 与完整 PRD 仍未全部完成。
+
+## 2026-09-24：FR-42 本机便携 sidecar 增量
+
+新增独立的 `build-portable-app.sh`：以 PyInstaller 6.22.3 冻结现有 Python
+sidecar、后端模块和 SDK 自带的 Claude CLI，连同工作台 UI 与 Plugin 放入
+`OPHIRA-portable.app`。原生宿主优先使用包内 sidecar；便携包不写仓库 `.venv`
+绝对路径，也不需要后端源码目录。令牌仍仅走父子进程管道，数据仍写用户的
+Application Support。构建末尾 ad hoc 签名并执行 `codesign --verify --deep --strict`。
+
+验证：冻结 sidecar 的私有令牌握手、健康接口、同源 CSP 页面和父管道 EOF 退出均通过；
+`portable_smoke.py` 复制约 509 MB 的 App 到临时目录，复核签名、资源及包内
+Claude CLI `--version`，并在故意把
+`OPHIRA_DESKTOP_PYTHON`、`PYTHONPATH`、`PYTHONHOME` 指向无效位置后，真实
+AppKit/WebKit 页面加载与 `/api/desktop/status` 原生桥往返通过。Swift 类型检查、
+Zsh 语法及新增 Python 文件 Ruff 通过。未调用模型，也未读取真实项目或凭据。
+
+这只证明当前机器上的可移植性；当前无 Developer ID 签名证书。正式签名、公证、
+干净 Mac 上的 SDK CLI/沙箱与隐私权限、系统窗口输入及恢复矩阵仍 deferred。
+FR-42 和完整 PRD 未完成。

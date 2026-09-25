@@ -4,7 +4,7 @@ set -euo pipefail
 script_dir=${0:A:h}
 repo_dir=${script_dir:h:h}
 python_executable=${OPHIRA_DESKTOP_PYTHON:-${repo_dir}/.venv/bin/python}
-app_dir=${script_dir}/build/OPHIRA.app
+app_dir=${OPHIRA_DESKTOP_APP_DIR:-${script_dir}/build/OPHIRA.app}
 contents=${app_dir}/Contents
 
 if [[ ! -x ${python_executable} ]]; then
