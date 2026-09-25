@@ -395,6 +395,7 @@ export type SkillTestResult = {
 
 export type Connector = {
   id: string
+  revision?: number
   type: string
   display_name: string
   scope: string

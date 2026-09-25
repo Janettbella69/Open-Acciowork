@@ -164,6 +164,19 @@ class Settings(BaseSettings):
     companion_public_origin: str | None = Field(default=None, max_length=500)
     # Operator-owned public HTTPS origin for external event deliveries.
     event_public_origin: str | None = Field(default=None, max_length=500)
+    # Gmail publishes mailbox changes to this operator-owned Pub/Sub topic.
+    gmail_pubsub_topic: str | None = Field(
+        default=None,
+        pattern=(
+            r"^projects/[A-Za-z0-9][A-Za-z0-9._~+%-]{0,127}"
+            r"/topics/[A-Za-z0-9][A-Za-z0-9._~+%-]{0,254}$"
+        ),
+    )
+    gmail_push_service_account: str | None = Field(
+        default=None,
+        pattern=r"^[a-zA-Z0-9._-]+@[a-zA-Z0-9.-]+\.iam\.gserviceaccount\.com$",
+        max_length=254,
+    )
     mcp_oauth_public_origin: str | None = Field(default=None, max_length=500)
     shopify_oauth_public_origin: str | None = Field(default=None, max_length=500)
     site_public_origin: str | None = Field(default=None, max_length=500)
@@ -308,6 +321,14 @@ class Settings(BaseSettings):
             self.event_public_origin = public_https_origin(
                 self.event_public_origin, "event_public_origin",
             )
+        if (self.gmail_pubsub_topic is None) != (self.gmail_push_service_account is None):
+            raise ValueError(
+                "Gmail Pub/Sub topic and push service account must be configured together"
+            )
+        if self.gmail_pubsub_topic is not None and (
+            self.auth_mode != "trusted_gateway" or self.event_public_origin is None
+        ):
+            raise ValueError("Gmail push requires trusted_gateway and event_public_origin")
         if self.mcp_oauth_public_origin is not None:
             self.mcp_oauth_public_origin = public_https_origin(
                 self.mcp_oauth_public_origin, "mcp_oauth_public_origin",

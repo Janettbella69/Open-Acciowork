@@ -18,6 +18,7 @@ from urllib.parse import urlsplit
 from pydantic import SecretStr
 
 from .constants import COMMERCIAL_HTTPS_JSON_CONNECTOR_TYPE
+from .gmail import gmail_oauth_vault_keys, parse_gmail_credentials
 from .marketplaces import (
     SHOPIFY_TYPE,
     TIKTOK_AUTH_SCOPE,
@@ -39,7 +40,7 @@ CONNECTOR_CATALOG: list[dict[str, str | None]] = [
         "id": "gmail",
         "type": "gmail",
         "display_name": "Gmail",
-        "scope": "mail:read mail:send",
+        "scope": "https://www.googleapis.com/auth/gmail.readonly",
         "secret_env": "OPHIRA_CONNECTOR_GMAIL_KEY",
     },
     {
@@ -394,6 +395,10 @@ class ConnectorRegistry:
                 parse_tiktok_shop_credentials(secret)
                 if self.vault is None:
                     raise ValueError("connector vault is not configured")
+        if type == "gmail" and secret is not None:
+            parse_gmail_credentials(secret)
+            if self.vault is None:
+                raise ValueError("connector vault is not configured")
         if type == SHOPIFY_TYPE:
             # The catalog record starts without a store; credentials always need one.
             if endpoint is not None or secret is not None:
@@ -431,6 +436,11 @@ class ConnectorRegistry:
             ):
                 for key in shopify_oauth_vault_keys(connector_id):
                     self.vault.delete(key)
+            if self.vault is not None and (existing is not None or secret is not None) and (
+                type == "gmail" or (existing is not None and existing.type == "gmail")
+            ):
+                for key in gmail_oauth_vault_keys(connector_id):
+                    self.vault.delete(key)
             if secret and self.vault is not None:
                 self.vault.set(connector.id, secret)
         return connector
@@ -442,6 +452,8 @@ class ConnectorRegistry:
                 parse_tiktok_shop_credentials(secret)
             elif connector.type == SHOPIFY_TYPE:
                 parse_shopify_credentials(secret)
+            elif connector.type == "gmail":
+                parse_gmail_credentials(secret)
             if self.vault is None:
                 raise ValueError("connector vault is not configured")
             updated = connector.model_copy(update={
@@ -451,6 +463,9 @@ class ConnectorRegistry:
             self._write(updated)
             if connector.type == SHOPIFY_TYPE:
                 for key in shopify_oauth_vault_keys(connector_id):
+                    self.vault.delete(key)
+            if connector.type == "gmail":
+                for key in gmail_oauth_vault_keys(connector_id):
                     self.vault.delete(key)
             self.vault.set(connector.id, secret)
             return updated
@@ -468,6 +483,9 @@ class ConnectorRegistry:
                 self.vault.delete(connector.id)
                 if connector.type == SHOPIFY_TYPE:
                     for key in shopify_oauth_vault_keys(connector_id):
+                        self.vault.delete(key)
+                if connector.type == "gmail":
+                    for key in gmail_oauth_vault_keys(connector_id):
                         self.vault.delete(key)
         return updated
 

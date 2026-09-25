@@ -3,16 +3,19 @@ import {
   apiBaseUrl,
   createEventTrigger,
   errorMessage,
+  getGmailWatch,
   getMailgunDelivery,
   getMarketplaceAccess,
   getShopifySubscription,
   listEventTriggers,
   registerShopifySubscription,
+  registerGmailWatch,
   removeShopifySubscription,
   rotateEventTriggerSecret,
+  stopGmailWatch,
   updateEventTrigger,
 } from '../api/client'
-import type { EventTrigger, EventTriggerKind, ShopifySubscriptionView } from '../api/eventTriggers'
+import type { EventTrigger, EventTriggerKind, GmailWatchView, ShopifySubscriptionView } from '../api/eventTriggers'
 import type { MarketplaceBinding } from '../api/marketplaces'
 import type { OpportunityProject, SchedulePermissionRule } from '../api/types'
 import { useT } from '../i18n'
@@ -46,11 +49,12 @@ export default function EventTriggersPanel({ projects }: { projects: Opportunity
   const projectId = selectedProjectId || projects[0]?.id || ''
   const [triggers, setTriggers] = useState<EventTrigger[]>([])
   const [shopifySubscriptions, setShopifySubscriptions] = useState<Record<string, ShopifySubscriptionView>>({})
+  const [gmailWatches, setGmailWatches] = useState<Record<string, GmailWatchView>>({})
   const [subscriptionErrors, setSubscriptionErrors] = useState<Record<string, string>>({})
   const [name, setName] = useState('')
   const [kind, setKind] = useState<EventTriggerKind>('webhook')
   const [orderSource, setOrderSource] = useState<'signed' | 'shopify'>('signed')
-  const [emailSource, setEmailSource] = useState<'signed' | 'mailgun'>('signed')
+  const [emailSource, setEmailSource] = useState<'signed' | 'mailgun' | 'gmail'>('signed')
   const [mailgunRecipient, setMailgunRecipient] = useState('')
   const [mailgunSigningKey, setMailgunSigningKey] = useState('')
   const [replacementKeys, setReplacementKeys] = useState<Record<string, string>>({})
@@ -87,6 +91,15 @@ export default function EventTriggersPanel({ projects }: { projects: Opportunity
             if (active) setMailgunDeliveryUrls((current) => ({
               ...current, [trigger.id]: view.delivery_url,
             }))
+          }).catch((cause: unknown) => {
+            if (active) setSubscriptionErrors((current) => ({
+              ...current, [trigger.id]: errorMessage(cause),
+            }))
+          })
+        }
+        for (const trigger of items.filter((item) => item.gmail_connector_id)) {
+          void getGmailWatch(projectId, trigger.id).then((view) => {
+            if (active) setGmailWatches((current) => ({ ...current, [trigger.id]: view }))
           }).catch((cause: unknown) => {
             if (active) setSubscriptionErrors((current) => ({
               ...current, [trigger.id]: errorMessage(cause),
@@ -131,6 +144,8 @@ export default function EventTriggersPanel({ projects }: { projects: Opportunity
             mailgun_recipient: mailgunRecipient.trim(),
             mailgun_signing_key: mailgunSigningKey.trim(),
           } : {}),
+        ...(kind === 'inquiry_email' && emailSource === 'gmail'
+          ? { gmail_connector_id: 'gmail' } : {}),
         permission_ceiling: [
           ...(fileAccess ? workspaceFileRules : []),
           ...(commercialProposals ? [commercialProposalRule] : []),
@@ -157,13 +172,24 @@ export default function EventTriggersPanel({ projects }: { projects: Opportunity
           }))
         })
       }
+      if (created.trigger.gmail_connector_id) {
+        void getGmailWatch(projectId, created.trigger.id).then((view) => {
+          setGmailWatches((current) => ({ ...current, [created.trigger.id]: view }))
+        }).catch((cause: unknown) => {
+          setSubscriptionErrors((current) => ({
+            ...current, [created.trigger.id]: errorMessage(cause),
+          }))
+        })
+      }
       if (created.signing_secret) {
         setSecret({ triggerId: created.trigger.id, value: created.signing_secret })
       }
       setName('')
       setPrompt('')
       setMailgunSigningKey('')
-      setNotice(t(created.trigger.mailgun_recipient
+      setNotice(t(created.trigger.gmail_connector_id
+        ? 'Gmail trigger created. Register the mailbox watch to receive new messages.'
+        : created.trigger.mailgun_recipient
         ? 'Mailgun trigger created. Add its HTTPS Delivery URL to an inbound Mailgun route.'
         : created.signing_secret
           ? 'Event trigger created. Save the signing key now.'
@@ -273,9 +299,32 @@ export default function EventTriggersPanel({ projects }: { projects: Opportunity
     }
   }
 
+  async function manageGmail(trigger: EventTrigger, action: 'register' | 'reset' | 'stop') {
+    if (busy) return
+    setBusy(true)
+    setError('')
+    setNotice('')
+    try {
+      const view = action === 'stop'
+        ? await stopGmailWatch(projectId, trigger.id)
+        : await registerGmailWatch(projectId, trigger.id, action === 'reset')
+      setGmailWatches((current) => ({ ...current, [trigger.id]: view }))
+      setSubscriptionErrors((current) => ({ ...current, [trigger.id]: '' }))
+      setNotice(t(action === 'stop' ? 'Gmail watch stopped.' : 'Gmail watch registered.'))
+    } catch (cause) {
+      setError(errorMessage(cause))
+      void getGmailWatch(projectId, trigger.id).then((view) => {
+        setGmailWatches((current) => ({ ...current, [trigger.id]: view }))
+      }).catch(() => undefined)
+    } finally {
+      setBusy(false)
+    }
+  }
+
   function endpoint(trigger: EventTrigger): string {
     const publicUrl = shopifySubscriptions[trigger.id]?.delivery_url
     if (trigger.shopify_binding_id && publicUrl) return publicUrl
+    if (trigger.gmail_connector_id) return gmailWatches[trigger.id]?.push_url || ''
     const mailgunUrl = mailgunDeliveryUrls[trigger.id]
     if (trigger.mailgun_recipient && mailgunUrl) return mailgunUrl
     const suffix = trigger.shopify_binding_id
@@ -301,6 +350,7 @@ export default function EventTriggersPanel({ projects }: { projects: Opportunity
             setShopifyBindings([])
             setShopifyAccessError('')
             setShopifySubscriptions({})
+            setGmailWatches({})
             setSubscriptionErrors({})
             setMailgunDeliveryUrls({})
             setMailgunSigningKey('')
@@ -345,11 +395,13 @@ export default function EventTriggersPanel({ projects }: { projects: Opportunity
             {!shopifyAccessError && !shopifyBindings.length && <p>{t('Configure Shopify and grant this project access to the shop before creating a trigger.')}</p>}
           </>}
           {kind === 'inquiry_email' && <label>{t('Email delivery method')}
-            <select value={emailSource} onChange={(event) => setEmailSource(event.target.value as 'signed' | 'mailgun')}>
+            <select value={emailSource} onChange={(event) => setEmailSource(event.target.value as 'signed' | 'mailgun' | 'gmail')}>
               <option value="signed">{t('Signed JSON from an integration')}</option>
               <option value="mailgun">{t('Mailgun inbound route')}</option>
+              <option value="gmail">{t('Gmail Inbox via Pub/Sub')}</option>
             </select>
           </label>}
+          {kind === 'inquiry_email' && emailSource === 'gmail' && <p>{t('Authorize the Gmail connector first. New Inbox messages will start Runs after the mailbox watch is registered.')}</p>}
           {kind === 'inquiry_email' && emailSource === 'mailgun' && <>
             <label>{t('Exact Mailgun recipient')}
               <input type="email" value={mailgunRecipient} onChange={(event) => setMailgunRecipient(event.target.value)} maxLength={255} required placeholder="quotes@example.com" />
@@ -386,15 +438,18 @@ export default function EventTriggersPanel({ projects }: { projects: Opportunity
             <article key={trigger.id}>
               <div className="event-triggers-title">
                 <strong>{trigger.name}</strong>
-                <span>{trigger.shopify_binding_id ? t('Shopify orders/create webhook') : trigger.mailgun_recipient ? t('Mailgun inbound route') : t(kindLabels[trigger.kind])} · {trigger.enabled ? t('Enabled') : t('Paused')} · ${trigger.max_budget_usd.toFixed(2)} / {t('Run')}</span>
+                <span>{trigger.shopify_binding_id ? t('Shopify orders/create webhook') : trigger.gmail_connector_id ? t('Gmail Inbox via Pub/Sub') : trigger.mailgun_recipient ? t('Mailgun inbound route') : t(kindLabels[trigger.kind])} · {trigger.enabled ? t('Enabled') : t('Paused')} · ${trigger.max_budget_usd.toFixed(2)} / {t('Run')}</span>
               </div>
               <p>{trigger.prompt}</p>
-              <label>{t('Delivery URL')}<input readOnly value={endpoint(trigger)} onFocus={(event) => event.target.select()} /></label>
+              <label>{trigger.gmail_connector_id ? t('Pub/Sub push URL') : t('Delivery URL')}<input readOnly value={endpoint(trigger)} onFocus={(event) => event.target.select()} /></label>
+              {trigger.gmail_connector_id && gmailWatches[trigger.id] && <p>{t('Gmail mailbox')}: {gmailWatches[trigger.id].email} · {t('Watch status')}: {t(gmailWatches[trigger.id].status)}{gmailWatches[trigger.id].expiration_ms ? ` · ${new Date(gmailWatches[trigger.id].expiration_ms!).toLocaleString()}` : ''}</p>}
+              {trigger.gmail_connector_id && <p>{t('Use this URL for an authenticated Google Pub/Sub push subscription. Registering the watch starts with future Inbox mail; a stale cursor requires an explicit reset that skips unavailable history.')}</p>}
               {trigger.shopify_binding_id && <p>{t('Use Register or verify with Shopify to subscribe this HTTPS orders/create URL. The app client secret verifies deliveries; keep the shop grant active.')}</p>}
               {trigger.shopify_binding_id && !endpoint(trigger).startsWith('https://') && <p>{t('This local HTTP URL cannot receive Shopify deliveries; publish the endpoint over HTTPS first.')}</p>}
               {trigger.mailgun_recipient && <p>{t('Mailgun recipient')}: {trigger.mailgun_recipient}</p>}
               {trigger.mailgun_recipient && !endpoint(trigger).startsWith('https://') && <p>{t('This local HTTP URL cannot receive Mailgun deliveries; configure a public HTTPS event origin first.')}</p>}
               {trigger.mailgun_recipient && subscriptionErrors[trigger.id] && <p role="alert">{subscriptionErrors[trigger.id]}</p>}
+              {trigger.gmail_connector_id && subscriptionErrors[trigger.id] && <p role="alert">{subscriptionErrors[trigger.id]}</p>}
               {trigger.shopify_binding_id && subscriptionErrors[trigger.id] && <p role="alert">{subscriptionErrors[trigger.id]}</p>}
               {trigger.shopify_binding_id && shopifySubscriptions[trigger.id] && <p>{t({
                 unconfigured: 'Public HTTPS event origin is not configured.',
@@ -415,7 +470,10 @@ export default function EventTriggersPanel({ projects }: { projects: Opportunity
                 : t('Read-only permission ceiling')}</small>
               <div className="event-triggers-actions">
                 <button type="button" disabled={busy} onClick={() => void toggle(trigger)}>{trigger.enabled ? t('Pause') : t('Resume')}</button>
-                {!trigger.shopify_binding_id && !trigger.mailgun_recipient && <button type="button" disabled={busy} onClick={() => void rotate(trigger)}>{t('Rotate signing key')}</button>}
+                {!trigger.shopify_binding_id && !trigger.mailgun_recipient && !trigger.gmail_connector_id && <button type="button" disabled={busy} onClick={() => void rotate(trigger)}>{t('Rotate signing key')}</button>}
+                {trigger.gmail_connector_id && gmailWatches[trigger.id]?.status !== 'stale' && <button type="button" disabled={busy || !trigger.enabled} onClick={() => void manageGmail(trigger, 'register')}>{t('Register or renew Gmail watch')}</button>}
+                {trigger.gmail_connector_id && gmailWatches[trigger.id]?.status === 'stale' && <button type="button" disabled={busy || !trigger.enabled} onClick={() => void manageGmail(trigger, 'reset')}>{t('Reset stale Gmail cursor and skip missing mail')}</button>}
+                {trigger.gmail_connector_id && gmailWatches[trigger.id] && !['unconfigured', 'not_registered'].includes(gmailWatches[trigger.id].status) && <button type="button" disabled={busy} onClick={() => void manageGmail(trigger, 'stop')}>{t('Stop Gmail watch')}</button>}
                 {trigger.shopify_binding_id && shopifySubscriptions[trigger.id]
                   && !['unconfigured', 'origin_changed'].includes(shopifySubscriptions[trigger.id].status)
                   && <button type="button" disabled={busy || !trigger.enabled} onClick={() => void registerShopify(

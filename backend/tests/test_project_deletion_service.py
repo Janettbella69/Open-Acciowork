@@ -9,6 +9,7 @@ import pytest
 
 from ophira_backend.auth import ProjectAccessStore
 from ophira_backend.event_triggers import EventTriggerStore, ShopifySubscriptionRecord
+from ophira_backend.gmail import GmailEnrollment
 from ophira_backend.models import ProjectCreate, utc_now
 from ophira_backend.project_deletion import ProjectDeletionService
 from ophira_backend.project_deletion_capture import ProjectDeletionConflict
@@ -84,6 +85,28 @@ def test_project_deletion_discloses_remote_shopify_subscription_boundary(
     triggers.clear_subscription(project.id, "event_trigger_1")
     assert not any(
         "Shopify order webhook" in item.message
+        for item in service.preview(project.id, None).retained
+    )
+
+
+def test_project_deletion_discloses_gmail_watch_boundary(tmp_path):
+    ledger, service, project, _other, _run = setup(tmp_path)
+    record = GmailEnrollment(
+        project_id=project.id, trigger_id="event_trigger_1", connector_id="gmail",
+        connector_revision=2, tenant_id=None, email="inbox@example.com",
+        start_history_id="100",
+    )
+    path = (
+        tmp_path / "projects" / project.id / "event-triggers"
+        / "gmail-enrollments" / "event_trigger_1.json"
+    )
+    ledger._atomic_write(path, record)
+    preview = service.preview(project.id, None)
+    assert preview.can_delete
+    assert any("Gmail mailbox watch" in item.message for item in preview.retained)
+    path.unlink()
+    assert not any(
+        "Gmail mailbox watch" in item.message
         for item in service.preview(project.id, None).retained
     )
 

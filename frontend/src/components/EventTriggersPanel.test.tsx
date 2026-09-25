@@ -9,10 +9,13 @@ vi.mock('../api/client', () => ({
   createEventTrigger: vi.fn(),
   getMarketplaceAccess: vi.fn(),
   getMailgunDelivery: vi.fn(),
+  getGmailWatch: vi.fn(),
   getShopifySubscription: vi.fn(),
   updateEventTrigger: vi.fn(),
   rotateEventTriggerSecret: vi.fn(),
   registerShopifySubscription: vi.fn(),
+  registerGmailWatch: vi.fn(),
+  stopGmailWatch: vi.fn(),
   removeShopifySubscription: vi.fn(),
   errorMessage: (cause: unknown) => cause instanceof Error ? cause.message : String(cause),
 }))
@@ -21,11 +24,14 @@ import {
   createEventTrigger,
   getMarketplaceAccess,
   getMailgunDelivery,
+  getGmailWatch,
   getShopifySubscription,
   listEventTriggers,
   rotateEventTriggerSecret,
   registerShopifySubscription,
+  registerGmailWatch,
   removeShopifySubscription,
+  stopGmailWatch,
   updateEventTrigger,
 } from '../api/client'
 
@@ -51,6 +57,51 @@ beforeEach(() => {
   vi.mocked(getMailgunDelivery).mockResolvedValue({
     delivery_url: 'https://events.example.com/api/projects/project_1/event-triggers/event_trigger_1/mailgun',
   })
+  vi.mocked(getGmailWatch).mockResolvedValue({
+    email: 'inbox@example.com',
+    push_url: 'https://events.example.com/api/connectors/gmail/gmail/push',
+    status: 'not_registered', expiration_ms: null, history_id: null,
+  })
+})
+
+it('creates a Gmail trigger and manages the shared mailbox watch', async () => {
+  const gmailTrigger = { ...trigger, gmail_connector_id: 'gmail' }
+  vi.mocked(createEventTrigger).mockResolvedValue({
+    trigger: gmailTrigger, signing_secret: null,
+  })
+  vi.mocked(registerGmailWatch).mockResolvedValue({
+    email: 'inbox@example.com',
+    push_url: 'https://events.example.com/api/connectors/gmail/gmail/push',
+    status: 'active', expiration_ms: 1790000000000, history_id: '100',
+  })
+  vi.mocked(stopGmailWatch).mockResolvedValue({
+    email: 'inbox@example.com',
+    push_url: 'https://events.example.com/api/connectors/gmail/gmail/push',
+    status: 'not_registered', expiration_ms: null, history_id: null,
+  })
+  render(<EventTriggersPanel projects={[project]} />)
+  await screen.findByText('No event triggers in this project yet.')
+  fireEvent.change(screen.getByLabelText('Event source'), { target: { value: 'inquiry_email' } })
+  fireEvent.change(screen.getByLabelText('Email delivery method'), { target: { value: 'gmail' } })
+  fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Gmail inbox' } })
+  fireEvent.change(screen.getByLabelText('Instructions for the Agent'), {
+    target: { value: 'Review inquiry' },
+  })
+  fireEvent.click(screen.getByRole('button', { name: 'Create trigger' }))
+  await waitFor(() => expect(createEventTrigger).toHaveBeenCalledWith(project.id, {
+    name: 'Gmail inbox', kind: 'inquiry_email', prompt: 'Review inquiry',
+    max_budget_usd: 1, permission_ceiling: [], gmail_connector_id: 'gmail',
+  }))
+  await waitFor(() => expect(screen.getByLabelText('Pub/Sub push URL')).toHaveValue(
+    'https://events.example.com/api/connectors/gmail/gmail/push',
+  ))
+  expect(screen.queryByRole('button', { name: 'Rotate signing key' })).not.toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: 'Register or renew Gmail watch' }))
+  await waitFor(() => expect(registerGmailWatch).toHaveBeenCalledWith(
+    project.id, trigger.id, false,
+  ))
+  fireEvent.click(screen.getByRole('button', { name: 'Stop Gmail watch' }))
+  await waitFor(() => expect(stopGmailWatch).toHaveBeenCalledWith(project.id, trigger.id))
 })
 
 it('creates a Mailgun inquiry trigger with an exact recipient and replaces its private key', async () => {

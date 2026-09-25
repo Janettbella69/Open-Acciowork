@@ -145,7 +145,7 @@ def _credential_worker(root, connector_id, started, captured, release, results):
     started.set()
     try:
         registry.upsert(
-            connector_id, type="gmail", display_name=connector_id, secret="test-placeholder",
+            connector_id, type="outlook", display_name=connector_id, secret="test-placeholder",
         )
         results.put((connector_id, "ok"))
     except BaseException as exc:

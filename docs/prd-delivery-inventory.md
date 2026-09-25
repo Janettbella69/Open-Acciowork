@@ -31,7 +31,7 @@
 | FR-18 恢复 | delivered：保存产物、错误分类、重试与重启恢复；Run 起点的完整可支持工作区快照、Bash 修改恢复、人工变更预览/确认/结果重试、中断目录切换修复、真实进程退出与冷备往返；同项目执行与产物收尾租约；owner/admin 人工保留清单、过期预览和未引用恢复点删除、额外目录清理、已执行审阅归档及无引用内容快照回收 | deferred：真实 SDK 故障注入、生产/跨宿主恢复、自动保留期限与归档二次清理、大容量性能及浏览器目视验收 |
 | FR-19 Deep Research | delivered：输入框内显式开关发起（默认关闭、运行中锁定）；三种原生只读研究单元的一次新建/同 Run 续接约束；共享预算/取消/原始截止时间；运行中资源 UI、来源包与主 Agent 去重落账；真实 DeepSeek 合成来源上的三单元并行/来源复核/证据合并与报告验收 | deferred：开放互联网研究质量、真实取消/耗尽/长时墙钟故障矩阵、其他 Provider 与浏览器目视验收 |
 | FR-20 GUI | delivered：L1/L2 真实浏览器 smoke；项目独立店铺 profile、用户登录确认、当前页观察引用、主Agent页面动作/报表下载与来源/产物落账、真实Chromium离线链路；L1/L2 离线真实 Chromium/CDP 的禁止域脚本、私网重定向、同源重定向、恢复和 L2 原标签页保留回归 | deferred：真实卖家后台/验证码/风控兼容性和模型联调；更广泛的真实攻击/恢复矩阵及真实 DNS/公网目标复核；L3 输入动作与 OS 权限真机验收归 FR-42 |
-| FR-21 Connector | delivered：Catalog/Vault/health/revoke、HTTPS JSON send_message；六平台官方入口，TikTok Shop授权店铺/商品与Shopify同组织及组织外商家店铺/商品/近期订单只读adapter；Shopify组织外商家授权码、一次性state/HMAC回调、限时离线令牌及跨worker刷新本地闭环；项目店铺授权/到期/撤销、主Agent来源凭证与中英文管理员UI；含Shopify的店铺身份配置、同平台Connector关联、独立浏览器授权及数据展示 | deferred：其余邮箱/店铺/CRM/社媒垂直adapter；TikTok Shop OAuth/refresh、真实Shopify商家同意与授权test-account/模型调用验收/外发全链；API与浏览器数据自动合并 |
+| FR-21 Connector | partial（本地）：Catalog/Vault/health/revoke、HTTPS JSON send_message；六平台官方入口，TikTok Shop授权店铺/商品与Shopify同组织及组织外商家店铺/商品/近期订单只读adapter；Shopify组织外商家授权码、一次性state/HMAC回调、限时离线令牌及跨worker刷新本地闭环；Gmail 只读 OAuth 授权码、私有刷新令牌、邮箱身份及中英文管理员配置；项目店铺授权/到期/撤销、主Agent来源凭证与管理员UI | deferred：Outlook/CRM/社媒等垂直adapter、Gmail 真账号 OAuth/受限范围验证、TikTok Shop OAuth/refresh、真实Shopify商家同意与授权 test-account/模型调用验收/外发全链；API与浏览器数据自动合并 |
 | FR-22 组织治理 | delivered：单部署租户 principal/membership/策略；共享项目成员管理UI与版本冲突保护；持久团队讨论/回复/对象关联/编辑历史/解决状态；可复用项目模板、固定参考版本与来源、核对后创建和中断恢复；组织私有Skill导入人审、固定版本查看/导出、独立启停/恢复、跨进程凭证与冷备恢复 | deferred：真实身份网关联调、租户分区与隔离 runner、长期容量与浏览器目视验收 |
 | FR-23 Web 兜底 | delivered：Serper/Tavily 适配与 SSRF 防护 | deferred：真实配置搜索服务和 Provider 降级 E2E |
 | FR-24 IM | delivered：飞书签名入站/身份绑定/同 Agent/持久回复重试；重放认领跨 worker 原子化、状态损坏时拒绝 | deferred：真实飞书/Lark 租户 E2E；微信适配未实现 |
@@ -44,6 +44,8 @@
 
 以 `OPHIRA-PRD-and-Technical-Architecture-v2.3.md` §3.8 为准；delivered 仅表示本地代码/测试，不表示外部依赖和真实用户验收。
 
+2026-09-25 FR-37 Gmail 增量：Google OAuth 网页客户端授权、只读受限范围与刷新令牌私有保存、Pub/Sub RS256 JWT 及固定受众/服务账号校验、Gmail Inbox watch 自动续期、history 增量读取、项目触发器独立注册游标、邮件正文裁剪与既有 Run 幂等/权限/预算边界已接通。失效 history 需管理员显式重置，丢失结果与缺口不被声明为已处理。模拟 Google 接口的 ASGI 集成覆盖授权、验签、共享邮箱多项目、重复投递、失效游标与失败后逐记录恢复；后端全量 `2361 passed / 13 skipped`，最后的租户管理员绑定限制专项 `2 passed`，Ruff 通过；前端全量 `555 passed / 58 files`、ESLint 与构建通过。浏览器连接器可用列表为空，未做页面目视；无 Google 实际帐号、公网 HTTPS/Pub/Sub、Provider Run 联调。
+
 | 要求 | 本轮状态与证据 | 尚需交付 / deferred 原因 |
 |---|---|---|
 | FR-29 计划模式 | delivered（本地）：独立 Run 选择 SDK 原生 `plan` 权限模式；计划阶段只开放原生只读研究/澄清工具，MCP 不装配，PreToolUse 与 can_use_tool 双重拒绝写入/对外动作；计划结果可审核、修改或批准，精确绑定最新计划 Run 后在同一 SDK 会话续行；跨进程会话创建加锁防重复 | deferred：真实 Provider 的计划质量/同会话执行、浏览器目视、预算估计准确性和故障矩阵验收 |
@@ -54,7 +56,7 @@
 | FR-34 上下文压缩 | delivered（本地代码/离线测试，2026-09-24）：钉版 SDK `get_context_usage()` 采样有效窗口占用并随 Run 事件回放；原生压缩边界事件提示自动/手动压缩、崩溃后修复 epoch 并强制完整业务上下文刷新；用户可在已完成会话启动独立无工具 `/compact` Run，只有 SDK 手动边界确认才算成功，账本及产物不被压缩 Run 改写 | deferred：真实 Provider 用量/手动与自动压缩语义、长时采样及浏览器目视验收；SDK 不提供用量时显示未知，不从累计 token 推算 |
 | FR-35 会话检索 | delivered（本地）：项目内有界 Run 提问、用户插话、主 Agent 回复与结果检索，RUN_READ 校验、只读 MCP、Run ID 回放及截断提示 | deferred：大历史性能/覆盖、浏览器与真实会话质量验收 |
 | FR-36 首次引导 | delivered（本地）：示例任务、模型选择及设置页密钥/条款/预检/返回步骤 | deferred：新用户可用性测试和实际 Provider 配置 E2E |
-| FR-37 事件触发 | partial（本地）：项目级 webhook/询盘邮件/店铺订单规范化事件入口；Mailgun 收件路由原生表单验签、精确收件地址绑定、Message-ID 与签名 token 持久去重、私有密钥替换及前端配置；Shopify `orders/create` 原生 HMAC 入站、项目店铺授权绑定、去重与买家信息裁剪，以及管理员触发的店铺级订阅注册/核验/移除、服务端公开 HTTPS 地址、外部结果不确定时的持久防重复重试；项目删除审核披露未移除的远端订阅；一次性签名密钥与轮换、创建人权限复验、单 Run 预算与权限上限、单主 Agent 和现有人审流程、前端管理入口；见 `docs/event-triggers.md` | deferred：真实公共 HTTPS/Mailgun/Shopify 联调、Gmail 与其他店铺原生适配、Provider E2E、部署环境浏览器验收与更广崩溃故障矩阵；不确定投递不盲目重试 |
+| FR-37 事件触发 | partial（本地）：项目级 webhook/询盘邮件/店铺订单规范化事件入口；Mailgun 收件路由原生表单验签、精确收件地址绑定、Message-ID 与签名 token 持久去重；Shopify `orders/create` 原生 HMAC 入站、项目店铺授权绑定、去重与订阅注册/核验/移除；Gmail 只读 OAuth、Inbox watch 续期、已认证 Pub/Sub JWT 入站、history 增量/过期显式重置、项目触发器独立启用游标及持久去重；服务端公开 HTTPS 地址、项目/创建人权限复验、单 Run 预算与权限上限、单主 Agent 和现有人审流程及前端管理；见 `docs/event-triggers.md` | deferred：真实公共 HTTPS/Google OAuth 与 Pub/Sub/Mailgun/Shopify 联调、其他邮箱/店铺原生适配、Provider E2E、部署环境浏览器验收与更广崩溃故障矩阵；不确定投递不盲目重试 |
 | FR-38 钉钉/企微 | partial（本地）：钉钉官方 Stream SDK 验证回调接入、群 @ /单聊文字门禁、管理员绑定 corp/conversation/staff 至项目与成员、角色即时复验、跨 worker 去重与投递互斥、Run 结果经官方 robot API 回到原会话；企微官方智能机器人 SDK 验证 WebSocket 帧接入、群/单聊文字、bot/conversation/sender 精确绑定、Run 结果经主动发送命令回到会话，断线时未发送结果保持待处理；两者的无幂等字段投递异常停止自动重试并留痕；见 `backend/README.md` | deferred：钉钉及企微真实租户收发/权限/轮换 E2E 与实际送达确认；微信路径仍待确定。PRD 的微信先行顺序尚未满足 |
 | FR-39 插件导入 | partial（本地）：官方插件 ZIP 多 Skill 拆分后复用私有仓库安全扫描和逐件人审；远程 MCP 地址引导至 FR-33 项目审批/逐工具策略，插件子 Agent 与其它可执行组件明确忽略；Anthropic marketing 真包的 8 个 Skill 扫描通过、11 个远程 MCP 地址列出；冷备报告/子 Skill 绑定校验；见 `docs/plugin-imports.md` | deferred：远程 MCP/Provider E2E、认证部署验收和更多真实包兼容性；OAuth、stdio MCP 和 Claude marketplace 安装机制不在当前 FR-33 远程 HTTPS 边界内 |
 | FR-40 语音输入 | partial（本地）：支持浏览器 SpeechRecognition 的手机任务/插话与工作台听写；语言选择、可编辑转写草稿、明确填入确认和原有提交路径；取消、页面隐藏及卸载中止录音，未提供音频上传端点；见 `docs/voice-input.md` | deferred：真实手机麦克风授权/转写质量、Safari/Android 与受限浏览器兼容、HTTPS 部署验收；不支持 Web Speech API 的浏览器目前仍需键盘听写或文字输入 |

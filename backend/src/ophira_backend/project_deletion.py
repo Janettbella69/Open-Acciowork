@@ -19,6 +19,7 @@ from uuid import UUID
 
 from .auth import AuthorizationError, ProjectAccessStore, ProjectPermission
 from .event_triggers import ShopifySubscriptionRecord
+from .gmail import GmailEnrollment
 from .models import PrincipalBinding, PrincipalContext, utc_now
 from .project_deletion_capture import (
     ProjectDeletionConflict,
@@ -192,6 +193,28 @@ class ProjectDeletionService:
                     "Remove it from Shopify before deleting this project."
                 )
                 break
+        gmail_prefix = f"projects/{project_id}/event-triggers/gmail-enrollments/"
+        for entry in application.entries:
+            if not entry.path.startswith(gmail_prefix):
+                continue
+            try:
+                if entry.kind != "file":
+                    raise ValueError("invalid Gmail enrollment record")
+                record = GmailEnrollment.model_validate_json(
+                    read_relative(self.ledger.root, entry.path, 16 * 1024),
+                )
+                if (
+                    record.project_id != project_id
+                    or entry.path != f"{gmail_prefix}{record.trigger_id}.json"
+                ):
+                    raise ValueError("Gmail enrollment binding changed")
+            except (OSError, ValueError):
+                pass  # An uncertain enrollment still requires remote review.
+            retained_messages.append(
+                "A Gmail mailbox watch may remain active or be shared after project deletion. "
+                "Stop the last watch or review the other project triggers first."
+            )
+            break
         retained = [DeletionRetention(code=f"retained_{index}", message=message)
                     for index, message in enumerate(dict.fromkeys(retained_messages))]
         blockers = [DeletionBlocker(code="inventory_requires_attention", message=message)

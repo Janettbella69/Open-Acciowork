@@ -60,6 +60,7 @@ import type {
   EventTrigger,
   EventTriggerCreate,
   EventTriggerCreated,
+  GmailWatchView,
   MailgunDeliveryView,
   ShopifySubscriptionView,
 } from './eventTriggers'
@@ -679,6 +680,30 @@ export function getMailgunDelivery(
   )
 }
 
+export function getGmailWatch(projectId: string, triggerId: string): Promise<GmailWatchView> {
+  return request<GmailWatchView>(
+    `/api/projects/${encodeURIComponent(projectId)}/event-triggers/${encodeURIComponent(triggerId)}/gmail-watch`,
+    { cache: 'no-store' },
+  )
+}
+
+export function registerGmailWatch(
+  projectId: string, triggerId: string, resetStale = false,
+): Promise<GmailWatchView> {
+  const suffix = resetStale ? '?reset_stale=true' : ''
+  return request<GmailWatchView>(
+    `/api/projects/${encodeURIComponent(projectId)}/event-triggers/${encodeURIComponent(triggerId)}/gmail-watch${suffix}`,
+    { method: 'POST', cache: 'no-store' },
+  )
+}
+
+export function stopGmailWatch(projectId: string, triggerId: string): Promise<GmailWatchView> {
+  return request<GmailWatchView>(
+    `/api/projects/${encodeURIComponent(projectId)}/event-triggers/${encodeURIComponent(triggerId)}/gmail-watch`,
+    { method: 'DELETE', cache: 'no-store' },
+  )
+}
+
 export function rotateEventTriggerSecret(
   projectId: string, triggerId: string,
 ): Promise<EventTriggerCreated> {
@@ -1040,6 +1065,27 @@ export function listMarketplaceGuides(): Promise<MarketplaceGuide[]> {
 export function readMarketplace(id: string, input: MarketplaceReadInput): Promise<MarketplaceRead> {
   return request<MarketplaceRead>(`/api/connectors/${encodeURIComponent(id)}/marketplace-read`, {
     method: 'POST', body: JSON.stringify(input),
+  })
+}
+
+export type GmailOAuthStatus = {
+  authorized: boolean
+  email: string | null
+  callback_url: string | null
+}
+
+export function getGmailOAuthStatus(id: string): Promise<GmailOAuthStatus> {
+  return request<GmailOAuthStatus>(
+    `/api/connectors/${encodeURIComponent(id)}/gmail-oauth`, { cache: 'no-store' },
+  )
+}
+
+export function startGmailOAuth(id: string): Promise<{
+  authorization_url: string
+  callback_url: string
+}> {
+  return request(`/api/connectors/${encodeURIComponent(id)}/gmail-oauth/start`, {
+    method: 'POST', cache: 'no-store',
   })
 }
 

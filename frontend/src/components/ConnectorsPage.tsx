@@ -4,6 +4,7 @@ import type { Connector } from '../api/types'
 import type { MarketplaceGuide } from '../api/marketplaces'
 import { useT } from '../i18n'
 import MarketplaceConnector from './MarketplaceConnector'
+import GmailConnector from './GmailConnector'
 import ShopifyConnector from './ShopifyConnector'
 import UserMcpPanel from './UserMcpPanel'
 import './connectors-page.css'
@@ -135,6 +136,8 @@ export default function ConnectorsPage() {
                 <MarketplaceConnector key={connector.id} connector={connector} onChange={replaceConnector} />
               ) : connector.type === 'shopify' ? (
                 <ShopifyConnector key={connector.id} connector={connector} onChange={replaceConnector} />
+              ) : connector.type === 'gmail' ? (
+                <GmailConnector key={connector.id} connector={connector} onChange={replaceConnector} />
               ) : (
                 <article key={connector.id} data-enabled={connector.enabled ? 'true' : 'false'}>
                   <div className="connector-mark" aria-hidden="true">{connector.type.slice(0, 2).toUpperCase()}</div>

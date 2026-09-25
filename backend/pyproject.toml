@@ -17,6 +17,7 @@ dependencies = [
   "mcp>=2.2,<3",
   "httpx2>=2.5,<3",
   "pydantic-settings>=2.7,<3",
+  "PyJWT[crypto]>=2.10,<3",
   "Pillow>=10,<13",
   "pypdf>=5,<7",
   "pywebpush==2.5.0",

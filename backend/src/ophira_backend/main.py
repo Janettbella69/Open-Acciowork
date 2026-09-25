@@ -152,6 +152,8 @@ from .event_triggers import (
 from .events import EventPublisher
 from .feedback import FeedbackStore
 from .feedback_routes import register_feedback_routes
+from .gmail import GMAIL_CALLBACK_RE, GMAIL_PUSH_RE, GmailService
+from .gmail_api import register_gmail_routes
 from .grants import GrantNotFoundError, PermissionGrantStore
 from .ingest import IngestConfig
 from .intent_watcher import StandingIntentWatcher
@@ -489,6 +491,7 @@ def _create_app(
         vault=FileSecretVault(settings.data_dir / "secrets", filename="connector-secrets.json"),
     )
     connectors.ensure_catalog()
+    gmail = GmailService(settings, connectors, ledger, event_triggers)
     if settings.auth_mode == "local_only":
         loopback_host = (
             f"[{settings.host}]" if ":" in settings.host else settings.host
@@ -596,7 +599,11 @@ def _create_app(
                         try:
                             await companion_push.start()
                             try:
-                                yield
+                                await gmail.start()
+                                try:
+                                    yield
+                                finally:
+                                    await gmail.stop()
                             finally:
                                 await companion_push.stop()
                         finally:
@@ -637,6 +644,7 @@ def _create_app(
     application.state.scheduler = scheduler
     application.state.intent_watcher = intent_watcher
     application.state.connectors = connectors
+    application.state.gmail = gmail
     application.state.user_mcp = user_mcp
     application.state.notifications = notifications
     application.state.intents = intents
@@ -841,6 +849,17 @@ def _create_app(
             response.headers["Cache-Control"] = "no-store"
             response.headers["Referrer-Policy"] = "no-referrer"
             return response
+        if request.method == "GET" and GMAIL_CALLBACK_RE.fullmatch(path):
+            expected_host = urlsplit(settings.event_public_origin or "").netloc
+            if (
+                settings.auth_mode != "trusted_gateway" or not expected_host
+                or request.headers.get("host", "").casefold() != expected_host.casefold()
+            ):
+                return JSONResponse(status_code=404, content={"detail": "Not found"})
+            response = await call_next(request)
+            response.headers["Cache-Control"] = "no-store"
+            response.headers["Referrer-Policy"] = "no-referrer"
+            return response
         if path in {OAUTH_CALLBACK_PATH, OAUTH_COMPLETE_PATH, OAUTH_METADATA_PATH} and (
             request.method == "GET"
         ):
@@ -948,6 +967,16 @@ def _create_app(
                         status_code=403,
                         content={"detail": "local-only event ingress requires loopback"},
                     )
+            response = await call_next(request)
+            response.headers["Cache-Control"] = "no-store"
+            return response
+        if request.method == "POST" and GMAIL_PUSH_RE.fullmatch(path):
+            expected_host = urlsplit(settings.event_public_origin or "").netloc
+            if (
+                settings.auth_mode != "trusted_gateway" or not expected_host
+                or request.headers.get("host", "").casefold() != expected_host.casefold()
+            ):
+                return JSONResponse(status_code=404, content={"detail": "Not found"})
             response = await call_next(request)
             response.headers["Cache-Control"] = "no-store"
             return response
@@ -2090,7 +2119,23 @@ def _create_app(
             raise HTTPException(status_code=404, detail="Connector not found") from exc
 
     @application.put("/api/connectors/{connector_id}", response_model=Connector)
-    async def upsert_connector(connector_id: str, payload: ConnectorUpsert) -> Connector:
+    async def upsert_connector(
+        connector_id: str, payload: ConnectorUpsert, request: Request,
+    ) -> Connector:
+        principal = _request_principal(request)
+        if principal is not None and principal.role not in {
+            PrincipalRole.OWNER, PrincipalRole.ADMIN,
+        }:
+            try:
+                prior_type = connectors.get(connector_id).type
+            except ConnectorNotFoundError:
+                prior_type = None
+            if payload.type == "gmail" or prior_type == "gmail":
+                raise HTTPException(403, "Tenant administrator required for Gmail")
+        if principal is not None:
+            owned, owner = gmail.token_owner(connector_id)
+            if owned and owner != principal.tenant_id:
+                raise HTTPException(403, "Gmail account is outside this tenant")
         try:
             return connectors.upsert(
                 connector_id,
@@ -2105,7 +2150,20 @@ def _create_app(
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     @application.post("/api/connectors/{connector_id}/revoke", response_model=Connector)
-    async def revoke_connector(connector_id: str) -> Connector:
+    async def revoke_connector(connector_id: str, request: Request) -> Connector:
+        principal = _request_principal(request)
+        if principal is not None:
+            owned, owner = gmail.token_owner(connector_id)
+            if owned and owner != principal.tenant_id:
+                raise HTTPException(403, "Gmail account is outside this tenant")
+        if principal is not None and principal.role not in {
+            PrincipalRole.OWNER, PrincipalRole.ADMIN,
+        }:
+            try:
+                if connectors.get(connector_id).type == "gmail":
+                    raise HTTPException(403, "Tenant administrator required for Gmail")
+            except ConnectorNotFoundError:
+                pass
         try:
             return connectors.revoke(connector_id)
         except (ConnectorNotFoundError, ValueError) as exc:
@@ -3287,6 +3345,15 @@ def _create_app(
                 marketplace_access.require_shopify_webhook_binding(
                     project_id, payload.shopify_binding_id,
                 )
+            if payload.gmail_connector_id is not None:
+                if principal is not None and principal.role not in {
+                    PrincipalRole.OWNER, PrincipalRole.ADMIN,
+                }:
+                    raise HTTPException(403, "Tenant administrator required for Gmail")
+                gmail.account(
+                    payload.gmail_connector_id,
+                    principal.tenant_id if principal else None,
+                )
             return event_triggers.create(
                 project_id, payload,
                 principal=PrincipalBinding.from_context(principal) if principal else None,
@@ -3676,6 +3743,26 @@ def _create_app(
         except EventTriggerError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
 
+    def authorize_gmail_trigger(trigger: EventTrigger) -> None:
+        binding = trigger.principal_binding
+        if binding is None:
+            return
+        try:
+            project_access.authorize_bound(
+                trigger.project_id, tenant_id=binding.tenant_id,
+                principal_id=binding.principal_id, role=binding.role,
+                permission=ProjectPermission.RUN_CREATE,
+            )
+        except AuthorizationError as exc:
+            raise HTTPException(403, "Trigger creator is no longer authorized") from exc
+
+    register_gmail_routes(
+        application, service=gmail, triggers=event_triggers,
+        require_project_authorization=require_project_authorization,
+        read_bounded_body=_read_bounded_body, dispatch=dispatch_event_trigger,
+        authorize_trigger=authorize_gmail_trigger,
+    )
+
     @application.post("/api/projects/{project_id}/event-triggers/{trigger_id}/deliver")
     async def deliver_event_trigger(
         project_id: str, trigger_id: str, request: Request,
@@ -3688,7 +3775,7 @@ def _create_app(
             trigger = event_triggers.get(project_id, trigger_id)
         except (KeyError, LedgerNotFoundError, ValueError) as exc:
             raise HTTPException(status_code=404, detail="Event trigger not found") from exc
-        if trigger.shopify_binding_id is not None:
+        if trigger.shopify_binding_id is not None or trigger.gmail_connector_id is not None:
             raise HTTPException(status_code=404, detail="Event trigger not found")
         if not trigger.enabled:
             raise HTTPException(status_code=403, detail="Event trigger is disabled")

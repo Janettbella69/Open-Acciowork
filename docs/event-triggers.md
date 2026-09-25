@@ -42,8 +42,58 @@ The inquiry email source expects `message_id`, `from`, `subject`, and `body` as
 nonempty strings. The store order source expects `order_id`, `shop_id`, and `status`.
 Other fields remain available to the Agent as bounded, untrusted event data. A
 sender or integration gateway must normalize its upstream email/store event to
-this contract. Direct Mailgun inbound email and Shopify order webhooks are also
-supported below. Gmail and other mailbox subscriptions still need an integration.
+this contract. Direct Mailgun and Gmail inbound email and Shopify order webhooks
+are also supported below. Other mailbox subscriptions still need an integration.
+
+## Direct Gmail Inbox trigger
+
+Gmail uses a Google OAuth web client and a Google Cloud Pub/Sub push subscription.
+Set `OPHIRA_AUTH_MODE=trusted_gateway`, `OPHIRA_EVENT_PUBLIC_ORIGIN` to the
+operator-owned public HTTPS origin, `OPHIRA_GMAIL_PUBSUB_TOPIC` to an exact
+`projects/<project>/topics/<topic>` name, and
+`OPHIRA_GMAIL_PUSH_SERVICE_ACCOUNT` to the service account email that signs the
+push subscription. The callback URL is
+`<event origin>/api/connectors/gmail/gmail-oauth/callback`; register that exact
+redirect URI in the Google OAuth web client. Enable the Gmail API and grant
+`gmail-api-push@system.gserviceaccount.com` Pub/Sub Publisher on the topic.
+Configure the push subscription with the URL shown on the Gmail trigger as both
+its endpoint and authentication audience, and choose the configured service
+account for authenticated push. Follow Google's [Gmail push setup](https://developers.google.com/workspace/gmail/api/guides/push)
+and [authenticated Pub/Sub push setup](https://docs.cloud.google.com/pubsub/docs/authenticate-push-subscriptions).
+
+In **Connectors → Gmail**, save the OAuth web client ID and client secret, then
+authorize the mailbox. The server requests only
+`https://www.googleapis.com/auth/gmail.readonly` and stores the refresh token in
+the private connector vault. This is a [restricted Google scope](https://developers.google.com/workspace/gmail/api/auth/scopes);
+a public Google OAuth app may need verification and a security assessment.
+Create **Inquiry email → Gmail Inbox via Pub/Sub** in Event triggers, then select
+**Register or renew Gmail watch**. Multiple project triggers in the same tenant
+may share the one mailbox watch. Each trigger begins at its own enrollment
+history ID, so creating another trigger does not replay earlier mail.
+
+Google sends only the mailbox address and history ID in a push notification.
+OPHIRA verifies Google's RS256 JWT signature, exact audience, service account
+email and `email_verified` claim before reading the notification. It then calls
+Gmail `history.list`, fetches newly added Inbox messages, ignores Sent, Draft
+and Trash, and passes at most 48 KB of UTF-8 plain text per message through the
+same project-bound Run receipt, creator authority, budget, permission ceiling
+and external-action approval checks. Attachments and HTML are excluded. A
+durable Gmail message ID deduplicates retries; the shared mailbox cursor moves
+only after all eligible project dispatches have succeeded. The service checks
+for watches within two days of expiration every six hours and renews them;
+Google requires renewal at least every seven days. See the [Gmail synchronization contract](https://developers.google.com/workspace/gmail/api/guides/sync).
+
+If Gmail reports that the saved history is no longer available, the watch is
+marked **stale** and delivery stops. A tenant administrator must explicitly
+choose **Reset stale Gmail cursor and skip missing mail**; this starts from a
+new Gmail history ID and does not claim to have processed the gap. Stop the
+watch before revoking the connector or deleting its last trigger project. The
+UI refuses to stop a watch while another active project trigger uses it.
+Project deletion review discloses a remaining Gmail enrollment as an external
+watch boundary; erasing the project removes its local enrollment but cannot
+stop a shared remote watch on behalf of another project.
+Google OAuth consent, topic permissions, authenticated public push delivery and
+Provider Run execution still require validation with an authorized live account.
 
 ## Direct Mailgun inbound email
 
