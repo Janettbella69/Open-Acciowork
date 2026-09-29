@@ -242,6 +242,11 @@ class Settings(BaseSettings):
     # Deep Research keeps the shared budget fuse and deliberate no-turn-cap policy,
     # but unattended fan-out still needs a wall-clock circuit breaker.
     deep_research_timeout_seconds: int = Field(default=1_800, ge=60, le=86_400)
+    # Application-level envelope, independent of the SDK's native monetary fuse.
+    # Suspended human approvals do not consume active SDK execution time.
+    sdk_active_timeout_seconds: float = Field(default=7_200, ge=60, le=86_400)
+    sdk_output_limit_bytes: int = Field(default=67_108_864, ge=1_048_576, le=1_073_741_824)
+    sdk_message_buffer_bytes: int = Field(default=1_048_576, ge=65_536, le=16_777_216)
 
     @field_validator(
         "claude_model",

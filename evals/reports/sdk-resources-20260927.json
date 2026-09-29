@@ -1,0 +1,46 @@
+{
+  "sdk_version": "0.2.143",
+  "provider_transport": "loopback synthetic SSE; no external model service",
+  "cases": [
+    {
+      "case": "normal",
+      "status": "completed",
+      "error_code": null,
+      "fixture_requests": 1,
+      "output_bytes_reserved": 65536,
+      "active_seconds_used": 0.526,
+      "saved_artifact_download": "passed",
+      "sdk_direct_child_cleanup": "passed"
+    },
+    {
+      "case": "output",
+      "status": "failed",
+      "error_code": "SDK_RESOURCE_LIMIT_EXCEEDED",
+      "fixture_requests": 1,
+      "output_bytes_reserved": 1048576,
+      "active_seconds_used": 7.659,
+      "saved_artifact_download": "passed",
+      "sdk_direct_child_cleanup": "passed"
+    },
+    {
+      "case": "buffer",
+      "status": "failed",
+      "error_code": "SDK_RESOURCE_LIMIT_EXCEEDED",
+      "fixture_requests": 1,
+      "output_bytes_reserved": 65536,
+      "active_seconds_used": 2.446,
+      "saved_artifact_download": "passed",
+      "sdk_direct_child_cleanup": "passed"
+    },
+    {
+      "case": "timeout",
+      "status": "failed",
+      "error_code": "SDK_RESOURCE_LIMIT_EXCEEDED",
+      "fixture_requests": 1,
+      "output_bytes_reserved": 65536,
+      "active_seconds_used": 13.013,
+      "saved_artifact_download": "passed",
+      "sdk_direct_child_cleanup": "passed"
+    }
+  ]
+}

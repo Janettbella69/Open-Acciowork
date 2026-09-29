@@ -142,7 +142,7 @@ Google Chrome；用户已登录浏览器、真实卖家后台和 Provider 端到
 | §3.7 P2 团队 | delivered：共享项目成员角色管理、关联项目/Run/消息/证据/决策/文件版本的团队讨论、项目模板保存/版本/参考文件下载/新建/归档/中断恢复、组织私有Skill审核发布与成员只读版本库及中英文UI；deferred：真实组织与浏览器目视验收、长期容量及生产隔离 |
 | §4.16 任务经验 | delivered：专属工具与版本/来源账本、创建时配置指纹、低信任检索注入、容量/事务恢复与人工停用UI；deferred：真实Provider自主调用及长期判断质量 |
 | §4.12 事件 | delivered：有真实Run归属的evidence.added/decision.recorded、artifact.registered/updated、memory.proposed；实时产物刷新、固定版本下载、记忆审核入口、持久幂等补发与完整SSE尾部消费；deferred：无Run项目变更和 schedule/preflight 细分事件 |
-| §3.9 / §4.10 | delivered：自动调度跨进程抢占与事件汇总恢复；Bash 工作区快照与人审恢复、跨进程目录切换修复；deferred：其余事件故障矩阵、生产恢复/容量与性能、CPU/内存/进程/输出限制 |
+| §3.9 / §4.10 | delivered：自动调度跨进程抢占与事件汇总恢复；Bash 工作区快照与人审恢复、跨进程目录切换修复；Run 级持久 SDK 活跃时长/可见输出额度、原生消息缓冲限制、审批挂起不计活跃时长、超限失败时保留产物及 SDK 屏蔽取消的进程清理，见 `sdk-resource-limits.md`；deferred：其余事件故障矩阵、生产恢复/容量与性能、OS 级 CPU/内存/进程限制，以及原始传输、SDK 内部存储和工作区磁盘输出限制 |
 | §3.9 数据主权 | delivered：操作者CLI完整数据目录冷备份与新目录恢复，覆盖项目账本/提案/Registry/工作区检查点一致性；恢复时须提供最新数据目录核对项目/会话删除登记、记忆墓碑、三个本地密钥仓删除哈希链及店铺浏览器登录删除边界，或显式承认无法对账；项目工作文件恢复UI；项目owner/admin审核清单后导出文件、应用可见会话、来源与相关账本ZIP。本地交付：项目及独立会话删除审核/API/UI、跨域擦除与原操作恢复，见project-deletion-design.md与conversation-deletion.md；Provider 密钥可由租户管理员独立导出/撤销，见provider-credentials.md；连接器和项目 MCP 的本地密钥仓凭据可按权限独立导出、经现有撤销路径删除，见connector-mcp-credentials.md；关闭窗口后的店铺浏览器持久 profile 可独立导出/删除，见shop-browsers.md；deferred：主机环境变量与平台远端凭据的删除对账、全应用恢复UI、历史备份本身的擦除与旧版已发生删除的追溯、跨宿主可信登记交付及生产灾备、真实卖家登录和生产隔离验收；项目ZIP不含运行时会话、凭据和浏览器登录资料 |
 | §3.9 性能 | delivered：本地ASGI单/4并发各100样本，创建/首事件持久化/离线task取消P95基线；deferred：真实SDK进程、网络/SSE运输、多worker与生产负载验收 |
 | §3.9 / §3.10 | delivered：项目范围按Provider/model/Skill/tool/错误的有界指标汇总；deferred：业务成功指标、区域与数据流披露 |
@@ -1410,3 +1410,15 @@ Run/SDK session 来源凭证，不增加 MCP 工具。市场调研 Skill 明确�
 真实 JSON-stat 单元格，生产解析器已核对。此工作区的 DNS 代理把 `ec.europa.eu`
 解析为 `198.18.0.126`，生产 SSRF 围栏按非公网地址拒绝，完整应用传输与
 Provider Run 仍未验收。完整 PRD 未完成。
+
+## 2026-09-29：SDK 运行时长与输出额度
+
+普通、计划、Deep Research、自动化与压缩 Run 共用持久活跃时长和 SDK 可见输出额度；
+原生审批挂起期间不计活跃时长，恢复不重置额度。触顶通过既有失败路径保留产物，
+并等待 SDK 子进程清理。操作配置、计量边界和未完成的 OS 隔离见
+[资源限制](sdk-resource-limits.md)。
+
+SDK 专项 **38 passed**；真实钉版 SDK/CLI 对本机合成 SSE 的正常、累计输出超限、
+单消息过大和超时 **4 项全过**，均核对产物下载及直接 SDK 子进程退出，
+报告见 `evals/reports/sdk-resources-20260929.json`。未调用付费模型或真实账号。
+OS CPU/内存/进程数、磁盘、生产并发与真实 Provider 故障矩阵仍 deferred。

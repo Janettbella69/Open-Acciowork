@@ -501,6 +501,17 @@ class RunInterjectionReceipt(APIModel):
     next_run_id: str | None = None
 
 
+class SdkResourceUsage(APIModel):
+    """Host-frozen limits and conservative usage across native deferred resumes."""
+
+    active_limit_seconds: float = Field(gt=0, le=86_400)
+    output_limit_bytes: int = Field(gt=0, le=1_073_741_824)
+    message_buffer_bytes: int = Field(gt=0, le=16_777_216)
+    active_seconds_used: float = Field(default=0, ge=0, allow_inf_nan=False)
+    active_started_at: datetime | None = None
+    output_bytes_reserved: int = Field(default=0, ge=0)
+
+
 class RunRecord(APIModel):
     id: str = Field(default_factory=lambda: new_id("run"))
     trace_id: str = Field(default_factory=lambda: new_id("trace"))
@@ -553,6 +564,7 @@ class RunRecord(APIModel):
     sdk_budget_usd: float | None = Field(default=None, gt=0)
     sdk_turn_limit: int | None = Field(default=None, ge=1)
     sdk_wall_clock_deadline: datetime | None = None
+    sdk_resource_usage: SdkResourceUsage | None = None
     sdk_permission_mode: str | None = None
     context_refresh: ContextRefreshRecord | None = None
     # Count only confirmed SDK compact_boundary messages. The manifest records

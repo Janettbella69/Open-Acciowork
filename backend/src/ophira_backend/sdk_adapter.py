@@ -8,10 +8,12 @@ from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
+import anyio
 from claude_agent_sdk import (
     AssistantMessage,
     ClaudeAgentOptions,
     ClaudeSDKClient,
+    CLIJSONDecodeError,
     HookEventMessage,
     HookMatcher,
     PermissionResultAllow,
@@ -118,6 +120,7 @@ from .providers import (
 )
 from .run_accounting import cumulative_result, latest_result
 from .run_interjections import interjection_receipts
+from .sdk_resources import SdkExecutionBudget, SdkResourceLimitError
 from .shop_browser import ShopBrowserService
 from .skill_proposals import SkillProposalService
 from .skills import SkillRegistry, SkillRuntimeView
@@ -415,35 +418,74 @@ class ClaudeAgentRuntime:
         snapshot = self._policy_skill_snapshot(run.skill_snapshot)
         self._prepare_context(run, snapshot)
         mcp_scope = self.user_mcp.run_scope() if self.user_mcp is not None else None
+        budget = None
         try:
+            budget = SdkExecutionBudget(self.ledger, run.id, self.settings)
+            if budget.error is not None:
+                raise budget.error
             with self.skills.runtime_snapshot_lease(snapshot) as skill_view:
                 options = self._build_options(
                     run, skill_view=skill_view, user_mcp_scope=mcp_scope,
                 )
-                if run.mode != RunMode.DEEP_RESEARCH:
-                    await self._run_sdk_session(run, options, user_mcp_scope=mcp_scope)
-                    return
-
-                task = asyncio.create_task(
-                    self._run_sdk_session(run, options, user_mcp_scope=mcp_scope),
-                    name=f"ophira:deep-research:{run.id}",
+                options = dataclasses.replace(
+                    options, max_buffer_size=budget.message_buffer_bytes, stderr=budget.stderr,
                 )
+                # The SDK shields subprocess cleanup from AnyIO cancellation.
+                # A raw asyncio task.cancel() bypasses that shield in 0.2.143.
+                session_scope = anyio.CancelScope()
+
+                async def execute_session() -> None:
+                    with session_scope:
+                        await self._run_sdk_session(
+                            run, options, user_mcp_scope=mcp_scope, output_budget=budget,
+                        )
+
+                task = asyncio.create_task(execute_session(), name=f"ophira:sdk:{run.id}")
+                exhausted = asyncio.create_task(budget.exceeded.wait())
+                timeout = budget.remaining_seconds
+                research_deadline_first = False
+                if deadline is not None:
+                    research_remaining = max(0, (deadline - utc_now()).total_seconds())
+                    research_deadline_first = research_remaining <= timeout
+                    timeout = min(timeout, research_remaining)
                 try:
                     done, _pending = await asyncio.wait(
-                        {task}, timeout=max(0, (deadline - utc_now()).total_seconds())
+                        {task, exhausted}, timeout=timeout,
+                        return_when=asyncio.FIRST_COMPLETED,
                     )
-                except asyncio.CancelledError:
-                    task.cancel()
-                    await asyncio.gather(task, return_exceptions=True)
-                    raise
-                if task in done:
-                    await task
-                    return
-                task.cancel()
-                await asyncio.gather(task, return_exceptions=True)
-                raise AgentRunError(
-                    "Deep Research exceeded its original wall-clock limit and was stopped."
-                )
+                    if budget.error is not None:
+                        raise budget.error
+                    if task in done:
+                        try:
+                            await task
+                        except CLIJSONDecodeError as exc:
+                            if exc.line.startswith("JSON message exceeded maximum buffer size of "):
+                                raise SdkResourceLimitError(
+                                    "SDK message buffer limit exceeded; the session was stopped "
+                                    "and saved work is preserved."
+                                ) from exc
+                            raise
+                        return
+                    if research_deadline_first:
+                        raise AgentRunError(
+                            "Deep Research exceeded its original wall-clock limit and was stopped."
+                        )
+                    raise SdkResourceLimitError(
+                        "SDK active execution time limit exceeded; the session was stopped "
+                        "and saved work is preserved."
+                    )
+                finally:
+                    session_scope.cancel()
+                    exhausted.cancel()
+                    cleanup = asyncio.gather(task, exhausted, return_exceptions=True)
+                    interrupted = False
+                    while not cleanup.done():
+                        try:
+                            await asyncio.shield(cleanup)
+                        except asyncio.CancelledError:
+                            interrupted = True
+                    if interrupted:
+                        raise asyncio.CancelledError
         finally:
             self._prepared_contexts.pop(run.id, None)
             self._single_tool_calls.pop(run.id, None)
@@ -453,6 +495,8 @@ class ClaudeAgentRuntime:
             for key in [key for key in self._batch_ready if key[0] == run.id]:
                 self._batch_ready.pop(key, None)
             self._last_context_usage.pop(run.id, None)
+            if budget is not None:
+                budget.close()
 
     async def _run_sdk_session(
         self,
@@ -460,6 +504,7 @@ class ClaudeAgentRuntime:
         options: ClaudeAgentOptions,
         *,
         user_mcp_scope: UserMcpRunScope | None = None,
+        output_budget: SdkExecutionBudget | None = None,
     ) -> None:
         pending = self.permissions.durable.active(run)
         if (pending is not None and pending.state == "resolved"
@@ -536,6 +581,8 @@ class ClaudeAgentRuntime:
                 while True:
                     saw_result = False
                     async for message in client.receive_response():
+                        if output_budget is not None:
+                            output_budget.message(message)
                         await self._map_message(run.id, message)
                         if isinstance(message, ResultMessage):
                             await self._publish_context_usage(run.id, client)
@@ -609,17 +656,20 @@ class ClaudeAgentRuntime:
                             channel.accepting = False
                             break
             finally:
-                async with channel.lock:
-                    channel.accepting = False
-                if poller is not None:
-                    poller.cancel()
-                    await asyncio.gather(poller, return_exceptions=True)
-                if usage_poller is not None:
-                    usage_poller.cancel()
-                    await asyncio.gather(usage_poller, return_exceptions=True)
+                # Unpublish handles before awaiting cleanup. The output/time
+                # fuse can cancel a session already unwinding another error.
+                channel.accepting = False
                 async with self._clients_lock:
                     self._clients.pop(run.id, None)
                     self._interjection_channels.pop(run.id, None)
+                pending_pollers = []
+                if poller is not None:
+                    poller.cancel()
+                    pending_pollers.append(poller)
+                if usage_poller is not None:
+                    usage_poller.cancel()
+                    pending_pollers.append(usage_poller)
+                await asyncio.gather(*pending_pollers, return_exceptions=True)
         if result_error:
             raise AgentRunError(result_error)
         if run.manual_compaction and not any(
@@ -687,6 +737,7 @@ class ClaudeAgentRuntime:
             max_turns=4,
             max_budget_usd=min(self.settings.max_budget_usd, 0.25),
             include_partial_messages=False,
+            max_buffer_size=self.settings.sdk_message_buffer_bytes,
             sandbox={
                 "enabled": True,
                 # 与主运行一致（Bash 在预检本就被禁用，此处只为提早暴露沙箱不可用）。
@@ -1241,6 +1292,7 @@ class ClaudeAgentRuntime:
             can_use_tool=can_use_tool,
             hooks=hooks,
             include_partial_messages=True,
+            max_buffer_size=self.settings.sdk_message_buffer_bytes,
             include_hook_events=True,
             agents=build_deep_research_agents() if deep_research else None,
             model=model,

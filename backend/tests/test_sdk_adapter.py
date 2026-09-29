@@ -9,6 +9,7 @@ from types import SimpleNamespace
 import pytest
 from claude_agent_sdk import (
     AssistantMessage,
+    ClaudeAgentOptions,
     ResultMessage,
     StreamEvent,
     TextBlock,
@@ -688,7 +689,7 @@ async def test_deep_research_wall_clock_timeout_cancels_session(
     monkeypatch.setattr("ophira_backend.sdk_adapter.utc_now", lambda: now)
     runtime.settings.deep_research_timeout_seconds = 0.01  # type: ignore[assignment]
     runtime._require_provider = lambda _run: None  # type: ignore[method-assign]
-    runtime._build_options = lambda _run, **_kwargs: object()  # type: ignore[method-assign,return-value]
+    runtime._build_options = lambda _run, **_kwargs: ClaudeAgentOptions()  # type: ignore[method-assign]
     cleaned_up = asyncio.Event()
 
     async def slow_session(_run, _options, **_kwargs) -> None:

@@ -15,6 +15,11 @@ memory review retain their existing authorization boundaries.
 
 ## Run locally
 
+Runs now have durable active-time and SDK-output allowances, preserving saved
+work on exhaustion and excluding native suspended approval waits. See
+[SDK resource limits](../docs/sdk-resource-limits.md) for configuration and the
+remaining OS isolation requirements.
+
 From the repository root (the venv must live at the repo root; rebuild it with `--clear`
 after moving or renaming the repo, because venv shebangs hardcode absolute paths):
 

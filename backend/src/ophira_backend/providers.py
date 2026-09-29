@@ -514,6 +514,10 @@ class ProviderRegistry:
 
 
 def classify_provider_error(error: BaseException | str) -> ProviderErrorCode:
+    from .sdk_resources import SdkResourceLimitError
+
+    if isinstance(error, SdkResourceLimitError):
+        return ProviderErrorCode.SDK_RESOURCE_LIMIT_EXCEEDED
     message = str(error).casefold()
     if any(token in message for token in ("401", "unauthorized", "invalid api key", "oauth")):
         return ProviderErrorCode.AUTH_REVOKED_OR_INVALID
@@ -546,6 +550,9 @@ def provider_error_message(code: ProviderErrorCode) -> str:
         ProviderErrorCode.MCP_INIT_FAILED: "Claude Agent SDK 已启动，但 OPHIRA MCP 初始化失败。",
         ProviderErrorCode.SKILL_DISCOVERY_FAILED: "Claude Agent SDK 未发现 OPHIRA Plugin Skill。",
         ProviderErrorCode.SDK_RUNTIME_FAILED: "Claude Agent SDK 运行失败，请查看本次预检详情。",
+        ProviderErrorCode.SDK_RESOURCE_LIMIT_EXCEEDED: (
+            "运行达到执行时长或输出上限，已保存的工作保留；请检查输出量和运行资源配置。"
+        ),
     }
     return messages[code]
 

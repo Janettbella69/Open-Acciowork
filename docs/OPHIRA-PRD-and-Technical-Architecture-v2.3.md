@@ -441,6 +441,7 @@ Accio 同时也**抬高了 table stakes**：权限四态与审计日志、分层
 - 每个用户/项目的可写工作区、Claude 配置目录、会话和密钥隔离。
 - SDK worker 不得读取宿主 `~/.claude`、其他项目目录或其他租户凭据。（隔离必须同时覆盖 `setting_sources=[]`、`CLAUDE_CODE_DISABLE_AUTO_MEMORY=1` 和独立 `CLAUDE_CONFIG_DIR` 三件事——官方文档确认仅第一项不足以阻断 auto-memory 与 `~/.claude.json`。）
 - Bash 在 SDK sandbox + 受限进程/容器内运行，限制可写挂载、网络出口、进程、CPU、内存、时长和输出体积；`allowUnsandboxedCommands=False`。
+  当前应用层已有 Run 级持久活跃时长和 SDK 可见输出额度、原生单消息缓冲上限及超限清理，见 [资源限制](sdk-resource-limits.md)。这不等于 OS 级 CPU/内存/进程数、原始传输或磁盘配额；生产隔离要求仍未全部完成。
 - 密钥只以运行时环境注入，不进入提示词、事件、日志、文件和 MCP 参数。
 - 所有外部内容视为不可信数据；网页或文件中的"忽略系统要求"不得改变工具权限。
 - 危险命令、路径逃逸、凭据读取、持久化后门和绕过授权行为默认拒绝。
