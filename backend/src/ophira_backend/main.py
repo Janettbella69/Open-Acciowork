@@ -186,6 +186,7 @@ from .models import (
     CommercialActionRecord,
     CommercialActionReviewRequest,
     Connector,
+    ConnectorPublic,
     ConnectorUpsert,
     ConstraintAppend,
     CredentialActionRequest,
@@ -262,6 +263,7 @@ from .project_template_api import register_project_template_routes
 from .providers import (
     CONNECTOR_VAULT_FILENAME,
     MCP_VAULT_FILENAME,
+    WEIXIN_VAULT_FILENAME,
     FileSecretVault,
     ProviderConfigurationError,
     ProviderNotFoundError,
@@ -337,6 +339,11 @@ from .user_mcp import (
 )
 from .wecom_channel import WeComChannel
 from .wecom_delivery import WeComReplyAdapter
+from .weixin_accounts import WeixinStore
+from .weixin_api import install_weixin_routes
+from .weixin_channel import WeixinChannel
+from .weixin_delivery import WeixinReplyAdapter
+from .weixin_transport import WeixinTransport
 from .workspace_recovery_api import register_workspace_recovery_routes
 
 MAX_PROJECT_UPLOAD_BYTES = 50 * 1024 * 1024
@@ -481,12 +488,19 @@ def _create_app(
     channel_replays = ChannelReplayGuard(settings.data_dir / "channels" / "replays.json")
     event_triggers = EventTriggerStore(ledger)
     wecom_reply_adapter = WeComReplyAdapter(settings)
+    weixin_store = WeixinStore(
+        ledger, FileSecretVault(settings.data_dir / "secrets", WEIXIN_VAULT_FILENAME),
+        project_access, identity_mode=settings.auth_mode,
+        trusted_tenant_id=settings.trusted_gateway_tenant_id,
+    )
+    weixin_transport = WeixinTransport()
     channel_delivery = ChannelDeliveryService(
         ledger,
         ChannelDeliveryStore(settings.data_dir / "channel-deliveries"),
         channel_reply_adapter or FeishuReplyAdapter(settings),
         dingtalk_adapter=dingtalk_reply_adapter or DingTalkReplyAdapter(settings),
         wecom_adapter=wecom_reply_adapter,
+        weixin_adapter=WeixinReplyAdapter(weixin_store, weixin_transport),
         enabled=lambda: policy.get().channel_delivery_enabled,
         max_attempts=settings.feishu_delivery_max_attempts,
         retry_base_seconds=settings.feishu_delivery_retry_base_seconds,
@@ -603,6 +617,9 @@ def _create_app(
         settings, wecom_identity_bindings, channel_replays,
         channel_delivery, wecom_reply_adapter, runs, policy,
     )
+    weixin_channel = WeixinChannel(
+        weixin_store, weixin_transport, policy, channel_replays, runs, channel_delivery,
+    )
     scheduler = ScheduleService(
         ledger,
         runs,
@@ -625,6 +642,7 @@ def _create_app(
         feedback.reconcile_terminal(ledger)
         await channel_delivery.start()
         try:
+            await weixin_channel.start()
             await dingtalk_channel.start()
             try:
                 await wecom_channel.start()
@@ -659,12 +677,15 @@ def _create_app(
                 await dingtalk_channel.stop()
         finally:
             try:
-                await user_mcp.aclose_oauth_flows()
+                await weixin_channel.stop()
             finally:
                 try:
-                    await runs.stop()
+                    await user_mcp.aclose_oauth_flows()
                 finally:
-                    await channel_delivery.stop()
+                    try:
+                        await runs.stop()
+                    finally:
+                        await channel_delivery.stop()
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
@@ -708,6 +729,9 @@ def _create_app(
     application.state.dingtalk_channel = dingtalk_channel
     application.state.wecom_identity_bindings = wecom_identity_bindings
     application.state.wecom_channel = wecom_channel
+    application.state.weixin_store = weixin_store
+    application.state.weixin_transport = weixin_transport
+    application.state.weixin_channel = weixin_channel
     application.state.event_triggers = event_triggers
     application.state.commercial_actions = commercial_actions
     application.state.commercial_action_adapter = commercial_action_adapter
@@ -771,6 +795,10 @@ def _create_app(
     install_scoped_event_routes(
         application, project_events, providers, preflight_events,
         _request_principal, require_project_authorization,
+    )
+    install_weixin_routes(
+        application, weixin_store, weixin_transport, policy, _request_principal,
+        require_project_authorization, settings.auth_mode,
     )
 
     def require_memory_authorization(
@@ -2079,9 +2107,9 @@ def _create_app(
         _read_bounded_body, LOCAL_OPERATOR_ID,
     )
 
-    @application.get("/api/connectors", response_model=list[Connector])
-    async def list_connectors() -> list[Connector]:
-        return connectors.list()
+    @application.get("/api/connectors", response_model=list[ConnectorPublic])
+    async def list_connectors() -> list[ConnectorPublic]:
+        return connectors.list_public()
 
     @application.get("/api/projects/{project_id}/mcp/catalog")
     async def list_mcp_catalog(request: Request, project_id: str) -> list[dict[str, str]]:

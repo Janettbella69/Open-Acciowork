@@ -400,6 +400,7 @@ export type Connector = {
   display_name: string
   scope: string
   secret_env: string | null
+  secret_configured?: boolean
   endpoint: string | null
   enabled: boolean
   health: 'unknown' | 'ok' | 'no_credential' | 'unreachable'

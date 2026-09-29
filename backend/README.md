@@ -405,8 +405,28 @@ as a terminal uncertain outcome; inspect the conversation before a manual
 resend. Local tests cover binding/revocation, authenticated callback dispatch,
 SDK lifecycle, replay, offline recovery, and uncertain-send handling. A real
 WeCom tenant E2E, actual recipient delivery confirmation, and credential
-rotation acceptance remain outstanding. The separate WeChat channel path is
-still awaiting a product decision.
+rotation acceptance remain outstanding.
+
+### Weixin personal direct text (FR-24, local integration)
+
+Open **Plugins → Connectors → WeChat** to scan an official QR, save a project and
+separately enable the paired user's direct messages. Local projects and current
+gateway administrator bindings are supported. The organization channel-delivery
+switch must also be enabled. Historical messages before this activation do not
+start Runs. Rebinding invalidates old incoming messages and pending replies.
+
+The host polls Tencent's fixed HTTPS origin using its public protocol. Tokens and
+reply contexts remain in a dedicated private vault, with cross-process account
+leases, durable cursors and existing Run/delivery records. Uncertain sends are
+terminal and never automatically retried. No OpenClaw Agent runtime is imported.
+The official capability is direct chat; the original group @ acceptance and live
+personal-account validation remain open. See [Weixin details](../docs/weixin-channel.md).
+
+Offline acceptance (real loopback HTTP, synthetic Weixin and Agent responses):
+
+```bash
+PYTHONPATH=backend/src .venv/bin/python backend/scripts/run_weixin_e2e.py
+```
 
 Configure a model endpoint either via `backend/.env` (see `.env.example`; the values
 bootstrap an `environment` provider profile) or through the Settings page / Provider API,

@@ -343,6 +343,24 @@ def _purge_project_deletion(root: Path, plan: PurgePlan) -> dict:
     ):
         raise ProjectDeletionConflict("Project deletion does not match its durable intent")
     verify_purge_sources(root, plan)
+    # Personal Weixin accounts are deployment credentials, but the selected
+    # project's binding and private reply contexts must not survive erasure.
+    # The caller holds the project's exclusive lifecycle lease. This operation
+    # is idempotent when an interrupted erasure is resumed.
+    try:
+        read_relative(root, "channels/weixin/state.json", 4 * 1024 * 1024)
+    except FileNotFoundError:
+        pass
+    else:
+        from .auth import ProjectAccessStore
+        from .providers import WEIXIN_VAULT_FILENAME, FileSecretVault
+        from .storage import FileLedger
+        from .weixin_accounts import WeixinStore
+
+        WeixinStore(
+            FileLedger(root), FileSecretVault(root / "secrets", WEIXIN_VAULT_FILENAME),
+            ProjectAccessStore(root / "auth" / "projects"),
+        ).detach_project(plan.project_id)
     proof_path = f"project-deletions/{plan.project_id}/proofs.json"
     proof_bytes = _json_bytes(plan.proofs.model_dump(mode="json"))
     try:

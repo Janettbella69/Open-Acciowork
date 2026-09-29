@@ -827,6 +827,12 @@ class Connector(APIModel):
     created_at: datetime = Field(default_factory=utc_now)
 
 
+class ConnectorPublic(Connector):
+    """Derived generic secret presence; OAuth health remains adapter-owned."""
+
+    secret_configured: bool
+
+
 class SkillVersionResponse(APIModel):
     """Public Skill metadata; filesystem locations stay server-internal."""
 
@@ -2149,7 +2155,7 @@ class ConstraintAppend(APIModel):
 
 
 class ChannelInbound(APIModel):
-    channel: Literal["feishu", "dingtalk", "wecom", "wechat", "webhook"] = "webhook"
+    channel: Literal["feishu", "dingtalk", "wecom", "weixin", "webhook"] = "webhook"
     text: str = Field(min_length=1, max_length=40_000)
     project_id: str | None = None
     sender: str = Field(default="channel", max_length=160)

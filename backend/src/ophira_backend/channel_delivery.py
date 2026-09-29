@@ -128,7 +128,30 @@ class WeComReplyTarget(BaseModel):
     bot_id: str = Field(min_length=1, max_length=256)
 
 
-ChannelReplyTarget = FeishuReplyTarget | DingTalkReplyTarget | WeComReplyTarget
+class WeixinReplyTarget(BaseModel):
+    """Non-secret reply scope; context_token and bot token stay in the vault."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    channel: Literal["weixin"] = "weixin"
+    account_id: str = Field(pattern=r"^[A-Za-z0-9_-]{1,200}$")
+    account_revision: int = Field(ge=1)
+    bot_id: str = Field(min_length=1, max_length=256)
+    event_id: str = Field(min_length=1, max_length=200)
+    message_id: str = Field(pattern=r"^[0-9]{1,20}$")
+    chat_id: str = Field(min_length=1, max_length=256)
+    chat_type: Literal["single"] = "single"
+    sender_user_id: str = Field(min_length=1, max_length=256)
+    context_ref: str = Field(pattern=r"^[A-Za-z0-9_-]{1,200}$")
+
+    @model_validator(mode="after")
+    def single_recipient(self) -> WeixinReplyTarget:
+        if self.chat_id != self.sender_user_id:
+            raise ValueError("single chat recipient must match its sender")
+        return self
+
+
+ChannelReplyTarget = FeishuReplyTarget | DingTalkReplyTarget | WeComReplyTarget | WeixinReplyTarget
 
 
 class DeliveryTransition(BaseModel):
@@ -148,7 +171,7 @@ class ChannelDeliveryRecord(BaseModel):
     schema_version: Literal["1"] = "1"
     id: str = Field(pattern=r"^delivery_[a-f0-9]{40}$")
     idempotency_key: str = Field(min_length=1, max_length=50)
-    channel: Literal["feishu", "dingtalk", "wecom"] = "feishu"
+    channel: Literal["feishu", "dingtalk", "wecom", "weixin"] = "feishu"
     run_id: str = Field(min_length=1, max_length=160)
     project_id: str = Field(min_length=1, max_length=160)
     target: ChannelReplyTarget = Field(discriminator="channel")
@@ -592,7 +615,7 @@ class ChannelDeliveryStore:
                 record = self.get(snapshot.id)
                 if record.status != DeliveryStatus.ATTEMPTING:
                     continue
-                if record.channel in {"dingtalk", "wecom"}:
+                if record.channel in {"dingtalk", "wecom", "weixin"}:
                     recovered.append(
                         self.mark_failed(
                             record.id,
@@ -955,6 +978,7 @@ class ChannelDeliveryService:
         *,
         dingtalk_adapter: ChannelReplyAdapter | None = None,
         wecom_adapter: ChannelReplyAdapter | None = None,
+        weixin_adapter: ChannelReplyAdapter | None = None,
         enabled: Callable[[], bool] | None = None,
         max_attempts: int = 4,
         retry_base_seconds: float = 2.0,
@@ -966,6 +990,7 @@ class ChannelDeliveryService:
         self.adapter = adapter
         self.dingtalk_adapter = dingtalk_adapter
         self.wecom_adapter = wecom_adapter
+        self.weixin_adapter = weixin_adapter
         self.enabled = enabled or (lambda: True)
         self.max_attempts = max_attempts
         self.retry_base_seconds = retry_base_seconds
@@ -977,14 +1002,15 @@ class ChannelDeliveryService:
     def configured(self) -> bool:
         return self.adapter.configured
 
-    def _adapter_for(self, channel: Literal["feishu", "dingtalk", "wecom"]):
+    def _adapter_for(self, channel: Literal["feishu", "dingtalk", "wecom", "weixin"]):
         return {
             "feishu": self.adapter,
             "dingtalk": self.dingtalk_adapter,
             "wecom": self.wecom_adapter,
+            "weixin": self.weixin_adapter,
         }[channel]
 
-    def configured_for(self, channel: Literal["feishu", "dingtalk", "wecom"]) -> bool:
+    def configured_for(self, channel: Literal["feishu", "dingtalk", "wecom", "weixin"]) -> bool:
         adapter = self._adapter_for(channel)
         return adapter is not None and adapter.configured
 

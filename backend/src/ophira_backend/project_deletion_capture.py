@@ -434,6 +434,8 @@ def _capture_project_deletion(root: Path, project_id: str, *, limits=LIMITS) -> 
     rewrites, pair_ids = _capture_shared(capture, project, runs, notifications)
     retained = [
         "Shared Provider profiles, credentials, connectors and organization policy are retained.",
+        "Personal Weixin account credentials are retained; this project's binding and private "
+        "reply contexts are removed. Revoke the account separately to remove its credentials.",
         "User and Agent scope memories, other projects and their independent copied artifacts "
         "are retained.",
         "External messages, actions, downloaded exports and operator backups require "

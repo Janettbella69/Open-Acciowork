@@ -27,7 +27,7 @@ from .marketplaces import (
     parse_tiktok_shop_credentials,
     tiktok_oauth_vault_keys,
 )
-from .models import Connector, utc_now
+from .models import Connector, ConnectorPublic, utc_now
 from .outlook import OUTLOOK_SCOPE, outlook_oauth_vault_keys, parse_outlook_credentials
 from .providers import FileSecretVault
 from .shopify import (
@@ -94,13 +94,6 @@ CONNECTOR_CATALOG: list[dict[str, str | None]] = [
         "scope": TIKTOK_AUTH_SCOPE,
         "secret_env": "OPHIRA_CONNECTOR_TIKTOK_SHOP_KEY",
         "endpoint": TIKTOK_SHOP_ORIGIN,
-    },
-    {
-        "id": "wechat",
-        "type": "wechat",
-        "display_name": "WeChat",
-        "scope": "message:send docs:read",
-        "secret_env": "OPHIRA_CONNECTOR_WECHAT_KEY",
     },
     {
         "id": "feishu",
@@ -368,6 +361,21 @@ class ConnectorRegistry:
         if not path.exists():
             raise ConnectorNotFoundError(connector_id)
         return Connector.model_validate_json(path.read_text("utf-8"))
+
+    def list_public(self) -> list[ConnectorPublic]:
+        # A configuration card must not infer secret presence from a stale
+        # health probe. This derived bit is never written into connector records.
+        with self._transaction():
+            result = []
+            for connector in self.list():
+                configured = bool(self.vault and self.vault.get(connector.id))
+                if (not configured and connector.secret_env
+                        and check_connector_secret_env(connector.secret_env) is None):
+                    configured = bool(os.environ.get(connector.secret_env))
+                result.append(ConnectorPublic(
+                    **connector.model_dump(), secret_configured=configured,
+                ))
+            return result
 
     def upsert(
         self,

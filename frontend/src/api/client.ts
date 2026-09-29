@@ -68,6 +68,7 @@ import type {
 import type { ConversationDeletionOperation, ConversationDeletionPreview, ProjectDeletionOperation, ProjectDeletionPreview, ProjectDeletionRequest } from './projectDeletion'
 import type { GovernedMemory, MemoryExpiryUpdate, MemoryExport, MemoryTombstone } from '../types/MemoryGovernance'
 import type { EventScope, ScopedEventHistory } from './scopedEvents'
+import type { WeixinAccount, WeixinBinding, WeixinOverview, WeixinPairing } from './weixin'
 
 const configuredBaseUrl = import.meta.env.VITE_OPHIRA_API_URL?.trim() ?? ''
 export const apiBaseUrl = configuredBaseUrl.replace(/\/$/, '')
@@ -1451,6 +1452,42 @@ export function getScopedEventHistory(
 export function errorMessage(error: unknown): string {
   if (error instanceof Error) return error.message
   return 'The TradeMind backend returned an unknown error.'
+}
+
+export function getWeixinOverview(signal?: AbortSignal): Promise<WeixinOverview> {
+  return request('/api/channels/weixin', { signal, cache: 'no-store' })
+}
+
+export function createWeixinPairing(signal?: AbortSignal): Promise<WeixinPairing> {
+  return request('/api/channels/weixin/pairings', {
+    method: 'POST', body: '{}', signal, cache: 'no-store',
+  })
+}
+
+export function pollWeixinPairing(id: string, verifyCode?: string, signal?: AbortSignal): Promise<WeixinPairing> {
+  return request(`/api/channels/weixin/pairings/${encodeURIComponent(id)}/poll`, {
+    method: 'POST', body: JSON.stringify(verifyCode === undefined ? {} : { verify_code: verifyCode }),
+    signal, cache: 'no-store',
+  })
+}
+
+export function cancelWeixinPairing(id: string, signal?: AbortSignal): Promise<WeixinPairing> {
+  return request(`/api/channels/weixin/pairings/${encodeURIComponent(id)}`, {
+    method: 'DELETE', signal, cache: 'no-store',
+  })
+}
+
+export function saveWeixinBinding(id: string, binding: WeixinBinding, signal?: AbortSignal): Promise<WeixinAccount> {
+  return request(`/api/channels/weixin/accounts/${encodeURIComponent(id)}/binding`, {
+    method: 'PUT', body: JSON.stringify(binding), signal, cache: 'no-store',
+  })
+}
+
+export function revokeWeixinAccount(id: string, revision: number, signal?: AbortSignal): Promise<WeixinAccount> {
+  const query = new URLSearchParams({ expected_revision: String(revision) })
+  return request(`/api/channels/weixin/accounts/${encodeURIComponent(id)}?${query}`, {
+    method: 'DELETE', signal, cache: 'no-store',
+  })
 }
 
 export function listTaskExperiences(scheduleId: string): Promise<TaskExperienceLedger> {

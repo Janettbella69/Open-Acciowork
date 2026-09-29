@@ -354,7 +354,7 @@ Accio 同时也**抬高了 table stakes**：权限四态与审计日志、分层
 
 #### P1：紧随其后（v2.1 重排）
 
-- 在真实飞书/Lark 租户验收已实现的回复与 durable identity mapping，再补微信渠道；验收移动控制面已有的配对/设备信任和可选 Web Push，补原生推送、手机端实时进度和插话（FR-24/25）。
+- 在真实飞书/Lark 租户与微信账号验收已实现的身份绑定及回复；微信官方单聊已有本地实现，群内 @ 仍待官方支持与验收；验收移动控制面已有的配对/设备信任和可选 Web Push，补原生推送、手机端实时进度和插话（FR-24/25）。
 - 用真实 Provider/数据源验证 standing intent 自主 watcher 的长时运行；补齐真实渠道投递（FR-26、§4.16）。
 - 扩展 GUI L1/L2 的真实浏览器回归；L1/L2 smoke acceptance 已于 2026-09-03 通过，2026-09-24 又完成离线真实 Chromium/CDP 的禁止域脚本、私网/同源重定向及恢复子集；公网目标、Service Worker 攻击与更完整矩阵仍需验收（FR-20）。L3 见 P2（FR-42）。
 - 为媒体 MCP 配置并认证真实图像/视频生成商；对现有 Runway 视频适配做真实任务、成品质量与长时故障验证（FR-27）。
@@ -412,7 +412,7 @@ Accio 同时也**抬高了 table stakes**：权限四态与审计日志、分层
 | FR-21 | P1 | 连接器管理 | 管理能力、范围、凭据、健康状态与撤销；业务适配器按授权接入 | **部分实现**：catalog、vault、health/revoke、Chrome CDP，以及受 review/apply 治理的 HTTPS JSON `send_message` adapter；TikTok Shop、Shopify 店铺只读 adapter；TikTok Shop 卖家授权码/一次性 state/跨 worker 令牌刷新，以及 Shopify 组织外商家授权码、回调验证与可刷新限时离线令牌；Gmail 与 Outlook 只读 OAuth、项目邮箱授权与主 Agent Inbox 来源凭证均已本地实现。尚无授权 test-account 真实外发/商家同意验收及邮箱真账号/Provider 联调，TikTok Shop 真实卖家同意和原生 CRM/社媒垂直 adapter 仍缺失；HubSpot 官方 CRM MCP 已加入 FR-33 目录（本地 OAuth/只读审查），不等于原生适配器或真实账号验收 |
 | FR-22 | P2 | 组织治理 | 组织策略约束 Provider、Skill、浏览器、域和渠道，运行仍由一个主 Agent 负责 | **部分实现**：OrgPolicy、request-bound trusted-gateway principal、持久项目 membership/role 与 Provider/Skill/browser/channel 运行时门禁已有代码/测试；当前仅为单 deployment tenant，全球 store 未物理分租户且 `multi_tenant=false`。v2.3 按个人使用场景改为 P2 |
 | FR-23 | P0 | Web 能力降级 | 原生 Web 不可用时可走安全检索/抓取 MCP；能力等级显式呈现 | **部分实现**：Web MCP 有 URL/重定向/SSRF 防护与测试；真实搜索服务配置和 Provider 降级 E2E 未验证 |
-| FR-24 | P1 | IM 渠道 | 群内 @ 触发同一主 Agent Run，安全接收并回帖；支持权限与账本关联 | **部分实现**：飞书入站安全门、Run-bound 官方 reply adapter、durable delivery/retry，以及 signed-body tenant/chat/user → principal/project binding 均已本地实现并测试；尚无真实租户 E2E，微信未实现 |
+| FR-24 | P1 | IM 渠道 | 群内 @ 触发同一主 Agent Run，安全接收并回帖；支持权限与账本关联 | **部分实现**：飞书安全入站、身份绑定与持久回复；腾讯官方微信协议的扫码、绑定者单聊文字、项目显式启用、同主 Agent 与私有上下文回复均已本地实现。真实租户/账号 E2E 未完成；官方插件当前仅声明微信单聊，原微信群内 @ 要求仍未满足，见 `docs/weixin-channel.md` |
 | FR-25 | P1 | 移动远程审批与遥控 | 手机远程查看/批准权限、接收推送并发起任务，具备认证配对和设备信任；v2.3 增补：手机上能看到实时进度（当前步骤、截图和产物变化），并能插话（依赖 FR-31） | **部分实现**：项目范围配对、双端验证码批准、私有 cookie、设备过期/撤销、单次持久审批、可选任务发起、运行中插话和可选 Web Push 已有本地闭环；展开运行后按事件游标通过有界长等待更新步骤/SDK 任务清单/产物版本，等待中复验权限，设备专用受控接口预览已校验截图；原生推送、真实手机 HTTPS、长时和大历史性能验收未完成 |
 | FR-26 | P1 | 主动巡检与前瞻意图 | standing intent 带冷却、次数、过期和预算；条件成立才通知 | **已实现（本地代码/离线测试）**：用户授权、持久化调度/恢复、冷却/过期/触发与金额预算、Provider readiness、单主 Agent 条件评估、静默未命中、受控 trigger/inbox 与失败退避已闭环；尚未证明真实 Provider/数据源的判断质量与长时稳定性 |
 | FR-27 | P1 | 图像/视频生成 | 经认证生成商产生媒体，安全落盘为 Artifact，并与来源 Evidence/Run 关联 | **部分实现**：安全通用媒体接入和台账关联；官方 OpenAI Image API 单张 PNG、Runway Dev Gen-4.5 文字生成视频任务/续查/安全下载均有本地适配和离线合约测试。真实密钥、计费、成品质量与长时故障验收仍缺，不能宣称真实生成闭环；见 `docs/media-generation.md` |
@@ -426,7 +426,7 @@ Accio 同时也**抬高了 table stakes**：权限四态与审计日志、分层
 | FR-35 | P1 | 会话检索 | 用户和 Agent 可在项目内检索过去的会话和运行结果；只检索本项目并遵守权限；每条结果带 Run ID，可回溯到原运行 | **本地代码/测试已实现**：项目权限限定的有界 Run 提问/用户插话/主 Agent 回复/结果检索、只读 MCP 和 UI 精确 Run 回放；大历史的截断会明确提示，真实数据规模与浏览器验收待做 |
 | FR-36 | P1 | 首次使用引导 | 空状态页给出几个示例任务；一步步引导用户配置模型；新用户不看文档也能发起第一个任务（依据是目标用户为出海小白，不是对标产品） | **本地代码/测试已实现**：空状态示例与模型选择、设置页添加密钥/条款/预检/返回步骤；真实新用户可用性与 Provider 实测待做 |
 | FR-37 | P1 | 事件触发 | 外部事件可启动一次运行，例如收到询盘邮件、店铺来了新订单、调用了指定 webhook；每个触发器绑定项目、预算和权限策略；入站请求验证签名或来源并幂等去重；触发的运行仍是单主 Agent、走同一套权限，对外动作仍要先批准 | **部分实现（本地）**：项目级签名 webhook 与规范化询盘邮件/订单事件；Mailgun 收件路由原生表单验签、精确收件地址和持久去重；Shopify `orders/create` 原生验签入站、项目店铺授权绑定及管理员触发的订阅注册/核验/移除；Gmail Inbox watch、Pub/Sub 验证与 history 增量触发；Outlook Graph Inbox 通知订阅、私有 `clientState` 验证、持久入队/续订、项目分发、生命周期缺口标记、不确定注册远端核对及有界 delta 缺口补偿；HMAC/时间窗/持久去重、项目身份与预算/权限上限、前端管理；旧登记与超界缺口需人工核查，真实 Mailgun/Shopify/Gmail/Outlook/Provider 与公共 HTTPS 联调、其他店铺原生订阅及部署验收待做，见 `docs/event-triggers.md` |
-| FR-38 | P1 | 钉钉和企微渠道 | 在飞书、微信之后接入钉钉、企微，复用飞书的入站安全校验、身份绑定和回复投递；每接一个渠道都满足 FR-24 的验收标准 | **部分实现（本地）**：钉钉官方 Stream SDK 与企微官方智能机器人 SDK 的认证入站、精确身份绑定、Run 启动、持久回复与重放/断线防护已有离线测试；微信路径、两个真实租户端到端及实际送达/轮换验收待完成，见 `docs/prd-delivery-inventory.md` |
+| FR-38 | P1 | 钉钉和企微渠道 | 在飞书、微信之后接入钉钉、企微，复用飞书的入站安全校验、身份绑定和回复投递；每接一个渠道都满足 FR-24 的验收标准 | **部分实现（本地）**：钉钉官方 Stream SDK 与企微官方智能机器人 SDK 的认证入站、精确身份绑定、Run 启动、持久回复与重放/断线防护已有离线测试；微信官方单聊也已本地实现，原微信群内 @、各真实租户端到端及实际送达/轮换验收待完成，见 `docs/prd-delivery-inventory.md` |
 | FR-39 | P2 | 插件导入 | 支持导入官方插件格式（`.claude-plugin/plugin.json`，可带 Skills 和 MCP）；导入走现有安全扫描和人审；插件带的 MCP 受 FR-33 约束；插件里的子 Agent 定义不支持，导入时忽略并在结果里说明（红线：普通模式 `agents=None`） | **部分实现（本地）**：官方插件 ZIP 的多 Skill 暂存、逐件安全扫描/人审、远程 MCP 地址转入 FR-33 项目审核入口、子 Agent 与其它不支持组件明确忽略；Anthropic marketing 真包的 8 个 Skill 扫描通过、11 个远程 MCP 地址列出；仍缺远程 MCP/Provider 与部署验收，见 `docs/plugin-imports.md` |
 | FR-40 | P2 | 语音输入 | 先做语音输入，手机端优先；转写结果给用户确认后走普通消息流程 | **部分实现（本地）**：支持浏览器的语音识别接入手机任务/插话及工作台输入框，转写可编辑且需用户确认填入后再提交；真实手机麦克风、跨浏览器与 HTTPS 部署验收待做，见 `docs/voice-input.md` |
 | FR-41 | P2 | 发布网页 | 把产物发布成可访问的网页，例如商品落地页或独立站原型；发布属于对外动作，要先批准；发布的页面可以撤回 | **部分实现（本地）**：不可变 HTML 或受限站点 ZIP 产物暂存、沙箱预览、项目管理员明确批准、独立公网域名公开与撤回；逐版批准的脚本在无同源权限的沙箱中执行，ZIP 内 CSS/图片/WOFF 字体/MP4 与 WebM 视频、MP3/WAV 音频、经典 JS 及模块导入可经固定资产路径加载，ZIP 草稿通过短时只读预览地址加载无 Cookie 资源，既有发布仍保持静态；既有站点模式已由 Chromium 验证，音频目前通过本地 HTTP 和格式探测。其他资源类型、第三方远程资源及真实公网部署待做，见 `docs/site-publications.md` |
@@ -846,7 +846,7 @@ Prompt Injection 防线维持 v1.1：外部内容一律标记为不可信数据�
 | ✅ 本地实现 | 治理与账本 | 路径/删除/授权策略、OrgPolicy、Evidence/Decision/Artifact 来源 Run 关联、失效联动、事件脱敏及审计均有自动化测试 |
 | 🚧 部分实现 | Provider | Registry、Vault、隔离环境、预检、设置 UI 和错误分类已实现；2026-09-04 DeepSeek 真端点核心合约与 Green Path 3 连过，vision/无效凭据快速失败仍降级，其他厂商尚未逐一验证 |
 | 🚧 部分实现 | Browser | L1/L2 后端、域策略、SSRF/重定向防护、截图证据与 Chrome Connector 门禁已实现；2026-09-03 真实 Chromium/Chrome-CDP smoke acceptance 均通过；2026-09-24 离线真实 Chromium/CDP 安全回归 10/10 检查通过，公网/商家站点和更广泛攻击矩阵仍待验收；L3 拆为 FR-42（P2），单窗口截图与有限输入开发版部分实现 |
-| 🚧 部分实现 | Connectors/Channels | Connector catalog/vault/health/revoke、首个 HTTPS JSON `send_message` adapter、飞书安全入站、Run-bound 回复和 durable identity mapping 已本地实现；真实商业 test account 与真实飞书租户 E2E 均未完成，微信未实现 |
+| 🚧 部分实现 | Connectors/Channels | Connector catalog/vault/health/revoke、首个 HTTPS JSON `send_message` adapter、飞书安全入站、Run-bound 回复和 durable identity mapping 已本地实现；微信官方扫码、显式项目绑定及单聊文字/回复已本地实现。真实商业 test account、真实 IM 账号 E2E 与微信群内 @ 仍未完成 |
 | 🚧 部分实现 | Commercial actions | Host read receipt → server-hydrated stage → 独立 reviewer → apply/cancel、可信网关 tenant/principal/project role、策略版本/外部版本重检、跨进程原子审计、稳定幂等键和 execution receipt 已实现；匹配的 `send_message` 可走 HTTPS JSON adapter，重试/并发/双击/成功后本地落账失败恢复均有离线测试。仍未在授权 sandbox/test account 对真实第三方 endpoint 完成 E2E，其他商业 operation/connector 仍诚实停在 `not_executed` |
 | 🚧 部分实现 | 主动与移动 | Scheduler、自动化 MCP、standing intent 自主 watcher/恢复/预算/静默未命中、Inbox 和项目范围移动配对/设备撤销存在；真实 Provider/数据源长时质量、手机 HTTPS 验收和原生推送未完成；可选 Web Push 已实现 |
 | 🚧 部分实现 | Media/Office | 媒体安全接入与台账关联、Office 文件结构验证存在；2026-09-29 已补基础 Office 导出的 LibreOffice 渲染/目视 QA，见 `office-export.md`；真实媒体服务及更广泛 Office 质量仍待验收 |
@@ -875,7 +875,7 @@ Prompt Injection 防线维持 v1.1：外部内容一律标记为不可信数据�
 - **前瞻意图（本地闭环已实现）**：standing intent 已有用户授权的存储/API/MCP、冷却期、最大触发次数、过期时间、每次/总检查预算与自主 watcher；未命中只产生 `HEARTBEAT_OK` 并静默，命中只能通过绑定当前 Run 的受控 trigger 进收件箱。真实 Provider/数据源的判断质量与长时稳定性未验证。
 - **通知收件箱 + 渠道投递（部分实现）**：集中收件箱存在；尚未证明真实 IM/手机投递。
 - **移动远程审批（部分实现）**：已有独立项目范围 companion API、配对批准、设备过期/撤销和单次审批/任务控制和可选 Web Push；真实手机 HTTPS 验收和原生推送仍未完成，手机端实时进度和插话见 FR-25。部署与验证边界见 `docs/mobile-companion.md`。
-- **IM 渠道（部分实现）**：飞书入站安全门、同一主 Agent Run、Run-bound 官方回复、durable delivery/retry 和 signed-body identity mapping 已本地闭环；尚无真实飞书/Lark 租户 E2E，微信未实现。
+- **IM 渠道（部分实现）**：飞书入站安全门、同一主 Agent Run、Run-bound 官方回复、durable delivery/retry 和 signed-body identity mapping 已本地闭环；微信官方扫码、显式项目绑定、同主 Agent 的单聊文字与上下文回复已本地实现。真实飞书/Lark/微信账号 E2E、微信群内 @ 仍未完成。
 
 ---
 
@@ -907,7 +907,7 @@ Prompt Injection 防线维持 v1.1：外部内容一律标记为不可信数据�
 ### Phase 3：主动服务、渠道与连接器（v2.1 扩充）
 
 - 用真实 Provider/数据源对已有 standing intent 自主 watcher 做长时验证，并验证通知收件箱/真实渠道投递。
-- 在真实飞书/Lark 租户验收已有回复、身份绑定与权限行为，再实现微信，之后接钉钉和企微（FR-38）；验收移动配对/设备信任和可选 Web Push，补原生推送、手机端实时进度和插话（FR-25）。
+- 在真实飞书/Lark、微信、钉钉和企微账号验收已有回复、身份绑定与权限行为，补齐原微信群内 @ 要求（FR-24/38）；验收移动配对/设备信任和可选 Web Push，补原生推送、手机端实时进度和插话（FR-25）。
 - 扩展 L1/L2 真实浏览器回归；FR-42（P2）继续补齐 L3 广泛输入兼容、OS 权限治理、独立打包和真实窗口动作验收。
 - 用户接入 MCP 与连接器目录、事件触发、并行任务列表（FR-33、FR-37、FR-32）。
 - 为 Connector 扩展真实垂直业务适配器并完成授权 test-account E2E；为 Skill Registry 增加生产级备份、恢复演练与更细粒度审计。

@@ -9,6 +9,7 @@ import GmailConnector from './GmailConnector'
 import OutlookConnector from './OutlookConnector'
 import ShopifyConnector from './ShopifyConnector'
 import UserMcpPanel from './UserMcpPanel'
+import WeixinConnector from './WeixinConnector'
 import './connectors-page.css'
 
 function statusLabel(connector: Connector): string {
@@ -31,8 +32,11 @@ export default function ConnectorsPage() {
   const [notice, setNotice] = useState('')
   const [confirmingExport, setConfirmingExport] = useState('')
   const actionInFlightRef = useRef(new Set<string>())
-  const available = connectors.filter((item) => item.enabled).length
-  const configured = connectors.filter((item) => item.enabled && item.health === 'ok').length
+  const visibleConnectors = connectors.filter((item) => item.type !== 'wechat' || item.secret_configured !== false || !item.enabled)
+  const available = visibleConnectors.filter((item) => item.enabled).length
+  const configured = visibleConnectors.filter((item) => item.enabled && item.health === 'ok').length
+  const connectorLabel = (connector: Connector) => connector.type === 'wechat'
+    ? `${connector.display_name} · ${t('Existing manual connector')}` : connector.display_name
 
   useEffect(() => {
     let active = true
@@ -139,6 +143,8 @@ export default function ConnectorsPage() {
 
         <UserMcpPanel />
 
+        <WeixinConnector />
+
         {marketplaces.length > 0 && <section className="marketplace-guides" aria-label={t('Marketplace integrations')}>
           <h2>{t('Marketplace integrations')}</h2>
           <p>{t('TikTok Shop uses seller authorization separately from TikTok social access. The AliExpress guide covers AliExpress, separately from Alibaba.com.')}</p>
@@ -152,11 +158,11 @@ export default function ConnectorsPage() {
           <div><span>{t('Runtime integrations')}</span><h2 id="connectors-registry-title">{t('Connector registry')}</h2></div>
           {error && <p className="connectors-error" role="alert">{error}</p>}
           {notice && <p role="status">{notice}</p>}
-          {connectors.length > 0 && <div className="connector-credential-management">
+          {visibleConnectors.length > 0 && <div className="connector-credential-management">
             <h3>{t('Connector credential downloads')}</h3>
             <p>{t('A downloaded file contains unencrypted vault credentials, including active OAuth tokens when present. Host environment keys are managed by the operator and are not included.')}</p>
-            {connectors.map((connector) => <div key={connector.id} className="connector-credential-row">
-              <span>{connector.display_name}</span>{' '}
+            {visibleConnectors.map((connector) => <div key={connector.id} className="connector-credential-row">
+              <span>{connectorLabel(connector)}</span>{' '}
               <button type="button" disabled={Boolean(saving)} onClick={() => setConfirmingExport(connector.id)}>{t('Export credential…')}</button>
               {confirmingExport === connector.id && <p>
                 {t('Keep this file private; deleting OPHIRA data will not erase browser downloads.')}{' '}
@@ -167,9 +173,9 @@ export default function ConnectorsPage() {
           </div>}
           {loading ? (
             <div className="connectors-empty"><strong>{t('Loading connectors…')}</strong></div>
-          ) : connectors.length ? (
+          ) : visibleConnectors.length ? (
             <div className="connectors-list">
-              {connectors.map((connector) => connector.type === 'tiktok_shop' ? (
+              {visibleConnectors.map((connector) => connector.type === 'tiktok_shop' ? (
                 <MarketplaceConnector key={connector.id} connector={connector} onChange={replaceConnector} />
               ) : connector.type === 'shopify' ? (
                 <ShopifyConnector key={connector.id} connector={connector} onChange={replaceConnector} />
@@ -181,7 +187,8 @@ export default function ConnectorsPage() {
                 <article key={connector.id} data-enabled={connector.enabled ? 'true' : 'false'}>
                   <div className="connector-mark" aria-hidden="true">{connector.type.slice(0, 2).toUpperCase()}</div>
                   <div className="connector-copy">
-                    <header><div><h3>{connector.display_name}</h3><p>{connector.type} · {connector.scope}</p></div><span data-health={connector.health} data-enabled={connector.enabled ? 'true' : 'false'}>{t(statusLabel(connector))}</span></header>
+                    <header><div><h3>{connectorLabel(connector)}</h3><p>{connector.type} · {connector.scope}</p></div><span data-health={connector.health} data-enabled={connector.enabled ? 'true' : 'false'}>{t(statusLabel(connector))}</span></header>
+                    {connector.type === 'wechat' && <p>{t('This existing manual WeChat connector is separate from official QR authorization. Use the WeChat direct messages panel to connect an official account.')}</p>}
                     <dl>
                       <div><dt>{t('Credential')}</dt><dd>{connector.secret_env ?? t('No credential required')}</dd></div>
                       <div><dt>{t('Endpoint')}</dt><dd>{connector.endpoint ?? t('Managed by the connector')}</dd></div>

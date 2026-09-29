@@ -1,0 +1,20 @@
+{
+  "checks": {
+    "real_http_pair_confirm_explicit_local_binding": true,
+    "official_wire_fixture_to_real_run_durable_reply_ack": true,
+    "cursor_recovered_duplicate_does_not_rerun": true,
+    "rebind_rejects_old_incoming_and_old_reply": true,
+    "real_http_revoke_erases_credentials_and_blocks_reply": true,
+    "no_credentials_in_run_events_or_public_delivery": true
+  },
+  "fixture_http_requests": 5,
+  "boundaries": [
+    "Real Uvicorn loopback HTTP control plane, file ledger and RunManager.",
+    "Weixin HTTP wire requests/ACKs use MockTransport; DNS is an explicit fixture.",
+    "OfflineRuntime only: no SDK model request, paid Provider or real Weixin message.",
+    "Temporary data, synthetic credentials, no .env or production secret access.",
+    "Explicit poll_once calls; discovery lifecycle and races have separate tests.",
+    "Local-only identity; trusted-gateway authorization has separate contract tests.",
+    "Does not validate real QR scanning, upstream availability or model quality."
+  ]
+}

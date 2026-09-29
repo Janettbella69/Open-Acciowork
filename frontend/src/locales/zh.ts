@@ -22,9 +22,11 @@ import { outlookZh } from './outlook-zh'
 import { voiceZh } from './voice-zh'
 import { sitePublicationsZh } from './site-publications-zh'
 import { pluginImportsZh } from './plugin-imports-zh'
+import { weixinZh } from './weixin-zh'
 
 /** 中文字典：key = 英文原文。缺条目时界面回落英文（可见即可补）。 */
 export const zh: Record<string, string> = {
+  ...weixinZh,
   'Latest preflight': '最近一次预检',
   'No recorded preflight activity.': '暂无预检活动记录。',
   'Preflight updates for': '查看预检更新',

@@ -131,6 +131,13 @@ The directory includes a HubSpot CRM OAuth entry. It requires a HubSpot-created
 MCP connector and only registers known read tools after consent and live review;
 real HubSpot account acceptance remains open.
 
+**Plugins → Connectors → WeChat** supports official QR pairing and explicitly
+enabled, project-bound direct text messages from the scanning user. Results use
+the same main Agent and durable reply obligations. Tokens stay private, changing
+the binding invalidates old replies, and uncertain sends are not retried.
+Real-account and group @ acceptance remain open; see
+[`docs/weixin-channel.md`](docs/weixin-channel.md).
+
 Open **Project run metrics** in a saved workspace to inspect recent execution,
 latency, observed cost estimates, and Provider/Skill/tool groups. Missing data stays
 explicit; see [`docs/project-metrics.md`](docs/project-metrics.md).

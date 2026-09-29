@@ -34,13 +34,15 @@
 | FR-21 Connector | partial（本地）：Catalog/Vault/health/revoke、HTTPS JSON send_message；六平台官方入口，TikTok Shop授权店铺/商品与Shopify同组织及组织外商家店铺/商品/近期订单只读adapter；TikTok Shop卖家授权码、一次性state、卖家身份/权限校验及跨worker刷新本地闭环；Shopify组织外商家授权码、一次性state/HMAC回调、限时离线令牌及跨worker刷新本地闭环；Gmail 只读 OAuth/私有刷新令牌、项目邮箱限时授权/撤销、主 Agent Inbox 有界检索/MCP 来源凭证及管理员 UI；Outlook 委托只读 OAuth/刷新令牌、项目授权、主 Agent Inbox 有界纯文本分页、来源凭证及管理员 UI；项目店铺授权/到期/撤销、主 Agent 来源凭证与管理员 UI | deferred：CRM/社媒等垂直adapter、Gmail/Outlook 真账号 OAuth 与模型调用验证、Outlook Graph 订阅真实服务验收、TikTok Shop 真实卖家同意/HTTPS 回调/模型调用验收、真实Shopify商家同意与授权 test-account/模型调用验收/外发全链；API与浏览器数据自动合并 |
 | FR-22 组织治理 | delivered：单部署租户 principal/membership/策略；共享项目成员管理UI与版本冲突保护；持久团队讨论/回复/对象关联/编辑历史/解决状态；可复用项目模板、固定参考版本与来源、核对后创建和中断恢复；组织私有Skill导入人审、固定版本查看/导出、独立启停/恢复、跨进程凭证与冷备恢复 | deferred：真实身份网关联调、租户分区与隔离 runner、长期容量与浏览器目视验收 |
 | FR-23 Web 兜底 | delivered：Serper/Tavily 适配与 SSRF 防护 | deferred：真实配置搜索服务和 Provider 降级 E2E |
-| FR-24 IM | delivered：飞书签名入站/身份绑定/同 Agent/持久回复重试；重放认领跨 worker 原子化、状态损坏时拒绝 | deferred：真实飞书/Lark 租户 E2E；微信适配未实现 |
+| FR-24 IM | partial（本地）：飞书签名入站/身份绑定/同 Agent/持久回复重试；重放认领跨 worker 原子化、状态损坏时拒绝；腾讯官方微信协议的扫码授权、绑定者单聊文字、显式项目绑定/启用、同主 Agent/私有上下文回复与不确定送达终止重试，见 `docs/weixin-channel.md` | deferred：真实飞书/Lark 与微信账号 E2E、手机/浏览器验收；官方当前公开插件声明单聊，微信群内 @ 要求仍未满足，不能以单聊替代 |
 | FR-25 移动 | delivered（本地）：项目范围配对、双端验证码批准、私有 cookie 与设备撤销/过期；单次持久审批、可选任务发起和运行中插话；展开运行后用 20 秒有界长等待与事件游标更新当前步骤、SDK 原生任务清单及产物版本，等待中复验设备/项目权限，并通过设备专用接口预览已校验的运行截图；Web Push 订阅/加密 VAPID/授权复验/持久重试与状态 UI | deferred：真实手机 HTTPS/外部 Push/长期运行、native push 和 OS 防休眠未验收；大事件历史与大截图需性能验收 |
 | FR-26 主动服务 | delivered：授权 standing intent、只读 watcher、预算与持久 claim | deferred：真实数据/Provider 长时判断质量、有效变化触达 |
 | FR-27 媒体 | delivered（本地）：安全二进制接入与 Artifact/Evidence/Run；OpenAI Image API 固定端点、单张 PNG、有界流式 JSON/base64 校验；Runway Dev Gen-4.5 文字生成视频任务、持久续查、有界公网 HTTPS 下载和 MP4 校验，两个适配器均使用独立密钥及离线合约测试 | deferred：真实图像/视频账号、计费、成品质量及长时故障验收，见 `docs/media-generation.md` |
 | FR-28 澄清表单 | delivered：结构化问题与同任务约束回传 | 保持 UI/API 回归 |
 
 ## v2.3 增量要求（2026-09-23）
+
+2026-09-29 FR-24 微信增量：腾讯官方公开协议的扫码、绑定者单聊文字、独立项目绑定/启用、同主 Agent Run 与私有上下文回复已本地接通；迟到扫码确认、过期/取消、部署模式/租户/项目权限、重绑时间边界、游标去重、不确定送达不重试、撤销与项目删除清理均有回归。后端全量 `2747 passed / 14 skipped`，最后二维码异常及旧手填占位调整后相关回归 `125 passed`；前端最终全量 `618 passed / 63 files`，Ruff、ESLint、构建、依赖和差异检查通过。本地真实 Uvicorn HTTP 六项检查通过，微信协议与 Agent 使用明确测试替身（`evals/reports/weixin-channel-20260929.json`）；没有真实扫码/微信收发或模型调用，浏览器/手机目视未完成。官方插件只声明单聊，原微信群内 @ 仍未满足，FR-24 和完整 PRD 不能标记完成。
 
 以 `OPHIRA-PRD-and-Technical-Architecture-v2.3.md` §3.8 为准；delivered 仅表示本地代码/测试，不表示外部依赖和真实用户验收。
 
@@ -69,7 +71,7 @@
 | FR-35 会话检索 | delivered（本地）：项目内有界 Run 提问、用户插话、主 Agent 回复与结果检索，RUN_READ 校验、只读 MCP、Run ID 回放、有界续页搜索更早 Run 及跳过日志提示；单页仅保留 501 条候选 Run 元数据 | deferred：大历史 I/O 性能、浏览器与真实会话质量验收；单页仍读取所有本地 Run 元数据后过滤项目 |
 | FR-36 首次引导 | delivered（本地）：示例任务、模型选择及设置页密钥/条款/预检/返回步骤 | deferred：新用户可用性测试和实际 Provider 配置 E2E |
 | FR-37 事件触发 | partial（本地）：项目级 webhook/询盘邮件/店铺订单规范化事件入口；Mailgun 收件路由原生表单验签、精确收件地址绑定、Message-ID 与签名 token 持久去重；Shopify `orders/create` 原生 HMAC 入站、项目店铺授权绑定、去重与订阅注册/核验/移除；Gmail 只读 OAuth、Inbox watch 续期、已认证 Pub/Sub JWT 入站、history 增量/过期显式重置、项目触发器独立启用游标及持久去重；Outlook Graph Inbox `created` 订阅、`clientState` 验证/入队/续订、共享邮箱项目登记与 Run 幂等、生命周期缺口标记、不确定注册远端核对、私有 delta 游标与有界缺口补偿/自动同步；服务端公开 HTTPS 地址、项目/创建人权限复验、单 Run 预算与权限上限、单主 Agent 和现有人审流程及前端管理；见 `docs/event-triggers.md` | deferred：旧登记或超出有界窗口的 Outlook 缺口需人工核查；真实公共 HTTPS/Google/Microsoft OAuth 与 Pub/Sub/Mailgun/Shopify 联调、其他邮箱/店铺原生适配、Provider E2E、部署环境浏览器验收与更广崩溃故障矩阵；不确定投递不盲目重试 |
-| FR-38 钉钉/企微 | partial（本地）：钉钉官方 Stream SDK 验证回调接入、群 @ /单聊文字门禁、管理员绑定 corp/conversation/staff 至项目与成员、角色即时复验、跨 worker 去重与投递互斥、Run 结果经官方 robot API 回到原会话；企微官方智能机器人 SDK 验证 WebSocket 帧接入、群/单聊文字、bot/conversation/sender 精确绑定、Run 结果经主动发送命令回到会话，断线时未发送结果保持待处理；两者的无幂等字段投递异常停止自动重试并留痕；见 `backend/README.md` | deferred：钉钉及企微真实租户收发/权限/轮换 E2E 与实际送达确认；微信路径仍待确定。PRD 的微信先行顺序尚未满足 |
+| FR-38 钉钉/企微 | partial（本地）：钉钉官方 Stream SDK 验证回调接入、群 @ /单聊文字门禁、管理员绑定 corp/conversation/staff 至项目与成员、角色即时复验、跨 worker 去重与投递互斥、Run 结果经官方 robot API 回到原会话；企微官方智能机器人 SDK 验证 WebSocket 帧接入、群/单聊文字、bot/conversation/sender 精确绑定、Run 结果经主动发送命令回到会话，断线时未发送结果保持待处理；两者的无幂等字段投递异常停止自动重试并留痕；见 `backend/README.md` | deferred：钉钉及企微真实租户收发/权限/轮换 E2E 与实际送达确认；微信官方单聊路径已本地实现，原群内 @ 与真实验收仍未完成。PRD 的微信先行验收顺序尚未满足 |
 | FR-39 插件导入 | partial（本地）：官方插件 ZIP 多 Skill 拆分后复用私有仓库安全扫描和逐件人审；远程 MCP 地址引导至 FR-33 项目审批/逐工具策略，插件子 Agent 与其它可执行组件明确忽略；Anthropic marketing 真包的 8 个 Skill 扫描通过、11 个远程 MCP 地址列出；冷备报告/子 Skill 绑定校验；见 `docs/plugin-imports.md` | deferred：远程 MCP/Provider E2E、认证部署验收和更多真实包兼容性；OAuth、stdio MCP 和 Claude marketplace 安装机制不在当前 FR-33 远程 HTTPS 边界内 |
 | FR-40 语音输入 | partial（本地）：支持浏览器 SpeechRecognition 的手机任务/插话与工作台听写；语言选择、可编辑转写草稿、明确填入确认和原有提交路径；取消、页面隐藏及卸载中止录音，未提供音频上传端点；见 `docs/voice-input.md` | deferred：真实手机麦克风授权/转写质量、Safari/Android 与受限浏览器兼容、HTTPS 部署验收；不支持 Web Speech API 的浏览器目前仍需键盘听写或文字输入 |
 | FR-41 发布网页 | partial（本地）：不可变 HTML 或受限站点 ZIP 产物版本按校验和暂存，沙箱预览后由项目管理员明确批准；独立 HTTPS 域名公开、无缓存与表单隔离，持久撤回及项目删除清理；脚本须显式逐版审批，既有网页仍禁脚本；ZIP 内 CSS/图片/WOFF 字体/MP4 与 WebM 视频、MP3/WAV 音频、经典 JS 与模块导入经固定资产路径提供；ZIP 草稿使用五分钟、绑定修订和站点的只读预览地址加载无 Cookie 资源；既有站点模式已由 Chromium 验证，音频通过本地 HTTP 和格式探测；见 `docs/site-publications.md` | deferred：真实公网部署、缓存与跨浏览器验收；第三方远程资源及真实站点与长期容量仍待验收 |

@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 import re
+import stat
 import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -19,6 +20,7 @@ from .models import (
     ProviderProfileUpsert,
     utc_now,
 )
+from .skill_proposal_files import directory_fd, read_at
 
 MODEL_SECRET_NAMES = (
     "ANTHROPIC_API_KEY",
@@ -28,8 +30,10 @@ MODEL_SECRET_NAMES = (
 PROVIDER_VAULT_FILENAME = "provider-secrets.json"
 CONNECTOR_VAULT_FILENAME = "connector-secrets.json"
 MCP_VAULT_FILENAME = "mcp-secrets.json"
+WEIXIN_VAULT_FILENAME = "weixin-secrets.json"
 CREDENTIAL_VAULT_FILENAMES = (
     PROVIDER_VAULT_FILENAME, CONNECTOR_VAULT_FILENAME, MCP_VAULT_FILENAME,
+    WEIXIN_VAULT_FILENAME,
 )
 
 
@@ -78,8 +82,14 @@ class FileSecretVault:
     """Local key-vault port. The file is never served and is mode 0600."""
 
     def __init__(self, root: Path, filename: str = PROVIDER_VAULT_FILENAME) -> None:
-        self.root = root.resolve()
+        if re.fullmatch(r"[a-z][a-z0-9-]*\.json", filename) is None:
+            raise ValueError("invalid private vault filename")
+        # Resolve the application parent (including macOS /var aliases), never
+        # the secrets directory itself: a linked vault must fail before chmod.
+        self.root = root.parent.resolve() / root.name
         self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
+        with directory_fd(self.root):
+            pass
         self.path = self.root / filename
         self.lock_path = self.root / (filename + ".lock")
         self.deletion_register_path = self.root / (filename + ".deletion-register.json")
@@ -96,37 +106,64 @@ class FileSecretVault:
         self._register()
 
     def _secure(self) -> None:
-        try:
-            self.root.chmod(0o700)
-            self.path.chmod(0o600)
-        except OSError:
-            pass
+        with directory_fd(self.root) as parent:
+            os.fchmod(parent, 0o700)
+            descriptor = os.open(self.path.name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK,
+                                 dir_fd=parent)
+            try:
+                self._regular(descriptor)
+                os.fchmod(descriptor, 0o600)
+            finally:
+                os.close(descriptor)
+
+    @staticmethod
+    def _regular(descriptor: int):
+        info = os.fstat(descriptor)
+        if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+            raise ValueError("private vault files must be regular files without hard links")
+
+    def _read_json(self, path: Path, limit: int):
+        def unique(pairs):
+            result = {}
+            for key, value in pairs:
+                if key in result:
+                    raise ValueError("invalid private vault duplicate field")
+                result[key] = value
+            return result
+
+        with directory_fd(self.root) as parent:
+            raw = read_at(parent, path.name, limit)
+        return json.loads(raw, object_pairs_hook=unique)
 
     def _sync_root(self) -> None:
-        descriptor = os.open(self.root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
-        try:
+        with directory_fd(self.root) as descriptor:
             os.fsync(descriptor)
-        finally:
-            os.close(descriptor)
+
+    def _unlink(self, path: Path):
+        with directory_fd(self.root) as parent:
+            os.unlink(path.name, dir_fd=parent)
+            os.fsync(parent)
 
     def _atomic_json(self, path: Path, value: object) -> None:
         temporary = path.with_name(path.name + ".tmp")
-        descriptor = os.open(
-            temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
-            0o600,
-        )
-        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
-            json.dump(value, handle, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-            handle.write("\n")
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(temporary, path)
-        self._sync_root()
+        with directory_fd(self.root) as parent:
+            descriptor = os.open(
+                temporary.name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC,
+                0o600, dir_fd=parent,
+            )
+            with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+                json.dump(value, handle, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+                handle.write("\n")
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temporary.name, path.name, src_dir_fd=parent, dst_dir_fd=parent)
+            os.fsync(parent)
 
     def _read(self) -> dict[str, str]:
-        if not self.path.exists():
+        try:
+            data = self._read_json(self.path, 128 * 1024 * 1024)
+        except FileNotFoundError:
             return {}
-        data = json.loads(self.path.read_text(encoding="utf-8"))
         if not isinstance(data, dict) or any(
             not isinstance(key, str) or not isinstance(value, str)
             for key, value in data.items()
@@ -135,9 +172,10 @@ class FileSecretVault:
         return data
 
     def _register(self) -> tuple[int, str]:
-        if not self.deletion_register_path.exists():
+        try:
+            data = self._read_json(self.deletion_register_path, 4096)
+        except FileNotFoundError:
             return 0, "0" * 64
-        data = json.loads(self.deletion_register_path.read_text(encoding="utf-8"))
         return parse_credential_deletion_register(data)
 
     @staticmethod
@@ -154,18 +192,18 @@ class FileSecretVault:
         for path in (self.path, self.deletion_register_path, self.deletion_pending_path):
             temporary = path.with_name(path.name + ".tmp")
             if temporary.exists():
-                temporary.unlink()
+                self._unlink(temporary)
                 removed = True
         legacy_temporary = self.path.with_suffix(".tmp")
         if legacy_temporary.exists():
-            legacy_temporary.unlink()
+            self._unlink(legacy_temporary)
             removed = True
         if removed:
             self._sync_root()
         pending_path = self.deletion_pending_path
         if not pending_path.exists():
             return
-        pending = json.loads(pending_path.read_text(encoding="utf-8"))
+        pending = self._read_json(pending_path, 16 * 1024)
         if (
             not isinstance(pending, dict)
             or set(pending) != {
@@ -207,17 +245,19 @@ class FileSecretVault:
             self._atomic_json(self.deletion_register_path, {
                 "schema_version": 1, "count": next_state[0], "sha256": next_state[1],
             })
-        pending_path.unlink()
+        self._unlink(pending_path)
         self._sync_root()
 
     @contextmanager
     def _write_lock(self) -> Iterator[None]:
         with self._lock:
-            descriptor = os.open(
-                self.lock_path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW | os.O_CLOEXEC,
-                0o600,
-            )
+            with directory_fd(self.root) as parent:
+                descriptor = os.open(
+                    self.lock_path.name, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW | os.O_CLOEXEC,
+                    0o600, dir_fd=parent,
+                )
             try:
+                self._regular(descriptor)
                 fcntl.flock(descriptor, fcntl.LOCK_EX)
                 self._recover_deletion_locked()
                 yield
@@ -259,7 +299,7 @@ class FileSecretVault:
         self._atomic_json(self.deletion_register_path, {
             "schema_version": 1, "count": count + 1, "sha256": next_digest,
         })
-        self.deletion_pending_path.unlink()
+        self._unlink(self.deletion_pending_path)
         self._sync_root()
         self._secure()
 

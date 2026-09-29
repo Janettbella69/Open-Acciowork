@@ -8,6 +8,10 @@
 .connectors-header dt { color: #85898c; font-size: var(--ophira-type-small); }
 .connectors-header dd { margin: 6px 0 0; font-size: 24px; font-weight: 700; }
 .connectors-registry { margin-top: 64px; }
+.weixin-connector > p { color: #727679; line-height: 1.6; }
+.weixin-pairing { margin: 20px 0; border: 1px solid #e0e1e2; border-radius: 18px; padding: 22px 24px; }
+.weixin-pairing img { display: block; max-width: 100%; height: auto; background: #fff; }
+.weixin-pairing form { display: grid; max-width: 360px; gap: 12px; margin: 16px 0; }
 .marketplace-guides { margin-top: 40px; }
 .marketplace-guides > p, .marketplace-connector p { color: #727679; line-height: 1.6; }
 .marketplace-guides ul { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; padding: 0; list-style: none; }
