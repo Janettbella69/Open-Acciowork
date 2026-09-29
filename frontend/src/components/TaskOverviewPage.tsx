@@ -13,24 +13,43 @@ export default function TaskOverviewPage() {
   const [overview, setOverview] = useState<TaskOverview | null>(null)
   const [error, setError] = useState('')
   const latestRequest = useRef(0)
+  const mounted = useRef(false)
+  const inFlight = useRef<AbortController | null>(null)
 
-  const refresh = useCallback(async (signal?: AbortSignal) => {
+  const refresh = useCallback(async () => {
+    // Polls and repeated clicks share the current read. Starting a newer read
+    // every five seconds would discard all responses on a slower connection.
+    if (!mounted.current || inFlight.current) return
+    const controller = new AbortController()
+    inFlight.current = controller
+    const { signal } = controller
     const requestId = ++latestRequest.current
     try {
       const latest = await listTasks(signal)
-      if (signal?.aborted || requestId !== latestRequest.current) return
+      if (signal.aborted || requestId !== latestRequest.current) return
       setOverview(latest)
       setError('')
     } catch (cause) {
-      if (!signal?.aborted && requestId === latestRequest.current) setError(errorMessage(cause))
+      if (!signal.aborted && requestId === latestRequest.current) {
+        if (cause && typeof cause === 'object' && 'status' in cause && [401, 403].includes(Number(cause.status))) setOverview(null)
+        setError(errorMessage(cause))
+      }
+    } finally {
+      if (inFlight.current === controller) inFlight.current = null
     }
   }, [])
 
   useEffect(() => {
-    const controller = new AbortController()
-    void refresh(controller.signal)
-    const interval = window.setInterval(() => void refresh(controller.signal), 5_000)
-    return () => { controller.abort(); latestRequest.current += 1; window.clearInterval(interval) }
+    mounted.current = true
+    void refresh()
+    const interval = window.setInterval(() => void refresh(), 5_000)
+    return () => {
+      mounted.current = false
+      latestRequest.current += 1
+      inFlight.current?.abort()
+      inFlight.current = null
+      window.clearInterval(interval)
+    }
   }, [refresh])
 
   return <div className="task-overview-shell">

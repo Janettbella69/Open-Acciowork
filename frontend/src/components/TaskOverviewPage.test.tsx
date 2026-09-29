@@ -1,8 +1,9 @@
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { listTasks } from '../api/client'
 import type { TaskOverview } from '../api/taskOverview'
 import { I18nContext } from '../i18n'
+import { deferredPromise } from '../test/scopedEventFixtures'
 import TaskOverviewPage from './TaskOverviewPage'
 
 vi.mock('../api/client', () => ({
@@ -30,7 +31,8 @@ const overview: TaskOverview = {
   ],
 }
 
-beforeEach(() => { vi.clearAllMocks() })
+beforeEach(() => { vi.resetAllMocks() })
+afterEach(() => { cleanup(); vi.useRealTimers() })
 
 describe('task overview', () => {
   it('shows independent runs, approval counts, budgets, and exact run links', async () => {
@@ -61,16 +63,72 @@ describe('task overview', () => {
     expect(within(first).getByText('等待授权')).toBeVisible()
   })
 
-  it('keeps the newest refresh when an older request finishes later', async () => {
-    let finishOld!: (value: TaskOverview) => void
+  it('shares slow reads between polling and manual refresh, then applies each completed snapshot', async () => {
+    vi.useFakeTimers()
+    const first = deferredPromise<TaskOverview>()
+    const second = deferredPromise<TaskOverview>()
     vi.mocked(listTasks)
-      .mockImplementationOnce(() => new Promise((resolve) => { finishOld = resolve }))
-      .mockResolvedValueOnce({ ...overview, rows: [{ ...overview.rows[0], prompt: 'Newer result' }] })
+      .mockReturnValueOnce(first.promise)
+      .mockReturnValueOnce(second.promise)
     render(<TaskOverviewPage />)
     fireEvent.click(screen.getByRole('button', { name: 'Refresh' }))
-    expect(await screen.findByText('Newer result')).toBeVisible()
-    await act(async () => { finishOld(overview) })
+    await act(async () => vi.advanceTimersByTimeAsync(10_000))
+    expect(listTasks).toHaveBeenCalledTimes(1)
+    await act(async () => first.resolve(overview))
+    expect(screen.getByText('Find ceramics suppliers')).toBeVisible()
+    expect(screen.queryByText('Loading tasks…')).not.toBeInTheDocument()
+
+    await act(async () => vi.advanceTimersByTimeAsync(5_000))
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }))
+    await act(async () => vi.advanceTimersByTimeAsync(10_000))
+    expect(listTasks).toHaveBeenCalledTimes(2)
+    await act(async () => second.resolve({ ...overview, rows: [{ ...overview.rows[0], prompt: 'Newer result' }] }))
     expect(screen.getByText('Newer result')).toBeVisible()
     expect(screen.queryByText('Find ceramics suppliers')).not.toBeInTheDocument()
+  })
+
+  it.each([401, 403])('clears task prompts and results after HTTP %s and allows an authorized refresh', async (status) => {
+    const denied = deferredPromise<TaskOverview>()
+    vi.mocked(listTasks).mockResolvedValueOnce(overview).mockReturnValueOnce(denied.promise)
+      .mockResolvedValueOnce({ ...overview, rows: [] })
+    render(<TaskOverviewPage />)
+    await screen.findByText('Three revisions recommended.')
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }))
+    await act(async () => denied.reject(Object.assign(new Error('Task access denied'), { status })))
+    expect(screen.getByRole('alert')).toHaveTextContent('Task access denied')
+    expect(screen.queryByText('Three revisions recommended.')).not.toBeInTheDocument()
+    expect(screen.queryByText('Find ceramics suppliers')).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: /Listing project/ })).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }))
+    expect(await screen.findByText('No tasks yet. Start a new task to see it here.')).toBeVisible()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  it('retains the last snapshot during a temporary network failure', async () => {
+    vi.mocked(listTasks).mockResolvedValueOnce(overview).mockRejectedValueOnce(new Error('Network unavailable'))
+    render(<TaskOverviewPage />)
+    await screen.findByText('Three revisions recommended.')
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('Network unavailable')
+    expect(screen.getByText('Three revisions recommended.')).toBeVisible()
+  })
+
+  it('aborts a manual refresh on unmount and ignores its late response after remounting', async () => {
+    const old = deferredPromise<TaskOverview>()
+    vi.mocked(listTasks).mockResolvedValueOnce(overview).mockReturnValueOnce(old.promise)
+      .mockResolvedValueOnce({ ...overview, rows: [{ ...overview.rows[0], prompt: 'Current account task' }] })
+    const view = render(<TaskOverviewPage />)
+    await screen.findByText('Three revisions recommended.')
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh' }))
+    const signal = vi.mocked(listTasks).mock.calls[1][0]!
+    view.unmount()
+    expect(signal.aborted).toBe(true)
+
+    render(<TaskOverviewPage />)
+    await screen.findByText('Current account task')
+    await act(async () => old.resolve(overview))
+    expect(screen.getByText('Current account task')).toBeVisible()
+    expect(screen.queryByText('Three revisions recommended.')).not.toBeInTheDocument()
   })
 })
