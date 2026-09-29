@@ -1,0 +1,86 @@
+{
+  "scope": "Synthetic inputs; production Office writers and ASGI downloads; native rendering",
+  "libreoffice": "LibreOfficeDev 26.8.0.0.alpha0 2c87e51eeaa2b413ff4ae097b2705eea1995d8e5",
+  "font_directories": [
+    "/System/Library/Fonts"
+  ],
+  "visual_review": "pending; inspect every page PNG separately",
+  "cases": [
+    {
+      "file": "brief.docx",
+      "sha256": "1be7fa4cc657d4a08bf39e80c18195b11065a8b48788bf120b022aaabe937ee3",
+      "api_download": "passed",
+      "pages": 1,
+      "rendered_content": "passed",
+      "missing_inputs": []
+    },
+    {
+      "file": "long-brief.docx",
+      "sha256": "d15b402e0db5beda947cddcbb9cd2f9000373f56c47cce0896b58fb9d0795537",
+      "api_download": "passed",
+      "pages": 3,
+      "rendered_content": "passed",
+      "missing_inputs": []
+    },
+    {
+      "file": "findings.pptx",
+      "sha256": "48b0dae6748900a498e8960c5096625100267fc23f3f1a6710eb835591587827",
+      "api_download": "passed",
+      "pages": 5,
+      "rendered_content": "passed",
+      "missing_inputs": []
+    },
+    {
+      "file": "long-finding.pptx",
+      "sha256": "97f69e0de29375f995c4e4597400453e3d613faec35be66c6ba5980bf2ce5c84",
+      "api_download": "passed",
+      "pages": 4,
+      "rendered_content": "passed",
+      "missing_inputs": []
+    },
+    {
+      "file": "long-title.pptx",
+      "sha256": "9cc91ec1c1645322110b9a34b4e1567764073fcc48c83829d7da5962619dab83",
+      "api_download": "passed",
+      "pages": 1,
+      "rendered_content": "passed",
+      "missing_inputs": []
+    },
+    {
+      "file": "quantities.xlsx",
+      "sha256": "8f77155bc44ae55b2bac650fcdc416fda21fd111488e51c13a7625d417f7698d",
+      "api_download": "passed",
+      "pages": 2,
+      "rendered_content": "passed",
+      "missing_inputs": []
+    },
+    {
+      "file": "wide.xlsx",
+      "sha256": "c9a3995577608d29662e02c83d63ed70ec735f08a8bc81d333f17c33243af94a",
+      "api_download": "passed",
+      "pages": 4,
+      "rendered_content": "passed",
+      "missing_inputs": []
+    },
+    {
+      "file": "text.xlsx",
+      "sha256": "5bf0d39eade76d38078825e318dd6e4ffcb513553a18fda96f50b33f1bc9ac18",
+      "api_download": "passed",
+      "pages": 1,
+      "rendered_content": "passed",
+      "missing_inputs": []
+    },
+    {
+      "file": "long-headers.xlsx",
+      "sha256": "ad66daa55be346f3273a382e6e15fefce39ef444410cc9d3699374cf311419c7",
+      "api_download": "passed",
+      "pages": 1,
+      "rendered_content": "passed",
+      "missing_inputs": []
+    }
+  ],
+  "recalculation": {
+    "formula": "=SUM(C2:C31)",
+    "cached_total": 465
+  }
+}

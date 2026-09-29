@@ -11,7 +11,7 @@ import argparse
 import re
 from datetime import date, datetime
 from decimal import Decimal
-from math import ceil
+from math import ceil, floor
 from pathlib import Path
 from typing import TypeAlias
 from unicodedata import east_asian_width
@@ -19,6 +19,7 @@ from unicodedata import east_asian_width
 from docx import Document
 from docx.enum.section import WD_SECTION
 from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.oxml.ns import qn
 from docx.shared import Inches as DocxInches
 from docx.shared import Pt as DocxPt
 from openpyxl import Workbook
@@ -86,6 +87,18 @@ def _write_text_cell(cell: Cell, value: str) -> None:
     cell.data_type = "s"
 
 
+def _has_numeric_total_column(rows: list[list[CellValue]], column: int) -> bool:
+    values = [
+        _typed_value(row[column])
+        for row in rows
+        if column < len(row) and row[column] not in (None, "")
+    ]
+    return bool(values) and all(
+        isinstance(value, (int, float, Decimal)) and not isinstance(value, bool)
+        for value in values
+    )
+
+
 def write_xlsx(path: Path, headers: list[str], rows: list[list[CellValue]]) -> None:
     if not headers:
         raise ValueError("xlsx export requires at least one header")
@@ -108,13 +121,16 @@ def write_xlsx(path: Path, headers: list[str], rows: list[list[CellValue]]) -> N
     sheet.title = "Sheet1"
     sheet.sheet_view.showGridLines = False
     sheet.freeze_panes = "A2"
+    sheet.print_title_rows = "1:1"
+    if len(headers) > 1:
+        sheet.print_title_cols = "A:A"
 
     for column, header in enumerate(headers, start=1):
         cell = sheet.cell(row=1, column=column)
         _write_text_cell(cell, str(header))
         cell.font = Font(name="Arial", size=11, bold=True, color="FFFFFF")
         cell.fill = PatternFill("solid", fgColor=_NAVY)
-        cell.alignment = Alignment(vertical="center")
+        cell.alignment = Alignment(vertical="center", wrap_text=True)
     sheet.row_dimensions[1].height = 24
 
     for row_index, row in enumerate(rows, start=2):
@@ -129,8 +145,9 @@ def write_xlsx(path: Path, headers: list[str], rows: list[list[CellValue]]) -> N
                 cell.alignment = Alignment(horizontal="right", vertical="center")
                 if isinstance(value, (int, float, Decimal)) and not isinstance(value, bool):
                     cell.number_format = "#,##0.00" if isinstance(value, float) else "#,##0"
+            cell.font = Font(name="Arial", size=10)
 
-    if rows:
+    if _has_numeric_total_column(rows, len(headers) - 1):
         total_row = len(rows) + 2
         total_column = len(headers)
         if total_column > 1:
@@ -149,12 +166,21 @@ def write_xlsx(path: Path, headers: list[str], rows: list[list[CellValue]]) -> N
         total.border = Border(top=Side(style="thin", color=_TEAL))
 
     sheet.auto_filter.ref = f"A1:{get_column_letter(len(headers))}{len(rows) + 1}"
+    sheet.print_area = f"A1:{get_column_letter(len(headers))}{sheet.max_row}"
+    header_lines = 1
     for column, header in enumerate(headers, start=1):
         values = [str(header), *(str(row[column - 1]) for row in rows if column <= len(row))]
-        sheet.column_dimensions[get_column_letter(column)].width = min(
-            max(12, max(len(value) for value in values) + 2),
+        width = min(
+            max(12, _display_width(str(header)) * 1.1 + 3,
+                max(_display_width(value) for value in values) + 2),
             42,
         )
+        sheet.column_dimensions[get_column_letter(column)].width = width
+        header_lines = max(header_lines, sum(
+            max(1, ceil(_display_width(line) * 1.1 / (width - 3)))
+            for line in str(header).split("\n")
+        ))
+    sheet.row_dimensions[1].height = max(24, header_lines * 15 + 9)
     workbook.calculation.fullCalcOnLoad = True
     workbook.calculation.forceFullCalc = True
     workbook.properties.creator = "OPHIRA"
@@ -187,6 +213,13 @@ def write_docx(path: Path, title: str, paragraphs: list[str]) -> None:
     normal.paragraph_format.space_after = DocxPt(7)
     normal.paragraph_format.line_spacing = 1.15
 
+    # python-docx's built-in Title style carries a blue bottom border. Remove
+    # that inherited rule so the document uses only the explicit OPHIRA layout.
+    title_properties = document.styles["Title"]._element.get_or_add_pPr()
+    title_border = title_properties.find(qn("w:pBdr"))
+    if title_border is not None:
+        title_properties.remove(title_border)
+
     heading = document.add_paragraph(style="Title")
     heading.alignment = WD_ALIGN_PARAGRAPH.LEFT
     heading.paragraph_format.space_after = DocxPt(16)
@@ -211,16 +244,32 @@ def _set_slide_background(slide, color: str) -> None:
     background.fore_color.rgb = RGBColor.from_string(color)
 
 
-def _add_slide_title(slide, text: str, *, page: int | None = None) -> None:
-    box = slide.shapes.add_textbox(Inches(0.72), Inches(0.52), Inches(11.0), Inches(0.8))
+def _slide_title_layout(text: str) -> tuple[int, float, float]:
+    # Reserve actual title space before paginating the body. Using a fixed
+    # 0.8-inch box let accepted long CJK titles paint over the first card.
+    size = 30 if _display_width(text) <= 88 else 22
+    line_width = 44 if size == 30 else 62
+    lines = sum(
+        max(1, ceil(sum(_character_width(char) for char in line) / line_width))
+        for line in text.split("\n")
+    )
+    height = max(0.8, lines * size * 1.3 / 72 + 0.12)
+    content_top = max(1.45, 0.52 + height + 0.2)
+    if content_top > 5.4:
+        raise ValueError("pptx title has too many lines; combine lines or use a shorter title")
+    return size, height, content_top
+
+
+def _add_slide_title(slide, text: str, *, size: int, height: float, page: int | None) -> None:
+    box = slide.shapes.add_textbox(Inches(0.72), Inches(0.52), Inches(11.0), Inches(height))
     frame = box.text_frame
     frame.clear()
     frame.word_wrap = True
     paragraph = frame.paragraphs[0]
     paragraph.text = text
-    paragraph.font.name = "Aptos Display"
-    title_width = _display_width(text)
-    paragraph.font.size = Pt(30 if title_width <= 70 else 22 if title_width <= 140 else 16)
+    paragraph.font.name = "Arial"
+    paragraph.font.size = Pt(size)
+    paragraph.alignment = PP_ALIGN.LEFT
     paragraph.font.bold = True
     paragraph.font.color.rgb = RGBColor.from_string(_NAVY)
     if page is not None:
@@ -243,7 +292,7 @@ def _add_slide_title(slide, text: str, *, page: int | None = None) -> None:
 
 
 def _character_width(character: str) -> int:
-    return 2 if east_asian_width(character) in {"F", "W"} else 1
+    return 2 if east_asian_width(character) in {"F", "W"} or character in "WMmw@%" else 1
 
 
 def _display_width(text: str) -> int:
@@ -256,11 +305,11 @@ def _display_width(text: str) -> int:
 def _estimated_lines(text: str) -> int:
     return sum(
         max(1, ceil(sum(_character_width(character) for character in line) / _PPTX_LINE_WIDTH))
-        for line in text.split("\n")
+        for line in text.rstrip("\n").split("\n")
     )
 
 
-def _split_pptx_text(text: str) -> list[str]:
+def _split_pptx_text(text: str, *, max_lines: int = _PPTX_MAX_CARD_LINES) -> list[str]:
     """Split oversized card text without changing or dropping user content."""
     if not text:
         return [""]
@@ -281,9 +330,21 @@ def _split_pptx_text(text: str) -> list[str]:
             next_lines = lines + int(wrapped)
             next_width = width if wrapped else line_width + width
 
-        if next_lines > _PPTX_MAX_CARD_LINES and index > start:
-            chunks.append(text[start:index])
-            start = index
+        if next_lines > max_lines and index > start:
+            # Prefer paragraph boundaries, then whitespace. Preserve the exact
+            # input bytes across fragments without displaying a leading blank
+            # line or splitting ordinary words between continuation slides.
+            earliest = start + (index - start) * 2 // 3
+            newline = text.rfind("\n", earliest, index + 1)
+            split_at = newline + 1 if newline >= earliest else index
+            if newline < earliest:
+                for candidate in range(index - 1, earliest - 1, -1):
+                    if text[candidate].isspace():
+                        split_at = candidate + 1
+                        break
+            chunks.append(text[start:split_at])
+            start = split_at
+            index = split_at
             lines = 1
             line_width = 0
             continue
@@ -292,15 +353,19 @@ def _split_pptx_text(text: str) -> list[str]:
         line_width = next_width
         index += 1
 
-    chunks.append(text[start:])
+    if start < len(text):
+        chunks.append(text[start:])
     return chunks
 
 
-def _pptx_pages(bullets: list[str]) -> list[list[tuple[int, str]]]:
+def _pptx_pages(
+    bullets: list[str], *, content_height: float = _PPTX_CONTENT_HEIGHT,
+) -> list[list[tuple[int, str]]]:
+    max_lines = min(_PPTX_MAX_CARD_LINES, max(1, floor((content_height - 0.48) / 0.29)))
     cards = [
         (number, fragment)
         for number, item in enumerate(bullets, start=1)
-        for fragment in _split_pptx_text(str(item))
+        for fragment in _split_pptx_text(str(item), max_lines=max_lines)
     ]
     if not cards:
         return [[]]
@@ -313,7 +378,7 @@ def _pptx_pages(bullets: list[str]) -> list[list[tuple[int, str]]]:
         required_height = height + (_PPTX_CARD_GAP if page else 0)
         if page and (
             len(page) >= _PPTX_MAX_CARDS
-            or used_height + required_height > _PPTX_CONTENT_HEIGHT
+            or used_height + required_height > content_height
         ):
             pages.append(page)
             page = []
@@ -322,6 +387,16 @@ def _pptx_pages(bullets: list[str]) -> list[list[tuple[int, str]]]:
         page.append(card)
         used_height += required_height
     pages.append(page)
+    if len(pages) >= 2 and len(pages[-1]) == 1 and len(pages[-2]) >= 3:
+        previous_card = pages[-2][-1]
+        last_card = pages[-1][0]
+        combined_height = (
+            max(0.88, 0.48 + 0.29 * _estimated_lines(previous_card[1]))
+            + _PPTX_CARD_GAP
+            + max(0.88, 0.48 + 0.29 * _estimated_lines(last_card[1]))
+        )
+        if combined_height <= content_height:
+            pages[-1].insert(0, pages[-2].pop())
     return pages
 
 
@@ -338,19 +413,22 @@ def write_pptx(path: Path, title: str, bullets: list[str]) -> None:
     presentation.core_properties.title = title
     blank = presentation.slide_layouts[6]
 
-    pages = _pptx_pages(bullets)
+    title_size, title_height, content_top = _slide_title_layout(title)
+    pages = _pptx_pages(bullets, content_height=6.6 - content_top)
     for slide_index, page in enumerate(pages, start=1):
         slide = presentation.slides.add_slide(blank)
         _set_slide_background(slide, "F7FAFC")
         _add_slide_title(
             slide,
-            title if len(pages) == 1 else f"{title} · {slide_index}",
+            title,
+            size=title_size,
+            height=title_height,
             page=slide_index if len(pages) > 1 else None,
         )
         if not page:
             continue
 
-        top = 1.45
+        top = content_top
         for number_value, item in page:
             card_height = max(0.88, 0.48 + 0.29 * _estimated_lines(item))
             number = slide.shapes.add_shape(
@@ -388,7 +466,8 @@ def write_pptx(path: Path, title: str, bullets: list[str]) -> None:
             card.text_frame.word_wrap = True
             paragraph = card.text_frame.paragraphs[0]
             paragraph.text = str(item)
-            paragraph.font.name = "Aptos"
+            paragraph.alignment = PP_ALIGN.LEFT
+            paragraph.font.name = "Arial"
             paragraph.font.size = Pt(17)
             paragraph.font.color.rgb = RGBColor.from_string(_NAVY)
             top += card_height + _PPTX_CARD_GAP

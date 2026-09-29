@@ -20,6 +20,11 @@ work on exhaustion and excluding native suspended approval waits. See
 [SDK resource limits](../docs/sdk-resource-limits.md) for configuration and the
 remaining OS isolation requirements.
 
+Office exports have a reproducible native LibreOffice/Poppler acceptance runner
+covering immutable downloads, Chinese text, pagination and formula recalculation.
+See [Office export acceptance](../docs/office-export.md) for the command, retained
+rendered evidence and remaining cross-client/live-model verification.
+
 From the repository root (the venv must live at the repo root; rebuild it with `--clear`
 after moving or renaming the repo, because venv shebangs hardcode absolute paths):
 

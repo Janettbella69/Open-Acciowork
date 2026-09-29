@@ -404,7 +404,7 @@ Accio 同时也**抬高了 table stakes**：权限四态与审计日志、分层
 | FR-13 | P0 | 权限 | 路径/工具/副作用策略、once/run/persistent 授权、删除强制确认、Auto 模式和审计 | **已实现**（本地代码/测试）：工作台可切换 SDK 原生 default、auto 两档授权模式；权限等待可持久挂起并跨进程恢复 |
 | FR-14 | P0 | 记忆 | 仅提案可进入稳定记忆；审批、撤回、来源、容量与当前运行蒸馏受控 | **已实现**（本地代码/测试）：除人审/版本外，已有绝对 expiry/TTL、过期召回排除、确定性 request-signal retrieval、授权 JSON 导出、tombstone-first 硬删除与启动恢复；不等同于真实模型召回质量或基础设施备份擦除 |
 | FR-15 | P0 | 自动化与主动链路 | 计划任务、错过运行/重叠治理、静默结果、通知收件箱和渠道投递 | **部分实现**：Scheduler、API/UI、自动化 MCP、standing watcher、收件箱和飞书 Run-bound 回复投递均有本地闭环；真实 Provider/数据源长期运行、真实飞书租户投递及移动推送未验证 |
-| FR-16 | P0 | 产物 | Artifact 记录版本、来源运行和证据；支持常用文本及 DOCX/XLSX/PPTX 导出 | **部分实现**：文件台账、下载、不可变版本、文本编辑与修改对比、Office 结构验证已实现；环境无 LibreOffice 可视 QA，未证明版式质量 |
+| FR-16 | P0 | 产物 | Artifact 记录版本、来源运行和证据；支持常用文本及 DOCX/XLSX/PPTX 导出 | **部分实现**：文件台账、下载、不可变版本、文本编辑与修改对比、Office 结构验证已实现；2026-09-29 的 9 组基础导出经真实 LibreOffice 渲染与 22 页目视复验，长标题避让、段落分页、中英文表头及公式重算通过，见 `office-export.md`；真实模型连续编辑、浏览器验收及跨 Office 客户端/复杂布局质量仍未证明 |
 | FR-17 | P0 | 运行可观测性 | 事件带项目/Run/Trace/Session 关联；记录工具、授权、资源和错误且不暴露私有思维链 | **已实现**（本地代码/测试）：每次运行显示 SDK 估算花费（不是厂商账单），另有项目近 7/30 天运行指标面板 |
 | FR-18 | P0 | 错误恢复 | 失败保留证据与产物，可重试/分支恢复，并分类 Provider/MCP/权限/网络错误 | **已实现**（本地代码/测试）：含运行前工作区快照、Bash 修改恢复，经人确认后恢复 |
 | FR-19 | P0/Beta | Deep Research | 显式启用恰好 3 个只读研究子代理；共享主 Run 预算、统一取消、墙钟时限；不设轮数上限；仅主 Agent 写最终台账 | **已实现**（本地代码/测试）：输入框显式开关、运行中资源面板（共享预算、已报告花费、剩余预算）；真实 DeepSeek 合成来源上的三单元验收已通过，开放互联网研究质量未验收 |
@@ -849,7 +849,7 @@ Prompt Injection 防线维持 v1.1：外部内容一律标记为不可信数据�
 | 🚧 部分实现 | Connectors/Channels | Connector catalog/vault/health/revoke、首个 HTTPS JSON `send_message` adapter、飞书安全入站、Run-bound 回复和 durable identity mapping 已本地实现；真实商业 test account 与真实飞书租户 E2E 均未完成，微信未实现 |
 | 🚧 部分实现 | Commercial actions | Host read receipt → server-hydrated stage → 独立 reviewer → apply/cancel、可信网关 tenant/principal/project role、策略版本/外部版本重检、跨进程原子审计、稳定幂等键和 execution receipt 已实现；匹配的 `send_message` 可走 HTTPS JSON adapter，重试/并发/双击/成功后本地落账失败恢复均有离线测试。仍未在授权 sandbox/test account 对真实第三方 endpoint 完成 E2E，其他商业 operation/connector 仍诚实停在 `not_executed` |
 | 🚧 部分实现 | 主动与移动 | Scheduler、自动化 MCP、standing intent 自主 watcher/恢复/预算/静默未命中、Inbox 和项目范围移动配对/设备撤销存在；真实 Provider/数据源长时质量、手机 HTTPS 验收和原生推送未完成；可选 Web Push 已实现 |
-| 🚧 部分实现 | Media/Office | 媒体安全接入与台账关联、Office 文件结构验证存在；无已配置真实媒体生成商，也无 LibreOffice 可视 QA |
+| 🚧 部分实现 | Media/Office | 媒体安全接入与台账关联、Office 文件结构验证存在；2026-09-29 已补基础 Office 导出的 LibreOffice 渲染/目视 QA，见 `office-export.md`；真实媒体服务及更广泛 Office 质量仍待验收 |
 | ✅ 实现并有调用证明 | Skills | 发现、启停、测试、安全校验、内容寻址历史、存储配额、Run 快照、只读运行时物化、活跃会话租约和人工回滚均有本地测试；2026-09-04 DeepSeek Green Path 连续 3 轮实际调用当前 Plugin Skill，回滚后真端点重跑仍待验收 |
 | 🚧 部分实现 | 交互与扩展（v2.3 新增） | 计划模式、任务进度清单、运行中插话、并行任务列表、用户接入 MCP、会话检索、首次使用引导与签名事件触发已有本地代码/测试；真实服务验收及钉钉、企微等仍未实现或仅有局部入口（FR-29～FR-41），对标依据见 §2.6 |
 | ❌ 未证明 | 生产 E2E | Browser L1/L2 与 DeepSeek Agent Green Path 已分别完成真实验收；仍未证明真实商业 connector 副作用全链、真实飞书租户、真实生成商或生产多租户可用，所有上线声明仍须独立验收 |
@@ -889,7 +889,7 @@ Prompt Injection 防线维持 v1.1：外部内容一律标记为不可信数据�
 2. **P0-2（已完成：当前固定链路）**：3 轮均验证文件/Web/Skill/MCP/Bash/Write/Edit、权限 ask/deny/continue、SSE 重连与会话恢复；普通模式无支线 Agent 事件。
 3. **P0-3（已完成：DeepSeek 首批报告）**：`provider-contract-deepseek-20260904.{json,md}` 记录模型身份、工具、Web/视觉能力、错误行为、费用与会话能力；七项核心通过，vision 和无效凭据快速失败明确降级。
 4. **P0-4**：L1/L2 真实浏览器 smoke acceptance 已通过；离线真实 Chromium/CDP 已覆盖禁止域资源、私网/同源重定向及失败后清理/恢复子集。下一步继续扩大 Service Worker、弹窗、真实公网重定向与恶意站点矩阵；L3 另行实现，不能借 L1/L2 的结果宣称三级完成。
-5. **P0-5**：对 DOCX/XLSX/PPTX 增加 LibreOffice 渲染/目视 QA；当前不可变 Skill 快照的发现与调用已有真实 Provider 证明，回滚后重跑仍待专项验收。
+5. **P0-5**：对 DOCX/XLSX/PPTX 增加 LibreOffice 渲染/目视 QA（2026-09-29 基础导出 9 组/22 页已通过，见 `office-export.md`；复杂真实资料和跨客户端仍待验收）；当前不可变 Skill 快照的发现与调用已有真实 Provider 证明，回滚后重跑仍待专项验收。
 
 完成门槛（不变）：同一主 Agent 在隔离样例项目中搜索网页、读文件、运行计算脚本、写/改产物、调用 Skill/MCP，并按要求请求授权；过程中没有普通 Client SDK 或工作流框架。
 
