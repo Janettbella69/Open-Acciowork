@@ -830,7 +830,7 @@ Prompt Injection 防线维持 v1.1：外部内容一律标记为不可信数据�
 
 2026-09-19 增量实现：`evidence.added`、`decision.recorded`、`artifact.registered/updated` 和 `memory.proposed` 均由已提交且具真实来源 Run 的记录生成，可在通知失败后补发并跨进程去重；产物登记实时触发工作台刷新，保存新版本可下载对应不可变内容，记忆提案提供独立人审入口。这些资源通知仅带标识、版本和时间，不复制正文，不把历史提案当成当前审批状态；没有来源 Run 的人工变更不伪造事件。实现与验收边界见 `resource-events.md`。
 
-仍缺 `provider.preflight.started/passed/failed`、`schedule.skipped/completed/failed` 细分及无 Run 的项目变更通知。UI 不展示私有思维链；Provider 提供的公开 reasoning summary（现配置 `display:"summarized"`）按普通内容安全过滤并明确标识。指标管道可选接官方 OTel 导出。
+2026-09-29 增量实现：无 Run 的 `project.changed`、`provider.preflight.started/passed/failed` 及 `schedule.fired/skipped/completed/failed/cancelled` 已接入独立、持久、授权的作用域事件流；项目修订补发、调度失败决策恢复、预检配置版本校验和前端消费见 `scoped-events.md`。有真实 Run 时保留原始关联，无 Run 时相关 envelope 字段可空，不虚构商业任务。大历史性能、生产代理/负载和浏览器目视仍待验收。UI 不展示私有思维链；Provider 提供的公开 reasoning summary（现配置 `display:"summarized"`）按普通内容安全过滤并明确标识。指标管道可选接官方 OTel 导出。
 
 ### 4.13 部署拓扑（不变，两处更新）
 

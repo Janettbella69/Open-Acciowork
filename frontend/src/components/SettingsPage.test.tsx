@@ -3,6 +3,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { MemoryItem, OrgPolicy, PermissionGrant, ProviderProfile } from '../api/types'
 import { I18nContext } from '../i18n'
 import SettingsPage from './SettingsPage'
+import { useScopedEvents } from '../api/useScopedEvents'
+import { deferredPromise, scopedEvent } from '../test/scopedEventFixtures'
+
+vi.mock('../api/useScopedEvents', () => ({ useScopedEvents: vi.fn(() => ({ events: [], status: 'live', error: '', refresh: vi.fn() })) }))
 
 vi.mock('../api/client', () => ({
   listProviders: vi.fn(),
@@ -116,15 +120,18 @@ function stubLocalStorage() {
   return stored
 }
 
+let storedProviders: ProviderProfile[]
+
 beforeEach(() => {
   vi.clearAllMocks()
-  vi.mocked(listProviders).mockResolvedValue([deepseekProfile])
+  storedProviders = [deepseekProfile]
+  vi.mocked(listProviders).mockImplementation(async () => storedProviders)
   vi.mocked(listMemory).mockResolvedValue([proposedMemory])
-  vi.mocked(saveProvider).mockImplementation(async (id, input) => ({
-    ...deepseekProfile,
-    id,
-    display_name: input.display_name,
-  }))
+  vi.mocked(saveProvider).mockImplementation(async (id, input) => {
+    const saved = { ...deepseekProfile, id, display_name: input.display_name }
+    storedProviders = [...storedProviders.filter((item) => item.id !== id), saved]
+    return saved
+  })
   vi.mocked(preflightProvider).mockResolvedValue({
     provider_profile_id: 'deepseek',
     ok: true,
@@ -137,8 +144,10 @@ beforeEach(() => {
     checked_at: '2026-08-20T12:00:00Z',
   })
   vi.mocked(downloadProviderCredential).mockResolvedValue(new Blob(['private-provider-key']))
-  vi.mocked(revokeProviderCredential).mockResolvedValue({
-    ...deepseekProfile, secret_configured: false, last_verified_at: null,
+  vi.mocked(revokeProviderCredential).mockImplementation(async (id) => {
+    const revoked = { ...deepseekProfile, id, secret_configured: false, last_verified_at: null }
+    storedProviders = storedProviders.map((item) => item.id === id ? revoked : item)
+    return revoked
   })
   vi.mocked(getOrgPolicy).mockResolvedValue(orgPolicy)
   vi.mocked(getDesktopStatus).mockRejectedValue(new Error('Desktop host unavailable'))
@@ -174,7 +183,7 @@ describe('SettingsPage · provider management', () => {
     stubLocalStorage()
     render(<SettingsPage />)
 
-    const row = (await screen.findByText('DeepSeek (api.deepseek.com)')).closest('article')!
+    const row = (await screen.findByText('DeepSeek (api.deepseek.com)', { selector: 'strong' })).closest('article')!
     expect(within(row).getByText(/deepseek-v4-pro/)).toBeInTheDocument()
     expect(within(row).getByText(/key configured/i)).toBeInTheDocument()
     expect(within(row).getByText(/verified/i)).toBeInTheDocument()
@@ -193,7 +202,7 @@ describe('SettingsPage · provider management', () => {
     const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
     try {
       render(<SettingsPage />)
-      const row = (await screen.findByText('DeepSeek (api.deepseek.com)')).closest('article')!
+      const row = (await screen.findByText('DeepSeek (api.deepseek.com)', { selector: 'strong' })).closest('article')!
       fireEvent.click(within(row).getByRole('button', { name: 'Export key…' }))
       expect(within(row).getByText(/unencrypted copy/)).toBeInTheDocument()
       expect(downloadProviderCredential).not.toHaveBeenCalled()
@@ -217,7 +226,7 @@ describe('SettingsPage · provider management', () => {
   it('saves edits without echoing or resending a blank secret', async () => {
     stubLocalStorage()
     render(<SettingsPage />)
-    const row = (await screen.findByText('DeepSeek (api.deepseek.com)')).closest('article')!
+    const row = (await screen.findByText('DeepSeek (api.deepseek.com)', { selector: 'strong' })).closest('article')!
 
     fireEvent.click(within(row).getByRole('button', { name: /edit/i }))
     const form = screen.getByRole('form', { name: /provider editor/i })
@@ -251,7 +260,7 @@ describe('SettingsPage · provider management', () => {
       checked_at: '2026-08-20T12:00:00Z',
     })
     render(<SettingsPage />)
-    const row = (await screen.findByText('DeepSeek (api.deepseek.com)')).closest('article')!
+    const row = (await screen.findByText('DeepSeek (api.deepseek.com)', { selector: 'strong' })).closest('article')!
 
     fireEvent.click(within(row).getByRole('button', { name: /run preflight/i }))
 
@@ -424,7 +433,7 @@ describe('SettingsPage · local preferences', () => {
   it('keeps high-risk access disabled until the user enables it', async () => {
     const stored = stubLocalStorage()
     render(<SettingsPage />)
-    await screen.findByText('DeepSeek (api.deepseek.com)')
+    await screen.findByText('DeepSeek (api.deepseek.com)', { selector: 'strong' })
 
     const fullAccess = screen.getByRole('switch', { name: /full access/i })
     expect(fullAccess).not.toBeChecked()
@@ -452,11 +461,64 @@ describe('SettingsPage · local preferences', () => {
       </I18nContext.Provider>,
     )
 
-    const row = (await screen.findByText('DeepSeek (api.deepseek.com)')).closest('article')!
+    const row = (await screen.findByText('DeepSeek (api.deepseek.com)', { selector: 'strong' })).closest('article')!
     expect(within(row).getByText('密钥已配置')).toBeInTheDocument()
     expect(within(row).getByRole('button', { name: '运行预检' })).toBeInTheDocument()
     expect(screen.getByRole('navigation', { name: '设置分区' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '批准' })).toBeInTheDocument()
     expect(screen.getByRole('combobox', { name: '插件访问权限' })).toBeInTheDocument()
   })
+})
+
+it('watches only the selected Provider history, even when several providers are listed', async () => {
+  vi.mocked(listProviders).mockResolvedValue([deepseekProfile, { ...deepseekProfile, id: 'other', display_name: 'Other provider' }])
+  render(<SettingsPage />)
+  const selector = await screen.findByRole('combobox', { name: 'Preflight updates for' })
+  expect(screen.getAllByRole('region', { name: 'Latest preflight' })).toHaveLength(1)
+  expect(vi.mocked(useScopedEvents).mock.calls.every(([options]) => options.id === 'deepseek')).toBe(true)
+  fireEvent.change(selector, { target: { value: 'other' } })
+  expect(screen.getAllByRole('region', { name: 'Latest preflight' })).toHaveLength(1)
+  expect(vi.mocked(useScopedEvents).mock.calls.at(-1)![0]).toMatchObject({ scope: 'provider', id: 'other' })
+})
+
+it.each(['save', 'revoke'] as const)('keeps a committed Provider %s when an older stream refresh resolves late', async (action) => {
+  const oldRead = deferredPromise<ProviderProfile[]>()
+  const write = deferredPromise<ProviderProfile>()
+  const freshRead = deferredPromise<ProviderProfile[]>()
+  const updated = action === 'save'
+    ? { ...deepseekProfile, display_name: 'Updated provider' }
+    : { ...deepseekProfile, secret_configured: false, last_verified_at: null }
+  vi.mocked(listProviders).mockResolvedValueOnce([deepseekProfile])
+    .mockReturnValueOnce(oldRead.promise).mockReturnValue(freshRead.promise)
+  vi.mocked(action === 'save' ? saveProvider : revokeProviderCredential).mockReturnValueOnce(write.promise)
+  render(<SettingsPage />)
+  const row = (await screen.findByText(deepseekProfile.display_name, { selector: 'strong' })).closest('article')!
+  const options = vi.mocked(useScopedEvents).mock.calls.at(-1)![0]
+  act(() => options.onReady?.())
+  expect(listProviders).toHaveBeenCalledTimes(2)
+  if (action === 'save') {
+    fireEvent.click(within(row).getByRole('button', { name: 'Edit' }))
+    const form = screen.getByRole('form', { name: 'Provider editor' })
+    fireEvent.change(within(form).getByLabelText('Display name'), { target: { value: updated.display_name } })
+    fireEvent.click(within(form).getByRole('button', { name: 'Save provider' }))
+  } else {
+    fireEvent.click(within(row).getByRole('button', { name: 'Revoke key…' }))
+    fireEvent.click(within(row).getByRole('button', { name: 'Confirm key revocation' }))
+  }
+  act(() => options.onEvent?.(scopedEvent(1, { type: 'provider.preflight.passed', data: { status: 'passed' } })))
+  expect(listProviders).toHaveBeenCalledTimes(2)
+  await act(async () => write.resolve(updated))
+  const assertCommitted = () => {
+    if (action === 'save') expect(within(row).getByText('Updated provider')).toBeVisible()
+    else {
+      expect(within(row).getByText('No key stored')).toBeVisible()
+      expect(within(row).queryByRole('button', { name: 'Revoke key…' })).not.toBeInTheDocument()
+    }
+  }
+  assertCommitted()
+  expect(listProviders).toHaveBeenCalledTimes(3)
+  await act(async () => oldRead.resolve([deepseekProfile]))
+  assertCommitted()
+  await act(async () => freshRead.resolve([updated]))
+  assertCommitted()
 })

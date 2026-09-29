@@ -1,5 +1,9 @@
 # Committed project observations and Run stream completion
 
+Manual project changes and schedule/Provider lifecycle now also have independent
+[scoped event streams](scoped-events.md). The Run-bound contract below is unchanged;
+manual writes are not attributed to an unrelated historical Run.
+
 PRD §4.12 now includes `evidence.added` and `decision.recorded` for records with
 verifiable `source_run_id` provenance. The project ledger remains authoritative;
 these events tell a client when to read its authorized project again.

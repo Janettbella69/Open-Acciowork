@@ -62,8 +62,8 @@
 |---|---|---|
 | FR-29 计划模式 | delivered（本地）：独立 Run 选择 SDK 原生 `plan` 权限模式；计划阶段只开放原生只读研究/澄清工具，MCP 不装配，PreToolUse 与 can_use_tool 双重拒绝写入/对外动作；计划结果可审核、修改或批准，精确绑定最新计划 Run 后在同一 SDK 会话续行；跨进程会话创建加锁防重复 | deferred：真实 Provider 的计划质量/同会话执行、浏览器目视、预算估计准确性和故障矩阵验收 |
 | FR-30 任务进度 | delivered（本地）：钉版 SDK 原生 Task/Todo 工具允许与事件回放清单；主 Run/失败过滤测试 | deferred：真实 Provider 产出任务清单、浏览器刷新验收 |
-| FR-31 运行中插话 | delivered（本地代码/离线测试，2026-09-24）：用户消息先入 Run 事件序列，支持当前 SDK 流会话发送、排到下一轮及中断后替换；跨 worker 由持有会话的进程接收，具备 SDK session 的交互 Run 在实时投递不可用时自动启动同会话下一 Run；请求幂等、投递不确定/设备授权撤销状态、原 Run 回放和续行跳转、桌面及获准发起任务的配对手机入口均已覆盖 | deferred：真实 Provider 的中途插话/打断语义、浏览器与手机 HTTPS 目视验收；SDK 写入与持久确认之间的崩溃窗口只能标为不确定，不能盲目重试 |
-| FR-32 并行任务列表 | delivered（本地列表）：新任务不取消旧 Run；默认或用户选择的任务预算在创建时冻结，受管理员上限约束，按 Provider 成本比例传入 SDK 原生 `max_budget_usd`；授权过滤列表展示独立 Run 状态、审批、预算、已报告的 SDK 费用和结果，精确 Run 跳转 | deferred：运行中的可靠实时花费、真实多个 SDK Run 并发与预算熔断、浏览器验收 |
+| FR-31 运行中插话 | delivered（本地代码/离线测试，2026-09-24）：用户消息先入 Run 事件序列，支持当前 SDK 流会话发送、排到下一轮及中断后替换；跨 worker 由持有会话的进程接收，具备 SDK session 的交互 Run 在实时投递不可用时自动启动同会话下一 Run；请求幂等、投递不确定/设备授权撤销状态、原 Run 回放和续行跳转、桌面及获准发起任务的配对手机入口均已覆盖 | delivered（2026-09-29原生CLI+本机合成SSE）：当前会话插话、原生审批续行累计费用与剩余预算验收；deferred：真实Provider中途插话/打断语义、浏览器与手机HTTPS目视验收；SDK 写入与持久确认之间的崩溃窗口只能标为不确定，不能盲目重试 |
+| FR-32 并行任务列表 | delivered（本地列表）：新任务不取消旧 Run；默认或用户选择的任务预算在创建时冻结，受管理员上限约束，按 Provider 成本比例传入 SDK 原生 `max_budget_usd`；授权过滤列表展示独立 Run 状态、审批、预算、已报告的 SDK 费用和结果，精确 Run 跳转 | delivered（2026-09-29本地原生CLI）：同进程多Result费用及原生审批恢复累计、剩余预算熔断与会话重置命令门禁，见sdk-accounting.md；deferred：Result前的实时花费、真实多个SDK Run并发/负载与真实Provider账单、浏览器验收 |
 | FR-33 用户 MCP/连接器 | partial（本地）：项目级 Claude 文档目录审查与 HubSpot CRM 目录 OAuth 配置/只读工具审查、进阶 HTTPS/Bearer/OAuth 配置、SDK 原生动态注册、客户端元数据 URL 与预注册公开/机密客户端授权刷新、组织主机白名单、逐工具允许/每次询问/禁止、撤销、Run 快照与 SDK 显式装配；运行期经每次地址钉住的受控 MCP 网关，外部输出不可信过滤；主 Agent 当前批准工具的清洗后结果可签发同 Run/session 的 `tool` 来源凭证，写入证据时由账本复核；MCP Python SDK 2.2 自动协商 2026-07-28 无握手协议及旧版回退，同一 Run 复用旧版有状态 HTTP 会话、不同 Run 隔离，离线 HTTP 和进程内测试覆盖；见 `docs/user-mcp.md` | deferred：真实 MCP/Provider/OAuth E2E、更多已验证目录项、公开状态型服务器、可信网关部署及浏览器目视验收，见 `docs/user-mcp.md` |
 | FR-34 上下文压缩 | delivered（本地代码/离线测试，2026-09-24）：钉版 SDK `get_context_usage()` 采样有效窗口占用并随 Run 事件回放；原生压缩边界事件提示自动/手动压缩、崩溃后修复 epoch 并强制完整业务上下文刷新；用户可在已完成会话启动独立无工具 `/compact` Run，只有 SDK 手动边界确认才算成功，账本及产物不被压缩 Run 改写 | deferred：真实 Provider 用量/手动与自动压缩语义、长时采样及浏览器目视验收；SDK 不提供用量时显示未知，不从累计 token 推算 |
 | FR-35 会话检索 | delivered（本地）：项目内有界 Run 提问、用户插话、主 Agent 回复与结果检索，RUN_READ 校验、只读 MCP、Run ID 回放、有界续页搜索更早 Run 及跳过日志提示；单页仅保留 501 条候选 Run 元数据 | deferred：大历史 I/O 性能、浏览器与真实会话质量验收；单页仍读取所有本地 Run 元数据后过滤项目 |
@@ -141,7 +141,7 @@ Google Chrome；用户已登录浏览器、真实卖家后台和 Provider 端到
 | §3.7 P2 知识库 | delivered：项目登记文本/OCR伴随文件及有界 DOCX/XLSX/PPTX 原件索引、来源行列或 Office 逻辑位置/版本、权限复验 API、只读 MCP 与中英文工作区检索、校验和一致的下载；deferred：真实 Office 资料检索质量/大容量、图像与版式提取及浏览器目视验收 |
 | §3.7 P2 团队 | delivered：共享项目成员角色管理、关联项目/Run/消息/证据/决策/文件版本的团队讨论、项目模板保存/版本/参考文件下载/新建/归档/中断恢复、组织私有Skill审核发布与成员只读版本库及中英文UI；deferred：真实组织与浏览器目视验收、长期容量及生产隔离 |
 | §4.16 任务经验 | delivered：专属工具与版本/来源账本、创建时配置指纹、低信任检索注入、容量/事务恢复与人工停用UI；deferred：真实Provider自主调用及长期判断质量 |
-| §4.12 事件 | delivered：有真实Run归属的evidence.added/decision.recorded、artifact.registered/updated、memory.proposed；实时产物刷新、固定版本下载、记忆审核入口、持久幂等补发与完整SSE尾部消费；deferred：无Run项目变更和 schedule/preflight 细分事件 |
+| §4.12 事件 | delivered：有真实Run归属的evidence.added/decision.recorded、artifact.registered/updated、memory.proposed；实时产物刷新、固定版本下载、记忆审核入口、持久幂等补发与完整SSE尾部消费；delivered（2026-09-29本地）：独立project.changed、schedule.fired/skipped/completed/failed/cancelled与provider.preflight.started/passed/failed持久流、跨进程恢复和授权前端刷新，真实HTTP/SSE八项验收及两次并发复验通过；deferred：大历史性能、生产代理/负载与浏览器目视，见scoped-events.md |
 | §3.9 / §4.10 | delivered：自动调度跨进程抢占与事件汇总恢复；Bash 工作区快照与人审恢复、跨进程目录切换修复；Run 级持久 SDK 活跃时长/可见输出额度、原生消息缓冲限制、审批挂起不计活跃时长、超限失败时保留产物及 SDK 屏蔽取消的进程清理，见 `sdk-resource-limits.md`；deferred：其余事件故障矩阵、生产恢复/容量与性能、OS 级 CPU/内存/进程限制，以及原始传输、SDK 内部存储和工作区磁盘输出限制 |
 | §3.9 数据主权 | delivered：操作者CLI完整数据目录冷备份与新目录恢复，覆盖项目账本/提案/Registry/工作区检查点一致性；恢复时须提供最新数据目录核对项目/会话删除登记、记忆墓碑、三个本地密钥仓删除哈希链及店铺浏览器登录删除边界，或显式承认无法对账；项目工作文件恢复UI；项目owner/admin审核清单后导出文件、应用可见会话、来源与相关账本ZIP。本地交付：项目及独立会话删除审核/API/UI、跨域擦除与原操作恢复，见project-deletion-design.md与conversation-deletion.md；Provider 密钥可由租户管理员独立导出/撤销，见provider-credentials.md；连接器和项目 MCP 的本地密钥仓凭据可按权限独立导出、经现有撤销路径删除，见connector-mcp-credentials.md；关闭窗口后的店铺浏览器持久 profile 可独立导出/删除，见shop-browsers.md；deferred：主机环境变量与平台远端凭据的删除对账、全应用恢复UI、历史备份本身的擦除与旧版已发生删除的追溯、跨宿主可信登记交付及生产灾备、真实卖家登录和生产隔离验收；项目ZIP不含运行时会话、凭据和浏览器登录资料 |
 | §3.9 性能 | delivered：本地ASGI单/4并发各100样本，创建/首事件持久化/离线task取消P95基线；deferred：真实SDK进程、网络/SSE运输、多worker与生产负载验收 |
@@ -1439,3 +1439,31 @@ API 下载 → LibreOffice PDF/Poppler PNG 的可重跑验收。9 组合成 DOCX
 TypeScript/Vite 构建、依赖检查通过。首次受限环境全套的 4 个失败均为 Unix socket
 绑定被拒，允许绑定后的全套已通过。真实模型连续编辑、浏览器面及 Microsoft Office/WPS
 和复杂客户版式未验收；当前证据仅覆盖基础 writer，不表示 FR-16 或完整 PRD 全量完成。
+
+## 2026-09-29：§4.12 独立事件与 FR-31/32 原生费用
+
+§4.12 的三个缺口已补齐本地实现：无 Run 的已提交项目修订观察、调度
+触发/跳过/完成/失败/取消、Provider 预检开始/通过/失败。独立授权的 JSONL
+序号、历史页和 SSE 不混入 Run 历史，也不虚构 Run。工作台可在没有运行中
+任务时刷新人工变更；定时任务和 Provider 页面可恢复近期状态。去重、断线续传、
+权限与删除屏障、配置变化、失败暂停凭证和通知故障恢复见 [作用域事件](scoped-events.md)。
+最后复核还修复了旧后台 GET 覆盖刚完成暂停、保存或撤销结果的前端竞态。
+
+真实 Uvicorn/HTTP/SSE 验收 **8 项全过**，两个独立并发复跑也各 **8 项通过**；
+发现并修复了历史恢复短锁造成预检 409 的竞态。代表报告在
+`evals/reports/scoped-events-20260929.json`。使用临时账本和明确的离线 Runtime，
+没有付费调用或真实凭据。浏览器连接工具返回空列表，未声称目视验收。
+
+FR-31/32 原生 CLI 验收复现并修复了两次累计费用 `$0.0045 → $0.0135`
+被错误相加为 `$0.018` 的问题；同进程累计值替换，跨原生审批恢复的 CLI
+费用累加，逐轮 usage 独立累加。三组真实钉版 SDK/CLI + 本机合成 SSE 场景
+均通过，含同 Run/session 原生 Write 审批续行和剩余预算熔断；`/clear`、
+`/reset`、`/new` 不再能通过插话重置原生预算。代码提交 `748e638`，细节及
+报告见 [SDK 费用验收](sdk-accounting.md)。这仍是 SDK 费用估算，可能在一次请求
+完成后才越过阈值停止，不等于账单硬上限或真实 Provider 认证。
+
+验证：后端全量 **2560 passed / 14 skipped**；随后 HTTP 竞态和缓存头修复的
+事件/预检专项 **19 passed**。前端最终全量 **599 passed / 61 files**，Ruff、
+ESLint、TypeScript/Vite 构建、依赖检查和差异检查通过；保留已有大 chunk 提示。
+大历史扫描性能、生产代理/负载、真实模型并发与账单、桌面/手机浏览器仍 deferred。
+完整 PRD 仍未全部完成。

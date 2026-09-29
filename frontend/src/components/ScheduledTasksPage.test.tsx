@@ -3,6 +3,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { OpportunityProject, RunRecord, Schedule } from '../api/types'
 import { I18nContext } from '../i18n'
 import ScheduledTasksPage from './ScheduledTasksPage'
+import { useScopedEvents } from '../api/useScopedEvents'
+import { deferredPromise, scopedEvent } from '../test/scopedEventFixtures'
+
+vi.mock('../api/useScopedEvents', () => ({ useScopedEvents: vi.fn(() => ({ events: [], status: 'live', error: '', refresh: vi.fn() })) }))
 
 vi.mock('./EventTriggersPanel', () => ({ default: () => null }))
 
@@ -23,6 +27,7 @@ import {
   listProjects,
   listSchedules,
   pauseSchedule,
+  resumeSchedule,
   runSchedule,
 } from '../api/client'
 
@@ -87,13 +92,16 @@ const failedRun = {
 
 const activeRunConflict = 'This schedule already has an active run. Wait for it to finish or cancel it in the workspace before running again.'
 const dispatchConflict = 'This schedule is already being dispatched. Refresh before running again.'
+let storedSchedules: Schedule[]
 
 beforeEach(() => {
   vi.clearAllMocks()
-  vi.mocked(listSchedules).mockResolvedValue([schedule])
+  storedSchedules = [schedule]
+  vi.mocked(listSchedules).mockImplementation(async () => storedSchedules)
   vi.mocked(listProjects).mockResolvedValue([project])
   vi.mocked(getRun).mockResolvedValue(failedRun)
-  vi.mocked(createSchedule).mockImplementation(async (input) => ({
+  vi.mocked(createSchedule).mockImplementation(async (input) => {
+    const created = {
     ...schedule,
     id: 'schedule_new',
     prompt: input.prompt,
@@ -103,8 +111,15 @@ beforeEach(() => {
     permission_ceiling: input.permission_ceiling,
     last_run_id: null,
     last_fire_at: null,
-  }))
-  vi.mocked(pauseSchedule).mockResolvedValue({ ...schedule, enabled: false })
+    }
+    storedSchedules = [created, ...storedSchedules]
+    return created
+  })
+  vi.mocked(pauseSchedule).mockImplementation(async (id) => {
+    const updated = { ...schedule, id, enabled: false }
+    storedSchedules = storedSchedules.map((item) => item.id === id ? updated : item)
+    return updated
+  })
   vi.mocked(runSchedule).mockResolvedValue({ ...failedRun, id: 'run_manual', status: 'queued' })
 })
 
@@ -282,5 +297,144 @@ describe('ScheduledTasksPage', () => {
     expect(screen.getByRole('alert')).toHaveTextContent(dispatchConflict)
     expect(screen.queryByRole('status')).not.toBeInTheDocument()
     expect(runSchedule).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe('durable schedule activity', () => {
+  it('shows a skipped reason without a Run and lets users pause live updates', async () => {
+    const event = scopedEvent(1, { type: 'schedule.skipped', data: { schedule_id: 'schedule_1', reason: 'active_run' } })
+    vi.mocked(useScopedEvents).mockReturnValue({ events: [event], status: 'live', error: '', refresh: vi.fn() })
+    render(<ScheduledTasksPage />)
+    await screen.findByText('Connected · server-side execution')
+    fireEvent.click(screen.getByRole('button', { name: /My tasks/ }))
+    expect(await screen.findByText('Skipped')).toBeVisible()
+    expect(screen.getByText(/A previous run is still active/)).toBeVisible()
+    expect(screen.queryByRole('link', { name: 'Open run' })).not.toBeInTheDocument()
+    expect(vi.mocked(useScopedEvents).mock.calls.at(-1)![0]).toMatchObject({ scope: 'project', id: project.id, live: true })
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Live updates' }))
+    expect(vi.mocked(useScopedEvents).mock.calls.at(-1)![0]).toMatchObject({ live: false })
+    vi.mocked(useScopedEvents).mockReturnValue({ events: [], status: 'live', error: '', refresh: vi.fn() })
+  })
+
+  it('refreshes scheduled tasks on control events and clears a revoked project', async () => {
+    render(<ScheduledTasksPage />)
+    await screen.findByText('Connected · server-side execution')
+    fireEvent.click(screen.getByRole('button', { name: /My tasks/ }))
+    const options = vi.mocked(useScopedEvents).mock.calls.at(-1)![0]
+    await act(async () => options.onEvent?.(scopedEvent(1, { type: 'schedule.completed', data: { schedule_id: schedule.id } })))
+    expect(listSchedules).toHaveBeenCalledTimes(2)
+    act(() => options.onUnavailable?.())
+    expect(screen.queryByText(schedule.prompt)).not.toBeInTheDocument()
+    expect(screen.getByText(/Its schedule history has been cleared/)).toBeVisible()
+  })
+})
+
+it('subscribes to one selected project history at a time', async () => {
+  vi.mocked(listProjects).mockResolvedValue([project, { ...project, id: 'project_2', name: 'Second project' }])
+  vi.mocked(listSchedules).mockResolvedValue([schedule, { ...schedule, id: 'schedule_2', project_id: 'project_2' }])
+  render(<ScheduledTasksPage />)
+  await screen.findByText('Connected · server-side execution')
+  fireEvent.click(screen.getByRole('button', { name: /My tasks/ }))
+  expect(vi.mocked(useScopedEvents).mock.calls.every(([options]) => options.id === 'project_1')).toBe(true)
+  fireEvent.change(screen.getByRole('combobox', { name: 'Schedule history project' }), { target: { value: 'project_2' } })
+  expect(vi.mocked(useScopedEvents).mock.calls.at(-1)![0]).toMatchObject({ scope: 'project', id: 'project_2' })
+  expect(screen.queryByRole('region', { name: `Recent schedule activity for ${project.name}` })).not.toBeInTheDocument()
+  expect(screen.getByRole('region', { name: 'Recent schedule activity for Second project' })).toBeVisible()
+})
+
+it('does not restore a revoked project from a late schedule refresh', async () => {
+  let finishRefresh!: (items: Schedule[]) => void
+  render(<ScheduledTasksPage />)
+  await screen.findByText('Connected · server-side execution')
+  fireEvent.click(screen.getByRole('button', { name: /My tasks/ }))
+  const options = vi.mocked(useScopedEvents).mock.calls.at(-1)![0]
+  vi.mocked(listSchedules).mockImplementationOnce(() => new Promise((resolve) => { finishRefresh = resolve }))
+  act(() => options.onEvent?.(scopedEvent(1, { type: 'schedule.completed', data: { schedule_id: schedule.id } })))
+  act(() => options.onUnavailable?.())
+  await act(async () => finishRefresh([schedule]))
+  expect(screen.queryByText(schedule.prompt)).not.toBeInTheDocument()
+  expect(screen.queryByRole('combobox', { name: 'Schedule history project' })).not.toBeInTheDocument()
+})
+
+describe('schedule writes and event-driven reads', () => {
+  it.each(['pause', 'resume'] as const)('does not overwrite a committed %s with a late event refresh', async (action) => {
+    const initial = { ...schedule, enabled: action === 'pause' }
+    const updated = { ...initial, enabled: !initial.enabled }
+    const oldRead = deferredPromise<Schedule[]>()
+    const write = deferredPromise<Schedule>()
+    const freshRead = deferredPromise<Schedule[]>()
+    vi.mocked(listSchedules).mockResolvedValueOnce([initial])
+      .mockReturnValueOnce(oldRead.promise).mockReturnValue(freshRead.promise)
+    vi.mocked(action === 'pause' ? pauseSchedule : resumeSchedule).mockReturnValueOnce(write.promise)
+    render(<ScheduledTasksPage />)
+    fireEvent.click(screen.getByRole('button', { name: /my tasks/i }))
+    const row = (await screen.findByText(schedule.prompt)).closest('article')!
+    const options = vi.mocked(useScopedEvents).mock.calls.at(-1)![0]
+    act(() => options.onReady?.())
+    expect(listSchedules).toHaveBeenCalledTimes(2)
+    fireEvent.click(within(row).getByRole('button', { name: action === 'pause' ? 'Pause' : 'Resume' }))
+    act(() => options.onEvent?.(scopedEvent(1, { type: 'schedule.fired', data: { schedule_id: schedule.id } })))
+    expect(listSchedules).toHaveBeenCalledTimes(2)
+    await act(async () => write.resolve(updated))
+    expect(row).toHaveAttribute('data-enabled', String(updated.enabled))
+    expect(listSchedules).toHaveBeenCalledTimes(3)
+    await act(async () => oldRead.resolve([initial]))
+    expect(row).toHaveAttribute('data-enabled', String(updated.enabled))
+    await act(async () => freshRead.resolve([updated]))
+    expect(row).toHaveAttribute('data-enabled', String(updated.enabled))
+  })
+
+  it('keeps a newly created schedule when an older list finishes late', async () => {
+    const oldRead = deferredPromise<Schedule[]>()
+    const write = deferredPromise<Schedule>()
+    const freshRead = deferredPromise<Schedule[]>()
+    const created = { ...schedule, id: 'schedule_new', prompt: 'New recurring task' }
+    vi.mocked(listSchedules).mockResolvedValueOnce([schedule])
+      .mockReturnValueOnce(oldRead.promise).mockReturnValue(freshRead.promise)
+    vi.mocked(createSchedule).mockReturnValueOnce(write.promise)
+    render(<ScheduledTasksPage />)
+    await screen.findByText('Connected · server-side execution')
+    fireEvent.click(screen.getByRole('button', { name: /my tasks/i }))
+    const options = vi.mocked(useScopedEvents).mock.calls.at(-1)![0]
+    act(() => options.onReady?.())
+    fireEvent.click(screen.getByRole('button', { name: /new task/i }))
+    const dialog = screen.getByRole('dialog', { name: /create scheduled task/i })
+    fireEvent.change(within(dialog).getByRole('textbox', { name: /recurring brief/i }), { target: { value: created.prompt } })
+    fireEvent.click(within(dialog).getByRole('button', { name: /create schedule/i }))
+    act(() => options.onReady?.())
+    expect(listSchedules).toHaveBeenCalledTimes(2)
+    await act(async () => write.resolve(created))
+    expect(screen.getByText(created.prompt)).toBeVisible()
+    await act(async () => oldRead.resolve([schedule]))
+    expect(screen.getByText(created.prompt)).toBeVisible()
+    expect(listSchedules).toHaveBeenCalledTimes(3)
+    await act(async () => freshRead.resolve([created, schedule]))
+    expect(screen.getByText(created.prompt)).toBeVisible()
+  })
+
+  it('waits for all concurrent schedule writes before reloading the list', async () => {
+    const second = { ...schedule, id: 'schedule_2', prompt: 'Second schedule' }
+    const firstWrite = deferredPromise<Schedule>()
+    const secondWrite = deferredPromise<Schedule>()
+    const freshRead = deferredPromise<Schedule[]>()
+    vi.mocked(listSchedules).mockResolvedValueOnce([schedule, second]).mockReturnValue(freshRead.promise)
+    vi.mocked(pauseSchedule).mockImplementation((id) => id === schedule.id ? firstWrite.promise : secondWrite.promise)
+    render(<ScheduledTasksPage />)
+    fireEvent.click(screen.getByRole('button', { name: /my tasks/i }))
+    const firstRow = (await screen.findByText(schedule.prompt)).closest('article')!
+    const secondRow = screen.getByText(second.prompt).closest('article')!
+    fireEvent.click(within(firstRow).getByRole('button', { name: 'Pause' }))
+    fireEvent.click(within(secondRow).getByRole('button', { name: 'Pause' }))
+    const options = vi.mocked(useScopedEvents).mock.calls.at(-1)![0]
+    act(() => options.onReady?.())
+    await act(async () => firstWrite.resolve({ ...schedule, enabled: false }))
+    expect(listSchedules).toHaveBeenCalledTimes(1)
+    expect(firstRow).toHaveAttribute('data-enabled', 'false')
+    expect(within(secondRow).getByRole('button', { name: 'Pause' })).toBeDisabled()
+    await act(async () => secondWrite.resolve({ ...second, enabled: false }))
+    expect(listSchedules).toHaveBeenCalledTimes(2)
+    await act(async () => freshRead.resolve([{ ...schedule, enabled: false }, { ...second, enabled: false }]))
+    expect(firstRow).toHaveAttribute('data-enabled', 'false')
+    expect(secondRow).toHaveAttribute('data-enabled', 'false')
   })
 })

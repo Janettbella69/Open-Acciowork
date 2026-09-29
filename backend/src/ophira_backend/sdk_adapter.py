@@ -695,7 +695,7 @@ class ClaudeAgentRuntime:
 
     async def preflight(self, provider_profile_id: str) -> ProviderPreflightResult:
         """Exercise the real Claude Agent SDK path; never substitutes a direct model client."""
-        profile = self.providers.get(provider_profile_id)
+        profile, worker_env = self.providers.preflight_configuration(provider_profile_id)
         preflight_dir = (
             self.settings.data_dir / "preflight" / provider_profile_id
         ).resolve()
@@ -735,7 +735,7 @@ class ClaudeAgentRuntime:
             disallowed_tools=["Agent", "Write", "Edit", "Bash"],
             permission_mode="dontAsk",
             env={
-                **self.providers.build_worker_env(provider_profile_id),
+                **worker_env,
                 **_control_plane_secret_shadows(),
             },
             model=profile.model,
@@ -837,7 +837,14 @@ class ClaudeAgentRuntime:
                 discovered_skills=discovered_skills,
                 checked_at=utc_now(),
             )
-        self.providers.record_preflight(result)
+        try:
+            self.providers.record_preflight(
+                result, expected_revision=profile.configuration_revision,
+            )
+        except ProviderConfigurationError as exc:
+            result = result.model_copy(update={
+                "ok": False, "error_code": exc.code, "message": str(exc),
+            })
         return result
 
     async def cancel(self, run_id: str) -> None:

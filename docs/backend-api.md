@@ -1,5 +1,9 @@
 # Backend API and event contract
 
+Project and Provider changes outside a Run use independent authorized history/SSE
+endpoints. See [scoped events](scoped-events.md) for envelopes, cursors, limits and
+recovery; their sequences must not be merged into Run replay.
+
 The backend owns opportunity state, Claude Agent SDK orchestration, permissions, and the observable run stream. The frontend owns presentation and must not infer project truth from rendered chat text.
 
 ## Identity and deployment boundary

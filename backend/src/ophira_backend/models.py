@@ -736,6 +736,7 @@ class ProviderCapabilities(APIModel):
 
 
 class ProviderProfile(APIModel):
+    configuration_revision: int = Field(default=1, ge=1)
     id: str
     display_name: str = Field(min_length=1, max_length=160)
     base_url: str | None = Field(default=None, max_length=2_000)

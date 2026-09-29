@@ -3,35 +3,57 @@ from __future__ import annotations
 import asyncio
 import fcntl
 import hashlib
+import json
 import logging
 import os
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
+from typing import Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from croniter import croniter
+from pydantic import Field
 
 from .auth import AuthorizationError, ProjectAccessStore, ProjectPermission
 from .automation import NotificationStore
 from .constants import HEARTBEAT_OK, TERMINAL_RUN_STATUSES, EventType, MissedRunPolicy, ScheduleKind
 from .events import EventPublisher, redact
 from .models import (
+    APIModel,
     EventActor,
     PrincipalBinding,
     PrincipalContext,
     RunRecord,
     Schedule,
     ScheduleCreate,
+    new_id,
     utc_now,
 )
 from .policy import PolicyDeniedError
+from .project_events import ProjectEventProjector
 from .providers import ProviderConfigurationError, ProviderNotFoundError
 from .runs import RunManager
+from .scoped_events import ScopedEventStore
+from .skill_proposal_files import read_relative
 from .storage import FileLedger, LedgerNotFoundError
 from .task_experience import schedule_experience_config_hash
 
 logger = logging.getLogger(__name__)
+_PENDING_FAILURE = "pending-dispatch-failure.json"
+
+
+class _PendingDispatchFailure(APIModel):
+    schema_version: Literal[1] = 1
+    schedule_id: str
+    project_id: str
+    resource_id: str
+    configuration_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    phase: Literal["pending", "paused", "superseded"] = "pending"
+    reason: Literal["authorization_denied", "policy_denied", "provider_unavailable"]
+    automation_claim_id: str | None = None
+    scheduled_for: datetime | None = None
+    recorded_at: datetime = Field(default_factory=utc_now)
 
 
 class ScheduleValidationError(ValueError):
@@ -123,6 +145,8 @@ class ScheduleService:
         self.interval_seconds = interval_seconds
         self.notifications = notifications
         self.access = access
+        self.scoped = ScopedEventStore(ledger)
+        self.projector = ProjectEventProjector(ledger, events)
         self._task: asyncio.Task[None] | None = None
 
     async def start(self) -> None:
@@ -180,6 +204,7 @@ class ScheduleService:
                     if not acquired:
                         continue
                     # Never use the pre-lease snapshot to dispatch or advance.
+                    self._recover_start_failure(snapshot.id)
                     schedule = self.ledger.get_schedule(snapshot.id)
                     if schedule.next_fire_at is None or schedule.next_fire_at > now:
                         continue
@@ -208,12 +233,21 @@ class ScheduleService:
         if existing is not None:
             await self._finish_fire(schedule, existing, now, missed=missed)
             return
+        # A skip is itself a committed dispatch decision. If advancement failed
+        # after its durable receipt, never turn that occurrence into an Agent run.
+        if self.scoped.find(
+            self.scoped.project_stream(schedule.project_id), EventType.SCHEDULE_SKIPPED, claim_id,
+        ) is not None:
+            self._advance(schedule, now)
+            return
         if not schedule.enabled:
             return
         if missed and schedule.missed_run_policy == MissedRunPolicy.SKIP:
+            self._record_skip(schedule, claim_id, "missed_run_policy")
             self._advance(schedule, now)
             return
         if any(run.status not in TERMINAL_RUN_STATUSES for run in schedule_runs):
+            self._record_skip(schedule, claim_id, "active_run")
             self._advance(schedule, now)
             return
         run = await self._start_run(schedule, automation_claim_id=claim_id)
@@ -222,6 +256,7 @@ class ScheduleService:
     async def _finish_fire(
         self, schedule: Schedule, run: RunRecord, now: datetime, *, missed: bool,
     ) -> None:
+        self.projector.observe_schedule_run(self.ledger.get_run(run.id))
         if not any(event.type == EventType.SCHEDULE_FIRED.value
                    for event in self.ledger.list_events(run.id)):
             await self.events.publish(
@@ -262,7 +297,7 @@ class ScheduleService:
                 raise AuthorizationError(
                     "local-only schedules cannot claim authenticated authority"
                 )
-            return await self.runs.create_and_start(
+            run = await self.runs.create_and_start(
                 schedule.project_id,
                 wrap_schedule_prompt(schedule),
                 agent_id=schedule.agent_id,
@@ -279,15 +314,127 @@ class ScheduleService:
             ProviderConfigurationError,
             ProviderNotFoundError,
         ) as exc:
-            self._pause_unstartable(schedule, exc)
+            try:
+                self._record_start_failure(schedule, exc, automation_claim_id)
+            except Exception as observation_error:
+                # Preserve the original permission/Provider response. A saved
+                # pending decision blocks dispatch until its pause and observation
+                # are recovered, even if event publication is currently broken.
+                logger.warning("Schedule failure observation incomplete (%s)",
+                               type(observation_error).__name__)
             raise
+        # create_and_start already committed a real Run. Returning an observation
+        # error here would invite a second manual Run after the first completes.
+        try:
+            self.projector.observe_schedule_run(run)
+        except Exception as exc:
+            logger.warning("Schedule Run observation incomplete (%s)", type(exc).__name__)
+        return run
+
+    @staticmethod
+    def _failure_configuration_hash(schedule: Schedule) -> str:
+        # /resume changes next_fire_at. Edits change the configuration. Neither
+        # may be overwritten by recovery of an older failed dispatch. Internal
+        # result bookkeeping and pausing do not constitute a new authorization.
+        snapshot = schedule.model_dump(mode="json", exclude={
+            "enabled", "last_fire_at", "last_run_id", "last_result_digest",
+        })
+        return hashlib.sha256(json.dumps(snapshot, sort_keys=True).encode()).hexdigest()
+
+    def _record_start_failure(
+        self, schedule: Schedule, error: Exception, claim_id: str | None,
+    ) -> None:
+        reason = ("authorization_denied" if isinstance(error, AuthorizationError)
+                  else "policy_denied" if isinstance(error, PolicyDeniedError)
+                  else "provider_unavailable")
+        pending = _PendingDispatchFailure(
+            schedule_id=schedule.id, project_id=schedule.project_id,
+            resource_id=claim_id or new_id("manual_dispatch"), reason=reason,
+            configuration_hash=self._failure_configuration_hash(schedule),
+            automation_claim_id=claim_id, scheduled_for=schedule.next_fire_at,
+        )
+        with self.ledger.lifecycle.lease(schedule.project_id), self.ledger._lock_for(schedule.id):
+            path = self.ledger._schedule_path(schedule.id).parent / _PENDING_FAILURE
+            if path.exists() or path.is_symlink():
+                raise ValueError("A previous dispatch failure requires recovery")
+            try:
+                self.ledger._atomic_write(path, pending)
+            except Exception:
+                # Preserve the existing fail-closed pause even if no receipt can
+                # be saved. An unavailable disk cannot promise an audit record.
+                self._pause_unstartable(schedule, error)
+                raise
+            try:
+                self._recover_start_failure(schedule.id)
+            finally:
+                current = self.ledger.get_schedule(schedule.id)
+                if not current.enabled:
+                    self._notify_unstartable(schedule, error)
+
+    def _recover_start_failure(self, schedule_id: str) -> None:
+        schedule = self.ledger.get_schedule(schedule_id)
+        with self.ledger.lifecycle.lease(schedule.project_id), self.ledger._lock_for(schedule_id):
+            schedule = self.ledger.get_schedule(schedule_id)
+            directory = self.ledger._schedule_path(schedule_id).parent
+            try:
+                raw = read_relative(directory, _PENDING_FAILURE, 16_384)
+            except FileNotFoundError:
+                return
+            pending = _PendingDispatchFailure.model_validate_json(raw)
+            if (pending.schedule_id != schedule_id or pending.project_id != schedule.project_id):
+                raise ValueError("Dispatch failure receipt is outside its schedule")
+            if pending.phase == "pending":
+                if self._failure_configuration_hash(schedule) == pending.configuration_hash:
+                    self.ledger.update_schedule(schedule_id, enabled=False)
+                    phase = "paused"
+                else:
+                    phase = "superseded"
+                pending = pending.model_copy(update={"phase": phase})
+                self.ledger._atomic_write(directory / _PENDING_FAILURE, pending)
+            self.scoped.append(
+                self.scoped.project_stream(schedule.project_id), EventType.SCHEDULE_FAILED,
+                pending.resource_id,
+                {"schema_version": 1, "schedule_id": schedule_id, "status": "failed",
+                 "reason": pending.reason, "scheduled_for": pending.scheduled_for,
+                 "automation_claim_id": pending.automation_claim_id,
+                 "recorded_at": pending.recorded_at,
+                 "configuration_hash": pending.configuration_hash},
+                actor=EventActor(type="system", name="scheduler"),
+            )
+            (directory / _PENDING_FAILURE).unlink()
+            descriptor = os.open(directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+            try:
+                os.fsync(descriptor)
+            finally:
+                os.close(descriptor)
+
+    def _record_skip(self, schedule: Schedule, claim_id: str, reason: str) -> None:
+        self.scoped.append(
+            self.scoped.project_stream(schedule.project_id), EventType.SCHEDULE_SKIPPED,
+            claim_id, {"schema_version": 1, "schedule_id": schedule.id,
+                       "status": "skipped", "reason": reason,
+                       "scheduled_for": schedule.next_fire_at,
+                       "automation_claim_id": claim_id},
+            actor=EventActor(type="system", name="scheduler"),
+        )
 
     def _pause_unstartable(self, schedule: Schedule, error: Exception) -> None:
         """Pause a schedule whose configured provider/policy cannot start a run."""
         try:
-            self.ledger.update_schedule(schedule.id, enabled=False)
+            with (
+                self.ledger.lifecycle.lease(schedule.project_id),
+                self.ledger._lock_for(schedule.id),
+            ):
+                current = self.ledger.get_schedule(schedule.id)
+                if (self._failure_configuration_hash(current)
+                        != self._failure_configuration_hash(schedule)):
+                    return
+                self.ledger.update_schedule(schedule.id, enabled=False)
         except (LedgerNotFoundError, ValueError):
             return
+        self._notify_unstartable(schedule, error)
+
+    def _notify_unstartable(self, schedule: Schedule, error: Exception) -> None:
         if self.notifications is None:
             return
         safe_error = str(redact(str(error)))[:1_000]
@@ -326,6 +473,7 @@ class ScheduleService:
                 raise ScheduleRunConflictError(
                     "This schedule is already being dispatched. Refresh before running again."
                 )
+            self._recover_start_failure(schedule_id)
             schedule = self.ledger.get_schedule(schedule_id)
             if any(run.status not in TERMINAL_RUN_STATUSES
                    for run in self._schedule_runs(schedule)):

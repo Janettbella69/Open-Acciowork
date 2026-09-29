@@ -64,6 +64,11 @@ Run-bound evidence and decisions now emit recoverable ledger observations; the
 workspace drains the complete Run event tail before closing its stream.
 See [`docs/project-events.md`](docs/project-events.md).
 
+Manual project changes, schedule outcomes and Provider preflights now have
+independent durable event streams, including authorized replay and recovery.
+See [`docs/scoped-events.md`](docs/scoped-events.md). Native streaming and resumed
+SDK cost accounting are exercised in [`docs/sdk-accounting.md`](docs/sdk-accounting.md).
+
 Shared projects now include member management and durable discussions with replies,
 source/version anchors, edit history, and conflict checks. See
 [`docs/project-collaboration.md`](docs/project-collaboration.md) for role boundaries

@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import {
   downloadProviderCredential,
   errorMessage,
@@ -11,6 +11,7 @@ import {
 import type { ProviderPreflightResult, ProviderProfile } from '../api/types'
 import { useLanguage, useT } from '../i18n'
 import { saveCredentialDownload } from '../utils/credentialDownload'
+import ProviderPreflightStatus from './ProviderPreflightStatus'
 
 type EditorState = {
   id: string
@@ -93,21 +94,51 @@ export default function ProviderSettings() {
   const [providers, setProviders] = useState<ProviderProfile[]>([])
   const [editor, setEditor] = useState<EditorState | null>(null)
   const [preflights, setPreflights] = useState<Record<string, ProviderPreflightResult>>({})
+  const [watchedProviderId, setWatchedProviderId] = useState('')
   const [busy, setBusy] = useState('')
+  const busyRef = useRef('')
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [confirming, setConfirming] = useState<{ id: string; action: 'export' | 'revoke' } | null>(null)
+  const refreshRevision = useRef(0)
+  const mounted = useRef(false)
+
+  const refreshProviders = useCallback(async () => {
+    if (busyRef.current) return
+    const revision = ++refreshRevision.current
+    try {
+      const items = await listProviders()
+      if (mounted.current && !busyRef.current && revision === refreshRevision.current) setProviders(items)
+    } catch (cause) {
+      if (mounted.current && !busyRef.current && revision === refreshRevision.current) setError(errorMessage(cause))
+    }
+  }, [])
 
   useEffect(() => {
-    let active = true
-    void listProviders()
-      .then((items) => { if (active) setProviders(items) })
-      .catch((loadError) => { if (active) setError(errorMessage(loadError)) })
-    return () => { active = false }
-  }, [])
+    mounted.current = true
+    void refreshProviders()
+    return () => { mounted.current = false; refreshRevision.current += 1 }
+  }, [refreshProviders])
 
   const update = <Key extends keyof EditorState>(key: Key, value: EditorState[Key]) => {
     setEditor((current) => (current ? { ...current, [key]: value } : current))
+  }
+
+  const beginAction = (key: string): boolean => {
+    if (busyRef.current) return false
+    busyRef.current = key
+    refreshRevision.current += 1
+    setBusy(key)
+    setError('')
+    return true
+  }
+
+  const finishAction = () => {
+    refreshRevision.current += 1
+    busyRef.current = ''
+    if (!mounted.current) return
+    setBusy('')
+    void refreshProviders()
   }
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
@@ -117,49 +148,48 @@ export default function ProviderSettings() {
       ? editor.id.trim().toLowerCase().replace(/[^a-z0-9_-]+/g, '-')
       : editor.id
     if (!providerId || !editor.display_name.trim() || !editor.model.trim()) return
-    setBusy('save')
-    setError('')
+    if (!beginAction('save')) return
     try {
       const saved = await saveProvider(providerId, payloadFrom(editor))
+      if (!mounted.current) return
       setProviders((current) => {
         const others = current.filter((item) => item.id !== saved.id)
         return [...others, saved].sort((a, b) => a.id.localeCompare(b.id))
       })
       setEditor(null)
     } catch (saveError) {
-      setError(errorMessage(saveError))
+      if (mounted.current) setError(errorMessage(saveError))
     } finally {
-      setBusy('')
+      finishAction()
     }
   }
 
   const runPreflight = async (providerId: string) => {
-    setBusy(`preflight:${providerId}`)
-    setError('')
+    if (!beginAction(`preflight:${providerId}`)) return
+    setWatchedProviderId(providerId)
     try {
       const result = await preflightProvider(providerId)
+      if (!mounted.current) return
       setPreflights((current) => ({ ...current, [providerId]: result }))
-      const refreshed = await listProviders()
-      setProviders(refreshed)
     } catch (preflightError) {
-      setError(errorMessage(preflightError))
+      if (mounted.current) setError(errorMessage(preflightError))
     } finally {
-      setBusy('')
+      finishAction()
     }
   }
 
   const manageCredential = async (providerId: string, action: 'export' | 'revoke') => {
-    if (busy) return
-    setBusy(`${action}:${providerId}`)
-    setError('')
+    if (!beginAction(`${action}:${providerId}`)) return
     setNotice('')
     try {
       if (action === 'export') {
         const credential = await downloadProviderCredential(providerId)
+        if (!mounted.current) return
         saveCredentialDownload(credential, `ophira-provider-${providerId}.json`)
         setNotice(t('Credential file sent to your browser. Check downloads and store it securely.'))
       } else {
         const updated = await revokeProviderCredential(providerId)
+        if (!mounted.current) return
         setProviders((current) => current.map((item) => item.id === providerId ? updated : item))
         setPreflights((current) => {
           const next = { ...current }
@@ -171,16 +201,27 @@ export default function ProviderSettings() {
       }
       setConfirming(null)
     } catch (cause) {
-      setError(errorMessage(cause))
+      if (mounted.current) setError(errorMessage(cause))
     } finally {
-      setBusy('')
+      finishAction()
     }
   }
+
+  const watchedProvider = providers.find((provider) => provider.id === watchedProviderId) ?? providers[0]
 
   return (
     <div className="settings-card provider-settings">
       {error && <p className="conversation-error" role="alert">{t(error)}</p>}
       {notice && <p role="status">{notice}</p>}
+
+      {watchedProvider && <div className="settings-integration-note">
+        <label>{t('Preflight updates for')}{' '}
+          <select value={watchedProvider.id} onChange={(event) => setWatchedProviderId(event.target.value)}>
+            {providers.map((provider) => <option key={provider.id} value={provider.id}>{provider.display_name}</option>)}
+          </select>
+        </label>
+        <ProviderPreflightStatus key={watchedProvider.id} providerId={watchedProvider.id} onSettled={() => { void refreshProviders() }} />
+      </div>}
 
       {providers.map((provider) => {
         const preflight = preflights[provider.id]

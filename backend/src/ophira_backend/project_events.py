@@ -8,10 +8,11 @@ from __future__ import annotations
 
 import logging
 
-from .constants import EventType, MemoryScope, MemorySource
+from .constants import TERMINAL_RUN_STATUSES, EventType, MemoryScope, MemorySource, RunStatus
 from .events import EventPublisher
 from .memory import MemoryProvider
 from .models import Artifact, Decision, EventActor, Evidence, MemoryItem, RunRecord
+from .scoped_events import ScopedEventStore
 from .storage import FileLedger, LedgerNotFoundError
 
 logger = logging.getLogger(__name__)
@@ -24,6 +25,57 @@ class ProjectEventProjector:
         self.ledger = ledger
         self.events = events
         self.memory = memory
+        self.scoped = ScopedEventStore(ledger)
+
+    def reconcile_project(self, project_id: str) -> None:
+        """Invalidate views from committed revisions, including manual writes.
+
+        Downtime may coalesce several revisions into one observation. The current
+        ledger is authoritative; this is not an invented edit-by-edit history.
+        """
+        # Serialize snapshot reading and observation across workers, so an old
+        # reader cannot append a lower revision after a newer one.
+        with self.ledger.lifecycle.lease(project_id), self.ledger._lock_for(project_id):
+            project = self.ledger.get_project(project_id)
+            stream = self.scoped.project_stream(project_id)
+            observed = self.scoped.observed_keys(stream)
+            revision_key = f"revision-{project.revision}"
+            if (EventType.PROJECT_CHANGED, revision_key) not in observed:
+                self.scoped.append(
+                    stream, EventType.PROJECT_CHANGED, revision_key,
+                    {"schema_version": 1, "revision": project.revision,
+                     "recorded_at": project.updated_at.isoformat()},
+                    actor=EventActor(type="system", name="project-ledger"),
+                )
+        for run in self.ledger.list_runs(project_id, sort_by_created_at=False):
+            self.observe_schedule_run(run, observed=observed)
+
+    def observe_schedule_run(
+        self, run: RunRecord, *, observed: set[tuple[str, str]] | None = None,
+    ) -> None:
+        if not run.schedule_id:
+            return
+        stream = self.scoped.project_stream(run.project_id)
+        data = {"schema_version": 1, "schedule_id": run.schedule_id,
+                "run_id": run.id, "automation_claim_id": run.automation_claim_id}
+        actor = EventActor(type="system", name="scheduler")
+        if observed is None or (EventType.SCHEDULE_FIRED, run.id) not in observed:
+            self.scoped.append(
+                stream, EventType.SCHEDULE_FIRED, run.id,
+                {**data, "status": "started", "recorded_at": run.created_at.isoformat()},
+                run_id=run.id, actor=actor,
+            )
+        if run.status in TERMINAL_RUN_STATUSES:
+            event_type = {
+                RunStatus.COMPLETED: EventType.SCHEDULE_COMPLETED,
+                RunStatus.FAILED: EventType.SCHEDULE_FAILED,
+                RunStatus.CANCELLED: EventType.SCHEDULE_CANCELLED,
+            }[run.status]
+            if observed is None or (event_type, run.id) not in observed:
+                self.scoped.append(
+                    stream, event_type, run.id, {**data, "status": run.status.value},
+                    run_id=run.id, actor=actor,
+                )
 
     async def artifact_saved(self, project_id: str, artifact_id: str) -> bool:
         try:
@@ -116,6 +168,11 @@ class ProjectEventProjector:
             self._log_failure(exc)
             return False
         complete = True
+        try:
+            self.observe_schedule_run(run)
+        except Exception as exc:
+            self._log_failure(exc)
+            complete = False
         for record in [*project.evidence, *project.decisions, *project.artifacts]:
             source_id = record.run_id if isinstance(record, Artifact) else record.source_run_id
             if source_id == run.id:

@@ -7,6 +7,8 @@ import Workspace from './components/Workspace'
 import { pageTitle } from './pageMetadata'
 import { deletionOperation, deletionPreview } from './test/projectDeletionFixtures'
 
+vi.mock('./api/useScopedEvents', () => ({ useScopedEvents: () => ({ events: [], status: 'live', error: '', refresh: vi.fn() }) }))
+
 const timestamp = '2026-08-05T10:00:00Z'
 const emptyAssessment = (dimension: 'demand' | 'supply' | 'capital' | 'sales') => ({
   dimension,

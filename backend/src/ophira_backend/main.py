@@ -244,6 +244,7 @@ from .outlook_subscription_api import register_outlook_subscription_routes
 from .outlook_subscriptions import OUTLOOK_NOTIFICATIONS_RE, OutlookSubscriptions
 from .permissions import PermissionBroker, PermissionNotFoundError
 from .policy import OrgPolicyStore, PolicyDeniedError
+from .preflight_events import PreflightBusyError, PreflightEventService
 from .presentation_tools import PRESENTATION_COMPONENTS, PRESENTATION_SCHEMA_VERSION
 from .project_deletion import ProjectDeletionService
 from .project_deletion_api import register_project_deletion_routes
@@ -286,6 +287,7 @@ from .scheduler import (
     compute_next_fire,
     new_schedule,
 )
+from .scoped_event_api import install_scoped_event_routes
 from .sdk_adapter import ClaudeAgentRuntime
 from .session_search import (
     MAX_CURSOR_CHARS,
@@ -499,6 +501,7 @@ def _create_app(
         event_triggers=event_triggers,
     )
     providers = ProviderRegistry(settings)
+    preflight_events = PreflightEventService(ledger, providers)
     skills = SkillRegistry(settings.capability_plugin_dir, settings.data_dir / "skills")
     skill_proposals = SkillProposalService(
         ledger, skills, access=project_access, auth_mode=settings.auth_mode,
@@ -674,6 +677,7 @@ def _create_app(
     application.state.ledger = ledger
     application.state.events = events
     application.state.project_events = project_events
+    application.state.preflight_events = preflight_events
     application.state.memory = memory
     application.state.permissions = permissions
     application.state.providers = providers
@@ -763,6 +767,11 @@ def _create_app(
             ProjectLifecycleBusyError, ValueError,
         ):
             return False
+
+    install_scoped_event_routes(
+        application, project_events, providers, preflight_events,
+        _request_principal, require_project_authorization,
+    )
 
     def require_memory_authorization(
         item: MemoryItem | MemoryTombstone,
@@ -1948,7 +1957,7 @@ def _create_app(
         "/api/providers/{provider_id}/preflight",
         response_model=ProviderPreflightResult,
     )
-    async def preflight_provider(provider_id: str) -> ProviderPreflightResult:
+    async def preflight_provider(provider_id: str, request: Request) -> ProviderPreflightResult:
         try:
             providers.get(provider_id)
             preflight = getattr(runtime, "preflight", None)
@@ -1957,7 +1966,12 @@ def _create_app(
                     status_code=501,
                     detail="The configured test runtime does not support Provider preflight.",
                 )
-            return await preflight(provider_id)
+            principal = _request_principal(request)
+            return await preflight_events.execute(
+                provider_id, preflight, principal.tenant_id if principal else None,
+            )
+        except PreflightBusyError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
         except ProviderNotFoundError as exc:
             raise HTTPException(status_code=404, detail="Provider not found") from exc
 

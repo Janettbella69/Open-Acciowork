@@ -164,8 +164,17 @@ class EventType(StrEnum):
     DECISION_RECORDED = "decision.recorded"
     UI_PRESENTATION = "ui.presentation"
     PROVIDER_PREFLIGHT = "provider.preflight"
+    PROVIDER_PREFLIGHT_STARTED = "provider.preflight.started"
+    PROVIDER_PREFLIGHT_PASSED = "provider.preflight.passed"
+    PROVIDER_PREFLIGHT_FAILED = "provider.preflight.failed"
+
+    PROJECT_CHANGED = "project.changed"
 
     SCHEDULE_FIRED = "schedule.fired"
+    SCHEDULE_SKIPPED = "schedule.skipped"
+    SCHEDULE_COMPLETED = "schedule.completed"
+    SCHEDULE_FAILED = "schedule.failed"
+    SCHEDULE_CANCELLED = "schedule.cancelled"
 
 
 class PermissionDecision(StrEnum):

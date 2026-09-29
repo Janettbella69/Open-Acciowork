@@ -67,6 +67,7 @@ import type {
 } from './eventTriggers'
 import type { ConversationDeletionOperation, ConversationDeletionPreview, ProjectDeletionOperation, ProjectDeletionPreview, ProjectDeletionRequest } from './projectDeletion'
 import type { GovernedMemory, MemoryExpiryUpdate, MemoryExport, MemoryTombstone } from '../types/MemoryGovernance'
+import type { EventScope, ScopedEventHistory } from './scopedEvents'
 
 const configuredBaseUrl = import.meta.env.VITE_OPHIRA_API_URL?.trim() ?? ''
 export const apiBaseUrl = configuredBaseUrl.replace(/\/$/, '')
@@ -1425,6 +1426,26 @@ export function submitSkillImport(file: File, requestId: string, signal?: AbortS
 
 export function runEventUrl(runId: string): string {
   return apiUrl(`/api/runs/${runId}/events`)
+}
+
+function scopedEventPath(scope: EventScope, id: string): string {
+  return `/api/${scope === 'project' ? 'projects' : 'providers'}/${encodeURIComponent(id)}/events`
+}
+
+export function scopedEventUrl(scope: EventScope, id: string, after: number): string {
+  return apiUrl(`${scopedEventPath(scope, id)}?after=${after}`)
+}
+
+export function getScopedEventHistory(
+  scope: EventScope, id: string,
+  options: { after?: number; tail?: boolean; limit?: number; signal?: AbortSignal } = {},
+): Promise<ScopedEventHistory> {
+  const query = new URLSearchParams({ limit: String(options.limit ?? 200) })
+  if (options.tail) query.set('tail', 'true')
+  else query.set('after', String(options.after ?? 0))
+  return request(`${scopedEventPath(scope, id)}/history?${query}`, {
+    signal: options.signal, cache: 'no-store',
+  })
 }
 
 export function errorMessage(error: unknown): string {

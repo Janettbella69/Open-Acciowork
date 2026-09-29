@@ -2,9 +2,12 @@ import { act, fireEvent, render, screen, waitFor, within } from '@testing-librar
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { FeedbackItem, OpportunityProject, OrgPolicy, RunRecord } from '../api/types'
 import { useOpportunityRuntime } from '../api/useOpportunityRuntime'
+import { useScopedEvents } from '../api/useScopedEvents'
+import { scopedEvent } from '../test/scopedEventFixtures'
 import Workspace from './Workspace'
 
 vi.mock('../api/useOpportunityRuntime', () => ({ useOpportunityRuntime: vi.fn() }))
+vi.mock('../api/useScopedEvents', () => ({ useScopedEvents: vi.fn(() => ({ events: [], status: 'live', error: '', refresh: vi.fn() })) }))
 vi.mock('../api/client', () => ({
   listProviders: vi.fn(async () => []),
   getOrgPolicy: vi.fn(),
@@ -399,5 +402,26 @@ describe('Workspace run retry', () => {
     retryRuntime.mockResolvedValueOnce({ ...failedRun, id: 'run_retried', status: 'queued' })
     fireEvent.click(screen.getByRole('button', { name: /start new branch/i }))
     await waitFor(() => expect(retryRuntime).toHaveBeenCalledTimes(2))
+  })
+})
+
+describe('Workspace project events without a Run', () => {
+  it('subscribes to the selected project and refreshes only its ledger', async () => {
+    const runtime = vi.mocked(useOpportunityRuntime)()
+    const project = { id: 'project_1', name: 'Saved project', objective: 'Saved objective', stage: 'discovery', hypotheses: [], evidence: [], decisions: [], artifacts: [], assessments: {}, stage_decisions: [] } as unknown as OpportunityProject
+    vi.mocked(useOpportunityRuntime).mockReturnValue({ ...runtime, project, projects: [project], run: null })
+    render(<Workspace />)
+    await waitFor(() => expect(useScopedEvents).toHaveBeenCalledWith(expect.objectContaining({ scope: 'project', id: 'project_1' })))
+    const options = vi.mocked(useScopedEvents).mock.calls.at(-1)![0]
+    act(() => {
+      options.onReady?.()
+      options.onEvent?.(scopedEvent(1))
+      options.onEvent?.(scopedEvent(2, { type: 'schedule.completed', data: { schedule_id: 'schedule_1', status: 'completed' } }))
+    })
+    expect(runtime.refreshActiveProject).toHaveBeenCalledTimes(2)
+    expect(runtime.selectProject).not.toHaveBeenCalled()
+    expect(runtime.start).not.toHaveBeenCalled()
+    act(() => options.onUnavailable?.())
+    expect(runtime.discardProject).toHaveBeenCalledWith('project_1')
   })
 })

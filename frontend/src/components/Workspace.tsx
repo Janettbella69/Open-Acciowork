@@ -3,6 +3,7 @@ import { errorMessage, getOrgPolicy, getRunLimits, listProviders, saveOrgPolicy 
 import type { OpportunityProject, PermissionModePolicy, ProviderProfile, RunInterjectionMode, RunMode, RunRetryStrategy } from '../api/types'
 import { useOpportunityRuntime } from '../api/useOpportunityRuntime'
 import { useProjectDeletion } from '../api/useProjectDeletion'
+import { useScopedEvents } from '../api/useScopedEvents'
 import { requireConversationScope, type ConversationDeletionOperation, type ProjectDeletionOperation } from '../api/projectDeletion'
 import { providerIsRunnable } from '../providerEligibility'
 import WorkspaceComposer from './WorkspaceComposer'
@@ -77,6 +78,12 @@ export default function Workspace() {
   }, [])
   const runtime = useOpportunityRuntime(onProjectUnavailable)
   const { discardProject, discardConversation, refreshActiveProject, selectProject, project: currentProject } = runtime
+  const projectUpdates = useScopedEvents({
+    scope: 'project', id: currentProject?.id ?? null,
+    onReady: () => { void refreshActiveProject() },
+    onEvent: (event) => { if (event.type === 'project.changed') void refreshActiveProject() },
+    onUnavailable: () => { if (currentProject) discardProject(currentProject.id) },
+  })
   const onDeletionAccepted = useCallback((operation: ProjectDeletionOperation) => {
     if (discardProject(operation.project_id)) {
       setNotice('Deletion was accepted. Your unsent message and local attachments are still here.')
@@ -337,7 +344,7 @@ export default function Workspace() {
       attachedFiles={attachedFiles}
       busy={runtime.starting || runtime.isActive || runtime.historyLoading || planActionBusy}
       notice={notice}
-      error={runtime.error}
+      error={runtime.error || (projectUpdates.error ? 'Live project updates are unavailable. Refresh the project to reconnect.' : '')}
       projects={runtime.projects}
       project={runtime.project}
       run={runtime.run}
@@ -370,7 +377,7 @@ export default function Workspace() {
       interjectionBusy={interjectionBusy}
       compacting={compacting}
       onCompact={() => void compactContext()}
-      onProjectRefresh={() => void runtime.refreshActiveProject()}
+      onProjectRefresh={() => { void runtime.refreshActiveProject(); if (projectUpdates.error) projectUpdates.refresh() }}
       onProjectCreated={(project) => void selectProjectRecord(project)}
       deletionProgress={<><ProjectDeletionProgress deletion={deletion} /><ProjectDeletionProgress deletion={conversationDeletion} /></>}
       deletionPending={!!deletion.attempt}

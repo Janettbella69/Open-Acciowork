@@ -15,6 +15,12 @@ memory review retain their existing authorization boundaries.
 
 ## Run locally
 
+[Scoped observations](../docs/scoped-events.md) cover manual project revisions,
+schedule outcomes and Provider preflight lifecycle without inventing Runs.
+[Native SDK accounting](../docs/sdk-accounting.md) verifies live directions,
+same-session deferred resume and remaining-budget enforcement against a local
+synthetic transport, without a paid Provider.
+
 Runs now have durable active-time and SDK-output allowances, preserving saved
 work on exhaustion and excluding native suspended approval waits. See
 [SDK resource limits](../docs/sdk-resource-limits.md) for configuration and the

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import {
   createSchedule,
   errorMessage,
@@ -19,6 +19,7 @@ import type {
 import Brand from './Brand'
 import EventTriggersPanel from './EventTriggersPanel'
 import TaskExperiencePanel from './TaskExperiencePanel'
+import ScheduleProjectHistory from './ScheduleProjectHistory'
 import { useLanguage, useT } from '../i18n'
 import './scheduled-tasks-page.css'
 
@@ -112,6 +113,11 @@ export default function ScheduledTasksPage() {
   const [busy, setBusy] = useState<Set<string>>(() => new Set())
   const busyRef = useRef(new Set<string>())
   const feedbackRevision = useRef(0)
+  const loadRevision = useRef(0)
+  const mounted = useRef(false)
+  const unavailableProjects = useRef(new Set<string>())
+  const [liveHistory, setLiveHistory] = useState(true)
+  const [historyProjectId, setHistoryProjectId] = useState('')
 
   const [creatorOpen, setCreatorOpen] = useState(false)
   const [prompt, setPrompt] = useState('')
@@ -123,6 +129,7 @@ export default function ScheduledTasksPage() {
   const beginAction = (key: string): number | null => {
     if (busyRef.current.has(key)) return null
     busyRef.current.add(key)
+    loadRevision.current += 1
     setBusy(new Set(busyRef.current))
     setError('')
     setNotice('')
@@ -130,23 +137,31 @@ export default function ScheduledTasksPage() {
   }
 
   const finishAction = (key: string) => {
+    loadRevision.current += 1
     busyRef.current.delete(key)
+    if (!mounted.current) return
     setBusy(new Set(busyRef.current))
+    if (!busyRef.current.size) void refreshSchedules()
   }
 
-  useEffect(() => {
-    let active = true
-    void Promise.all([listSchedules(), listProjects()])
+  const refreshSchedules = useCallback(async () => {
+    // User actions return their own committed record. Reconcile the full list
+    // only after every concurrent action settles, so an older read cannot undo it.
+    if (busyRef.current.size) return
+    const revision = ++loadRevision.current
+    const current = () => mounted.current && !busyRef.current.size && revision === loadRevision.current
+    await Promise.all([listSchedules(), listProjects()])
       .then(async ([loadedSchedules, loadedProjects]) => {
-        if (!active) return
-        setSchedules(loadedSchedules)
-        setProjects(loadedProjects)
+        if (!current()) return
+        const visibleSchedules = loadedSchedules.filter((item) => !unavailableProjects.current.has(item.project_id))
+        setSchedules(visibleSchedules)
+        setProjects(loadedProjects.filter((item) => !unavailableProjects.current.has(item.id)))
         setBackendState('online')
-        const withRuns = loadedSchedules.filter((item) => item.last_run_id)
+        const withRuns = visibleSchedules.filter((item) => item.last_run_id)
         const runs = await Promise.all(
           withRuns.map((item) => getRun(item.last_run_id!).catch(() => null)),
         )
-        if (!active) return
+        if (!current()) return
         const map: Record<string, RunRecord> = {}
         withRuns.forEach((item, index) => {
           const run = runs[index]
@@ -155,12 +170,28 @@ export default function ScheduledTasksPage() {
         setLastRuns(map)
       })
       .catch((loadError) => {
-        if (!active) return
+        if (!current()) return
         setBackendState('offline')
         setError(errorMessage(loadError))
       })
-    return () => { active = false }
   }, [])
+
+  useEffect(() => {
+    mounted.current = true
+    void refreshSchedules()
+    return () => { mounted.current = false; loadRevision.current += 1 }
+  }, [refreshSchedules])
+
+  const removeUnavailableProject = (id: string) => {
+    unavailableProjects.current.add(id)
+    loadRevision.current += 1
+    feedbackRevision.current += 1
+    setProjectId((current) => current === id ? '' : current)
+    setProjects((items) => items.filter((item) => item.id !== id))
+    setSchedules((items) => items.filter((item) => item.project_id !== id))
+    setLastRuns((items) => Object.fromEntries(Object.entries(items).filter(([, run]) => run.project_id !== id)))
+    setNotice(t('A project is no longer available. Its schedule history has been cleared.'))
+  }
 
   useEffect(() => {
     if (!creatorOpen) return
@@ -198,6 +229,7 @@ export default function ScheduledTasksPage() {
           ? workspaceFilePermissionCeiling.map((rule) => ({ ...rule }))
           : [],
       })
+      if (!mounted.current || unavailableProjects.current.has(created.project_id)) return
       setSchedules((current) => [created, ...current])
       setCreatorOpen(false)
       setView('tasks')
@@ -218,6 +250,7 @@ export default function ScheduledTasksPage() {
       const updated = schedule.enabled
         ? await pauseSchedule(schedule.id)
         : await resumeSchedule(schedule.id)
+      if (!mounted.current || unavailableProjects.current.has(schedule.project_id)) return
       setSchedules((current) => current.map((item) => (item.id === updated.id ? updated : item)))
     } catch (toggleError) {
       if (revision === feedbackRevision.current) setError(t(errorMessage(toggleError)))
@@ -231,6 +264,7 @@ export default function ScheduledTasksPage() {
     if (revision === null) return
     try {
       const run = await runSchedule(schedule.id)
+      if (!mounted.current || unavailableProjects.current.has(schedule.project_id)) return
       if (revision === feedbackRevision.current) {
         setNotice(t('Manual run {id} started ({status}). Watch it in the workspace.', {
           id: run.id,
@@ -243,6 +277,9 @@ export default function ScheduledTasksPage() {
       finishAction(schedule.id)
     }
   }
+
+  const historyProjects = projects.filter((item) => schedules.some((schedule) => schedule.project_id === item.id))
+  const historyProject = historyProjects.find((item) => item.id === historyProjectId) ?? historyProjects[0]
 
   return (
     <div className="schedules-shell">
@@ -385,6 +422,20 @@ export default function ScheduledTasksPage() {
           </div>
         )}
         {view === 'tasks' && <EventTriggersPanel projects={projects} />}
+        {view === 'tasks' && <section className="schedules-task-list" aria-labelledby="schedule-history-heading">
+          <div><h2 id="schedule-history-heading">{t('Recent schedule activity')}</h2>
+            <label><input type="checkbox" checked={liveHistory} onChange={(event) => setLiveHistory(event.target.checked)} /> {t('Live updates')}</label>
+          </div>
+          {historyProject && <>
+            <label>{t('Schedule history project')}{' '}
+              <select value={historyProject.id} onChange={(event) => setHistoryProjectId(event.target.value)}>
+                {historyProjects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
+              </select>
+            </label>
+            <ScheduleProjectHistory key={historyProject.id} project={historyProject} schedules={schedules} live={liveHistory}
+              onChanged={() => { void refreshSchedules() }} onUnavailable={() => removeUnavailableProject(historyProject.id)} />
+          </>}
+        </section>}
       </main>
 
       {creatorOpen && (

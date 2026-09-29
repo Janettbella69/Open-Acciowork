@@ -26,6 +26,8 @@ import {
   getCommentHistory,
   setSkillEnabled,
   rollbackSkill,
+  getScopedEventHistory,
+  scopedEventUrl,
 } from './client'
 
 afterEach(() => {
@@ -33,6 +35,16 @@ afterEach(() => {
 })
 
 describe('API client', () => {
+  it('encodes independent event scopes and reads a bounded recent history without an after cursor', async () => {
+    const fetchMock = vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ events: [], stream_id: 'opaque', last_sequence: 7 }) } as Response))
+    vi.stubGlobal('fetch', fetchMock)
+    const controller = new AbortController()
+    await getScopedEventHistory('provider', 'deep/seek', { tail: true, limit: 200, signal: controller.signal })
+    expect(fetchMock).toHaveBeenCalledWith('/api/providers/deep%2Fseek/events/history?limit=200&tail=true', expect.objectContaining({ signal: controller.signal, cache: 'no-store' }))
+    await getScopedEventHistory('project', 'one/two', { after: 7, limit: 1 })
+    expect(fetchMock).toHaveBeenLastCalledWith('/api/projects/one%2Ftwo/events/history?limit=1&after=7', expect.any(Object))
+    expect(scopedEventUrl('project', 'one/two', 7)).toBe('/api/projects/one%2Ftwo/events?after=7')
+  })
   it('encodes the project query and continuation cursor for session search', async () => {
     const fetchMock = vi.fn(async () => new Response('{}', { status: 200 }))
     vi.stubGlobal('fetch', fetchMock)

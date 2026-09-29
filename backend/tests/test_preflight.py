@@ -87,6 +87,29 @@ def script_success() -> list:
     ]
 
 
+@pytest.mark.asyncio
+async def test_in_flight_success_cannot_certify_changed_provider_credentials(tmp_path, monkeypatch):
+    runtime, providers = build_runtime(tmp_path)
+    original = providers.get("deepseek")
+
+    async def changed_configuration(self):
+        providers.upsert("deepseek", ProviderProfileUpsert(
+            **original.model_dump(include=set(ProviderProfileUpsert.model_fields) - {"secret"}),
+            secret="replacement-fixture-key",
+        ))
+        for message in script_success():
+            yield message
+
+    monkeypatch.setattr(FakeSDKClient, "receive_response", changed_configuration)
+    result = await runtime.preflight("deepseek")
+    current = providers.get("deepseek")
+    assert not result.ok
+    assert "configuration changed" in result.message
+    assert current.configuration_revision == original.configuration_revision + 1
+    assert current.last_verified_at is None
+    assert FakeSDKClient.captured_options.env["ANTHROPIC_AUTH_TOKEN"] == "test-credential"
+
+
 @pytest.fixture(autouse=True)
 def patch_sdk_client(monkeypatch: pytest.MonkeyPatch):
     FakeSDKClient.script = []

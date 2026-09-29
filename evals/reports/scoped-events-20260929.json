@@ -1,0 +1,20 @@
+{
+  "transport": "real Uvicorn loopback HTTP and SSE; no ASGI transport mocks",
+  "checks": {
+    "project_http_upload_live_sse": true,
+    "project_history_tail_and_last_event_id_replay": true,
+    "offline_pass_started_then_outcome_live_history_and_resume": true,
+    "offline_fail_started_then_outcome_live_history_and_resume": true,
+    "cross_scope_last_event_id_rejected": true,
+    "schedule_success_tick_live_sse_and_durable_history": true,
+    "schedule_failure_tick_live_sse_and_durable_history": true,
+    "schedule_skip_tick_live_sse_and_durable_history": true
+  },
+  "boundaries": [
+    "Temporary data only; no real credentials, model calls or external services.",
+    "Runtime results and Provider preflight outcomes are explicit offline fixtures.",
+    "Schedule due times and one prior active Run are seeded into the temporary ledger.",
+    "Validates HTTP/SSE persistence and replay, not browser rendering or Provider quality.",
+    "Local-only authorization; deployed tenant and revoked-member matrices are separate."
+  ]
+}

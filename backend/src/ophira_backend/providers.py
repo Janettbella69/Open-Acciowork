@@ -376,17 +376,26 @@ class ProviderRegistry:
                 or previous.auth_env_name != payload.auth_env_name
             ):
                 raise ValueError("A new Provider key is required when its endpoint changes")
+            configuration_changed = previous is None or payload.secret is not None or any(
+                value != previous.model_dump()[key]
+                for key, value in payload.model_dump(exclude={
+                    "secret", "display_name", "region", "production_eligible", "terms_checked_at",
+                }).items()
+            )
             profile = ProviderProfile(
                 id=profile_id,
+                configuration_revision=(
+                    previous.configuration_revision + int(configuration_changed) if previous else 1
+                ),
                 **payload.model_dump(exclude={"secret"}),
                 last_verified_at=(
-                    previous.last_verified_at if previous and payload.secret is None else None
+                    previous.last_verified_at if previous and not configuration_changed else None
                 ),
                 last_error_code=(
-                    previous.last_error_code if previous and payload.secret is None else None
+                    previous.last_error_code if previous and not configuration_changed else None
                 ),
                 last_error_message=(
-                    previous.last_error_message if previous and payload.secret is None else None
+                    previous.last_error_message if previous and not configuration_changed else None
                 ),
             )
             if payload.secret is not None:
@@ -401,9 +410,17 @@ class ProviderRegistry:
             self._write(profile)
             return self.get(profile_id)
 
-    def record_preflight(self, result: ProviderPreflightResult) -> ProviderProfile:
+    def record_preflight(
+        self, result: ProviderPreflightResult, *, expected_revision: int | None = None,
+    ) -> ProviderProfile:
         with self._transaction():
             profile = self.get(result.provider_profile_id)
+            if (expected_revision is not None
+                    and profile.configuration_revision != expected_revision):
+                raise ProviderConfigurationError(
+                    "Provider configuration changed during preflight; run preflight again.",
+                    ProviderErrorCode.SDK_RUNTIME_FAILED,
+                )
             updated = profile.model_copy(
                 update={
                     "last_verified_at": (
@@ -446,6 +463,7 @@ class ProviderRegistry:
                 )
             self.vault.delete(profile_id)
             self._write(profile.model_copy(update={
+                "configuration_revision": profile.configuration_revision + 1,
                 "last_verified_at": None,
                 "last_error_code": ProviderErrorCode.AUTH_REVOKED_OR_INVALID,
                 "last_error_message": "Provider credential was revoked",
@@ -511,6 +529,11 @@ class ProviderRegistry:
                 profile.capabilities.context_window_tokens
             )
         return env
+
+    def preflight_configuration(self, profile_id: str) -> tuple[ProviderProfile, dict[str, str]]:
+        """Freeze options and the credential under one configuration transaction."""
+        with self._transaction():
+            return self.get(profile_id), self.build_worker_env(profile_id)
 
 
 def classify_provider_error(error: BaseException | str) -> ProviderErrorCode:
