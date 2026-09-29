@@ -118,8 +118,12 @@ from .providers import (
     provider_readiness_failures,
     successful_preflight,
 )
-from .run_accounting import cumulative_result, latest_result
-from .run_interjections import interjection_receipts
+from .run_accounting import SdkInvocationAccounting, cumulative_result, latest_result
+from .run_interjections import (
+    RunInterjectionConflict,
+    interjection_receipts,
+    validate_interjection_prompt,
+)
 from .sdk_resources import SdkExecutionBudget, SdkResourceLimitError
 from .shop_browser import ShopBrowserService
 from .skill_proposals import SkillProposalService
@@ -511,6 +515,7 @@ class ClaudeAgentRuntime:
                 and not self.durable_resume_supported):
             raise AgentRunError("Native deferred replay requires a verified startup approval gate.")
         result_error: str | None = None
+        accounting = SdkInvocationAccounting(latest_result(self.ledger, run.id))
         async with AsyncExitStack() as stack:
             if user_mcp_scope is not None:
                 await stack.enter_async_context(user_mcp_scope)
@@ -583,7 +588,7 @@ class ClaudeAgentRuntime:
                     async for message in client.receive_response():
                         if output_budget is not None:
                             output_budget.message(message)
-                        await self._map_message(run.id, message)
+                        await self._map_message(run.id, message, accounting=accounting)
                         if isinstance(message, ResultMessage):
                             await self._publish_context_usage(run.id, client)
                         if (isinstance(message, ResultMessage)
@@ -901,6 +906,18 @@ class ClaudeAgentRuntime:
                 None,
             )
             if receipt is None or receipt.status != "queued":
+                return False
+            try:
+                validate_interjection_prompt(request.prompt)
+            except RunInterjectionConflict as exc:
+                # Persisted requests from an earlier worker/version must meet
+                # the same gate before any command reaches the live CLI.
+                await self.events.publish_once(
+                    run_id, EventType.RUN_INTERJECTION_BLOCKED,
+                    {"resource_id": request.request_id, "reason": str(exc)},
+                    resource_id=request.request_id,
+                    actor=EventActor(type="system", name="sdk-stream"),
+                )
                 return False
             await self.events.publish(
                 run_id, EventType.RUN_INTERJECTION_DISPATCHING,
@@ -2130,7 +2147,9 @@ class ClaudeAgentRuntime:
             )
         return EventActor(type="agent", name="ophira")
 
-    async def _map_message(self, run_id: str, message: Any) -> None:
+    async def _map_message(
+        self, run_id: str, message: Any, *, accounting: SdkInvocationAccounting | None = None,
+    ) -> None:
         if isinstance(message, UserMessage):
             # AskUserQuestion can finish through the native permission callback
             # without firing PostToolUse. Audit its SDK-emitted result; never
@@ -2220,7 +2239,8 @@ class ClaudeAgentRuntime:
             ):
                 return
             self.ledger.update_run(run_id, sdk_session_id=message.session_id)
-            result_data = cumulative_result(latest_result(self.ledger, run_id),
+            accumulate = accounting.accumulate if accounting is not None else cumulative_result
+            result_data = accumulate(latest_result(self.ledger, run_id),
                 {
                     "sdk_result_uuid": message.uuid,
                     "manual_compaction": self.ledger.get_run(run_id).manual_compaction,

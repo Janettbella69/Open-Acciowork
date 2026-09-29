@@ -60,6 +60,7 @@ from .run_interjections import (
     interjection_receipts,
     prompt_digest,
     queued_for_next_turn,
+    validate_interjection_prompt,
 )
 from .skills import SkillRegistry
 from .storage import FileLedger
@@ -175,6 +176,7 @@ class RunManager:
         self, run_id: str, request: RunInterjectionRequest, *, actor: EventActor,
     ) -> RunInterjectionReceipt:
         """Persist user input before attempting a live SDK write."""
+        validate_interjection_prompt(request.prompt)
         async with self._interjection_locks.setdefault(run_id, asyncio.Lock()):
             run = self.ledger.get_run(run_id)
             if run.manual_compaction:

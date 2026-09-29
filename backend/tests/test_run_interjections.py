@@ -15,7 +15,11 @@ from ophira_backend.main import create_app
 from ophira_backend.models import EventActor, ProjectCreate, RunInterjectionRequest
 from ophira_backend.native_hooks import NativeHookBridge
 from ophira_backend.permissions import PermissionBroker
-from ophira_backend.run_interjections import prompt_digest
+from ophira_backend.run_interjections import (
+    RunInterjectionConflict,
+    prompt_digest,
+    validate_interjection_prompt,
+)
 from ophira_backend.runs import RunManager
 from ophira_backend.storage import FileLedger
 
@@ -45,6 +49,45 @@ async def wait_terminal(ledger: FileLedger, run_id: str) -> None:
             return
         await asyncio.sleep(0.01)
     raise AssertionError("run did not finish")
+
+
+@pytest.mark.parametrize("prompt", [
+    "/clear", "/reset", "/new", "  /clear\n", "/reset now", "\ufeff /NeW\t",
+])
+def test_native_session_reset_commands_are_not_business_directions(prompt):
+    with pytest.raises(RunInterjectionConflict, match="Start a new task"):
+        validate_interjection_prompt(prompt)
+
+
+@pytest.mark.parametrize("prompt", [
+    "Explain /clear and /new", "/clearance report", "/new/report.md", "`/reset`",
+])
+def test_ordinary_text_mentions_and_paths_are_preserved(prompt):
+    validate_interjection_prompt(prompt)
+
+
+@pytest.mark.parametrize("mode", ["now", "interrupt", "next_turn"])
+async def test_interjection_api_rejects_reset_before_persistence(tmp_path, mode):
+    runtime = HoldingRuntime()
+    app = create_app(Settings(_env_file=None, data_dir=tmp_path), runtime=runtime)
+    runtime.ledger = app.state.ledger
+    project = runtime.ledger.create_project(ProjectCreate(name="Reset gate", objective="Offline"))
+    run = await app.state.runs.create_and_start(project.id, "Start")
+    try:
+        await asyncio.wait_for(runtime.started.wait(), 2)
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://localhost",
+        ) as client:
+            rejected = await client.post(f"/api/runs/{run.id}/interjections", json={
+                "request_id": str(uuid4()), "prompt": "/clear", "mode": mode,
+            })
+        assert rejected.status_code == 409
+        assert "Start a new task" in rejected.json()["detail"]
+        assert not any(event.type == EventType.RUN_INTERJECTION_REQUESTED
+                       for event in runtime.ledger.list_events(run.id))
+    finally:
+        runtime.release.set()
+        await wait_terminal(runtime.ledger, run.id)
 
 
 @pytest.mark.asyncio
@@ -222,12 +265,13 @@ async def test_streaming_sdk_drains_each_result_and_delivers_live_direction(
             result = await self.results.get()
             yield result
 
-    def result(*, aborted=False):
+    def result(*, aborted=False, total_cost_usd=0.1):
         return ResultMessage(
             subtype="error_during_execution" if aborted else "success",
             duration_ms=1, duration_api_ms=1, is_error=aborted,
-            num_turns=1, session_id="stream-session", total_cost_usd=0,
-            usage={}, terminal_reason="aborted_streaming" if aborted else "completed",
+            num_turns=1, session_id="stream-session", total_cost_usd=total_cost_usd,
+            usage={"input_tokens": 10, "output_tokens": 2},
+            terminal_reason="aborted_streaming" if aborted else "completed",
         )
 
     class Bridge(NativeHookBridge):
@@ -243,6 +287,19 @@ async def test_streaming_sdk_drains_each_result_and_delivers_live_direction(
             break
         await asyncio.sleep(0.01)
     assert clients and len(clients[0].queries) == 1
+    old_reset = RunInterjectionRequest(request_id=str(uuid4()), prompt="/clear", mode=mode)
+    await runtime.events.publish_run_interjection_requested(
+        run.id,
+        {"resource_id": old_reset.request_id, "prompt": old_reset.prompt,
+         "prompt_digest": prompt_digest(old_reset.prompt), "mode": mode},
+        actor=EventActor(type="user", name="old-worker"),
+    )
+    assert await runtime.interject(run.id, old_reset) is False
+    assert len(clients[0].queries) == 1
+    assert clients[0].interrupted is False
+    assert any(event.type == EventType.RUN_INTERJECTION_BLOCKED
+               and event.data["resource_id"] == old_reset.request_id
+               for event in ledger.list_events(run.id))
     request = RunInterjectionRequest(
         request_id=str(uuid4()), prompt="Focus on shipping constraints", mode=mode,
     )
@@ -270,8 +327,12 @@ async def test_streaming_sdk_drains_each_result_and_delivers_live_direction(
                 break
             await asyncio.sleep(0.01)
         assert clients[0].queries[-1] == request.prompt
-    await clients[0].results.put(result())
+    await clients[0].results.put(result(total_cost_usd=0.3))
     await asyncio.wait_for(task, 2)
     kinds = [item.type for item in ledger.list_events(run.id)]
     assert EventType.RUN_INTERJECTION_DISPATCHING in kinds
     assert EventType.RUN_INTERJECTION_INJECTED in kinds
+    results = [item.data for item in ledger.list_events(run.id)
+               if item.type == EventType.RUN_RESULT]
+    assert results[-1]["total_cost_usd"] == 0.3
+    assert results[-1]["usage"] == {"input_tokens": 20, "output_tokens": 4}

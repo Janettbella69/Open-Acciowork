@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 
 from .constants import EventType, RunInterjectionMode
 from .models import EventEnvelope, RunInterjectionReceipt
@@ -10,6 +11,19 @@ from .models import EventEnvelope, RunInterjectionReceipt
 
 class RunInterjectionConflict(RuntimeError):
     """A message is stale or its idempotency key names different content."""
+
+
+def validate_interjection_prompt(prompt: str) -> None:
+    """Directions cannot reset the host-owned session or its native budget.
+
+    The pinned CLI treats these leading slash commands as control operations,
+    including aliases and commands with arguments. Mentions in ordinary prose
+    and names such as /clearance remain ordinary user text.
+    """
+    if re.match(r"^[\s\ufeff]*/(?:clear|reset|new)(?=\s|$)", prompt, re.IGNORECASE):
+        raise RunInterjectionConflict(
+            "Session reset commands are unavailable during a Run. Start a new task instead."
+        )
 
 
 def prompt_digest(prompt: str) -> str:

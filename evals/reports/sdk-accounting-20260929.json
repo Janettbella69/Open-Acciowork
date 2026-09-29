@@ -1,0 +1,123 @@
+{
+  "sdk_version": "0.2.143",
+  "provider_transport": "loopback synthetic SSE; no external model service",
+  "cases": [
+    {
+      "case": "live_direction",
+      "status": "completed",
+      "fixture_requests": 2,
+      "live_interjection": "injected and consumed in the original Run",
+      "session_reset_commands_rejected_before_dispatch": [
+        "/clear",
+        "/reset",
+        "/new"
+      ],
+      "native_running_costs_usd": [
+        0.0045000000000000005,
+        0.013500000000000002
+      ],
+      "recorded_cost_usd": 0.013500000000000002,
+      "per_turn_usage_accumulated": {
+        "input_tokens": 3000,
+        "output_tokens": 300,
+        "service_tier": "standard",
+        "cache_creation": {
+          "ephemeral_5m_input_tokens": 0,
+          "ephemeral_1h_input_tokens": 0
+        },
+        "output_tokens_details": null,
+        "inference_geo": "",
+        "cache_read_input_tokens": 0,
+        "server_tool_use": {
+          "web_search_requests": 0,
+          "web_fetch_requests": 0
+        },
+        "speed": "standard",
+        "cache_creation_input_tokens": 0,
+        "iterations": []
+      },
+      "task_list_cost": "passed",
+      "sdk_direct_child_cleanup": "passed"
+    },
+    {
+      "case": "live_direction_then_durable_resume",
+      "status": "completed",
+      "fixture_requests": 3,
+      "live_interjection": "injected and consumed in the original Run",
+      "session_reset_commands_rejected_before_dispatch": [
+        "/clear",
+        "/reset",
+        "/new"
+      ],
+      "native_running_costs_usd": [
+        0.0045000000000000005,
+        0.013500000000000002,
+        0.013500000000000002
+      ],
+      "recorded_cost_usd": 0.027000000000000003,
+      "per_turn_usage_accumulated": {
+        "input_tokens": 6000,
+        "output_tokens": 600,
+        "service_tier": "standard",
+        "cache_creation": {
+          "ephemeral_5m_input_tokens": 0,
+          "ephemeral_1h_input_tokens": 0
+        },
+        "output_tokens_details": null,
+        "inference_geo": "",
+        "cache_read_input_tokens": 0,
+        "server_tool_use": {
+          "web_search_requests": 0,
+          "web_fetch_requests": 0
+        },
+        "speed": "standard",
+        "cache_creation_input_tokens": 0,
+        "iterations": []
+      },
+      "task_list_cost": "passed",
+      "sdk_direct_child_cleanup": "passed",
+      "native_deferred_write_and_same_session_resume": "passed"
+    },
+    {
+      "case": "resumed_native_budget_fuse",
+      "status": "failed",
+      "fixture_requests": 3,
+      "live_interjection": "injected and consumed in the original Run",
+      "session_reset_commands_rejected_before_dispatch": [
+        "/clear",
+        "/reset",
+        "/new"
+      ],
+      "native_running_costs_usd": [
+        0.0045000000000000005,
+        0.013500000000000002,
+        0.013500000000000002
+      ],
+      "recorded_cost_usd": 0.027000000000000003,
+      "per_turn_usage_accumulated": {
+        "input_tokens": 3000,
+        "output_tokens": 300,
+        "service_tier": "standard",
+        "cache_creation": {
+          "ephemeral_5m_input_tokens": 0,
+          "ephemeral_1h_input_tokens": 0
+        },
+        "output_tokens_details": null,
+        "inference_geo": "",
+        "cache_read_input_tokens": 0,
+        "server_tool_use": {
+          "web_search_requests": 0,
+          "web_fetch_requests": 0
+        },
+        "speed": "standard",
+        "cache_creation_input_tokens": 0,
+        "iterations": []
+      },
+      "task_list_cost": "passed",
+      "sdk_direct_child_cleanup": "passed",
+      "native_deferred_write_and_same_session_resume": "passed",
+      "logical_run_budget_usd": 0.02,
+      "native_result_subtype": "error_max_budget_usd"
+    }
+  ]
+}

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from dataclasses import dataclass
 from typing import Any
 
 from .constants import EventType
@@ -17,6 +18,27 @@ MODEL_TOTAL_KEYS = {
     "costUSD",
 }
 _FIRST_SEGMENT = object()
+
+
+@dataclass(frozen=True)
+class SdkInvocationAccounting:
+    """Separate per-turn counters from one CLI process's running estimates.
+
+    Native streaming results report turn-local ``usage`` but process-cumulative
+    ``total_cost_usd`` and ``model_usage``. A new CLI, including durable resume,
+    starts those estimates over. Freeze the earlier invocations at connection
+    time so later results replace this invocation's estimate instead of adding
+    its already reported spend again.
+    """
+
+    previous_invocations: dict[str, Any] | None
+
+    def accumulate(self, previous: dict | None, current: dict) -> dict:
+        result = cumulative_result(previous, current)
+        invocation = cumulative_result(self.previous_invocations, current)
+        result["total_cost_usd"] = invocation["total_cost_usd"]
+        result["model_usage"] = invocation["model_usage"]
+        return result
 
 
 def latest_result(ledger: FileLedger, run_id: str) -> dict[str, Any] | None:

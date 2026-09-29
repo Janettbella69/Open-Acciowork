@@ -4,7 +4,7 @@ import pytest
 
 from ophira_backend.constants import EventType
 from ophira_backend.models import EventActor, EventEnvelope, ProjectCreate
-from ophira_backend.run_accounting import cumulative_result
+from ophira_backend.run_accounting import SdkInvocationAccounting, cumulative_result
 from ophira_backend.storage import FileLedger
 from ophira_backend.telemetry import build_run_telemetry
 
@@ -20,6 +20,57 @@ def segment(**changes):
         }},
         **changes,
     }
+
+
+def test_streaming_cost_and_models_replace_the_current_cli_total_but_usage_adds():
+    accounting = SdkInvocationAccounting(None)
+    first = accounting.accumulate(None, segment())
+    second = accounting.accumulate(first, segment(
+        total_cost_usd=0.7,
+        model_usage={"model-a": {
+            "inputTokens": 50, "outputTokens": 25, "costUSD": 0.7,
+            "contextWindow": 200000,
+        }},
+        usage={"input_tokens": 30, "output_tokens": 15},
+    ))
+    assert second["total_cost_usd"] == 0.7
+    assert second["model_usage"] == second["segment_model_usage"]
+    assert second["usage"] == {"input_tokens": 50, "output_tokens": 25}
+    assert second["num_turns"] == 4
+
+
+def test_resumed_cli_keeps_earlier_invocations_once_across_multiple_live_turns():
+    earlier = cumulative_result(None, segment())
+    resumed = SdkInvocationAccounting(earlier)
+    first = resumed.accumulate(earlier, segment(total_cost_usd=0.1))
+    second = resumed.accumulate(first, segment(total_cost_usd=0.3))
+    assert second["total_cost_usd"] == pytest.approx(0.7)
+    assert second["usage"] == {"input_tokens": 60, "output_tokens": 30}
+    assert second["model_usage"]["model-a"]["inputTokens"] == 40
+    third_cli = SdkInvocationAccounting(second)
+    final = third_cli.accumulate(second, segment(total_cost_usd=0.2))
+    assert final["total_cost_usd"] == pytest.approx(0.9)
+
+
+def test_current_cli_complete_totals_can_replace_an_earlier_missing_observation():
+    earlier = cumulative_result(None, segment())
+    accounting = SdkInvocationAccounting(earlier)
+    first = accounting.accumulate(earlier, segment(total_cost_usd=None, model_usage=None))
+    recovered = accounting.accumulate(first, segment())
+    assert recovered["total_cost_usd"] == 0.8
+    assert recovered["model_usage"]["model-a"]["inputTokens"] == 40
+    unknown_baseline = SdkInvocationAccounting(first)
+    assert unknown_baseline.accumulate(first, segment())["total_cost_usd"] is None
+
+
+def test_zeroed_native_crash_does_not_turn_prior_spend_into_a_complete_estimate():
+    accounting = SdkInvocationAccounting(None)
+    first = accounting.accumulate(None, segment())
+    crashed = accounting.accumulate(first, segment(
+        subtype="error_during_execution", total_cost_usd=0, usage={}, model_usage={},
+    ))
+    assert crashed["total_cost_usd"] is None
+    assert crashed["model_usage"] is None
 
 
 @pytest.mark.parametrize("field", ["usage", "model_usage"])

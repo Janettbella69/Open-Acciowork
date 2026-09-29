@@ -20,6 +20,11 @@ or a historical Run's budget is not available; it is not an estimate of zero.
 SDK cost is a client-side estimate, not billing data. Prompts, project
 names, and result excerpts pass through redaction before being returned.
 
+The [native accounting acceptance](sdk-accounting.md) additionally verifies
+multiple Result messages during live directions, same-session approval resume
+and the remaining native budget, using the pinned real CLI with a local synthetic
+transport. These are SDK estimates, not certified Provider charges.
+
 Local tests cover membership filtering, budget selection/default/operator
 ceiling, SDK budget scaling, persistence after restarting the ledger, cost and
 approval display, bounds, and exact Run navigation. Real
