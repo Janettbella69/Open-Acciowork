@@ -26,12 +26,16 @@ from pathlib import Path
 BACKEND_SRC = Path(__file__).resolve().parents[1] / "src" / "ophira_backend"
 
 # 共享内核：词汇表、持久化、鉴权、脱敏和纯数据模型。任何模块都可以依赖它，它不依赖任何子系统。
+# 进内核的门槛只有一条——自己只依赖内核（由下面的债务清单机器核对）。Provider 注册表、
+# Skill 注册表（``skills``）和上传摄取（``ingest``）属于这一类：每个 Run 都要用，内核里的
+# ``skill_proposal_files`` / ``storage`` 本来就 import 它们。
 KERNEL = frozenset({
     "__init__", "constants", "models", "config", "storage", "events", "auth", "policy",
     "untrusted", "destructive", "grants", "project_scope", "project_lifecycle", "templates",
     "worker_contract", "project_template_models", "project_export_models",
     "project_deletion_models", "skill_proposal_models", "skill_import_models",
     "skill_proposal_files", "backup_files", "artifact_files", "web_tools", "providers",
+    "skills", "ingest", "ingest_worker",
 })
 
 # 组合根：职责就是把所有子系统装起来，所以允许 import 一切；它们自己不应被子系统 import。
@@ -51,7 +55,7 @@ SUBSYSTEMS: dict[str, frozenset[str]] = {
         "project_events", "scoped_events", "scoped_event_api", "preflight_events",
     }),
     "skills": frozenset({
-        "skills", "skill_proposals", "skill_proposal_routes", "skill_repository",
+        "skill_proposals", "skill_proposal_routes", "skill_repository",
         "skill_repository_backup", "skill_repository_routes", "plugin_archives",
         "plugin_imports", "plugin_import_backup",
     }),
@@ -82,7 +86,7 @@ SUBSYSTEMS: dict[str, frozenset[str]] = {
         "push_store", "push_transport",
     }),
     "knowledge": frozenset({
-        "knowledge", "office_reference", "ingest", "ingest_worker", "office_export",
+        "knowledge", "office_reference", "office_export",
     }),
     "artifacts": frozenset({
         "artifact_edits", "media_tools", "runway_video", "site_bundle", "site_publications",
@@ -122,7 +126,6 @@ KNOWN_CROSS_IMPORTS: frozenset[tuple[str, str]] = frozenset({
     ("desktop_control", "project_events"),
     ("dingtalk_channel", "runs"),
     ("events", "run_interjections"),
-    ("feedback_routes", "skills"),
     ("gmail", "event_triggers"),
     ("gmail_api", "event_triggers"),
     ("intent_watcher", "runs"),
@@ -170,26 +173,18 @@ KNOWN_CROSS_IMPORTS: frozenset[tuple[str, str]] = frozenset({
     ("runs", "memory"),
     ("runs", "project_deletion_shared"),
     ("runs", "project_events"),
-    ("runs", "skills"),
     ("runs", "user_mcp"),
     ("runs", "workspace_checkpoints"),
     ("scheduler", "project_events"),
     ("scheduler", "runs"),
     ("scheduler", "scoped_events"),
     ("scheduler", "task_experience"),
-    ("sdk_adapter", "ingest"),
-    ("sdk_adapter", "memory"),
-    ("sdk_adapter", "presentation_tools"),
-    ("sdk_adapter", "skills"),
-    ("sdk_adapter", "source_receipts"),
     ("shop_browser", "marketplace_access"),
     ("shop_browser_api", "connectors"),
     ("shop_browser_host", "connector_run_access"),
     ("shop_browser_host", "maintenance"),
-    ("skill_proposal_files", "skills"),
     ("source_receipts", "commercial_adapters"),
     ("storage", "artifact_edits"),
-    ("storage", "ingest"),
     ("storage", "workspace_checkpoints"),
     ("telemetry", "presentation_tools"),
     ("web_tools", "market_data"),

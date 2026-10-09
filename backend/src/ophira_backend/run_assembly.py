@@ -4,7 +4,8 @@
 only SDK integration point and must not know which business subsystems exist. This
 module is the one place that does: it owns the subsystem services, decides which MCP
 servers a Run is given, and answers the adapter's questions about reviewed remote MCP
-tools, connector secrets and native desktop control through ``RunToolSurface``.
+tools, source receipts, presentation cards, connector secrets and native desktop
+control through ``RunToolSurface``.
 """
 
 from __future__ import annotations
@@ -28,12 +29,19 @@ from .models import OrgPolicy, RunRecord
 from .outlook_access import OutlookAccessService
 from .permissions import PermissionBroker
 from .policy import OrgPolicyStore
+from .presentation_tools import presentation_event_response, presentation_frame_event
 from .project_events import ProjectEventProjector
 from .providers import ProviderRegistry
 from .sdk_adapter import ClaudeAgentRuntime
 from .shop_browser import ShopBrowserService
 from .skill_proposals import SkillProposalService
 from .skills import SkillRegistry
+from .source_receipts import (
+    RemoteMcpReceiptSource,
+    SourceReceiptAttachment,
+    attach_source_receipts,
+    model_visible_source_receipt_context,
+)
 from .storage import FileLedger
 from .user_mcp import UserMcpConnector, UserMcpRegistry, UserMcpRunScope
 
@@ -128,6 +136,9 @@ class RunAssembler:
             return ""
         return self.task_experiences.context_for_run(run)
 
+    def memory_provider(self) -> MemoryProvider | None:
+        return self.memory
+
     def remote_connectors(self, run: RunRecord) -> dict[str, UserMcpConnector]:
         if (self.user_mcp is None or run.mode == RunMode.PLAN or run.manual_compaction
                 or run.standing_intent_id is not None):
@@ -156,6 +167,59 @@ class RunAssembler:
                 if connector.tool_name(item.name) == tool_name:
                     return item.policy
         return "deny"
+
+    def remote_tool_names(
+        self, remote_connectors: dict[str, UserMcpConnector], policy: str,
+    ) -> list[str]:
+        return [
+            connector.tool_name(item.name)
+            for connector in remote_connectors.values()
+            for item in connector.tools if item.policy == policy
+        ]
+
+    def attach_source_receipts(
+        self,
+        run: RunRecord,
+        tool_name: str,
+        tool_input: dict[str, Any],
+        tool_response: Any,
+        *,
+        delegated: bool,
+    ) -> SourceReceiptAttachment:
+        remote_mcp_source = None
+        if tool_name.startswith("mcp__user_") and not delegated:
+            for connector in self.remote_connectors(run).values():
+                for reviewed_tool in connector.tools:
+                    if (reviewed_tool.policy != "deny"
+                            and connector.tool_name(reviewed_tool.name) == tool_name):
+                        remote_mcp_source = RemoteMcpReceiptSource(
+                            connector_id=connector.id,
+                            connector_name=connector.name,
+                            connector_revision=connector.revision,
+                            endpoint_url=connector.url,
+                            remote_tool_name=reviewed_tool.name,
+                        )
+                        break
+                if remote_mcp_source is not None:
+                    break
+        return attach_source_receipts(
+            self.ledger,
+            run.id,
+            tool_name,
+            tool_input,
+            tool_response,
+            delegated=delegated,
+            remote_mcp_source=remote_mcp_source,
+        )
+
+    def source_receipt_context(self, receipt_ids: tuple[str, ...]) -> str | None:
+        return model_visible_source_receipt_context(receipt_ids)
+
+    def presentation_frame_event(self, **fields: Any) -> dict[str, Any] | None:
+        return presentation_frame_event(**fields)
+
+    def presentation_event_response(self, value: Any, project_id: str) -> dict[str, Any] | None:
+        return presentation_event_response(value, project_id)
 
     def mcp_servers(
         self,
@@ -277,7 +341,6 @@ def build_agent_runtime(
         ledger,
         events,
         permissions,
-        memory=memory,
         providers=providers,
         skills=skills,
         policy=policy,

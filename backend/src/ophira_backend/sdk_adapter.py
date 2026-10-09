@@ -88,7 +88,6 @@ from .destructive import is_destructive_delete
 from .durable_permissions import DurablePermissionConflict
 from .events import EventPublisher, redact
 from .ingest import file_needs_markdown_companion
-from .memory import MemoryProvider
 from .models import (
     EventActor,
     OrgPolicy,
@@ -100,7 +99,6 @@ from .models import (
 from .native_hooks import NativeHookBridge
 from .permissions import PermissionBroker
 from .policy import OrgPolicyStore
-from .presentation_tools import presentation_event_response, presentation_frame_event
 from .providers import (
     ProviderConfigurationError,
     ProviderRegistry,
@@ -117,11 +115,6 @@ from .run_interjections import (
 )
 from .sdk_resources import SdkExecutionBudget, SdkResourceLimitError
 from .skills import SkillRegistry, SkillRuntimeView
-from .source_receipts import (
-    RemoteMcpReceiptSource,
-    attach_source_receipts,
-    model_visible_source_receipt_context,
-)
 from .storage import FileLedger, LedgerNotFoundError
 from .untrusted import (
     UNTRUSTED_DATA_NOTICE,
@@ -138,11 +131,20 @@ class AgentRunError(RuntimeError):
 logger = logging.getLogger(__name__)
 
 
+class ReceiptAttachment(Protocol):
+    """A sanitized tool result plus the receipts the server minted for it."""
+
+    tool_response: Any
+    receipt_ids: tuple[str, ...]
+
+
 class RunToolSurface(Protocol):
-    """What this adapter needs to know about the business tools of a Run.
+    """What this adapter needs from the business side of a Run.
 
     Implemented by the composition root (``run_assembly.RunAssembler``). The adapter
     drives the SDK session; it must not import the subsystems that provide the tools.
+    Reviewed remote connectors are an opaque handle here: the adapter passes them back
+    and never reads their fields.
     """
 
     def has_desktop_control(self) -> bool: ...
@@ -153,9 +155,31 @@ class RunToolSurface(Protocol):
 
     def task_experience_context(self, run: RunRecord) -> str: ...
 
+    def memory_provider(self) -> Any: ...
+
     def remote_connectors(self, run: RunRecord) -> dict[str, Any]: ...
 
     def remote_mcp_decision(self, run: RunRecord, tool_name: str) -> str | None: ...
+
+    def remote_tool_names(self, remote_connectors: dict[str, Any], policy: str) -> list[str]: ...
+
+    def attach_source_receipts(
+        self,
+        run: RunRecord,
+        tool_name: str,
+        tool_input: dict[str, Any],
+        tool_response: Any,
+        *,
+        delegated: bool,
+    ) -> ReceiptAttachment: ...
+
+    def source_receipt_context(self, receipt_ids: tuple[str, ...]) -> str | None: ...
+
+    def presentation_frame_event(self, **fields: Any) -> dict[str, Any] | None: ...
+
+    def presentation_event_response(
+        self, value: Any, project_id: str,
+    ) -> dict[str, Any] | None: ...
 
     def mcp_servers(
         self,
@@ -337,7 +361,6 @@ class ClaudeAgentRuntime:
         events: EventPublisher,
         permissions: PermissionBroker,
         *,
-        memory: MemoryProvider | None,
         providers: ProviderRegistry,
         skills: SkillRegistry,
         policy: OrgPolicyStore,
@@ -348,7 +371,6 @@ class ClaudeAgentRuntime:
         self.ledger = ledger
         self.events = events
         self.permissions = permissions
-        self.memory = memory
         self.providers = providers
         self.skills = skills
         self.access = access
@@ -982,7 +1004,7 @@ class ClaudeAgentRuntime:
     ) -> PreparedRunContext:
         prepared = prepare_run_context(
             self.ledger,
-            self.memory,
+            self.assembler.memory_provider(),
             run,
             effective_skill_snapshot,
             memory_limit=MAX_MEMORY_ITEMS,
@@ -1175,11 +1197,10 @@ class ClaudeAgentRuntime:
                 # 自动放行（无副作用）；子代理内部的工具调用仍逐项过权限，
                 # 账本写入在 can_use_tool 对子代理代码级拒绝。
                 *([] if unattended_intent or event_run else [DELEGATION_TOOL]),
-                *[
-                    connector.tool_name(item.name)
-                    for connector in remote_connectors.values()
-                    for item in connector.tools if item.policy == "allow" and not event_run
-                ],
+                *(
+                    [] if event_run
+                    else self.assembler.remote_tool_names(remote_connectors, "allow")
+                ),
             ]),
             disallowed_tools=(
                 ["Bash", "Write", "Edit", "NotebookEdit", "Agent", "Task", "TaskCreate",
@@ -1187,11 +1208,7 @@ class ClaudeAgentRuntime:
                  "ExitPlanMode"]
                 if run.mode == RunMode.PLAN or run.manual_compaction else [
                     *(["Bash", "Agent"] if event_run else []),
-                    *[
-                        connector.tool_name(item.name)
-                        for connector in remote_connectors.values()
-                        for item in connector.tools if item.policy == "deny"
-                    ],
+                    *self.assembler.remote_tool_names(remote_connectors, "deny"),
                 ]
             ),
             system_prompt={
@@ -1504,7 +1521,7 @@ class ClaudeAgentRuntime:
                     }
                 if tool_name in PRESENTATION_TOOL_NAMES:
                     project = self.ledger.get_project(run.project_id)
-                    partial = presentation_frame_event(
+                    partial = self.assembler.presentation_frame_event(
                         tool_name=str(tool_name),
                         tool_input=tool_input,
                         project_id=run.project_id,
@@ -1714,33 +1731,15 @@ class ClaudeAgentRuntime:
                 if run.mode == RunMode.PLAN:
                     receipt_context = None
                 else:
-                    remote_mcp_source = None
-                    if tool_name.startswith("mcp__user_") and not input_data.get("agent_id"):
-                        for connector in self.assembler.remote_connectors(run).values():
-                            for reviewed_tool in connector.tools:
-                                if (reviewed_tool.policy != "deny"
-                                        and connector.tool_name(reviewed_tool.name) == tool_name):
-                                    remote_mcp_source = RemoteMcpReceiptSource(
-                                        connector_id=connector.id,
-                                        connector_name=connector.name,
-                                        connector_revision=connector.revision,
-                                        endpoint_url=connector.url,
-                                        remote_tool_name=reviewed_tool.name,
-                                    )
-                                    break
-                            if remote_mcp_source is not None:
-                                break
-                    receipt_attachment = attach_source_receipts(
-                        self.ledger,
-                        run_id,
+                    receipt_attachment = self.assembler.attach_source_receipts(
+                        run,
                         tool_name,
                         tool_input,
                         tool_response,
                         delegated=bool(input_data.get("agent_id")),
-                        remote_mcp_source=remote_mcp_source,
                     )
                     tool_response = receipt_attachment.tool_response
-                    receipt_context = model_visible_source_receipt_context(
+                    receipt_context = self.assembler.source_receipt_context(
                         receipt_attachment.receipt_ids
                     )
                 if hook_specific_output is not None and receipt_context is not None:
@@ -1761,14 +1760,14 @@ class ClaudeAgentRuntime:
                 structured_response = None
                 presentation_frame = None
                 if tool_name in PRESENTATION_TOOL_NAMES:
-                    structured_response = presentation_event_response(
+                    structured_response = self.assembler.presentation_event_response(
                         tool_response,
                         run.project_id,
                     )
                     if structured_response is not None:
                         tool_response = structured_response
                         presentation = structured_response["presentation"]
-                        presentation_frame = presentation_frame_event(
+                        presentation_frame = self.assembler.presentation_frame_event(
                             tool_name=tool_name,
                             tool_input=tool_input,
                             project_id=run.project_id,
@@ -1779,7 +1778,7 @@ class ClaudeAgentRuntime:
                         )
                     else:
                         project = self.ledger.get_project(run.project_id)
-                        presentation_frame = presentation_frame_event(
+                        presentation_frame = self.assembler.presentation_frame_event(
                             tool_name=tool_name,
                             tool_input=tool_input,
                             project_id=run.project_id,
@@ -1843,7 +1842,7 @@ class ClaudeAgentRuntime:
                 )
                 if tool_name in PRESENTATION_TOOL_NAMES and not input_data.get("agent_id"):
                     project = self.ledger.get_project(run.project_id)
-                    discarded = presentation_frame_event(
+                    discarded = self.assembler.presentation_frame_event(
                         tool_name=tool_name,
                         tool_input=tool_input,
                         project_id=run.project_id,

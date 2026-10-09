@@ -131,7 +131,7 @@ npm run lint && npm run build
 
 ## 架构大图（跨文件才能看懂的部分）
 
-一次运行的数据流：`POST /api/projects/{id}/runs`（main.py）→ `RunManager.create_and_start`（runs.py，固化 provider/skill 快照）→ `ClaudeAgentRuntime.run`（sdk_adapter.py，构造 `ClaudeAgentOptions` 并把 SDK 消息流映射为 SSE 事件；这次任务拿到哪些 MCP server、哪些远程 MCP 工具已审阅由组合根 `RunAssembler`〔run_assembly.py〕经 `RunToolSurface` 接口回答，适配器不 import 业务子系统，事件清单以 `GET /api/meta/protocol` 为准）→ 事件经 `EventPublisher`（events.py，全量 `redact()` 脱敏）落 `FileLedger`（storage.py，JSON/JSONL 原子写）→ 前端 `useOpportunityRuntime.ts` 经 SSE（`Last-Event-ID` 续传）消费。
+一次运行的数据流：`POST /api/projects/{id}/runs`（main.py）→ `RunManager.create_and_start`（runs.py，固化 provider/skill 快照）→ `ClaudeAgentRuntime.run`（sdk_adapter.py，构造 `ClaudeAgentOptions` 并把 SDK 消息流映射为 SSE 事件；这次任务拿到哪些 MCP server、哪些远程 MCP 工具已审阅，以及给工具结果签发来源凭证、生成呈现卡片事件，都由组合根 `RunAssembler`〔run_assembly.py〕经 `RunToolSurface` 接口提供，适配器不 import 任何业务子系统，事件清单以 `GET /api/meta/protocol` 为准）→ 事件经 `EventPublisher`（events.py，全量 `redact()` 脱敏）落 `FileLedger`（storage.py，JSON/JSONL 原子写）→ 前端 `useOpportunityRuntime.ts` 经 SSE（`Last-Event-ID` 续传）消费。
 
 - **权限双层防御**：`can_use_tool` 回调（写入 workspace 包含检查 + 禁 unsandboxed Bash + `PermissionBroker` 实时授权）+ `PreToolUse` hook（敏感路径黑名单 + 拦逃逸沙箱；读写围栏分开：Read/Glob/Grep=项目目录〔含账本 project.json 直读〕，Write/Edit=工作区）。沙箱内 Bash 走 SDK 原生 `autoAllowBashIfSandboxed` 自动批准（v2.2 2026-08-24，教材口径；`failIfUnavailable=True` 沙箱起不来必须失败）；人把关只在账本写入/对外发送等业务动作的 MCP ask 层。前端权限卡片经 `POST /api/runs/{run_id}/permissions/{request_id}` 回传。
 - **Provider 体系**（providers.py）：`ProviderRegistry` 文件存 profile（`backend/data/providers/*.json`，不含密钥），密钥在 `FileSecretVault`（`backend/data/secrets/`，0600）；`build_worker_env` 负责凭据隔离与全档位模型映射；`preflight()`（sdk_adapter.py）走真实 SDK `query()` 断言 Skill 发现 + MCP health 调用，错误分 8 类码。
