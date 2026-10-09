@@ -1,34 +1,71 @@
-# TradeMind
+# TradeMind（代码名 OPHIRA）
 
-**跨境电商版的 Codex，对标阿里的 Accio Work**
+**跨境电商版的 Codex，对标阿里的 Accio Work。**
 
-> 发现世界所需，连接能够供应的人。  
-> *Discover what the world needs. Connect who can supply it.*
+给刚起步的出海卖家一个会干活的 Agent：说出想法，它去搜、读、算、写；每个结论挂上来源，
+做任何有副作用的事之前先问你。
 
-## 产品定位
+![TradeMind 工作台](docs/screenshots/workspace-2026-10-09.png)
 
-TradeMind 连接全球需求、商品、供应链和客户，帮助跨境团队从市场机会走向真实成交。
+## 它是什么
 
-## 我们连接什么
+- **一个主 Agent，没有固定流程。** 由 Claude Agent SDK 驱动，选品、找供应商、算落地成本、
+  写询盘草稿，都由它自己决定用什么工具、什么时候停；没有状态机，默认不限轮数。
+- **证据账本。** 网页、浏览器、平台连接器取回的内容由后端签发来源凭证（source receipt），
+  `record_evidence` 必须引用凭证，不能自己填 URL；决策回链证据，证据失效联动决策。
+- **副作用要人批。** 写账本、对外发送、登录态浏览器操作按风险分级；审批可持久化、
+  可跨进程恢复原 Run。
+- **可评测。** 4 个基准任务、61 个离线快照门禁、一份从真实轨迹归纳的失败模式分类法；
+  judge 未经 gold 校准不进发布门禁。
 
-- 全球需求
-- 商品与供给
-- 供应链
-- 客户与成交机会
+## 三个关键设计决定
 
-## 核心品牌主张
+1. **单 Agent、不限轮数、不写状态机。** 按《Agent Harness 教材》三条不变量（一台电脑、
+   一个循环、一个窗口）执行，成本保险丝只留预算上限。见
+   [`docs/design-decisions-2026-08-23.md`](docs/design-decisions-2026-08-23.md)。
+2. **来源凭证由服务器签发，不由模型自填。** 可审计不能靠模型自觉；外部证据没有服务器
+   凭证就写不进账本。见 [`docs/project-events.md`](docs/project-events.md)。
+3. **4 个确定性计算 MCP 保留。** 落地成本、单位经济性这类要进决策的数字必须走可复现口径；
+   评测里抓到过 Agent 心算派生数字的失败模式（FM-06）。见
+   [`evals/failure-modes.md`](evals/failure-modes.md)。
 
-**发现世界所需，连接能够供应的人。**
+## 架构
 
-**Discover what the world needs. Connect who can supply it.**
+```mermaid
+flowchart LR
+  UI["React 工作台 /app"] -- "SSE（Last-Event-ID 续传）" --> API["FastAPI · main.py"]
+  API --> RM["RunManager · runs.py"]
+  RM --> RT["ClaudeAgentRuntime · sdk_adapter.py"]
+  RT --> SDK["Claude Agent SDK（Claude Code 循环）"]
+  SDK --> T["原生工具 Read / Write / Bash / WebSearch …"]
+  SDK --> SK["Plugin Skills（14 个跨境方法论）"]
+  SDK --> MCP["进程内 MCP：账本 / 商业计算 / 浏览器 / 连接器"]
+  MCP --> L[("FileLedger · project.json / events.jsonl")]
+  RT --> L
+  L -- "事件回放" --> UI
+```
 
-## 名字背后的含义
+一次运行的数据流和权限双层防御（`can_use_tool` + `PreToolUse` hook）在
+[`AGENTS.md`](AGENTS.md) 的「架构大图」一节。
 
-TradeMind 由两个最简单的英语词组成：Trade 表达跨境贸易，Mind 表达能够研究、判断并推动下一步的 AI 商业大脑。
+## 现状，实话
 
-它践行的商业理念是：让需求被看见，让供给被组织，让价值跨越边界，抵达真正需要它的人。
+- 真端点验证：DeepSeek Green Path 连续 3 轮通过（2026-09-05），Provider 合约矩阵 9 例通过
+  （2026-09-04）；L2 基准 4 个任务各跑过一轮（2026-08-21）。
+- 还没有真实卖家、真实店铺账号跑过任务；平台连接器（TikTok Shop、Shopify、SHEIN、Shopee、Temu、AliExpress）
+  只有离线契约验证。
+- judge 未校准，gold 未标注。全部要求的交付/未交付状态见
+  [`docs/prd-delivery-inventory.md`](docs/prd-delivery-inventory.md)。
 
-## Frontend
+## 从这里开始读
+
+- 评测体系与失败模式：[`evals/README.md`](evals/README.md)、[`evals/failure-modes.md`](evals/failure-modes.md)
+- 产品与架构规格：[`docs/OPHIRA-PRD-and-Technical-Architecture-v2.md`](docs/OPHIRA-PRD-and-Technical-Architecture-v2.md)
+- 工程规则与红线：[`AGENTS.md`](AGENTS.md)
+
+---
+
+## 功能清单（按界面入口）
 
 The repository now contains two connected React surfaces:
 
