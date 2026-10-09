@@ -28,7 +28,7 @@ from ophira_backend.main import create_app
 from ophira_backend.maintenance import DataDirectoryBusyError, data_directory_lease
 from ophira_backend.models import ProjectCreate
 from ophira_backend.permissions import PermissionBroker
-from ophira_backend.sdk_adapter import ClaudeAgentRuntime
+from ophira_backend.run_assembly import build_agent_runtime
 from ophira_backend.shop_browser_host import ShopBrowserPage, serve
 from ophira_backend.shop_browser_store import (
     ShopBrowserError,
@@ -318,7 +318,7 @@ async def test_native_sdk_mcp_hook_preserves_shop_sources_and_requires_action_pe
     )
     shop = await create_shop(service, project)
     events = EventPublisher(service.ledger)
-    runtime = ClaudeAgentRuntime(
+    runtime = build_agent_runtime(
         service.authority.settings,
         service.ledger,
         events,

@@ -273,6 +273,7 @@ from .providers import (
 from .push_service import PushDeliveryService
 from .push_store import PushStore
 from .push_transport import WebPushAdapter
+from .run_assembly import build_agent_runtime
 from .run_interjections import RunInterjectionConflict
 from .run_resources import RunResources, read_run_resources
 from .runs import (
@@ -290,7 +291,6 @@ from .scheduler import (
     new_schedule,
 )
 from .scoped_event_api import install_scoped_event_routes
-from .sdk_adapter import ClaudeAgentRuntime
 from .session_search import (
     MAX_CURSOR_CHARS,
     MAX_QUERY_CHARS,
@@ -568,7 +568,7 @@ def _create_app(
         target_reader=commercial_action_adapter,
         access=project_access,
     )
-    runtime = runtime or ClaudeAgentRuntime(
+    runtime = runtime or build_agent_runtime(
         settings,
         ledger,
         events,

@@ -18,7 +18,7 @@ from ophira_backend.ledger_tools import build_ledger_tools
 from ophira_backend.main import create_app
 from ophira_backend.models import ProjectCreate, RunRecord, utc_now
 from ophira_backend.permissions import PermissionBroker
-from ophira_backend.sdk_adapter import ClaudeAgentRuntime
+from ophira_backend.run_assembly import build_agent_runtime
 from ophira_backend.source_receipts import (
     MAX_MODEL_VISIBLE_SOURCE_RECEIPTS,
     SOURCE_RECEIPT_MARKER,
@@ -342,7 +342,7 @@ async def test_host_hook_issues_receipts_only_for_main_agent_observations(
     ledger = FileLedger(tmp_path)
     project, run = _source(ledger)
     events = EventPublisher(ledger)
-    runtime = ClaudeAgentRuntime(
+    runtime = build_agent_runtime(
         Settings(data_dir=tmp_path),
         ledger,
         events,
@@ -405,7 +405,7 @@ async def test_fallback_mcp_text_envelope_gets_replayable_receipt(tmp_path: Path
     ledger = FileLedger(tmp_path)
     project, run = _source(ledger)
     events = EventPublisher(ledger)
-    runtime = ClaudeAgentRuntime(
+    runtime = build_agent_runtime(
         Settings(data_dir=tmp_path),
         ledger,
         events,
@@ -452,7 +452,7 @@ async def test_plain_native_fetch_keeps_protocol_shape_and_appends_receipt_id(
     ledger = FileLedger(tmp_path)
     project, run = _source(ledger)
     events = EventPublisher(ledger)
-    runtime = ClaudeAgentRuntime(
+    runtime = build_agent_runtime(
         Settings(data_dir=tmp_path),
         ledger,
         events,
@@ -483,7 +483,7 @@ async def test_external_payload_cannot_supply_a_receipt_marker(tmp_path: Path) -
     ledger = FileLedger(tmp_path)
     project, run = _source(ledger)
     events = EventPublisher(ledger)
-    runtime = ClaudeAgentRuntime(
+    runtime = build_agent_runtime(
         Settings(data_dir=tmp_path),
         ledger,
         events,

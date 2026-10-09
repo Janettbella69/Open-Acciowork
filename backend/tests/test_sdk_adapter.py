@@ -40,7 +40,8 @@ from ophira_backend.events import EventPublisher
 from ophira_backend.models import Evidence, OrgPolicy, ProjectCreate, ProviderProfileUpsert, utc_now
 from ophira_backend.permissions import PermissionBroker
 from ophira_backend.providers import ProviderRegistry
-from ophira_backend.sdk_adapter import AgentRunError, ClaudeAgentRuntime
+from ophira_backend.run_assembly import build_agent_runtime
+from ophira_backend.sdk_adapter import AgentRunError
 from ophira_backend.source_receipts import model_visible_source_receipt_context
 from ophira_backend.storage import FileLedger
 from ophira_backend.untrusted import REMOVED_BOUNDARY, UNTRUSTED_DATA_NOTICE
@@ -54,7 +55,7 @@ def build_runtime(tmp_path: Path):
     run = ledger.create_run(project.id, "Start")
     events = EventPublisher(ledger)
     permissions = PermissionBroker(ledger, events, timeout_seconds=30)
-    runtime = ClaudeAgentRuntime(
+    runtime = build_agent_runtime(
         Settings(data_dir=tmp_path),
         ledger,
         events,
@@ -165,7 +166,7 @@ async def test_desktop_tools_require_native_host_org_policy_and_each_invocation(
 
     service = DesktopControl(Bridge(), ledger, runtime.policy)
     assert DESKTOP_MCP_SERVER_NAME not in runtime._build_options(run).mcp_servers
-    runtime.attach_desktop_control(service)
+    runtime.assembler.attach_desktop_control(service)
     assert DESKTOP_MCP_SERVER_NAME not in runtime._build_options(run).mcp_servers
     runtime.policy.save(OrgPolicy(
         computer_control_enabled=True,
@@ -752,7 +753,7 @@ def test_sdk_key_is_passed_to_subprocess_without_entering_events(tmp_path: Path)
     run = ledger.create_run(project.id, "Start")
     events = EventPublisher(ledger)
     permissions = PermissionBroker(ledger, events, timeout_seconds=30)
-    runtime = ClaudeAgentRuntime(
+    runtime = build_agent_runtime(
         Settings(
             data_dir=tmp_path,
             ANTHROPIC_API_KEY="sk-ant-test-secret",
@@ -805,7 +806,7 @@ def test_connector_secret_env_is_shadowed_in_agent_worker_options(
         secret_env=secret_env,
         endpoint="https://commerce.example.com",
     )
-    runtime = ClaudeAgentRuntime(
+    runtime = build_agent_runtime(
         Settings(data_dir=tmp_path),
         ledger,
         events,
@@ -828,7 +829,7 @@ def test_sdk_uses_anthropic_compatible_gateway_configuration(tmp_path: Path) -> 
     run = ledger.create_run(project.id, "Start")
     events = EventPublisher(ledger)
     permissions = PermissionBroker(ledger, events, timeout_seconds=30)
-    runtime = ClaudeAgentRuntime(
+    runtime = build_agent_runtime(
         Settings(
             data_dir=tmp_path,
             claude_model="glm-5.2[1m]",
@@ -894,7 +895,7 @@ def test_profile_budget_scale_compensates_sdk_list_price_accounting(tmp_path: Pa
             budget_scale=8.0,
         ),
     )
-    runtime = ClaudeAgentRuntime(
+    runtime = build_agent_runtime(
         settings, ledger, events, permissions, providers=providers
     )
 

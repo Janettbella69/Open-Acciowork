@@ -78,7 +78,7 @@ async def test_production_sdk_options_inject_projector_into_native_mcp_handler(t
     app = create_app(Settings(
         _env_file=None, data_dir=tmp_path, ANTHROPIC_API_KEY="", ANTHROPIC_AUTH_TOKEN="",
     ))
-    assert app.state.runtime.project_events is app.state.project_events
+    assert app.state.runtime.assembler.project_events is app.state.project_events
     assert app.state.runs.project_events is app.state.project_events
     ledger = app.state.ledger
     project = ledger.create_project(ProjectCreate(name="Native MCP", objective="Observe commits"))

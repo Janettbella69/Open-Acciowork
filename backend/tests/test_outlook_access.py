@@ -24,7 +24,7 @@ from ophira_backend.outlook_access import OutlookAgentRequest, OutlookGrantReque
 from ophira_backend.permissions import PermissionBroker
 from ophira_backend.project_deletion_models import ProjectDeletionRequest
 from ophira_backend.project_exports import ProjectExports
-from ophira_backend.sdk_adapter import ClaudeAgentRuntime
+from ophira_backend.run_assembly import build_agent_runtime
 
 CLIENT_ID = "11111111-2222-3333-4444-555555555555"
 CLIENT_SECRET = "microsoft-client-secret-1234567890"
@@ -220,7 +220,7 @@ async def test_outlook_project_tool_inbox_receipt_paging_and_revoke(tmp_path):
         run.id, sdk_session_id="sdk-outlook", status=RunStatus.RUNNING,
     )
     events = EventPublisher(app.state.ledger)
-    runtime = ClaudeAgentRuntime(
+    runtime = build_agent_runtime(
         app.state.outlook_access.settings, app.state.ledger, events,
         PermissionBroker(app.state.ledger, events, 1), connectors=app.state.connectors,
         outlook_access=app.state.outlook_access,

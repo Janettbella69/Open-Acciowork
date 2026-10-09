@@ -416,7 +416,7 @@ async def test_sdk_explicit_servers_hook_and_untrusted_output(
     monkeypatch.setattr("ophira_backend.user_mcp.discover_remote_tools", discover)
     reviewed = await service.review(run.project_id, item.id)
     reviewed = service.set_tool_policy(run.project_id, item.id, "search_docs", "allow")
-    runtime.user_mcp = service
+    runtime.assembler.user_mcp = service
     run = ledger.update_run(run.id, mcp_snapshot=[reviewed.model_dump(mode="json")])
     options = runtime._build_options(run)
     assert options.mcp_servers[reviewed.server_name]["type"] == "sdk"
@@ -470,7 +470,7 @@ async def test_remote_mcp_result_mints_tool_evidence_from_reviewed_run(
     monkeypatch.setattr("ophira_backend.user_mcp.discover_remote_tools", discover)
     reviewed = await service.review(run.project_id, item.id)
     reviewed = service.set_tool_policy(run.project_id, item.id, "search_docs", "allow")
-    runtime.user_mcp = service
+    runtime.assembler.user_mcp = service
     run = ledger.update_run(
         run.id,
         sdk_session_id="sdk_remote_mcp_receipt",
@@ -609,7 +609,7 @@ async def test_runtime_closes_remote_run_scope_if_sdk_startup_fails(
     _ledger, run, runtime = build_runtime(tmp_path)
     service = registry(tmp_path)
     scope = service.run_scope()
-    runtime.user_mcp = service
+    runtime.assembler.user_mcp = service
     runtime._require_provider = lambda _run: None
     runtime.durable_resume_supported = False
     monkeypatch.setattr(service, "run_scope", lambda: scope)

@@ -3,10 +3,10 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 import logging
-from contextlib import AsyncExitStack
+from contextlib import AbstractAsyncContextManager, AsyncExitStack
 from datetime import timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 import anyio
 from claude_agent_sdk import (
@@ -36,17 +36,13 @@ from claude_agent_sdk import (
 
 from .agent_core import MAX_MEMORY_ITEMS
 from .agents import build_deep_research_agents
-from .auth import AuthorizationError, ProjectPermission
-from .commercial_actions import CommercialActionService
+from .auth import AuthorizationError, ProjectAccessStore, ProjectPermission
 from .config import BACKEND_DIR, Settings
-from .connectors import ConnectorRegistry
 from .constants import (
-    AUTOMATION_MCP_SERVER_NAME,
     BROWSER_MCP_SERVER_NAME,
     CLARIFYING_TOOL,
     DELEGATION_TOOL,
     DELETE_BUILTIN_TOOLS,
-    DESKTOP_MCP_SERVER_NAME,
     DESKTOP_TOOL_NAMES,
     ENVELOPE_APPROVED_MCP_TOOL_NAMES,
     NATIVE_TASK_TRACKING_TOOLS,
@@ -88,28 +84,23 @@ from .context_protocol import (
     prepare_run_context,
     reconcile_compaction_epoch,
 )
-from .desktop_control import DesktopControl
 from .destructive import is_destructive_delete
 from .durable_permissions import DurablePermissionConflict
 from .events import EventPublisher, redact
-from .gmail_access import GmailAccessService
 from .ingest import file_needs_markdown_companion
-from .ledger_tools import build_mcp_servers
-from .marketplace_access import MarketplaceAccessService
 from .memory import MemoryProvider
 from .models import (
     EventActor,
+    OrgPolicy,
     ProviderPreflightResult,
     RunInterjectionRequest,
     RunRecord,
     utc_now,
 )
 from .native_hooks import NativeHookBridge
-from .outlook_access import OutlookAccessService
 from .permissions import PermissionBroker
 from .policy import OrgPolicyStore
 from .presentation_tools import presentation_event_response, presentation_frame_event
-from .project_events import ProjectEventProjector
 from .providers import (
     ProviderConfigurationError,
     ProviderRegistry,
@@ -125,8 +116,6 @@ from .run_interjections import (
     validate_interjection_prompt,
 )
 from .sdk_resources import SdkExecutionBudget, SdkResourceLimitError
-from .shop_browser import ShopBrowserService
-from .skill_proposals import SkillProposalService
 from .skills import SkillRegistry, SkillRuntimeView
 from .source_receipts import (
     RemoteMcpReceiptSource,
@@ -139,7 +128,6 @@ from .untrusted import (
     UntrustedSource,
     sanitize_untrusted_tool_output,
 )
-from .user_mcp import UserMcpConnector, UserMcpRegistry, UserMcpRunScope
 from .worker_envelope import SdkWorkerEnvelope
 
 
@@ -148,6 +136,35 @@ class AgentRunError(RuntimeError):
 
 
 logger = logging.getLogger(__name__)
+
+
+class RunToolSurface(Protocol):
+    """What this adapter needs to know about the business tools of a Run.
+
+    Implemented by the composition root (``run_assembly.RunAssembler``). The adapter
+    drives the SDK session; it must not import the subsystems that provide the tools.
+    """
+
+    def has_desktop_control(self) -> bool: ...
+
+    def remote_run_scope(self) -> AbstractAsyncContextManager[Any] | None: ...
+
+    def connector_secret_env_names(self) -> list[str]: ...
+
+    def task_experience_context(self, run: RunRecord) -> str: ...
+
+    def remote_connectors(self, run: RunRecord) -> dict[str, Any]: ...
+
+    def remote_mcp_decision(self, run: RunRecord, tool_name: str) -> str | None: ...
+
+    def mcp_servers(
+        self,
+        run: RunRecord,
+        org_policy: OrgPolicy,
+        remote_connectors: dict[str, Any],
+        *,
+        user_mcp_scope: AbstractAsyncContextManager[Any] | None = None,
+    ) -> dict[str, Any]: ...
 
 
 @dataclasses.dataclass
@@ -319,71 +336,24 @@ class ClaudeAgentRuntime:
         ledger: FileLedger,
         events: EventPublisher,
         permissions: PermissionBroker,
-        memory: MemoryProvider | None = None,
-        providers: ProviderRegistry | None = None,
-        skills: SkillRegistry | None = None,
-        intents=None,
-        notifications=None,
-        connectors: ConnectorRegistry | None = None,
-        policy: OrgPolicyStore | None = None,
-        commercial_actions: CommercialActionService | None = None,
-        task_experiences=None,
-        access=None,
-        project_events: ProjectEventProjector | None = None,
-        skill_proposals: SkillProposalService | None = None,
-        marketplace_access: MarketplaceAccessService | None = None,
-        gmail_access: GmailAccessService | None = None,
-        outlook_access: OutlookAccessService | None = None,
-        shop_browsers: ShopBrowserService | None = None,
-        user_mcp: UserMcpRegistry | None = None,
-        desktop_control: DesktopControl | None = None,
+        *,
+        memory: MemoryProvider | None,
+        providers: ProviderRegistry,
+        skills: SkillRegistry,
+        policy: OrgPolicyStore,
+        access: ProjectAccessStore,
+        assembler: RunToolSurface,
     ) -> None:
-        from .auth import ProjectAccessStore
-
         self.settings = settings
         self.ledger = ledger
         self.events = events
-        self.project_events = project_events or ProjectEventProjector(ledger, events, memory)
         self.permissions = permissions
         self.memory = memory
-        self.providers = providers or ProviderRegistry(settings)
-        self.skills = skills or SkillRegistry(
-            settings.capability_plugin_dir,
-            settings.data_dir / "skills",
-        )
-        self.intents = intents
-        self.notifications = notifications
-        self.task_experiences = task_experiences
-        self.access = access or ProjectAccessStore(settings.data_dir / "auth" / "projects")
-        self.skill_proposals = skill_proposals or SkillProposalService(
-            ledger, self.skills, access=self.access, auth_mode=settings.auth_mode,
-        )
-        self.connectors = connectors
-        self.user_mcp = user_mcp
-        self.desktop_control = desktop_control
-        self.marketplace_access = marketplace_access or (
-            MarketplaceAccessService(
-                ledger,
-                connectors,
-                settings=settings,
-                access=self.access,
-            )
-            if connectors is not None
-            else None
-        )
-        self.gmail_access = gmail_access
-        self.outlook_access = outlook_access
-        self.policy = policy or OrgPolicyStore(settings.data_dir / "org" / "policy.json")
-        self.shop_browsers = shop_browsers or (
-            ShopBrowserService(self.marketplace_access, self.policy)
-            if self.marketplace_access
-            else None
-        )
-        self.commercial_actions = commercial_actions or CommercialActionService(
-            settings.data_dir / "commercial-actions",
-            ledger=ledger,
-            policy=self.policy,
-        )
+        self.providers = providers
+        self.skills = skills
+        self.access = access
+        self.policy = policy
+        self.assembler = assembler
         self._clients: dict[str, ClaudeSDKClient] = {}
         self._interjection_channels: dict[str, _InterjectionChannel] = {}
         self._clients_lock = asyncio.Lock()
@@ -394,14 +364,6 @@ class ClaudeAgentRuntime:
         self._batch_ready: dict[tuple[str, str], asyncio.Event] = {}
         self._approved_invocations: dict[str, dict[str, tuple[str, dict, Any]]] = {}
         self._last_context_usage: dict[str, tuple[int, int, str | None, int]] = {}
-
-    def attach_desktop_control(self, service: DesktopControl) -> None:
-        """Bind the native-only adapter after the desktop sidecar constructs the API."""
-        if self.desktop_control is not None:
-            raise ValueError("desktop control is already attached")
-        if service.ledger is not self.ledger or service.policy is not self.policy:
-            raise ValueError("desktop control must share the Run ledger and policy")
-        self.desktop_control = service
 
     async def run(self, run: RunRecord) -> None:
         if (pending := self.permissions.durable.active(run)) is not None:
@@ -422,7 +384,7 @@ class ClaudeAgentRuntime:
                 raise AgentRunError("Deep Research exceeded its original wall-clock limit.")
         snapshot = self._policy_skill_snapshot(run.skill_snapshot)
         self._prepare_context(run, snapshot)
-        mcp_scope = self.user_mcp.run_scope() if self.user_mcp is not None else None
+        mcp_scope = self.assembler.remote_run_scope()
         budget = None
         try:
             budget = SdkExecutionBudget(self.ledger, run.id, self.settings)
@@ -508,7 +470,7 @@ class ClaudeAgentRuntime:
         run: RunRecord,
         options: ClaudeAgentOptions,
         *,
-        user_mcp_scope: UserMcpRunScope | None = None,
+        user_mcp_scope: AbstractAsyncContextManager[Any] | None = None,
         output_budget: SdkExecutionBudget | None = None,
     ) -> None:
         pending = self.permissions.durable.active(run)
@@ -571,8 +533,7 @@ class ClaudeAgentRuntime:
                 wait = self.permissions.durable.active(run)
                 if wait is None or wait.state != "resolved":
                     prompt = self._query_prompt(run)
-                    if self.task_experiences is not None:
-                        prompt += self.task_experiences.context_for_run(run)
+                    prompt += self.assembler.task_experience_context(run)
                     async with channel.lock:
                         await client.query(prompt)
                         channel.accepting = True
@@ -1001,10 +962,8 @@ class ClaudeAgentRuntime:
         # The model can use Bash inside its sandbox. Shadow human-gateway and
         # outbound-channel credentials inherited from the host process.
         env.update(_control_plane_secret_shadows())
-        if self.connectors is not None:
-            for connector in self.connectors.list():
-                if connector.secret_env:
-                    env[connector.secret_env] = ""
+        for name in self.assembler.connector_secret_env_names():
+            env[name] = ""
         return env
 
     def _system_append(self, run: RunRecord) -> str:
@@ -1031,49 +990,20 @@ class ClaudeAgentRuntime:
         self._prepared_contexts[run.id] = prepared
         return prepared
 
-    def _remote_connectors(self, run: RunRecord) -> dict[str, UserMcpConnector]:
-        if (self.user_mcp is None or run.mode == RunMode.PLAN or run.manual_compaction
-                or run.standing_intent_id is not None):
-            return {}
-        connectors: dict[str, UserMcpConnector] = {}
-        for raw in run.mcp_snapshot:
-            try:
-                pinned = UserMcpConnector.model_validate(raw)
-                current = self.user_mcp.get(run.project_id, pinned.id)
-                self.user_mcp._check_url(current.url)
-                if current.credential_configured and not self.user_mcp.vault.has(
-                    self.user_mcp._vault_id(run.project_id, current.id)
-                ):
-                    continue
-                if current == pinned and current.enabled and current.reviewed_at is not None:
-                    connectors[current.server_name] = current
-            except (KeyError, ValueError):
-                continue
-        return connectors
-
-    def _remote_mcp_decision(self, run: RunRecord, tool_name: str) -> str | None:
-        if not tool_name.startswith("mcp__user_"):
-            return None
-        for connector in self._remote_connectors(run).values():
-            for item in connector.tools:
-                if connector.tool_name(item.name) == tool_name:
-                    return item.policy
-        return "deny"
-
     def _build_options(
         self,
         run: RunRecord,
         *,
         skill_view: SkillRuntimeView | None = None,
-        user_mcp_scope: UserMcpRunScope | None = None,
+        user_mcp_scope: AbstractAsyncContextManager[Any] | None = None,
     ) -> ClaudeAgentOptions:
         agent = self.ledger.get_agent(run.agent_id) if run.agent_id else None
         workspace = self.ledger.workspace_for_project(run.project_id).resolve()
         deep_research = run.mode == RunMode.DEEP_RESEARCH
-        remote_connectors = self._remote_connectors(run)
+        remote_connectors = self.assembler.remote_connectors(run)
 
         async def can_use_tool(tool_name: str, tool_input: dict[str, Any], context):
-            if self._remote_mcp_decision(run, tool_name) == "deny":
+            if self.assembler.remote_mcp_decision(run, tool_name) == "deny":
                 return PermissionResultDeny(message="Remote MCP tool is not approved.")
             if run.manual_compaction:
                 return PermissionResultDeny(
@@ -1217,60 +1147,9 @@ class ClaudeAgentRuntime:
                 "PreToolUse", "PostToolUse", "PostToolUseFailure", "SubagentStart", "SubagentStop",
             )
         }
-        mcp_servers = (
-            {} if run.mode == RunMode.PLAN or run.manual_compaction else build_mcp_servers(
-                self.ledger,
-                run.project_id,
-                memory=self.memory,
-                agent_id=run.agent_id,
-                settings=self.settings,
-                run_id=run.id,
-                policy=org_policy,
-                connectors=self.connectors,
-                commercial_actions=self.commercial_actions,
-                project_events=self.project_events,
-                skill_proposals=self.skill_proposals,
-                marketplace_access=self.marketplace_access,
-                gmail_access=self.gmail_access,
-                outlook_access=self.outlook_access,
-                shop_browsers=self.shop_browsers,
-            )
+        mcp_servers = self.assembler.mcp_servers(
+            run, org_policy, remote_connectors, user_mcp_scope=user_mcp_scope,
         )
-        if (run.mode != RunMode.PLAN and not run.manual_compaction
-                and self.intents is not None and self.notifications is not None):
-            from .automation_tools import build_automation_mcp_server
-
-            mcp_servers[AUTOMATION_MCP_SERVER_NAME] = build_automation_mcp_server(
-                self.ledger,
-                self.intents,
-                self.notifications,
-                run.project_id,
-                run_id=run.id,
-                schedule_id=run.schedule_id,
-                bound_intent_id=run.standing_intent_id,
-                task_experiences=self.task_experiences,
-            )
-        if (
-            self.desktop_control is not None
-            and org_policy.computer_control_enabled
-            and org_policy.allowed_desktop_bundle_ids
-            and run.mode != RunMode.PLAN
-            and not run.manual_compaction
-            and run.schedule_id is None
-            and run.event_trigger_id is None
-            and run.standing_intent_id is None
-        ):
-            from .desktop_tools import build_desktop_mcp_server
-
-            mcp_servers[DESKTOP_MCP_SERVER_NAME] = build_desktop_mcp_server(
-                self.desktop_control, run.project_id, run.id,
-            )
-        if self.user_mcp is not None:
-            for connector in remote_connectors.values():
-                if any(item.policy != "deny" for item in connector.tools):
-                    mcp_servers[connector.server_name] = self.user_mcp.sdk_server(
-                        connector, run_scope=user_mcp_scope,
-                    )
         unattended_intent = run.standing_intent_id is not None
         event_run = run.event_trigger_id is not None
         return ClaudeAgentOptions(
@@ -1500,7 +1379,9 @@ class ClaudeAgentRuntime:
                 raise DurablePermissionConflict("Provider configuration changed during suspension.")
         if self._policy_skill_snapshot(run.skill_snapshot) != run.skill_snapshot:
             raise DurablePermissionConflict("A suspended Run Skill is no longer allowed by policy.")
-        if run.mcp_snapshot and len(self._remote_connectors(run)) != len(run.mcp_snapshot):
+        if run.mcp_snapshot and len(
+            self.assembler.remote_connectors(run)
+        ) != len(run.mcp_snapshot):
             raise DurablePermissionConflict(
                 "A suspended Run remote MCP connector changed or was revoked."
             )
@@ -1562,7 +1443,7 @@ class ClaudeAgentRuntime:
                             "Review the plan before execution."
                         ),
                     }}
-                remote_decision = self._remote_mcp_decision(run, str(tool_name))
+                remote_decision = self.assembler.remote_mcp_decision(run, str(tool_name))
                 if remote_decision is not None and input_data.get("agent_id"):
                     remote_decision = "deny"
                 if remote_decision in {"ask", "deny"}:
@@ -1780,7 +1661,7 @@ class ClaudeAgentRuntime:
                     }
                 if tool_name in DESKTOP_TOOL_NAMES:
                     if (
-                        self.desktop_control is None
+                        not self.assembler.has_desktop_control()
                         or not self.policy.get().computer_control_enabled
                         or run.schedule_id is not None
                         or run.event_trigger_id is not None
@@ -1835,7 +1716,7 @@ class ClaudeAgentRuntime:
                 else:
                     remote_mcp_source = None
                     if tool_name.startswith("mcp__user_") and not input_data.get("agent_id"):
-                        for connector in self._remote_connectors(run).values():
+                        for connector in self.assembler.remote_connectors(run).values():
                             for reviewed_tool in connector.tools:
                                 if (reviewed_tool.policy != "deny"
                                         and connector.tool_name(reviewed_tool.name) == tool_name):

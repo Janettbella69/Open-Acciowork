@@ -12,7 +12,8 @@ from ophira_backend.events import EventPublisher
 from ophira_backend.memory import FileMemoryProvider
 from ophira_backend.models import AgentCreate, PermissionResolution, ProjectCreate, Schedule
 from ophira_backend.permissions import PermissionBroker
-from ophira_backend.sdk_adapter import ClaudeAgentRuntime, _path_within
+from ophira_backend.run_assembly import build_agent_runtime
+from ophira_backend.sdk_adapter import _path_within
 from ophira_backend.storage import FileLedger
 
 
@@ -26,7 +27,7 @@ def build_runtime(tmp_path: Path):
     memory = FileMemoryProvider(tmp_path / "memory")
     events = EventPublisher(ledger)
     permissions = PermissionBroker(ledger, events, timeout_seconds=30)
-    runtime = ClaudeAgentRuntime(
+    runtime = build_agent_runtime(
         Settings(data_dir=tmp_path / "data"),
         ledger,
         events,

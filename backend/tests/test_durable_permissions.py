@@ -21,6 +21,7 @@ from ophira_backend.durable_permissions import DurablePermissionConflict
 from ophira_backend.events import EventPublisher
 from ophira_backend.models import EventActor, PermissionResolution, ProjectCreate, utc_now
 from ophira_backend.permissions import PermissionBroker
+from ophira_backend.run_assembly import build_agent_runtime
 from ophira_backend.runs import RunManager, RunResumeConflictError
 from ophira_backend.storage import FileLedger
 
@@ -503,7 +504,7 @@ async def test_default_and_resumed_sdk_options_keep_unlimited_turns_and_frozen_s
     # changes cannot add a turn cap or refresh this logical Run's money budget.
     runtime.settings.max_turns = 1
     runtime.settings.max_budget_usd *= 2
-    replacement = type(runtime)(
+    replacement = build_agent_runtime(
         runtime.settings, ledger, runtime.events, broker, skills=runtime.skills,
     )
     current = ledger.get_run(run.id)

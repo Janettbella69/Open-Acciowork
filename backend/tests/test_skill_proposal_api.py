@@ -375,7 +375,7 @@ async def test_actual_sdk_mcp_requires_explicit_submission_and_keeps_native_tool
     ledger.scan_workspace(row.project.id, run_id=row.run.id)
     assert app.state.skill_proposals.list() == []
     runtime = app.state.runtime
-    assert runtime.skill_proposals is app.state.skill_proposals
+    assert runtime.assembler.skill_proposals is app.state.skill_proposals
     options = runtime._build_options(row.run)
     assert options.setting_sources == [] and options.strict_mcp_config is True
     assert options.tools == {"type": "preset", "preset": "claude_code"}

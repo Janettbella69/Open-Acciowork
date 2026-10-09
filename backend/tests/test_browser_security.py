@@ -263,7 +263,7 @@ def test_runtime_uses_shared_connector_registry_and_removes_disabled_browser_too
     run = app.state.ledger.create_run(project.id, "Check supplier")
     options = app.state.runtime._build_options(run)
 
-    assert app.state.runtime.connectors is app.state.connectors
+    assert app.state.runtime.assembler.connectors is app.state.connectors
     assert app.state.runtime.policy is app.state.policy
     assert BROWSER_MCP_SERVER_NAME not in (options.mcp_servers or {})
     assert TOOL_SNAPSHOT_PAGE not in (options.allowed_tools or [])

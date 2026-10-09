@@ -17,6 +17,7 @@ from ophira_backend.events import EventPublisher
 from ophira_backend.models import ProviderProfileUpsert
 from ophira_backend.permissions import PermissionBroker
 from ophira_backend.providers import ProviderRegistry
+from ophira_backend.run_assembly import build_agent_runtime
 from ophira_backend.sdk_adapter import ClaudeAgentRuntime
 from ophira_backend.storage import FileLedger
 
@@ -68,7 +69,7 @@ def build_runtime(tmp_path: Path) -> tuple[ClaudeAgentRuntime, ProviderRegistry]
             secret="test-credential",
         ),
     )
-    runtime = ClaudeAgentRuntime(settings, ledger, events, permissions, providers=providers)
+    runtime = build_agent_runtime(settings, ledger, events, permissions, providers=providers)
     return runtime, providers
 
 

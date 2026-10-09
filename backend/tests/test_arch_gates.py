@@ -11,7 +11,7 @@ from ophira_backend.config import Settings
 from ophira_backend.events import EventPublisher
 from ophira_backend.models import ProjectCreate
 from ophira_backend.permissions import PermissionBroker
-from ophira_backend.sdk_adapter import ClaudeAgentRuntime
+from ophira_backend.run_assembly import build_agent_runtime
 from ophira_backend.storage import FileLedger
 
 BACKEND_SRC = Path(__file__).resolve().parents[1] / "src" / "ophira_backend"
@@ -55,7 +55,7 @@ def test_runtime_options_keep_the_governance_envelope(tmp_path: Path) -> None:
     run = ledger.create_run(project.id, "Start")
     events = EventPublisher(ledger)
     permissions = PermissionBroker(ledger, events, timeout_seconds=30)
-    runtime = ClaudeAgentRuntime(settings, ledger, events, permissions)
+    runtime = build_agent_runtime(settings, ledger, events, permissions)
 
     options = runtime._build_options(run)
 

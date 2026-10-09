@@ -33,8 +33,8 @@ from ophira_backend.models import (
     utc_now,
 )
 from ophira_backend.permissions import PermissionBroker
+from ophira_backend.run_assembly import build_agent_runtime
 from ophira_backend.runs import RunManager, RunRetryConflictError
-from ophira_backend.sdk_adapter import ClaudeAgentRuntime
 from ophira_backend.storage import FileLedger
 
 
@@ -626,7 +626,7 @@ async def test_sdk_enforces_per_check_cap_and_monitor_only_tool_envelope(
         max_budget_usd=0.25,
     )
     events = EventPublisher(ledger)
-    runtime = ClaudeAgentRuntime(
+    runtime = build_agent_runtime(
         Settings(data_dir=tmp_path / "data", max_budget_usd=10),
         ledger,
         events,

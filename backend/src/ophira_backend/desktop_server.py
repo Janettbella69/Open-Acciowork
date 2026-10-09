@@ -61,7 +61,7 @@ def main() -> None:
             sys.stdin.buffer, sys.stdout.buffer,
             on_disconnect=native_disconnected.set,
         )
-        app.state.runtime.attach_desktop_control(DesktopControl(
+        app.state.runtime.assembler.attach_desktop_control(DesktopControl(
             bridge, app.state.ledger, app.state.policy, app.state.project_events,
         ))
         desktop = DesktopHost(app, ui_dir=args.ui_dir, token=token, port=port, bridge=bridge)

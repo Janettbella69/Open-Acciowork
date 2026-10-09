@@ -8,8 +8,9 @@
 1. 下面的归属表必须覆盖 ``ophira_backend`` 下的每一个模块，且每个模块只出现一次。
    新模块不登记就不能合入。
 2. ``KERNEL`` 只能 import ``KERNEL``；子系统只能 import ``KERNEL`` 和自己的成员；
-   ``COMPOSITION_ROOTS``（HTTP 装配 ``main``、MCP 装配 ``ledger_tools``、冷备装配
-   ``application_backup``、桌面入口 ``desktop_server``）可以 import 一切——装配就是它们的职责。
+   ``COMPOSITION_ROOTS``（HTTP 装配 ``main``、Run 工具面装配 ``run_assembly``、MCP 装配
+   ``ledger_tools``、冷备装配 ``application_backup``、桌面入口 ``desktop_server``）可以 import
+   一切——装配就是它们的职责。
 3. 现存的跨子系统 import 全部列在 ``KNOWN_CROSS_IMPORTS``，是待偿还的债务：只能减，不能增。
    需要跨子系统能力时，把它经 ``KERNEL`` 或目标子系统的公开接口暴露，或把模块挪进正确的
    子系统；不要往清单里加行。修掉一条后把它从清单删掉，否则本测试同样失败。
@@ -34,7 +35,9 @@ KERNEL = frozenset({
 })
 
 # 组合根：职责就是把所有子系统装起来，所以允许 import 一切；它们自己不应被子系统 import。
-COMPOSITION_ROOTS = frozenset({"main", "ledger_tools", "application_backup", "desktop_server"})
+COMPOSITION_ROOTS = frozenset({
+    "main", "run_assembly", "ledger_tools", "application_backup", "desktop_server",
+})
 
 SUBSYSTEMS: dict[str, frozenset[str]] = {
     "runtime": frozenset({
@@ -174,24 +177,11 @@ KNOWN_CROSS_IMPORTS: frozenset[tuple[str, str]] = frozenset({
     ("scheduler", "runs"),
     ("scheduler", "scoped_events"),
     ("scheduler", "task_experience"),
-    ("sdk_adapter", "automation_tools"),
-    ("sdk_adapter", "commercial_actions"),
-    ("sdk_adapter", "connectors"),
-    ("sdk_adapter", "desktop_control"),
-    ("sdk_adapter", "desktop_tools"),
-    ("sdk_adapter", "gmail_access"),
     ("sdk_adapter", "ingest"),
-    ("sdk_adapter", "ledger_tools"),
-    ("sdk_adapter", "marketplace_access"),
     ("sdk_adapter", "memory"),
-    ("sdk_adapter", "outlook_access"),
     ("sdk_adapter", "presentation_tools"),
-    ("sdk_adapter", "project_events"),
-    ("sdk_adapter", "shop_browser"),
-    ("sdk_adapter", "skill_proposals"),
     ("sdk_adapter", "skills"),
     ("sdk_adapter", "source_receipts"),
-    ("sdk_adapter", "user_mcp"),
     ("shop_browser", "marketplace_access"),
     ("shop_browser_api", "connectors"),
     ("shop_browser_host", "connector_run_access"),

@@ -24,7 +24,7 @@ from ophira_backend.models import ProjectCreate
 from ophira_backend.permissions import PermissionBroker
 from ophira_backend.project_deletion_models import ProjectDeletionRequest
 from ophira_backend.project_exports import ProjectExports
-from ophira_backend.sdk_adapter import ClaudeAgentRuntime
+from ophira_backend.run_assembly import build_agent_runtime
 
 
 def setup(tmp_path):
@@ -122,7 +122,7 @@ async def test_gmail_project_grant_native_tool_receipt_and_revoke(tmp_path):
         run.id, sdk_session_id="sdk-gmail", status=RunStatus.RUNNING,
     )
     events = EventPublisher(app.state.ledger)
-    runtime = ClaudeAgentRuntime(
+    runtime = build_agent_runtime(
         app.state.gmail_access.settings, app.state.ledger, events,
         PermissionBroker(app.state.ledger, events, 1), connectors=app.state.connectors,
         gmail_access=app.state.gmail_access,

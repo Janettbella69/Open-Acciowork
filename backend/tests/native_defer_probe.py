@@ -279,7 +279,7 @@ async def probe(
 
                     from ophira_backend.config import Settings
                     from ophira_backend.main import create_app
-                    from ophira_backend.sdk_adapter import ClaudeAgentRuntime
+                    from ophira_backend.run_assembly import build_agent_runtime
 
                     settings = Settings(data_dir=workspace / "ledger", _env_file=None)
 
@@ -307,7 +307,7 @@ async def probe(
                     for _ in range(2):
                         runtime = Runtime()
                         app = create_app(settings=settings, runtime=runtime)
-                        runtime.delegate = ClaudeAgentRuntime(
+                        runtime.delegate = build_agent_runtime(
                             settings,
                             app.state.ledger,
                             app.state.events,

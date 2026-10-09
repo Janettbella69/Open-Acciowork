@@ -8,7 +8,7 @@ from ophira_backend.config import Settings
 from ophira_backend.events import EventPublisher
 from ophira_backend.models import ProjectCreate
 from ophira_backend.permissions import PermissionBroker
-from ophira_backend.sdk_adapter import ClaudeAgentRuntime
+from ophira_backend.run_assembly import build_agent_runtime
 from ophira_backend.storage import FileLedger
 
 
@@ -17,7 +17,7 @@ def runtime_fixture(tmp_path):
     project = ledger.create_project(ProjectCreate(name="OCR", objective="Read materials"))
     run = ledger.create_run(project.id, "Analyze")
     events = EventPublisher(ledger)
-    runtime = ClaudeAgentRuntime(
+    runtime = build_agent_runtime(
         Settings(_env_file=None, data_dir=tmp_path), ledger, events,
         PermissionBroker(ledger, events, timeout_seconds=30),
     )

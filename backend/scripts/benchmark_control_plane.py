@@ -161,7 +161,7 @@ class PublishObserver:
 
 def isolated_app(settings: Settings, runtime: OfflineWaitingRuntime):
     """Contain main.py's import-time app construction inside the temporary store."""
-    from ophira_backend import config, sdk_adapter
+    from ophira_backend import config, run_assembly
 
     name = "ophira_backend.main"
     if name not in sys.modules:
@@ -169,11 +169,11 @@ def isolated_app(settings: Settings, runtime: OfflineWaitingRuntime):
         # or store is replaced; restore the imported aliases immediately afterwards.
         with (
             patch.object(config, "get_settings", return_value=settings),
-            patch.object(sdk_adapter, "ClaudeAgentRuntime", return_value=runtime),
+            patch.object(run_assembly, "build_agent_runtime", return_value=runtime),
         ):
             module = importlib.import_module(name)
         module.get_settings = config.get_settings
-        module.ClaudeAgentRuntime = sdk_adapter.ClaudeAgentRuntime
+        module.build_agent_runtime = run_assembly.build_agent_runtime
         return module.app
     return sys.modules[name].create_app(settings, runtime=runtime)
 

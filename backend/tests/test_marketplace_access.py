@@ -29,7 +29,7 @@ from ophira_backend.marketplaces import TIKTOK_SHOP_ORIGIN, MarketplaceError
 from ophira_backend.models import ProjectCreate, utc_now
 from ophira_backend.permissions import PermissionBroker
 from ophira_backend.providers import FileSecretVault
-from ophira_backend.sdk_adapter import ClaudeAgentRuntime
+from ophira_backend.run_assembly import build_agent_runtime
 from ophira_backend.storage import FileLedger, SourceReceiptScopeError
 
 
@@ -125,7 +125,7 @@ async def test_native_sdk_mcp_and_posttool_hook_preserve_receipt_payload(service
 
     service.reader.transport_factory = lambda: httpx.MockTransport(handler)
     events = EventPublisher(service.ledger)
-    runtime = ClaudeAgentRuntime(
+    runtime = build_agent_runtime(
         service.settings, service.ledger, events, PermissionBroker(service.ledger, events, 1),
         connectors=service.connectors, marketplace_access=service,
     )
@@ -159,7 +159,7 @@ async def test_native_sdk_mcp_and_posttool_hook_preserve_receipt_payload(service
 async def test_research_branch_cannot_mint_a_receipt_for_the_main_sdk_session(service):
     project, run, binding_id = await bound(service)
     events = EventPublisher(service.ledger)
-    runtime = ClaudeAgentRuntime(
+    runtime = build_agent_runtime(
         service.settings, service.ledger, events, PermissionBroker(service.ledger, events, 1),
         connectors=service.connectors, marketplace_access=service,
     )

@@ -669,12 +669,12 @@ async def test_sdk_pretooluse_denies_branch_before_experience_mcp_write(tmp_path
     from ophira_backend.config import Settings
     from ophira_backend.events import EventPublisher
     from ophira_backend.permissions import PermissionBroker
-    from ophira_backend.sdk_adapter import ClaudeAgentRuntime
+    from ophira_backend.run_assembly import build_agent_runtime
 
     ledger, schedule, store = setup_store(tmp_path)
     run = start_run(ledger, schedule, store)
     events = EventPublisher(ledger)
-    runtime = ClaudeAgentRuntime(
+    runtime = build_agent_runtime(
         Settings(data_dir=ledger.root), ledger, events,
         PermissionBroker(ledger, events, timeout_seconds=5),
     )
