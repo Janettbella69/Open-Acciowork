@@ -6,6 +6,7 @@ import pytest
 from claude_agent_sdk import ResultMessage
 from httpx import ASGITransport, AsyncClient
 from test_sdk_adapter import build_runtime
+from worker_report_fixture import synthetic_worker_finish, synthetic_worker_start
 
 from ophira_backend import sdk_adapter
 from ophira_backend.config import Settings
@@ -242,6 +243,7 @@ async def test_streaming_sdk_drains_each_result_and_delivers_live_direction(
 
     class StreamingClient:
         def __init__(self, *, options):
+            self.options = options
             self.queries: list[str] = []
             self.results: asyncio.Queue[ResultMessage] = asyncio.Queue()
             self.interrupted = False
@@ -249,10 +251,11 @@ async def test_streaming_sdk_drains_each_result_and_delivers_live_direction(
             clients.append(self)
 
         async def __aenter__(self):
+            synthetic_worker_start(self.options)
             return self
 
         async def __aexit__(self, *_args):
-            return None
+            synthetic_worker_finish(self.options)
 
         async def query(self, prompt):
             self.queries.append(prompt)

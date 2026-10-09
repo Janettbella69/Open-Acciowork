@@ -235,14 +235,18 @@ async def test_oversized_message_never_enters_persisted_event_stream(tmp_path, m
     ))
     closed = asyncio.Event()
 
+    from worker_report_fixture import synthetic_worker_finish, synthetic_worker_start
+
     class Client:
         def __init__(self, **_kwargs):
-            pass
+            self.options = _kwargs["options"]
 
         async def __aenter__(self):
+            synthetic_worker_start(self.options)
             return self
 
         async def __aexit__(self, *_args):
+            synthetic_worker_finish(self.options)
             closed.set()
 
         async def query(self, *_args, **_kwargs):

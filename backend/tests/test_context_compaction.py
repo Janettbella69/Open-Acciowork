@@ -6,6 +6,7 @@ from claude_agent_sdk import ResultMessage, SystemMessage
 from httpx import ASGITransport, AsyncClient
 from test_auth_api import signed_headers, trusted_settings
 from test_sdk_adapter import build_runtime
+from worker_report_fixture import synthetic_worker_finish, synthetic_worker_start
 
 from ophira_backend import sdk_adapter
 from ophira_backend.config import Settings
@@ -53,10 +54,11 @@ async def test_manual_compaction_uses_native_command_and_confirmed_window_usage(
             clients.append(self)
 
         async def __aenter__(self):
+            synthetic_worker_start(self.options)
             return self
 
         async def __aexit__(self, *_args):
-            return None
+            synthetic_worker_finish(self.options)
 
         async def query(self, prompt):
             self.queries.append(prompt)
@@ -108,13 +110,14 @@ async def test_unconfirmed_compaction_fails_and_next_turn_refreshes_all_context(
 
     class Client:
         def __init__(self, *, options):
-            pass
+            self.options = options
 
         async def __aenter__(self):
+            synthetic_worker_start(self.options)
             return self
 
         async def __aexit__(self, *_args):
-            return None
+            synthetic_worker_finish(self.options)
 
         async def query(self, prompt):
             assert prompt == "/compact"
