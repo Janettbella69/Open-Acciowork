@@ -1,0 +1,8 @@
+[Unit]
+Description=Add TradeMind hostnames to the shared Caddy once their DNS points here
+After=docker.service
+Wants=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/trademind-ingress-sync

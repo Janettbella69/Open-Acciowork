@@ -1,0 +1,26 @@
+[Unit]
+Description=TradeMind backend (OPHIRA control plane, single-operator loopback mode)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=trademind
+Group=trademind
+WorkingDirectory=/opt/trademind/app
+EnvironmentFile=/etc/trademind/backend.env
+EnvironmentFile=-/etc/trademind/backend.local.env
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/trademind/venv/bin/uvicorn ophira_backend.main:app --app-dir backend/src --host 127.0.0.1 --port 8000
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+# One cgroup for the API host and every agent worker it starts. A runaway task is throttled
+# and, at the hard limit, stopped here instead of starving the other service on this box.
+MemoryHigh=900M
+MemoryMax=1200M
+MemorySwapMax=1500M
+TasksMax=1024
+
+[Install]
+WantedBy=multi-user.target

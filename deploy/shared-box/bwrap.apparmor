@@ -1,0 +1,11 @@
+# Installed for TradeMind (see /opt/trademind/deploy/README.md).
+# Ubuntu 24.04 denies user namespaces to unconfined programs. The Claude Agent SDK Bash
+# sandbox is bubblewrap, which needs one, and OPHIRA refuses to run Bash without the sandbox.
+abi <abi/4.0>,
+include <tunables/global>
+
+profile bwrap /usr/bin/bwrap flags=(unconfined) {
+  userns,
+
+  include if exists <local/bwrap>
+}

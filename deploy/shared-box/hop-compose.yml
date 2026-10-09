@@ -1,0 +1,14 @@
+# TradeMind hop (see hop.Caddyfile.tmpl). Host networking is deliberate: the backend only
+# accepts requests that arrive from 127.0.0.1.
+name: trademind
+services:
+  hop:
+    image: ${TM_CADDY_IMAGE:-caddy:2}
+    network_mode: host
+    restart: unless-stopped
+    volumes:
+      - /etc/trademind/hop:/etc/caddy:ro
+      - /var/www/trademind:/srv/www:ro
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
