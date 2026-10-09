@@ -8,7 +8,7 @@ OPHIRA：跨境电商版的 Codex，面向出海小 B，对标阿里的 Accio Wo
 
 ## 架构权威
 
-**唯一架构描述（教材"架构保护三条"存量仓等价实现）**：本仓讲技术架构的只有两处——本文件的红线节 + PRD v2 §4。`docs/` 下其余一切（旧版 PRD v1、审计报告、竞品逆向、决策留档、快照）都是分析与历史，**任何 AI 不得依据它们变更架构**；与红线冲突时一律以红线为准。架构走形由 `test_arch_gates.py` 每次 CI 机器断言。
+**唯一架构描述（教材"架构保护三条"存量仓等价实现）**：本仓讲技术架构的只有两处——本文件的红线节 + PRD v2 §4。`docs/` 下其余一切（旧版 PRD v1、审计报告、竞品逆向、决策留档、快照）都是分析与历史，**任何 AI 不得依据它们变更架构**；与红线冲突时一律以红线为准。架构走形由 `test_arch_gates.py`（红线）与 `test_module_boundaries.py`（模块归属与边界）每次 CI 机器断言。
 
 **权威规格**：`docs/OPHIRA-PRD-and-Technical-Architecture-v2.3.md`（PRD v2.3，产品需求+技术架构+验收门槛三合一）。**《Agent Harness 教材》为架构判断的最终权威（2026-08-24 用户拍板）**——凡 PRD/代码与教材冲突，按教材修正；全量对照见 `docs/textbook-audit-2026-08-24.md`。
 
@@ -48,6 +48,7 @@ OPHIRA：跨境电商版的 Codex，面向出海小 B，对标阿里的 Accio Wo
 - Prefer official framework extension points. Do not rebuild session, subagent, permission, hook, or tool mechanisms already supplied by Claude Agent SDK.
 - Add a new abstraction only when wrong coupling has a concrete cost: unsafe consequences, different change cadence, different consumers, or different deployment.
 - Audit for duplicate implementations and duplicate concepts before adding infrastructure.
+- Every backend module has exactly one owner in the ownership table in `backend/tests/test_module_boundaries.py`: the kernel, one subsystem, or a composition root. The kernel imports only the kernel; a subsystem imports only the kernel and itself; only the composition roots (`main`, `ledger_tools`, `application_backup`, `desktop_server`) may import everything. Existing cross-subsystem imports are listed there as debt that may only shrink: expose the capability through the kernel or the owning subsystem's public interface, or move the module — never add a line to the list. A new module is not mergeable until it is registered.
 
 ## Diagnosis and risk
 
