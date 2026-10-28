@@ -70,7 +70,7 @@ flowchart LR
 The repository now contains two connected React surfaces:
 
 - `/` — the TradeMind marketing site and product story.
-- `/app` — the interactive AI global commerce workspace.
+- `/app` — the interactive cross-border e-commerce agent workspace.
 
 The product rail also opens Agents (`/app/agents`), a Plugins hub (`/app/plugins`)
 with Skills and Connectors sections, Scheduled tasks (`/app/schedules`), and Mobile
@@ -86,7 +86,7 @@ policy or global memory; see [`docs/task-experience.md`](docs/task-experience.md
 Manual and automatic schedule triggers now share cross-process overlap checks;
 see [`docs/schedule-overlap.md`](docs/schedule-overlap.md).
 Run-bound evidence, decisions, artifact versions and memory proposals emit recoverable
-ledger observations; open **Run memories** in a workspace to review proposals from that task. the
+ledger observations; open **Run memories** in a workspace to review proposals from that task. The
 workspace drains the complete Run event tail before closing its stream.
 See [`docs/project-events.md`](docs/project-events.md).
 
@@ -112,7 +112,7 @@ enablement or version restoration. Organization members can inspect and download
 published packages. See [private Skill repository](docs/private-skill-repository.md)
 for API changes, single-deployment scope and recovery limits.
 
-All 13 built-in Skills include evidence guides and editable artifact templates that
+All 14 built-in Skills include evidence guides and editable artifact templates that
 travel with the immutable package snapshot; see [`docs/skill-resources.md`](docs/skill-resources.md).
 The local [Skill backup and restore exercise](docs/skill-backup-exercise.md) verifies
 independent copies, historical pins, disabled versions, and rejected corrupt restores.
@@ -207,6 +207,13 @@ diagnostics; optional local PaddleOCR-VL setup and remaining quality checks are 
 exact ledger anchors, human review and explicit unlabeled evaluation-candidate
 export; see [`docs/feedback-loop.md`](docs/feedback-loop.md).
 
+Saved projects also provide **Project shops**: configure a shop identity and optional
+platform Connector, open its independent login browser, confirm the signed-in shop,
+then let the main Agent collect source-linked page captures and reports. The window
+runs on the backend computer. See [setup, grants and verification](docs/shop-browsers.md).
+
+The workspace keeps illustrative examples as an empty-state, then switches to the durable backend project ledger as soon as a live analysis starts. Commercial conclusions still require verified sources and user review.
+
 ### Run locally
 
 Start the backend from the repository root:
@@ -259,11 +266,6 @@ npm run build
 The full PRD delivery inventory, including unimplemented and externally unverified
 requirements, is tracked in [`docs/prd-delivery-inventory.md`](docs/prd-delivery-inventory.md).
 
-Saved projects also provide **Project shops**: configure a shop identity and optional
-platform Connector, open its independent login browser, confirm the signed-in shop,
-then let the main Agent collect source-linked page captures and reports. The window
-runs on the backend computer. See [setup, grants and verification](docs/shop-browsers.md).
-
 - The native durable-approval path passed three consecutive real DeepSeek Green Path
   rounds on 2026-09-05 (local time), archived at
   `evals/reports/greenpath-20260906T044246Z/`. This includes same-Run deferred tools,
@@ -295,5 +297,3 @@ runs on the backend computer. See [setup, grants and verification](docs/shop-bro
 
 真端点验收（花钱，环境变量门控）：Green Path 3 连过与 Provider 合约测试见
 [`backend/README.md`](backend/README.md)；评测体系与报告见 [`evals/README.md`](evals/README.md)。
-
-The workspace keeps illustrative examples as an empty-state, then switches to the durable backend project ledger as soon as a live analysis starts. Commercial conclusions still require verified sources and user review.
