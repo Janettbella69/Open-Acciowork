@@ -57,6 +57,7 @@ type WorkspaceComposerProps = {
   project: OpportunityProject | null
   run: RunRecord | null
   telemetry?: RunTelemetry | null
+  developerMode?: boolean
   events: OphiraEvent[]
   assistantText: string
   reasoningSummary: string
@@ -203,6 +204,12 @@ function eventDetail(event: OphiraEvent): string {
     return String(event.data)
   }
 }
+
+// Backend lifecycle and SDK bookkeeping: listed only in developer mode (?dev=1).
+const BACKEND_EVENT_TYPES = new Set([
+  'sdk.system', 'run.created', 'run.started', 'run.result', 'run.completed', 'run.failed', 'run.cancelled',
+  'assistant.message.started', 'assistant.message.completed',
+])
 
 function eventKind(event: OphiraEvent): string {
   if (event.type.startsWith('tool.')) return 'tool'
@@ -359,6 +366,7 @@ export default function WorkspaceComposer({
   project,
   run,
   telemetry = null,
+  developerMode = false,
   events,
   assistantText,
   reasoningSummary,
@@ -434,7 +442,8 @@ export default function WorkspaceComposer({
   const traceEvents = events.filter((event) => !event.type.endsWith('.delta')
     && !event.type.startsWith('assistant.reasoning')
     && event.type !== 'context.usage'
-    && event.type !== UI_PRESENTATION_EVENT)
+    && event.type !== UI_PRESENTATION_EVENT
+    && (developerMode || !BACKEND_EVENT_TYPES.has(event.type)))
   const contextEvent = [...events].reverse().find((event) => event.type === 'context.usage')
   const usedTokens = contextEvent?.data.used_tokens
   const maxTokens = contextEvent?.data.max_tokens
@@ -749,7 +758,7 @@ export default function WorkspaceComposer({
                 <p>{run?.prompt ?? project?.objective ?? value}</p>
               </article>
               {run && <NativeTaskProgress events={events} runId={run.id} />}
-              {run && (contextUsage || canCompact || run.manual_compaction) && <section className="conversation-context-usage" aria-label={t('Context usage')}>
+              {run && developerMode && (contextUsage || canCompact || run.manual_compaction) && <section className="conversation-context-usage" aria-label={t('Context usage')}>
                 <div>
                   <strong>{t('Context usage')}</strong>
                   {contextEvent && <small>{t('Last measured at {time}', { time: new Date(contextEvent.timestamp).toLocaleTimeString(language === 'zh-CN' ? 'zh-CN' : 'en') })}</small>}
@@ -769,18 +778,19 @@ export default function WorkspaceComposer({
               <article className="conversation-agent-message">
                 {(run || historyLoading) && (
                   <div className="conversation-activity">
-                    {/* 面向用户的默认：过程收起成一行（参照 Claude），展开后仍可看原始日志。 */}
+                    {/* 用户模式：过程收起成一行（参照 Claude），只列思考与工具步骤；
+                        开发者模式（?dev=1）才显示后端事件、运行指标与 Trace。 */}
                     <details className="conversation-process">
                       <summary>
                         <span>{historyLoading ? t('Restoring history') : isActive ? t('Working for {elapsed}', { elapsed }) : t('Ran for {elapsed}', { elapsed })}</span>
                         <i aria-hidden="true">›</i>
                       </summary>
                       <div className="conversation-process-body">
-                        <header>
+                        {developerMode && <header>
                           <span>{historyLoading ? t('Restoring') : t(label(run?.status ?? 'Saved'))}</span>
                           <small>{t(processSteps === 1 ? '{n} event' : '{n} events', { n: processSteps })} · {t(label(connection))}</small>
-                        </header>
-                        {telemetry && (
+                        </header>}
+                        {developerMode && telemetry && (
                           <dl className="conversation-run-telemetry" aria-label={t('Run telemetry')}>
                             <div>
                               <dt>{t('Task time')}</dt>
@@ -859,7 +869,7 @@ export default function WorkspaceComposer({
                             })}
                           </ol>
                         )}
-                        {run && (
+                        {developerMode && run && (
                           <p className="conversation-trace-note">
                             {run.mode === 'deep_research' ? `${t('Deep Research')} · ` : run.mode === 'plan' ? `${t('Plan first')} · ` : `${t('Single Agent')} · `}
                             {t('Trace')} {run.trace_id}
