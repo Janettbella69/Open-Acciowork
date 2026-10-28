@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { useState } from 'react'
 import { vi } from 'vitest'
-import type { PendingPermission, ProviderProfile, RunMode, RunRecord, RunTelemetry, TelemetryMetric } from '../api/types'
+import type { PendingPermission, ProviderProfile, RunRecord, RunTelemetry, TelemetryMetric } from '../api/types'
 import { I18nContext } from '../i18n'
 import WorkspaceComposer from './WorkspaceComposer'
 
@@ -44,12 +44,10 @@ function baseProps() {
     providers: [],
     providerProfileId: null,
     approvalMode: 'default' as const,
-    runMode: 'standard' as const,
     onChange: vi.fn(),
     onAttachedFilesChange: vi.fn(),
     onProviderProfileChange: vi.fn(),
     onApprovalModeChange: vi.fn(async () => {}),
-    onRunModeChange: vi.fn(),
     onSubmit: vi.fn(),
     onProjectRefresh: vi.fn(),
     onNewResearch: vi.fn(),
@@ -202,16 +200,13 @@ const runTelemetry: RunTelemetry = {
 function StatefulComposer() {
   const [value, setValue] = useState('')
   const [attachedFiles, setAttachedFiles] = useState<File[]>([])
-  const [runMode, setRunMode] = useState<RunMode>('standard')
   return (
     <WorkspaceComposer
       {...baseProps()}
       value={value}
       attachedFiles={attachedFiles}
-      runMode={runMode}
       onChange={setValue}
       onAttachedFilesChange={setAttachedFiles}
-      onRunModeChange={setRunMode}
     />
   )
 }
@@ -309,28 +304,13 @@ describe('WorkspaceComposer', () => {
     expect(screen.queryByText('supplier-notes.pdf')).not.toBeInTheDocument()
   })
 
-  it('turns Deep Research on and off from the composer as an explicit choice', () => {
+  it('keeps the composer free of Plan first and Deep Research toggles', () => {
     render(<StatefulComposer />)
-
-    const toggle = screen.getByRole('button', { name: /deep research/i })
-    expect(toggle).toHaveAttribute('aria-pressed', 'false')
-
-    fireEvent.click(toggle)
-    expect(screen.getByRole('button', { name: /deep research/i })).toHaveAttribute('aria-pressed', 'true')
-
-    fireEvent.click(screen.getByRole('button', { name: /deep research/i }))
-    expect(screen.getByRole('button', { name: /deep research/i })).toHaveAttribute('aria-pressed', 'false')
+    expect(screen.queryByRole('button', { name: 'Plan first' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /deep research/i })).not.toBeInTheDocument()
   })
 
-  it('offers an explicit read-only plan choice and a reviewed continuation', () => {
-    render(<StatefulComposer />)
-    const toggle = screen.getByRole('button', { name: 'Plan first' })
-    expect(toggle).toHaveAttribute('aria-pressed', 'false')
-    fireEvent.click(toggle)
-    expect(toggle).toHaveAttribute('aria-pressed', 'true')
-    fireEvent.click(screen.getByRole('button', { name: 'Deep Research' }))
-    expect(toggle).toHaveAttribute('aria-pressed', 'false')
-
+  it('offers a reviewed continuation for a recorded plan run', () => {
     const approve = vi.fn()
     const revise = vi.fn()
     const { unmount } = render(<WorkspaceComposer {...baseProps()}
@@ -345,12 +325,6 @@ describe('WorkspaceComposer', () => {
     fireEvent.click(within(review).getByRole('button', { name: 'Request revised plan' }))
     expect(revise).toHaveBeenCalledWith('Check German VAT first')
     unmount()
-  })
-
-  it('locks the Deep Research choice while a task is running', () => {
-    render(<WorkspaceComposer {...baseProps()} busy />)
-
-    expect(screen.getByRole('button', { name: /deep research/i })).toBeDisabled()
   })
 
   it('switches the workspace approval mode without offering unsandboxed full access', async () => {

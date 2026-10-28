@@ -361,12 +361,10 @@ export default function Workspace() {
       approvalMode={approvalMode}
       approvalModeError={approvalModeError}
       approvalModeSaving={approvalModeSaving}
-      runMode={runMode}
       onChange={setBriefInput}
       onAttachedFilesChange={setAttachedFiles}
       onProviderProfileChange={setProviderProfileId}
       onApprovalModeChange={changeApprovalMode}
-      onRunModeChange={setRunMode}
       onApprovePlan={() => void continuePlan()}
       onRevisePlan={(changes) => void continuePlan(changes)}
       onSubmit={runAnalysis}

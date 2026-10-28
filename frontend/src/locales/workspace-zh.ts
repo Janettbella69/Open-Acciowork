@@ -29,7 +29,6 @@ export const workspaceZh: Record<string, string> = {
   'Direction moved into the next run': '插话已带入下一轮任务',
   'Open queued run': '打开排队任务',
   'Plan first': '先出计划',
-  'Research read-only, then review the plan before execution.': '先只读调研，确认计划后再执行。',
   'Review plan': '审核计划',
   'The plan has not been executed. Approve it or describe changes to request another plan in this session.': '计划尚未执行。批准后继续执行，或提出修改并在同一会话中重新出计划。',
   'The SDK session is unavailable. Start a new task to continue.': 'SDK 会话不可用，请新建任务继续。',

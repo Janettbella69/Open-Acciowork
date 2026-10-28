@@ -11,7 +11,6 @@ import {
   type PermissionDecision,
   type PermissionModePolicy,
   type ProviderProfile,
-  type RunMode,
   type RunInterjectionMode,
   type RunRecord,
   type RunRetryStrategy,
@@ -70,12 +69,10 @@ type WorkspaceComposerProps = {
   approvalMode: PermissionModePolicy | null
   approvalModeError?: string
   approvalModeSaving?: boolean
-  runMode: RunMode
   onChange: (value: string) => void
   onAttachedFilesChange: (files: File[]) => void
   onProviderProfileChange: (providerProfileId: string | null) => void
   onApprovalModeChange: (mode: PermissionModePolicy) => Promise<void>
-  onRunModeChange: (mode: RunMode) => void
   onApprovePlan?: () => void
   onRevisePlan?: (changes: string) => void
   onSubmit: (event: FormEvent<HTMLFormElement>) => void
@@ -374,12 +371,10 @@ export default function WorkspaceComposer({
   approvalMode,
   approvalModeError = '',
   approvalModeSaving = false,
-  runMode,
   onChange,
   onAttachedFilesChange,
   onProviderProfileChange,
   onApprovalModeChange,
-  onRunModeChange,
   onApprovePlan,
   onRevisePlan,
   onSubmit,
@@ -612,32 +607,6 @@ export default function WorkspaceComposer({
             disabled={busy}
             onChange={onApprovalModeChange}
           />
-          <button
-            className="conversation-research-toggle conversation-plan-toggle"
-            type="button"
-            aria-label={t('Plan first')}
-            aria-pressed={runMode === 'plan'}
-            disabled={busy}
-            title={t('Research read-only, then review the plan before execution.')}
-            onClick={() => onRunModeChange(runMode === 'plan' ? 'standard' : 'plan')}
-          >
-            <ComposerToolIcon name="plan" />
-            <span>{t('Plan first')}</span>
-          </button>
-          <button
-            className="conversation-research-toggle"
-            type="button"
-            aria-label={t('Deep Research')}
-            aria-pressed={runMode === 'deep_research'}
-            disabled={busy}
-            title={busy
-              ? t('Deep Research can only be chosen before a task starts.')
-              : t('Deep Research runs 3 read-only research subagents on this task budget.')}
-            onClick={() => onRunModeChange(runMode === 'deep_research' ? 'standard' : 'deep_research')}
-          >
-            <ComposerToolIcon name="research" />
-            <span>{t('Deep Research')}</span>
-          </button>
           <span className="conversation-composer-coordinator">{t('⌘ Enter to send')}</span>
           <div className="conversation-model-selector" ref={modelSelectorRef}>
             <button
