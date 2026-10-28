@@ -655,7 +655,11 @@ export function useOpportunityRuntime() {
         if (active) setProjects((current) => [...current, ...storedProjects.filter((item) => !deletedProjectsRef.current.has(item.id) && !current.some((known) => known.id === item.id))])
       })
       .catch((loadError) => {
-        if (active) setError(`Backend unavailable: ${errorMessage(loadError)}`)
+        if (!active) return
+        const unauthorized = loadError && typeof loadError === 'object' && 'status' in loadError && loadError.status === 401
+        setError(unauthorized
+          ? 'Workspace sign-in required: reload the page and enter the workspace password when prompted.'
+          : `Backend unavailable: ${errorMessage(loadError)}`)
       })
     return () => {
       active = false
