@@ -37,6 +37,7 @@ export const workspaceZh: Record<string, string> = {
   'Changes to the plan': '计划修改意见',
   'Describe what to change before execution': '描述执行前需要修改的内容',
   'Request revised plan': '要求修改计划',
+  'Close': '关闭',
   'Task progress': '任务进度',
   'In progress': '进行中',
   'Completed': '已完成',

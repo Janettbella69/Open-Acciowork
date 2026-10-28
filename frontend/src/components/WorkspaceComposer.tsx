@@ -413,6 +413,7 @@ export default function WorkspaceComposer({
   const [composerMenu, setComposerMenu] = useState<ComposerMenuView>('closed')
   const [modelMenuOpen, setModelMenuOpen] = useState(false)
   const [planChanges, setPlanChanges] = useState('')
+  const [projectDrawerOpen, setProjectDrawerOpen] = useState(false)
   const [interjectionMode, setInterjectionMode] = useState<RunInterjectionMode>('now')
   const canInterject = isActive && run?.status === 'running' && Boolean(onInterject)
   const [clock, setClock] = useState(() => Date.now())
@@ -538,8 +539,6 @@ export default function WorkspaceComposer({
           disabled={(busy && !canInterject) || interjectionBusy}
           autoFocus={!sessionOpen}
         />
-        <VoiceDictation value={value} onChange={onChange}
-          disabled={(busy && !canInterject) || interjectionBusy} />
         {attachedFiles.length > 0 && (
           <div className="conversation-attachments" aria-label={t('Locally staged attachments')}>
             <div>
@@ -701,6 +700,8 @@ export default function WorkspaceComposer({
               <option value="interrupt">{t('Interrupt and replace')}</option>
             </select>
           </label>}
+          <VoiceDictation value={value} onChange={onChange}
+            disabled={(busy && !canInterject) || interjectionBusy} />
           <button className="conversation-submit" type="submit" aria-label={canInterject ? t('Send direction') : busy ? t('Working') : t('Send')} aria-busy={approvalModeSaving || interjectionBusy || undefined} disabled={canInterject
             ? interjectionBusy || !value.trim() || attachedFiles.length > 0
             : busy || approvalModeSaving || !value.trim() || selectedProviderUnavailable}>
@@ -746,6 +747,11 @@ export default function WorkspaceComposer({
       <main className="conversation-entry-main" data-session={sessionOpen}>
         {!sessionOpen && (
           <a href="/" className="conversation-site-link">{t('Website')} <span aria-hidden="true">↗</span></a>
+        )}
+        {sessionOpen && project && (
+          <button type="button" className="conversation-site-link conversation-project-toggle"
+            aria-expanded={projectDrawerOpen} aria-controls="conversation-project-drawer"
+            onClick={() => setProjectDrawerOpen((open) => !open)}>{t('Project')}</button>
         )}
 
         {!sessionOpen ? (
@@ -988,23 +994,6 @@ export default function WorkspaceComposer({
                 {run && ['failed', 'cancelled'].includes(run.status) && !historyLoading && (
                   <FeedbackForm key={run.id} target={{ project_id: run.project_id, run_id: run.id, kind: 'run_failure' }} label="Flag run failure" />
                 )}
-                {project && <ProjectKnowledgePanel projectId={project.id} revision={project.artifacts.map((item) => item.id).join(':')} />}
-                {project && <ProjectArtifactsPanel projectId={project.id} artifacts={project.artifacts} onChanged={onProjectRefresh} />}
-                {project && <SitePublicationsPanel key={`site:${project.id}`} projectId={project.id} artifacts={project.artifacts} />}
-                {project && <ProjectExportPanel projectId={project.id} />}
-                {project && run && onDeleteConversation && <ProjectDeletionPanel projectId={project.id} runId={run.id}
-                  pending={conversationDeletionPending} canReviewAgain={conversationDeletionCanReviewAgain}
-                  onReviewAgain={onConversationDeletionReviewAgain} onSubmit={onDeleteConversation} onAccessCheck={onProjectRefresh} />}
-                {project && onDeleteProject && <ProjectDeletionPanel projectId={project.id} pending={deletionPending}
-                  canReviewAgain={deletionCanReviewAgain} onReviewAgain={onDeletionReviewAgain}
-                  onSubmit={onDeleteProject} onAccessCheck={onProjectRefresh} />}
-                {project && <ProjectCollaborationPanel project={project} currentRun={run} events={events} />}
-                {project && onProjectCreated && <ProjectTemplatesPanel project={project} onCreated={onProjectCreated} />}
-                {project && <WorkspaceRecoveryPanel projectId={project.id} onChanged={onProjectRefresh} />}
-                {project && <ProjectShopsPanel key={`shops:${project.id}`} projectId={project.id} onTask={onChange} />}
-                {project && <ProjectMetricsPanel key={`metrics:${project.id}`} projectId={project.id} />}
-                {project && <FeedbackReviewPanel key={project.id} projectId={project.id} />}
-
                 {permissions.map((permission) => {
                   const lifecycle = <DurablePermissionNotice permission={permission} busy={permissionBusy} onResume={onResumePermission ? () => onResumePermission(permission.id) : undefined} onCancel={onCancel} onRefresh={onRefreshPermissions} />
                   if (permissionLifecycleState(permission) !== 'pending') return <section className="conversation-permission" key={permission.id} aria-label={t('Approval for {tool}', { tool: permission.toolName })}>
@@ -1106,6 +1095,32 @@ export default function WorkspaceComposer({
         )}
 
         {sessionOpen && composer}
+
+        {sessionOpen && project && (
+          <aside id="conversation-project-drawer" className="conversation-project-drawer"
+            data-open={projectDrawerOpen} aria-label={t('Project')}>
+            <header>
+              <strong>{t('Project')}</strong>
+              <button type="button" aria-label={t('Close')} onClick={() => setProjectDrawerOpen(false)}>×</button>
+            </header>
+            <ProjectArtifactsPanel projectId={project.id} artifacts={project.artifacts} onChanged={onProjectRefresh} />
+            <SitePublicationsPanel key={`site:${project.id}`} projectId={project.id} artifacts={project.artifacts} />
+            <ProjectKnowledgePanel projectId={project.id} revision={project.artifacts.map((item) => item.id).join(':')} />
+            <ProjectCollaborationPanel project={project} currentRun={run} events={events} />
+            <FeedbackReviewPanel key={project.id} projectId={project.id} />
+            <ProjectShopsPanel key={`shops:${project.id}`} projectId={project.id} onTask={onChange} />
+            <ProjectMetricsPanel key={`metrics:${project.id}`} projectId={project.id} />
+            {onProjectCreated && <ProjectTemplatesPanel project={project} onCreated={onProjectCreated} />}
+            <ProjectExportPanel projectId={project.id} />
+            <WorkspaceRecoveryPanel projectId={project.id} onChanged={onProjectRefresh} />
+            {run && onDeleteConversation && <ProjectDeletionPanel projectId={project.id} runId={run.id}
+              pending={conversationDeletionPending} canReviewAgain={conversationDeletionCanReviewAgain}
+              onReviewAgain={onConversationDeletionReviewAgain} onSubmit={onDeleteConversation} onAccessCheck={onProjectRefresh} />}
+            {onDeleteProject && <ProjectDeletionPanel projectId={project.id} pending={deletionPending}
+              canReviewAgain={deletionCanReviewAgain} onReviewAgain={onDeletionReviewAgain}
+              onSubmit={onDeleteProject} onAccessCheck={onProjectRefresh} />}
+          </aside>
+        )}
       </main>
     </div>
   )

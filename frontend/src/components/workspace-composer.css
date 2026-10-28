@@ -143,6 +143,14 @@
   backdrop-filter: blur(10px);
 }
 
+.conversation-project-toggle { cursor: pointer; color: var(--ophira-ink); }
+.conversation-project-drawer { position: fixed; z-index: 40; top: 0; right: 0; bottom: 0; display: grid; width: min(440px, 100vw); align-content: start; overflow-y: auto; border-left: 1px solid #e5e6e3; padding: 18px 18px 32px; gap: 12px; background: #fff; box-shadow: -14px 0 36px rgba(24, 24, 21, 0.08); }
+.conversation-project-drawer[data-open='false'] { display: none; }
+.conversation-project-drawer > header { display: flex; align-items: center; justify-content: space-between; padding: 4px 2px 6px; }
+.conversation-project-drawer > header strong { font-size: var(--ophira-type-title); }
+.conversation-project-drawer > header button { width: 36px; height: 36px; border: 0; border-radius: 50%; color: #666a6d; background: transparent; font-size: 22px; line-height: 1; cursor: pointer; }
+.conversation-project-drawer > header button:hover { background: #f4f4f2; }
+
 .conversation-entry-center { width: min(100%, 1060px); margin: 0 auto; }
 .conversation-entry-center > h1 { margin: 0; font-family: var(--ophira-product-font); font-size: clamp(32px, 3vw, 42px); font-weight: 520; letter-spacing: -0.035em; line-height: 1.12; text-wrap: balance; }
 
@@ -440,12 +448,12 @@
 .conversation-composer label { display: block; color: #666a6d; font-size: var(--ophira-type-small); font-weight: 700; }
 .conversation-composer textarea { width: 100%; min-height: 72px; resize: none; border: 0; outline: 0; padding: 10px 8px; color: var(--ophira-ink); background: transparent; font-family: inherit; font-size: 16px; line-height: 1.55; }
 .conversation-composer textarea::placeholder { color: #afb1b4; }
-.conversation-composer > .voice-dictation { justify-self: end; margin: 2px 0 8px; }
+.conversation-composer-footer .voice-dictation-review { right: 0; left: auto; }
 .conversation-composer-dock[data-inline='false'] { position: relative; right: auto; bottom: auto; left: auto; width: min(1040px, calc(100% - 56px)); margin: 0 auto; padding-bottom: max(24px, env(safe-area-inset-bottom)); transform: none; }
 .conversation-composer-dock[data-inline='false'] .conversation-composer {
   display: grid;
   min-height: 72px;
-  grid-template-columns: auto minmax(0, 1fr) auto auto auto auto 44px;
+  grid-template-columns: auto minmax(0, 1fr) auto auto auto auto auto 44px;
   align-items: center;
   border-radius: 28px;
   padding: 9px 11px;
@@ -461,7 +469,7 @@
   padding: 9px 4px;
   line-height: 1.55;
 }
-.conversation-composer-dock[data-inline='false'] .conversation-composer > .voice-dictation { grid-column: 1 / -1; grid-row: 2; margin: 0; }
+.conversation-composer-dock[data-inline='false'] .conversation-composer-footer > .voice-dictation { grid-column: 7; grid-row: 1; }
 .conversation-composer-dock[data-inline='false'] .conversation-composer-footer { display: contents; }
 .conversation-composer-dock[data-inline='false'] .conversation-tools { grid-column: 1; grid-row: 1; }
 .conversation-composer-dock[data-inline='false'] .conversation-composer-coordinator { display: none; }
@@ -470,7 +478,7 @@
 .conversation-composer-dock[data-inline='false'] .conversation-plan-toggle { grid-column: 4; grid-row: 1; }
 .conversation-composer-dock[data-inline='false'] .conversation-research-toggle:not(.conversation-plan-toggle) { grid-column: 5; grid-row: 1; }
 .conversation-composer-dock[data-inline='false'] .conversation-model-selector { grid-column: 6; grid-row: 1; }
-.conversation-composer-dock[data-inline='false'] .conversation-submit { grid-column: 7; grid-row: 1; width: 44px; min-height: 44px; padding: 0; gap: 0; }
+.conversation-composer-dock[data-inline='false'] .conversation-submit { grid-column: 8; grid-row: 1; width: 44px; min-height: 44px; padding: 0; gap: 0; }
 .conversation-composer-dock[data-inline='false'] .conversation-submit-label { display: none; }
 .conversation-interjection-mode { display: flex !important; align-items: center; gap: 8px; white-space: nowrap; }
 .conversation-interjection-mode select { min-height: 42px; max-width: 210px; border: 1px solid #d7d9d6; border-radius: 12px; padding: 0 9px; color: var(--ophira-ink); background: #fff; font: inherit; font-size: 12px; }
@@ -479,10 +487,11 @@
 .conversation-composer-dock[data-interject='true'] .conversation-research-toggle,
 .conversation-composer-dock[data-interject='true'] .conversation-model-selector,
 .conversation-composer-dock[data-interject='true'] .conversation-composer-coordinator { display: none; }
-.conversation-composer-dock[data-inline='false'][data-interject='true'] .conversation-composer { grid-template-columns: minmax(0, 1fr) auto 44px; }
+.conversation-composer-dock[data-inline='false'][data-interject='true'] .conversation-composer { grid-template-columns: minmax(0, 1fr) auto auto 44px; }
 .conversation-composer-dock[data-inline='false'][data-interject='true'] .conversation-composer textarea { grid-column: 1; grid-row: 1; }
 .conversation-composer-dock[data-inline='false'][data-interject='true'] .conversation-interjection-mode { grid-column: 2; grid-row: 1; }
-.conversation-composer-dock[data-inline='false'][data-interject='true'] .conversation-submit { grid-column: 3; grid-row: 1; }
+.conversation-composer-dock[data-inline='false'][data-interject='true'] .conversation-composer-footer > .voice-dictation { grid-column: 3; grid-row: 1; }
+.conversation-composer-dock[data-inline='false'][data-interject='true'] .conversation-submit { grid-column: 4; grid-row: 1; }
 .conversation-attachments { display: grid; grid-column: 1 / -1; margin: 0 0 8px; gap: 8px; }
 .conversation-attachments > div { display: flex; max-height: min(180px, 25dvh); overflow: auto; flex-wrap: wrap; gap: 7px; }
 .conversation-attachments > div > span { display: inline-flex; max-width: 280px; min-height: 34px; align-items: center; gap: 7px; border: 1px solid #e2e3e4; border-radius: 9px; padding: 0 5px 0 9px; color: #606468; background: #f7f7f6; }
@@ -592,15 +601,15 @@
 .conversation-error { color: #9d3d32; }
 
 @media (max-width: 1100px) {
-  .conversation-composer-dock[data-inline='false'] .conversation-composer { grid-template-columns: 44px 44px 44px 44px minmax(44px, 1fr) 44px; }
+  .conversation-composer-dock[data-inline='false'] .conversation-composer { grid-template-columns: 44px 44px 44px 44px minmax(44px, 1fr) 44px 44px; }
   .conversation-composer-dock[data-inline='false'] .conversation-composer textarea { grid-column: 1 / -1; grid-row: 1; }
-  .conversation-composer-dock[data-inline='false'] .conversation-composer > .voice-dictation { grid-row: 3; }
+  .conversation-composer-dock[data-inline='false'] .conversation-composer-footer > .voice-dictation { grid-column: 6; grid-row: 2; }
   .conversation-composer-dock[data-inline='false'] .conversation-tools { grid-column: 1; grid-row: 2; }
   .conversation-composer-dock[data-inline='false'] .conversation-approval-selector { grid-column: 2; grid-row: 2; }
   .conversation-composer-dock[data-inline='false'] .conversation-plan-toggle { grid-column: 3; grid-row: 2; }
   .conversation-composer-dock[data-inline='false'] .conversation-research-toggle:not(.conversation-plan-toggle) { grid-column: 4; grid-row: 2; }
   .conversation-composer-dock[data-inline='false'] .conversation-model-selector { grid-column: 5; grid-row: 2; }
-  .conversation-composer-dock[data-inline='false'] .conversation-submit { grid-column: 6; grid-row: 2; }
+  .conversation-composer-dock[data-inline='false'] .conversation-submit { grid-column: 7; grid-row: 2; }
   .conversation-model-trigger { width: 44px; grid-template-columns: 1fr; justify-items: center; padding: 0; }
   .conversation-model-trigger > span, .conversation-model-trigger > i { display: none; }
   .conversation-approval-trigger { width: 44px; grid-template-columns: 1fr; justify-items: center; padding: 0; }
@@ -666,10 +675,11 @@
 }
 
 @media (max-width: 720px) {
-  .conversation-composer-dock[data-inline='false'][data-interject='true'] .conversation-composer { grid-template-columns: minmax(0, 1fr) 44px; }
+  .conversation-composer-dock[data-inline='false'][data-interject='true'] .conversation-composer { grid-template-columns: minmax(0, 1fr) 44px 44px; }
   .conversation-composer-dock[data-inline='false'][data-interject='true'] .conversation-composer textarea { grid-column: 1 / -1; grid-row: 1; }
   .conversation-composer-dock[data-inline='false'][data-interject='true'] .conversation-interjection-mode { grid-column: 1; grid-row: 2; }
-  .conversation-composer-dock[data-inline='false'][data-interject='true'] .conversation-submit { grid-column: 2; grid-row: 2; }
+  .conversation-composer-dock[data-inline='false'][data-interject='true'] .conversation-composer-footer > .voice-dictation { grid-column: 2; grid-row: 2; }
+  .conversation-composer-dock[data-inline='false'][data-interject='true'] .conversation-submit { grid-column: 3; grid-row: 2; }
   .conversation-interjection-mode select { max-width: min(210px, 48vw); }
 }
 
