@@ -11,7 +11,6 @@ import {
   type PermissionDecision,
   type PermissionModePolicy,
   type ProviderProfile,
-  type RunMode,
   type RunInterjectionMode,
   type RunRecord,
   type RunRetryStrategy,
@@ -70,15 +69,10 @@ type WorkspaceComposerProps = {
   approvalMode: PermissionModePolicy | null
   approvalModeError?: string
   approvalModeSaving?: boolean
-  runMode: RunMode
-  runBudgetUsd?: string
-  maxRunBudgetUsd?: number | null
   onChange: (value: string) => void
   onAttachedFilesChange: (files: File[]) => void
   onProviderProfileChange: (providerProfileId: string | null) => void
   onApprovalModeChange: (mode: PermissionModePolicy) => Promise<void>
-  onRunModeChange: (mode: RunMode) => void
-  onRunBudgetChange?: (value: string) => void
   onApprovePlan?: () => void
   onRevisePlan?: (changes: string) => void
   onSubmit: (event: FormEvent<HTMLFormElement>) => void
@@ -377,15 +371,10 @@ export default function WorkspaceComposer({
   approvalMode,
   approvalModeError = '',
   approvalModeSaving = false,
-  runMode,
-  runBudgetUsd = '',
-  maxRunBudgetUsd = null,
   onChange,
   onAttachedFilesChange,
   onProviderProfileChange,
   onApprovalModeChange,
-  onRunModeChange,
-  onRunBudgetChange = () => {},
   onApprovePlan,
   onRevisePlan,
   onSubmit,
@@ -419,6 +408,7 @@ export default function WorkspaceComposer({
   const [composerMenu, setComposerMenu] = useState<ComposerMenuView>('closed')
   const [modelMenuOpen, setModelMenuOpen] = useState(false)
   const [planChanges, setPlanChanges] = useState('')
+  const [projectDrawerOpen, setProjectDrawerOpen] = useState(false)
   const [interjectionMode, setInterjectionMode] = useState<RunInterjectionMode>('now')
   const canInterject = isActive && run?.status === 'running' && Boolean(onInterject)
   const [clock, setClock] = useState(() => Date.now())
@@ -462,7 +452,6 @@ export default function WorkspaceComposer({
   const selectedProviderUnavailable = Boolean(
     providerProfileId && (!selectedProvider || !providerIsRunnable(selectedProvider)),
   )
-  const hasRunnableProvider = providers.some(providerIsRunnable)
 
   useEffect(() => {
     if (composerMenu === 'closed') return
@@ -545,8 +534,6 @@ export default function WorkspaceComposer({
           disabled={(busy && !canInterject) || interjectionBusy}
           autoFocus={!sessionOpen}
         />
-        <VoiceDictation value={value} onChange={onChange}
-          disabled={(busy && !canInterject) || interjectionBusy} />
         {attachedFiles.length > 0 && (
           <div className="conversation-attachments" aria-label={t('Locally staged attachments')}>
             <div>
@@ -565,13 +552,6 @@ export default function WorkspaceComposer({
             <small>{t('Uploaded into the isolated project workspace when you send')}</small>
           </div>
         )}
-        {maxRunBudgetUsd !== null && !canInterject && <label className="conversation-budget">
-          <span>{t('Task budget (USD)')}</span>
-          <input type="number" min="0.01" max={maxRunBudgetUsd} step="any"
-            value={runBudgetUsd} onChange={(event) => onRunBudgetChange(event.target.value)}
-            disabled={busy} placeholder={maxRunBudgetUsd.toFixed(2)} />
-          <small>{t('Leave empty to use the operator limit of ${amount}.', { amount: maxRunBudgetUsd.toFixed(2) })}</small>
-        </label>}
         <div className="conversation-composer-footer">
           <div className="conversation-tools" ref={composerToolsRef}>
             <input
@@ -627,32 +607,6 @@ export default function WorkspaceComposer({
             disabled={busy}
             onChange={onApprovalModeChange}
           />
-          <button
-            className="conversation-research-toggle conversation-plan-toggle"
-            type="button"
-            aria-label={t('Plan first')}
-            aria-pressed={runMode === 'plan'}
-            disabled={busy}
-            title={t('Research read-only, then review the plan before execution.')}
-            onClick={() => onRunModeChange(runMode === 'plan' ? 'standard' : 'plan')}
-          >
-            <ComposerToolIcon name="plan" />
-            <span>{t('Plan first')}</span>
-          </button>
-          <button
-            className="conversation-research-toggle"
-            type="button"
-            aria-label={t('Deep Research')}
-            aria-pressed={runMode === 'deep_research'}
-            disabled={busy}
-            title={busy
-              ? t('Deep Research can only be chosen before a task starts.')
-              : t('Deep Research runs 3 read-only research subagents on this task budget.')}
-            onClick={() => onRunModeChange(runMode === 'deep_research' ? 'standard' : 'deep_research')}
-          >
-            <ComposerToolIcon name="research" />
-            <span>{t('Deep Research')}</span>
-          </button>
           <span className="conversation-composer-coordinator">{t('⌘ Enter to send')}</span>
           <div className="conversation-model-selector" ref={modelSelectorRef}>
             <button
@@ -715,6 +669,8 @@ export default function WorkspaceComposer({
               <option value="interrupt">{t('Interrupt and replace')}</option>
             </select>
           </label>}
+          <VoiceDictation value={value} onChange={onChange}
+            disabled={(busy && !canInterject) || interjectionBusy} />
           <button className="conversation-submit" type="submit" aria-label={canInterject ? t('Send direction') : busy ? t('Working') : t('Send')} aria-busy={approvalModeSaving || interjectionBusy || undefined} disabled={canInterject
             ? interjectionBusy || !value.trim() || attachedFiles.length > 0
             : busy || approvalModeSaving || !value.trim() || selectedProviderUnavailable}>
@@ -761,6 +717,11 @@ export default function WorkspaceComposer({
         {!sessionOpen && (
           <a href="/" className="conversation-site-link">{t('Website')} <span aria-hidden="true">↗</span></a>
         )}
+        {sessionOpen && project && (
+          <button type="button" className="conversation-site-link conversation-project-toggle"
+            aria-expanded={projectDrawerOpen} aria-controls="conversation-project-drawer"
+            onClick={() => setProjectDrawerOpen((open) => !open)}>{t('Project')}</button>
+        )}
 
         {!sessionOpen ? (
           <div className="conversation-entry-center">
@@ -768,23 +729,6 @@ export default function WorkspaceComposer({
             <h1>What can I do for you?</h1>
 
             {composer}
-
-            {projects.length === 0 && (
-              <section className="conversation-first-task" aria-label={t('First task setup')}>
-                <strong>{t('Start your first task')}</strong>
-                <ol>
-                  <li data-ready={Boolean(value.trim())}>{t('Choose an example below or describe your goal.')}</li>
-                  <li data-ready={Boolean(selectedProvider && !selectedProviderUnavailable)}>
-                    {selectedProvider && !selectedProviderUnavailable
-                      ? t('Verified model selected.')
-                      : hasRunnableProvider
-                        ? t('Choose a verified model from the model selector.')
-                        : <a href="/app/settings#providers">{t('Add a model, store its API key, and run preflight in Settings.')}</a>}
-                  </li>
-                  <li>{t('Return here, review the goal, then press Send. You can approve risky actions as they arise.')}</li>
-                </ol>
-              </section>
-            )}
 
             <section className="conversation-quick-starts" aria-label={t('Example opportunities')}>
               <div className="conversation-quick-grid">
@@ -804,14 +748,11 @@ export default function WorkspaceComposer({
               <article className="conversation-user-message">
                 <p>{run?.prompt ?? project?.objective ?? value}</p>
               </article>
-              {project && onSelectRun && <SessionSearchPanel projectId={project.id} onSelectRun={onSelectRun} />}
               {run && <NativeTaskProgress events={events} runId={run.id} />}
-              {run && <section className="conversation-context-usage" aria-label={t('Context usage')}>
+              {run && (contextUsage || canCompact || run.manual_compaction) && <section className="conversation-context-usage" aria-label={t('Context usage')}>
                 <div>
                   <strong>{t('Context usage')}</strong>
-                  <small>{contextEvent
-                    ? t('Last measured at {time}', { time: new Date(contextEvent.timestamp).toLocaleTimeString(language === 'zh-CN' ? 'zh-CN' : 'en') })
-                    : t('Waiting for SDK context measurement')}</small>
+                  {contextEvent && <small>{t('Last measured at {time}', { time: new Date(contextEvent.timestamp).toLocaleTimeString(language === 'zh-CN' ? 'zh-CN' : 'en') })}</small>}
                 </div>
                 {contextUsage && <>
                   <progress max={contextUsage.max} value={Math.min(contextUsage.used, contextUsage.max)} />
@@ -828,9 +769,8 @@ export default function WorkspaceComposer({
               <article className="conversation-agent-message">
                 {(run || historyLoading) && (
                   <div className="conversation-activity">
-                    {/* 上线前处于调试阶段：过程默认展开，先过程后结果（教材第 11 章
-                        "调试阶段还是显示原始日志"）。上线后按开发者/用户模式再分档。 */}
-                    <details className="conversation-process" open>
+                    {/* 面向用户的默认：过程收起成一行（参照 Claude），展开后仍可看原始日志。 */}
+                    <details className="conversation-process">
                       <summary>
                         <span>{historyLoading ? t('Restoring history') : isActive ? t('Working for {elapsed}', { elapsed }) : t('Ran for {elapsed}', { elapsed })}</span>
                         <i aria-hidden="true">›</i>
@@ -932,7 +872,7 @@ export default function WorkspaceComposer({
                 )}
 
                 {!historyLoading && <PresentationCards presentations={presentations} />}
-                {!historyLoading && run && <RunResourcesPanel run={run} onCancel={onCancel} />}
+                {!historyLoading && run?.mode === 'deep_research' && <RunResourcesPanel run={run} onCancel={onCancel} />}
 
                 {historyLoading ? (
                   <div className="conversation-agent-waiting" role="status">
@@ -1019,23 +959,6 @@ export default function WorkspaceComposer({
                 {run && ['failed', 'cancelled'].includes(run.status) && !historyLoading && (
                   <FeedbackForm key={run.id} target={{ project_id: run.project_id, run_id: run.id, kind: 'run_failure' }} label="Flag run failure" />
                 )}
-                {project && <ProjectKnowledgePanel projectId={project.id} revision={project.artifacts.map((item) => item.id).join(':')} />}
-                {project && <ProjectArtifactsPanel projectId={project.id} artifacts={project.artifacts} onChanged={onProjectRefresh} />}
-                {project && <SitePublicationsPanel key={`site:${project.id}`} projectId={project.id} artifacts={project.artifacts} />}
-                {project && <ProjectExportPanel projectId={project.id} />}
-                {project && run && onDeleteConversation && <ProjectDeletionPanel projectId={project.id} runId={run.id}
-                  pending={conversationDeletionPending} canReviewAgain={conversationDeletionCanReviewAgain}
-                  onReviewAgain={onConversationDeletionReviewAgain} onSubmit={onDeleteConversation} onAccessCheck={onProjectRefresh} />}
-                {project && onDeleteProject && <ProjectDeletionPanel projectId={project.id} pending={deletionPending}
-                  canReviewAgain={deletionCanReviewAgain} onReviewAgain={onDeletionReviewAgain}
-                  onSubmit={onDeleteProject} onAccessCheck={onProjectRefresh} />}
-                {project && <ProjectCollaborationPanel project={project} currentRun={run} events={events} />}
-                {project && onProjectCreated && <ProjectTemplatesPanel project={project} onCreated={onProjectCreated} />}
-                {project && <WorkspaceRecoveryPanel projectId={project.id} onChanged={onProjectRefresh} />}
-                {project && <ProjectShopsPanel key={`shops:${project.id}`} projectId={project.id} onTask={onChange} />}
-                {project && <ProjectMetricsPanel key={`metrics:${project.id}`} projectId={project.id} />}
-                {project && <FeedbackReviewPanel key={project.id} projectId={project.id} />}
-
                 {permissions.map((permission) => {
                   const lifecycle = <DurablePermissionNotice permission={permission} busy={permissionBusy} onResume={onResumePermission ? () => onResumePermission(permission.id) : undefined} onCancel={onCancel} onRefresh={onRefreshPermissions} />
                   if (permissionLifecycleState(permission) !== 'pending') return <section className="conversation-permission" key={permission.id} aria-label={t('Approval for {tool}', { tool: permission.toolName })}>
@@ -1137,6 +1060,33 @@ export default function WorkspaceComposer({
         )}
 
         {sessionOpen && composer}
+
+        {sessionOpen && project && (
+          <aside id="conversation-project-drawer" className="conversation-project-drawer"
+            data-open={projectDrawerOpen} aria-label={t('Project')}>
+            <header>
+              <strong>{t('Project')}</strong>
+              <button type="button" aria-label={t('Close')} onClick={() => setProjectDrawerOpen(false)}>×</button>
+            </header>
+            {onSelectRun && <SessionSearchPanel projectId={project.id} onSelectRun={onSelectRun} />}
+            <ProjectArtifactsPanel projectId={project.id} artifacts={project.artifacts} onChanged={onProjectRefresh} />
+            <SitePublicationsPanel key={`site:${project.id}`} projectId={project.id} artifacts={project.artifacts} />
+            <ProjectKnowledgePanel projectId={project.id} revision={project.artifacts.map((item) => item.id).join(':')} />
+            <ProjectCollaborationPanel project={project} currentRun={run} events={events} />
+            <FeedbackReviewPanel key={project.id} projectId={project.id} />
+            <ProjectShopsPanel key={`shops:${project.id}`} projectId={project.id} onTask={onChange} />
+            <ProjectMetricsPanel key={`metrics:${project.id}`} projectId={project.id} />
+            {onProjectCreated && <ProjectTemplatesPanel project={project} onCreated={onProjectCreated} />}
+            <ProjectExportPanel projectId={project.id} />
+            <WorkspaceRecoveryPanel projectId={project.id} onChanged={onProjectRefresh} />
+            {run && onDeleteConversation && <ProjectDeletionPanel projectId={project.id} runId={run.id}
+              pending={conversationDeletionPending} canReviewAgain={conversationDeletionCanReviewAgain}
+              onReviewAgain={onConversationDeletionReviewAgain} onSubmit={onDeleteConversation} onAccessCheck={onProjectRefresh} />}
+            {onDeleteProject && <ProjectDeletionPanel projectId={project.id} pending={deletionPending}
+              canReviewAgain={deletionCanReviewAgain} onReviewAgain={onDeletionReviewAgain}
+              onSubmit={onDeleteProject} onAccessCheck={onProjectRefresh} />}
+          </aside>
+        )}
       </main>
     </div>
   )

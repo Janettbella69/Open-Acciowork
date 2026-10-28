@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { useState } from 'react'
 import { vi } from 'vitest'
-import type { OpportunityProject, PendingPermission, ProviderProfile, RunMode, RunRecord, RunTelemetry, TelemetryMetric } from '../api/types'
+import type { PendingPermission, ProviderProfile, RunRecord, RunTelemetry, TelemetryMetric } from '../api/types'
 import { I18nContext } from '../i18n'
 import WorkspaceComposer from './WorkspaceComposer'
 
@@ -44,12 +44,10 @@ function baseProps() {
     providers: [],
     providerProfileId: null,
     approvalMode: 'default' as const,
-    runMode: 'standard' as const,
     onChange: vi.fn(),
     onAttachedFilesChange: vi.fn(),
     onProviderProfileChange: vi.fn(),
     onApprovalModeChange: vi.fn(async () => {}),
-    onRunModeChange: vi.fn(),
     onSubmit: vi.fn(),
     onProjectRefresh: vi.fn(),
     onNewResearch: vi.fn(),
@@ -75,6 +73,7 @@ describe('durable approval presentation', () => {
         parent_id: null, tool_use_id: null, data: { resource_id: `resource_${index}` },
       }))} />
     </I18nContext.Provider>)
+    expandProcess()
     titles.forEach((title) => expect(screen.getByText(title)).toBeVisible())
   })
 
@@ -199,19 +198,21 @@ const runTelemetry: RunTelemetry = {
   quality_warnings: [],
 }
 
+// The process line starts collapsed, as in Claude; the user opens it to see steps and raw events.
+function expandProcess() {
+  fireEvent.click(document.querySelector('details.conversation-process > summary')!)
+}
+
 function StatefulComposer() {
   const [value, setValue] = useState('')
   const [attachedFiles, setAttachedFiles] = useState<File[]>([])
-  const [runMode, setRunMode] = useState<RunMode>('standard')
   return (
     <WorkspaceComposer
       {...baseProps()}
       value={value}
       attachedFiles={attachedFiles}
-      runMode={runMode}
       onChange={setValue}
       onAttachedFilesChange={setAttachedFiles}
-      onRunModeChange={setRunMode}
     />
   )
 }
@@ -234,15 +235,16 @@ describe('WorkspaceComposer', () => {
     const usage = screen.getByLabelText('Context usage')
     expect(usage).toHaveTextContent('41,000 / 180,000 tokens')
     expect(within(usage).getByRole('progressbar')).toHaveAttribute('value', '41000')
+    expandProcess()
     expect(screen.getByText('Context compacted automatically')).toBeVisible()
     fireEvent.click(within(usage).getByRole('button', { name: 'Compact context' }))
     expect(onCompact).toHaveBeenCalledOnce()
   })
 
-  it('marks an unmeasured window honestly and hides manual compaction during active work', () => {
+  it('hides an unmeasured context window and manual compaction during active work', () => {
     render(<WorkspaceComposer {...baseProps()} run={{ ...completedRun, status: 'running' }}
       isActive onCompact={vi.fn()} />)
-    expect(screen.getByText('Waiting for SDK context measurement')).toBeVisible()
+    expect(screen.queryByLabelText('Context usage')).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Compact context' })).not.toBeInTheDocument()
   })
 
@@ -309,28 +311,13 @@ describe('WorkspaceComposer', () => {
     expect(screen.queryByText('supplier-notes.pdf')).not.toBeInTheDocument()
   })
 
-  it('turns Deep Research on and off from the composer as an explicit choice', () => {
+  it('keeps the composer free of Plan first and Deep Research toggles', () => {
     render(<StatefulComposer />)
-
-    const toggle = screen.getByRole('button', { name: /deep research/i })
-    expect(toggle).toHaveAttribute('aria-pressed', 'false')
-
-    fireEvent.click(toggle)
-    expect(screen.getByRole('button', { name: /deep research/i })).toHaveAttribute('aria-pressed', 'true')
-
-    fireEvent.click(screen.getByRole('button', { name: /deep research/i }))
-    expect(screen.getByRole('button', { name: /deep research/i })).toHaveAttribute('aria-pressed', 'false')
+    expect(screen.queryByRole('button', { name: 'Plan first' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /deep research/i })).not.toBeInTheDocument()
   })
 
-  it('offers an explicit read-only plan choice and a reviewed continuation', () => {
-    render(<StatefulComposer />)
-    const toggle = screen.getByRole('button', { name: 'Plan first' })
-    expect(toggle).toHaveAttribute('aria-pressed', 'false')
-    fireEvent.click(toggle)
-    expect(toggle).toHaveAttribute('aria-pressed', 'true')
-    fireEvent.click(screen.getByRole('button', { name: 'Deep Research' }))
-    expect(toggle).toHaveAttribute('aria-pressed', 'false')
-
+  it('offers a reviewed continuation for a recorded plan run', () => {
     const approve = vi.fn()
     const revise = vi.fn()
     const { unmount } = render(<WorkspaceComposer {...baseProps()}
@@ -345,12 +332,6 @@ describe('WorkspaceComposer', () => {
     fireEvent.click(within(review).getByRole('button', { name: 'Request revised plan' }))
     expect(revise).toHaveBeenCalledWith('Check German VAT first')
     unmount()
-  })
-
-  it('locks the Deep Research choice while a task is running', () => {
-    render(<WorkspaceComposer {...baseProps()} busy />)
-
-    expect(screen.getByRole('button', { name: /deep research/i })).toBeDisabled()
   })
 
   it('switches the workspace approval mode without offering unsandboxed full access', async () => {
@@ -426,21 +407,12 @@ describe('WorkspaceComposer', () => {
     )
   })
 
-  it('guides a new user from an example to provider configuration without documentation', () => {
+  it('keeps the empty workspace to the composer and examples, without a setup checklist', () => {
     const props = baseProps()
-    const view = render(<WorkspaceComposer {...props} />)
-    const setup = screen.getByRole('region', { name: 'First task setup' })
-    expect(within(setup).getByRole('link', { name: /Add a model/ })).toHaveAttribute('href', '/app/settings#providers')
+    render(<WorkspaceComposer {...props} />)
+    expect(screen.queryByRole('region', { name: 'First task setup' })).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /Find what sells/ }))
     expect(props.onChange).toHaveBeenCalledWith('Find products gaining demand on Amazon and TikTok Shop')
-    const existingProject: OpportunityProject = {
-      id: 'project_1', name: 'Existing', objective: '', product_brief: '',
-      target_markets: [], constraints: [], stage: 'discovery', hypotheses: [], evidence: [],
-      assessments: {}, stage_decisions: [], decisions: [], artifacts: [], revision: 1,
-      created_at: '2026-09-23T00:00:00Z', updated_at: '2026-09-23T00:00:00Z',
-    }
-    view.rerender(<WorkspaceComposer {...props} projects={[existingProject]} />)
-    expect(screen.queryByRole('region', { name: 'First task setup' })).not.toBeInTheDocument()
   })
 
   it('replays native SDK task progress in the selected Run conversation', () => {
@@ -480,7 +452,9 @@ describe('WorkspaceComposer', () => {
     )
 
     const activitySummary = screen.getByText(/working for/i).closest('summary')
-    // 调试期过程默认展开：先过程后结果（教材第 11 章），无需点击即可见。
+    // 面向用户的默认：过程收起成一行（参照 Claude），点开后可见步骤与原始日志。
+    expect(activitySummary?.parentElement).not.toHaveAttribute('open')
+    fireEvent.click(activitySummary!)
     expect(activitySummary?.parentElement).toHaveAttribute('open')
 
     expect(screen.getByRole('heading', { name: 'Result' })).toBeInTheDocument()
@@ -519,6 +493,7 @@ describe('WorkspaceComposer', () => {
         parent_id: null, tool_use_id: null,
         data: { resource_id: 'message_1', next_run_id: 'run_2' },
       }]} />)
+    expandProcess()
     expect(screen.getByText('Direction moved into the next run')).toBeVisible()
     fireEvent.click(screen.getByRole('button', { name: 'Open queued run' }))
     expect(selectRun).toHaveBeenCalledWith('run_2')
