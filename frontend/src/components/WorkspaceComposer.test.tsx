@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { useState } from 'react'
 import { vi } from 'vitest'
-import type { OpportunityProject, PendingPermission, ProviderProfile, RunMode, RunRecord, RunTelemetry, TelemetryMetric } from '../api/types'
+import type { PendingPermission, ProviderProfile, RunMode, RunRecord, RunTelemetry, TelemetryMetric } from '../api/types'
 import { I18nContext } from '../i18n'
 import WorkspaceComposer from './WorkspaceComposer'
 
@@ -426,21 +426,12 @@ describe('WorkspaceComposer', () => {
     )
   })
 
-  it('guides a new user from an example to provider configuration without documentation', () => {
+  it('keeps the empty workspace to the composer and examples, without a setup checklist', () => {
     const props = baseProps()
-    const view = render(<WorkspaceComposer {...props} />)
-    const setup = screen.getByRole('region', { name: 'First task setup' })
-    expect(within(setup).getByRole('link', { name: /Add a model/ })).toHaveAttribute('href', '/app/settings#providers')
+    render(<WorkspaceComposer {...props} />)
+    expect(screen.queryByRole('region', { name: 'First task setup' })).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /Find what sells/ }))
     expect(props.onChange).toHaveBeenCalledWith('Find products gaining demand on Amazon and TikTok Shop')
-    const existingProject: OpportunityProject = {
-      id: 'project_1', name: 'Existing', objective: '', product_brief: '',
-      target_markets: [], constraints: [], stage: 'discovery', hypotheses: [], evidence: [],
-      assessments: {}, stage_decisions: [], decisions: [], artifacts: [], revision: 1,
-      created_at: '2026-09-23T00:00:00Z', updated_at: '2026-09-23T00:00:00Z',
-    }
-    view.rerender(<WorkspaceComposer {...props} projects={[existingProject]} />)
-    expect(screen.queryByRole('region', { name: 'First task setup' })).not.toBeInTheDocument()
   })
 
   it('replays native SDK task progress in the selected Run conversation', () => {
