@@ -362,14 +362,11 @@ export default function Workspace() {
       approvalModeError={approvalModeError}
       approvalModeSaving={approvalModeSaving}
       runMode={runMode}
-      runBudgetUsd={runBudgetUsd}
-      maxRunBudgetUsd={maxRunBudgetUsd}
       onChange={setBriefInput}
       onAttachedFilesChange={setAttachedFiles}
       onProviderProfileChange={setProviderProfileId}
       onApprovalModeChange={changeApprovalMode}
       onRunModeChange={setRunMode}
-      onRunBudgetChange={setRunBudgetUsd}
       onApprovePlan={() => void continuePlan()}
       onRevisePlan={(changes) => void continuePlan(changes)}
       onSubmit={runAnalysis}

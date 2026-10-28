@@ -71,14 +71,11 @@ type WorkspaceComposerProps = {
   approvalModeError?: string
   approvalModeSaving?: boolean
   runMode: RunMode
-  runBudgetUsd?: string
-  maxRunBudgetUsd?: number | null
   onChange: (value: string) => void
   onAttachedFilesChange: (files: File[]) => void
   onProviderProfileChange: (providerProfileId: string | null) => void
   onApprovalModeChange: (mode: PermissionModePolicy) => Promise<void>
   onRunModeChange: (mode: RunMode) => void
-  onRunBudgetChange?: (value: string) => void
   onApprovePlan?: () => void
   onRevisePlan?: (changes: string) => void
   onSubmit: (event: FormEvent<HTMLFormElement>) => void
@@ -378,14 +375,11 @@ export default function WorkspaceComposer({
   approvalModeError = '',
   approvalModeSaving = false,
   runMode,
-  runBudgetUsd = '',
-  maxRunBudgetUsd = null,
   onChange,
   onAttachedFilesChange,
   onProviderProfileChange,
   onApprovalModeChange,
   onRunModeChange,
-  onRunBudgetChange = () => {},
   onApprovePlan,
   onRevisePlan,
   onSubmit,
@@ -564,13 +558,6 @@ export default function WorkspaceComposer({
             <small>{t('Uploaded into the isolated project workspace when you send')}</small>
           </div>
         )}
-        {maxRunBudgetUsd !== null && !canInterject && <label className="conversation-budget">
-          <span>{t('Task budget (USD)')}</span>
-          <input type="number" min="0.01" max={maxRunBudgetUsd} step="any"
-            value={runBudgetUsd} onChange={(event) => onRunBudgetChange(event.target.value)}
-            disabled={busy} placeholder={maxRunBudgetUsd.toFixed(2)} />
-          <small>{t('Leave empty to use the operator limit of ${amount}.', { amount: maxRunBudgetUsd.toFixed(2) })}</small>
-        </label>}
         <div className="conversation-composer-footer">
           <div className="conversation-tools" ref={composerToolsRef}>
             <input
