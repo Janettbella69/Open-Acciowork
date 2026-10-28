@@ -146,6 +146,7 @@
 .conversation-project-toggle { cursor: pointer; color: var(--ophira-ink); }
 .conversation-project-drawer { position: fixed; z-index: 40; top: 0; right: 0; bottom: 0; display: grid; width: min(440px, 100vw); align-content: start; overflow-y: auto; border-left: 1px solid #e5e6e3; padding: 18px 18px 32px; gap: 12px; background: #fff; box-shadow: -14px 0 36px rgba(24, 24, 21, 0.08); }
 .conversation-project-drawer[data-open='false'] { display: none; }
+.conversation-project-drawer > :not(header) { margin: 0; }
 .conversation-project-drawer > header { display: flex; align-items: center; justify-content: space-between; padding: 4px 2px 6px; }
 .conversation-project-drawer > header strong { font-size: var(--ophira-type-title); }
 .conversation-project-drawer > header button { width: 36px; height: 36px; border: 0; border-radius: 50%; color: #666a6d; background: transparent; font-size: 22px; line-height: 1; cursor: pointer; }
