@@ -1,7 +1,6 @@
 export const workspaceZh: Record<string, string> = {
   'Context usage': '上下文占用',
   'Last measured at {time}': '上次测量时间 {time}',
-  'Waiting for SDK context measurement': '等待 SDK 测量上下文',
   '{used} / {max} tokens': '{used} / {max} token',
   'Compact context': '压缩上下文',
   'Compacting…': '正在压缩…',

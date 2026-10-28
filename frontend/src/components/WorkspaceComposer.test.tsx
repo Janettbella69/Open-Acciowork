@@ -73,6 +73,7 @@ describe('durable approval presentation', () => {
         parent_id: null, tool_use_id: null, data: { resource_id: `resource_${index}` },
       }))} />
     </I18nContext.Provider>)
+    expandProcess()
     titles.forEach((title) => expect(screen.getByText(title)).toBeVisible())
   })
 
@@ -197,6 +198,11 @@ const runTelemetry: RunTelemetry = {
   quality_warnings: [],
 }
 
+// The process line starts collapsed, as in Claude; the user opens it to see steps and raw events.
+function expandProcess() {
+  fireEvent.click(document.querySelector('details.conversation-process > summary')!)
+}
+
 function StatefulComposer() {
   const [value, setValue] = useState('')
   const [attachedFiles, setAttachedFiles] = useState<File[]>([])
@@ -229,15 +235,16 @@ describe('WorkspaceComposer', () => {
     const usage = screen.getByLabelText('Context usage')
     expect(usage).toHaveTextContent('41,000 / 180,000 tokens')
     expect(within(usage).getByRole('progressbar')).toHaveAttribute('value', '41000')
+    expandProcess()
     expect(screen.getByText('Context compacted automatically')).toBeVisible()
     fireEvent.click(within(usage).getByRole('button', { name: 'Compact context' }))
     expect(onCompact).toHaveBeenCalledOnce()
   })
 
-  it('marks an unmeasured window honestly and hides manual compaction during active work', () => {
+  it('hides an unmeasured context window and manual compaction during active work', () => {
     render(<WorkspaceComposer {...baseProps()} run={{ ...completedRun, status: 'running' }}
       isActive onCompact={vi.fn()} />)
-    expect(screen.getByText('Waiting for SDK context measurement')).toBeVisible()
+    expect(screen.queryByLabelText('Context usage')).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Compact context' })).not.toBeInTheDocument()
   })
 
@@ -445,7 +452,9 @@ describe('WorkspaceComposer', () => {
     )
 
     const activitySummary = screen.getByText(/working for/i).closest('summary')
-    // 调试期过程默认展开：先过程后结果（教材第 11 章），无需点击即可见。
+    // 面向用户的默认：过程收起成一行（参照 Claude），点开后可见步骤与原始日志。
+    expect(activitySummary?.parentElement).not.toHaveAttribute('open')
+    fireEvent.click(activitySummary!)
     expect(activitySummary?.parentElement).toHaveAttribute('open')
 
     expect(screen.getByRole('heading', { name: 'Result' })).toBeInTheDocument()
@@ -484,6 +493,7 @@ describe('WorkspaceComposer', () => {
         parent_id: null, tool_use_id: null,
         data: { resource_id: 'message_1', next_run_id: 'run_2' },
       }]} />)
+    expandProcess()
     expect(screen.getByText('Direction moved into the next run')).toBeVisible()
     fireEvent.click(screen.getByRole('button', { name: 'Open queued run' }))
     expect(selectRun).toHaveBeenCalledWith('run_2')

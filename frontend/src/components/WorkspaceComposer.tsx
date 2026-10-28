@@ -748,14 +748,11 @@ export default function WorkspaceComposer({
               <article className="conversation-user-message">
                 <p>{run?.prompt ?? project?.objective ?? value}</p>
               </article>
-              {project && onSelectRun && <SessionSearchPanel projectId={project.id} onSelectRun={onSelectRun} />}
               {run && <NativeTaskProgress events={events} runId={run.id} />}
-              {run && <section className="conversation-context-usage" aria-label={t('Context usage')}>
+              {run && (contextUsage || canCompact || run.manual_compaction) && <section className="conversation-context-usage" aria-label={t('Context usage')}>
                 <div>
                   <strong>{t('Context usage')}</strong>
-                  <small>{contextEvent
-                    ? t('Last measured at {time}', { time: new Date(contextEvent.timestamp).toLocaleTimeString(language === 'zh-CN' ? 'zh-CN' : 'en') })
-                    : t('Waiting for SDK context measurement')}</small>
+                  {contextEvent && <small>{t('Last measured at {time}', { time: new Date(contextEvent.timestamp).toLocaleTimeString(language === 'zh-CN' ? 'zh-CN' : 'en') })}</small>}
                 </div>
                 {contextUsage && <>
                   <progress max={contextUsage.max} value={Math.min(contextUsage.used, contextUsage.max)} />
@@ -772,9 +769,8 @@ export default function WorkspaceComposer({
               <article className="conversation-agent-message">
                 {(run || historyLoading) && (
                   <div className="conversation-activity">
-                    {/* 上线前处于调试阶段：过程默认展开，先过程后结果（教材第 11 章
-                        "调试阶段还是显示原始日志"）。上线后按开发者/用户模式再分档。 */}
-                    <details className="conversation-process" open>
+                    {/* 面向用户的默认：过程收起成一行（参照 Claude），展开后仍可看原始日志。 */}
+                    <details className="conversation-process">
                       <summary>
                         <span>{historyLoading ? t('Restoring history') : isActive ? t('Working for {elapsed}', { elapsed }) : t('Ran for {elapsed}', { elapsed })}</span>
                         <i aria-hidden="true">›</i>
@@ -876,7 +872,7 @@ export default function WorkspaceComposer({
                 )}
 
                 {!historyLoading && <PresentationCards presentations={presentations} />}
-                {!historyLoading && run && <RunResourcesPanel run={run} onCancel={onCancel} />}
+                {!historyLoading && run?.mode === 'deep_research' && <RunResourcesPanel run={run} onCancel={onCancel} />}
 
                 {historyLoading ? (
                   <div className="conversation-agent-waiting" role="status">
@@ -1072,6 +1068,7 @@ export default function WorkspaceComposer({
               <strong>{t('Project')}</strong>
               <button type="button" aria-label={t('Close')} onClick={() => setProjectDrawerOpen(false)}>×</button>
             </header>
+            {onSelectRun && <SessionSearchPanel projectId={project.id} onSelectRun={onSelectRun} />}
             <ProjectArtifactsPanel projectId={project.id} artifacts={project.artifacts} onChanged={onProjectRefresh} />
             <SitePublicationsPanel key={`site:${project.id}`} projectId={project.id} artifacts={project.artifacts} />
             <ProjectKnowledgePanel projectId={project.id} revision={project.artifacts.map((item) => item.id).join(':')} />

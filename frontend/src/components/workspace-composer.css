@@ -173,7 +173,7 @@
   background: #f4f4f3;
 }
 .conversation-user-message p { margin: 0; font-size: 18px; line-height: 1.55; white-space: pre-wrap; text-wrap: pretty; }
-.conversation-agent-message { width: 100%; margin-top: 96px; }
+.conversation-agent-message { width: 100%; margin-top: 28px; }
 .conversation-agent-output {
   max-width: 900px;
   margin-top: 38px;
@@ -650,7 +650,7 @@
   .conversation-submit { min-width: 48px; padding: 0 15px; }
   .conversation-user-message { width: fit-content; max-width: 88%; padding: 11px 15px; }
   .conversation-user-message p { font-size: 17px; }
-  .conversation-agent-message { margin-top: 72px; }
+  .conversation-agent-message { margin-top: 24px; }
   .conversation-agent-output, .conversation-agent-waiting, .conversation-run-outcome, .conversation-process, .conversation-permission, .conversation-project-truth { margin-left: 0; }
   .typed-presentations { margin-left: 0; }
   .conversation-agent-output, .conversation-agent-waiting p, .conversation-run-outcome p { font-size: 17px; }
