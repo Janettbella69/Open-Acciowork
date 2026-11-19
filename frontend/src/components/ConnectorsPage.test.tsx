@@ -53,6 +53,7 @@ const legacyWeChat: Connector = {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  window.history.replaceState({}, '', '/app/plugins/connectors?dev=1')
   vi.mocked(listConnectors).mockResolvedValue([connector, shopify])
   vi.mocked(listMarketplaceGuides).mockResolvedValue([])
   vi.mocked(listProjects).mockResolvedValue([])

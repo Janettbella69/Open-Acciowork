@@ -83,6 +83,7 @@ function defaultRole(template: AgentTemplate): string {
 
 export default function AgentsPage() {
   const t = useT()
+  const developerMode = new URLSearchParams(window.location.search).get('dev') === '1'
   const [mode, setMode] = useState<DirectoryMode>('experts')
   const [scope, setScope] = useState<DirectoryScope>('public')
   const [sort, setSort] = useState<DirectorySort>('recommended')
@@ -118,10 +119,10 @@ export default function AgentsPage() {
       ? templates
       : agents.map((agent) => agent.template)
     const visible = source
-      .filter((template) => templatePresentation[template].kind === mode)
+      .filter((template) => !developerMode || templatePresentation[template].kind === mode)
       .map((template) => templatePresentation[template].category)
     return ['All', ...Array.from(new Set(visible))]
-  }, [agents, mode, scope, templates])
+  }, [agents, developerMode, mode, scope, templates])
 
   useEffect(() => {
     if (!categories.includes(category)) setCategory('All')
@@ -130,22 +131,22 @@ export default function AgentsPage() {
   const visibleTemplates = useMemo(() => {
     const filtered = templates.filter((template) => {
       const presentation = templatePresentation[template]
-      return presentation.kind === mode && (category === 'All' || presentation.category === category)
+      return (!developerMode || presentation.kind === mode) && (category === 'All' || presentation.category === category)
     })
     return sort === 'name'
       ? [...filtered].sort((left, right) => templatePresentation[left].name.localeCompare(templatePresentation[right].name))
       : filtered
-  }, [category, mode, sort, templates])
+  }, [category, developerMode, mode, sort, templates])
 
   const visibleAgents = useMemo(() => {
     const filtered = agents.filter((agent) => {
       const presentation = templatePresentation[agent.template]
-      return presentation.kind === mode && (category === 'All' || presentation.category === category)
+      return (!developerMode || presentation.kind === mode) && (category === 'All' || presentation.category === category)
     })
     return [...filtered].sort((left, right) => sort === 'name'
       ? left.name.localeCompare(right.name)
       : Date.parse(right.updated_at) - Date.parse(left.updated_at))
-  }, [agents, category, mode, sort])
+  }, [agents, category, developerMode, mode, sort])
 
   const openCreator = (template: AgentTemplate = mode === 'teams' ? 'opportunity' : 'general') => {
     const presentation = templatePresentation[template]
@@ -209,16 +210,18 @@ export default function AgentsPage() {
         </header>
 
         <section className="agents-directory" aria-labelledby="agents-directory-title">
-          <div className="agents-directory-topline">
-            <div className="agents-mode-tabs" role="tablist" aria-label={t('Agent directory type')}>
-              <button type="button" role="tab" aria-selected={mode === 'experts'} onClick={() => setMode('experts')}>{t('Experts')}</button>
-              <button type="button" role="tab" aria-selected={mode === 'teams'} onClick={() => setMode('teams')}>{t('Expert Teams')}</button>
+          {developerMode && (
+            <div className="agents-directory-topline">
+              <div className="agents-mode-tabs" role="tablist" aria-label={t('Agent directory type')}>
+                <button type="button" role="tab" aria-selected={mode === 'experts'} onClick={() => setMode('experts')}>{t('Experts')}</button>
+                <button type="button" role="tab" aria-selected={mode === 'teams'} onClick={() => setMode('teams')}>{t('Expert Teams')}</button>
+              </div>
+              <div className="agents-sort" role="group" aria-label={t('Sort Agents')}>
+                <button type="button" data-active={sort === 'recommended'} onClick={() => setSort('recommended')}>{t('Recommended')}</button>
+                <button type="button" data-active={sort === 'name'} onClick={() => setSort('name')}>{t('Name')}</button>
+              </div>
             </div>
-            <div className="agents-sort" role="group" aria-label={t('Sort Agents')}>
-              <button type="button" data-active={sort === 'recommended'} onClick={() => setSort('recommended')}>{t('Recommended')}</button>
-              <button type="button" data-active={sort === 'name'} onClick={() => setSort('name')}>{t('Name')}</button>
-            </div>
-          </div>
+          )}
 
           <div className="agents-scope-row">
             <div className="agents-scope-tabs" role="tablist" aria-label={t('Agent ownership')}>

@@ -38,6 +38,7 @@ function displayName(namespace: string): string {
 
 function PluginsOverview() {
   const t = useT()
+  const developerMode = new URLSearchParams(window.location.search).get('dev') === '1'
   const [skills, setSkills] = useState<SkillVersion[]>([])
   const [query, setQuery] = useState('')
   const [loading, setLoading] = useState(true)
@@ -123,7 +124,7 @@ function PluginsOverview() {
           </div>
         )}
       </section>
-      <PluginImportsPanel />
+      {developerMode && <PluginImportsPanel />}
     </section>
   )
 }

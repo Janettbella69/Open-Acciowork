@@ -29,6 +29,7 @@ function jsonResponse(body: unknown, status = 200): Response {
 
 describe('SkillsPage', () => {
   beforeEach(() => {
+    window.history.replaceState({}, '', '/app/plugins/skills?dev=1')
     vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
       const url = String(input)
       if (url.endsWith('/api/skills/repository')) return jsonResponse({ identity_mode: 'local_only', tenant_id: null, actor_id: 'local-operator', can_manage: true })

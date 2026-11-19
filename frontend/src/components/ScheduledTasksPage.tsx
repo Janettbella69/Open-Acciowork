@@ -20,7 +20,9 @@ import Brand from './Brand'
 import EventTriggersPanel from './EventTriggersPanel'
 import TaskExperiencePanel from './TaskExperiencePanel'
 import ScheduleProjectHistory from './ScheduleProjectHistory'
+import WorkspaceNav from './WorkspaceNav'
 import { useLanguage, useT } from '../i18n'
+import './workspace-composer.css'
 import './scheduled-tasks-page.css'
 
 type ScheduleCategory = 'daily' | 'monitoring' | 'reports' | 'automation'
@@ -103,6 +105,7 @@ function fireTime(value: string | null, language: 'en' | 'zh-CN'): string {
 export default function ScheduledTasksPage() {
   const t = useT()
   const language = useLanguage()
+  const developerMode = new URLSearchParams(window.location.search).get('dev') === '1'
   const [view, setView] = useState<'templates' | 'tasks'>('templates')
   const [schedules, setSchedules] = useState<Schedule[]>([])
   const [projects, setProjects] = useState<OpportunityProject[]>([])
@@ -283,19 +286,10 @@ export default function ScheduledTasksPage() {
 
   return (
     <div className="schedules-shell">
-      <aside className="schedules-sidebar">
-        <a href="/" aria-label={t('TradeMind website')}><Brand /></a>
-        <a className="schedules-back" href="/app"><span aria-hidden="true">←</span> {t('Back to workspace')}</a>
-        <nav aria-label={t('Scheduled task categories')}>
-          <p>{t('Task library')}</p>
-          {(Object.keys(categoryLabels) as ScheduleCategory[]).map((category, index) => (
-            <a key={category} href={`#${category}`}><span>{String(index + 1).padStart(2, '0')}</span>{t(categoryLabels[category])}</a>
-          ))}
-        </nav>
-        <div className="schedules-sidebar-footer">
-          <a href="/app/settings">{t('Settings')} <span aria-hidden="true">→</span></a>
-          <p>{t('Schedules run on the TradeMind backend — they do not depend on this device staying awake.')}</p>
-        </div>
+      <aside className="conversation-sidebar">
+        <a className="conversation-sidebar-brand" href="/" aria-label={t('TradeMind website')}><Brand /></a>
+        <a className="conversation-new-research" href="/app"><span aria-hidden="true">＋</span> {t('New task')}</a>
+        <WorkspaceNav active="schedules" />
       </aside>
 
       <main className="schedules-main">
@@ -387,7 +381,7 @@ export default function ScheduledTasksPage() {
                     {lastRun && lastRun.status !== 'failed' && (
                       <p className="schedules-run-ok">{t('Last run')} {t(lastRun.status)}</p>
                     )}
-                    <TaskExperiencePanel scheduleId={schedule.id} />
+                    {developerMode && <TaskExperiencePanel scheduleId={schedule.id} />}
                   </div>
                   <div className="schedules-row-actions">
                     <button type="button" disabled={busy.has(schedule.id)} onClick={() => void toggleEnabled(schedule)}>
@@ -421,7 +415,7 @@ export default function ScheduledTasksPage() {
             ))}
           </div>
         )}
-        {view === 'tasks' && <EventTriggersPanel projects={projects} />}
+        {developerMode && view === 'tasks' && <EventTriggersPanel projects={projects} />}
         {view === 'tasks' && <section className="schedules-task-list" aria-labelledby="schedule-history-heading">
           <div><h2 id="schedule-history-heading">{t('Recent schedule activity')}</h2>
             <label><input type="checkbox" checked={liveHistory} onChange={(event) => setLiveHistory(event.target.checked)} /> {t('Live updates')}</label>

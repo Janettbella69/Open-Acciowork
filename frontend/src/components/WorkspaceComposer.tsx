@@ -169,24 +169,24 @@ function ModelIcon() {
 
 const quickStarts = [
   {
+    code: '01 · DEMAND',
     title: 'Find what sells',
     prompt: 'Find products gaining demand on Amazon and TikTok Shop',
-    image: '/images/recommendations/product-discovery-classical.jpg',
   },
   {
+    code: '02 · SUPPLY',
     title: 'Source with confidence',
     prompt: 'Compare suppliers, quotes, and landed margin for this product',
-    image: '/images/recommendations/global-sourcing-classical.jpg',
   },
   {
+    code: '03 · LISTING',
     title: 'Localize to convert',
     prompt: 'Localize this listing for the US, UK, and Germany',
-    image: '/images/recommendations/localize-convert-classical.jpg',
   },
   {
+    code: '04 · GROWTH',
     title: 'Launch and grow',
     prompt: 'Turn this product into a launch plan across Shopify and social',
-    image: '/images/recommendations/launch-growth-classical.jpg',
   },
 ]
 
@@ -777,8 +777,9 @@ export default function WorkspaceComposer({
               <div className="conversation-quick-grid">
                 {quickStarts.map((item) => (
                   <button key={item.title} type="button" onClick={() => onChange(t(item.prompt))}>
-                    <img src={item.image} alt="" loading="eager" />
+                    <span aria-hidden="true">{item.code}</span>
                     <strong>{t(item.title)}</strong>
+                    <small aria-hidden="true">{t(item.prompt)}</small>
                   </button>
                 ))}
               </div>
@@ -1060,7 +1061,7 @@ export default function WorkspaceComposer({
                   </section>
                 )}
 
-                {run && !historyLoading && events.some((event) => event.run_id === run.id && event.type === 'assistant.message.completed' && typeof event.data.text === 'string' && event.data.text.trim()) && (
+                {developerMode && run && !historyLoading && events.some((event) => event.run_id === run.id && event.type === 'assistant.message.completed' && typeof event.data.text === 'string' && event.data.text.trim()) && (
                   <details className="feedback-message-list">
                     <summary>{t('Report a conclusion issue')}</summary>
                     {events.filter((event) => event.run_id === run.id && event.type === 'assistant.message.completed' && typeof event.data.text === 'string' && event.data.text.trim()).map((event) => (
@@ -1072,7 +1073,7 @@ export default function WorkspaceComposer({
                     ))}
                   </details>
                 )}
-                {run && ['failed', 'cancelled'].includes(run.status) && !historyLoading && (
+                {developerMode && run && ['failed', 'cancelled'].includes(run.status) && !historyLoading && (
                   <FeedbackForm key={run.id} target={{ project_id: run.project_id, run_id: run.id, kind: 'run_failure' }} label="Flag run failure" />
                 )}
                 {permissions.map((permission) => {

@@ -56,6 +56,7 @@ const personalAgent: AgentProfile = {
 }
 
 beforeEach(() => {
+  window.history.replaceState({}, '', '/app/agents?dev=1')
   vi.mocked(getProtocol).mockResolvedValue(protocol)
   vi.mocked(listAgents).mockResolvedValue([personalAgent])
   vi.mocked(createAgent).mockResolvedValue({

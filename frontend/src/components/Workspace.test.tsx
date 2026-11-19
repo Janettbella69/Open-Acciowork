@@ -322,6 +322,10 @@ describe('Workspace new task', () => {
 })
 
 describe('Workspace feedback', () => {
+  beforeEach(() => {
+    window.history.replaceState({}, '', '/app?dev=1')
+  })
+
   it('lets the user report one exact recorded assistant message without flagging its neighbors', async () => {
     const base = vi.mocked(useOpportunityRuntime)()
     vi.mocked(useOpportunityRuntime).mockReturnValue({

@@ -124,6 +124,7 @@ let storedProviders: ProviderProfile[]
 
 beforeEach(() => {
   vi.clearAllMocks()
+  window.history.replaceState({}, '', '/app/settings?dev=1')
   storedProviders = [deepseekProfile]
   vi.mocked(listProviders).mockImplementation(async () => storedProviders)
   vi.mocked(listMemory).mockResolvedValue([proposedMemory])

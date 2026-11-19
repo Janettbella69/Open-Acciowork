@@ -22,6 +22,9 @@ function statusLabel(connector: Connector): string {
 
 export default function ConnectorsPage() {
   const t = useT()
+  const searchParams = new URLSearchParams(window.location.search)
+  const developerMode = searchParams.get('dev') === '1'
+  const showMcpPanel = developerMode || searchParams.has('plugin_mcp_name')
   const [connectors, setConnectors] = useState<Connector[]>([])
   const [marketplaces, setMarketplaces] = useState<MarketplaceGuide[]>([])
   const [loading, setLoading] = useState(true)
@@ -141,24 +144,13 @@ export default function ConnectorsPage() {
           </dl>
         </header>
 
-        <UserMcpPanel />
-
         <WeixinConnector />
-
-        {marketplaces.length > 0 && <section className="marketplace-guides" aria-label={t('Marketplace integrations')}>
-          <h2>{t('Marketplace integrations')}</h2>
-          <p>{t('TikTok Shop uses seller authorization separately from TikTok social access. The AliExpress guide covers AliExpress, separately from Alibaba.com.')}</p>
-          <ul>{marketplaces.map((item) => <li key={item.type}>
-            <strong>{item.name}</strong><span>{t(item.read_adapter ? 'Shop and product reader available' : 'Adapter pending')}</span>
-            <a href={item.documentation_url} target="_blank" rel="noreferrer">{t('Official developer guide')}</a>
-          </li>)}</ul>
-        </section>}
 
         <section className="connectors-registry" aria-labelledby="connectors-registry-title">
           <div><span>{t('Runtime integrations')}</span><h2 id="connectors-registry-title">{t('Connector registry')}</h2></div>
           {error && <p className="connectors-error" role="alert">{error}</p>}
           {notice && <p role="status">{notice}</p>}
-          {visibleConnectors.length > 0 && <div className="connector-credential-management">
+          {developerMode && visibleConnectors.length > 0 && <div className="connector-credential-management">
             <h3>{t('Connector credential downloads')}</h3>
             <p>{t('A downloaded file contains unencrypted vault credentials, including active OAuth tokens when present. Host environment keys are managed by the operator and are not included.')}</p>
             {visibleConnectors.map((connector) => <div key={connector.id} className="connector-credential-row">
@@ -190,7 +182,7 @@ export default function ConnectorsPage() {
                     <header><div><h3>{connectorLabel(connector)}</h3><p>{connector.type} · {connector.scope}</p></div><span data-health={connector.health} data-enabled={connector.enabled ? 'true' : 'false'}>{t(statusLabel(connector))}</span></header>
                     {connector.type === 'wechat' && <p>{t('This existing manual WeChat connector is separate from official QR authorization. Use the WeChat direct messages panel to connect an official account.')}</p>}
                     <dl>
-                      <div><dt>{t('Credential')}</dt><dd>{connector.secret_env ?? t('No credential required')}</dd></div>
+                      <div><dt>{t('Credential')}</dt><dd>{developerMode ? (connector.secret_env ?? t('No credential required')) : (connector.secret_env ? t('API key') : t('No credential required'))}</dd></div>
                       <div><dt>{t('Endpoint')}</dt><dd>{connector.endpoint ?? t('Managed by the connector')}</dd></div>
                       <div><dt>{t('Last checked')}</dt><dd>{connector.last_checked_at ? new Date(connector.last_checked_at).toLocaleString() : t('Never')}</dd></div>
                     </dl>
@@ -237,6 +229,17 @@ export default function ConnectorsPage() {
             </div>
           )}
         </section>
+
+        {showMcpPanel && <UserMcpPanel />}
+
+        {developerMode && marketplaces.length > 0 && <section className="marketplace-guides" aria-label={t('Marketplace integrations')}>
+          <h2>{t('Marketplace integrations')}</h2>
+          <p>{t('TikTok Shop uses seller authorization separately from TikTok social access. The AliExpress guide covers AliExpress, separately from Alibaba.com.')}</p>
+          <ul>{marketplaces.map((item) => <li key={item.type}>
+            <strong>{item.name}</strong><span>{t(item.read_adapter ? 'Shop and product reader available' : 'Adapter pending')}</span>
+            <a href={item.documentation_url} target="_blank" rel="noreferrer">{t('Official developer guide')}</a>
+          </li>)}</ul>
+        </section>}
     </section>
   )
 }

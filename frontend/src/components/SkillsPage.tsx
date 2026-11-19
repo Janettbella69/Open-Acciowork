@@ -22,6 +22,7 @@ function initials(name: string): string {
 
 export default function SkillsPage() {
   const t = useT()
+  const developerMode = new URLSearchParams(window.location.search).get('dev') === '1'
   const [skills, setSkills] = useState<SkillVersion[]>([])
   const [query, setQuery] = useState('')
   const [error, setError] = useState('')
@@ -179,32 +180,34 @@ export default function SkillsPage() {
     <section className="skills-content" aria-labelledby="skills-page-heading">
         <header className="skills-header">
           <div className="skills-title-group"><p>{t('Runtime capability registry')}</p><h1 id="skills-page-heading">{t('Skills')}</h1></div>
-          <div className="skills-view-switch" role="group" aria-label={t('Skill view')}>
-            <button type="button" data-active={view === 'installed'} aria-pressed={view === 'installed'} onClick={() => {
-              setView('installed'); void refreshSkills().catch(() => undefined)
-            }}>{t('Installed')} <span>{skills.length}</span></button>
-            <button type="button" data-active={view === 'proposals'} aria-pressed={view === 'proposals'} onClick={() => {
-              setProposalsOpened(true); setView('proposals')
-            }}>{t('Proposals')}</button>
-            <button type="button" data-active={view === 'repository'} aria-pressed={view === 'repository'} onClick={() => setView('repository')}>{t('Private repository')}</button>
-          </div>
+          {developerMode && (
+            <div className="skills-view-switch" role="group" aria-label={t('Skill view')}>
+              <button type="button" data-active={view === 'installed'} aria-pressed={view === 'installed'} onClick={() => {
+                setView('installed'); void refreshSkills().catch(() => undefined)
+              }}>{t('Installed')} <span>{skills.length}</span></button>
+              <button type="button" data-active={view === 'proposals'} aria-pressed={view === 'proposals'} onClick={() => {
+                setProposalsOpened(true); setView('proposals')
+              }}>{t('Proposals')}</button>
+              <button type="button" data-active={view === 'repository'} aria-pressed={view === 'repository'} onClick={() => setView('repository')}>{t('Private repository')}</button>
+            </div>
+          )}
           {view === 'installed' && <div className="skills-actions">
             <label className="skills-search">
               <span aria-hidden="true">⌕</span>
               <input type="search" aria-label={t('Search skills')} value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t('Search skills')} />
             </label>
-            {capabilities?.can_manage && <button type="button" className="skills-upload" onClick={() => setView('repository')}>{t('Manage private packages')}</button>}
+            {developerMode && capabilities?.can_manage && <button type="button" className="skills-upload" onClick={() => setView('repository')}>{t('Manage private packages')}</button>}
           </div>}
         </header>
 
         {error && <p className="conversation-error" role="alert">{t(error)}</p>}
         {unavailable && <div role="alert"><p>{t('Private Skill repository access is unavailable')}</p><button type="button" onClick={() => { blocked.current = false; void refreshSkills().catch(() => undefined) }}>{t('Retry')}</button></div>}
 
-        {capabilities && proposalsOpened && <div key={scopeKey.current} hidden={view !== 'proposals'}><SkillProposalsPanel onPublished={published} /></div>}
-        {capabilities && view === 'repository' && <SkillRepositoryPanel key={scopeKey.current} skills={skills} capabilities={capabilities} onUnavailable={accessLost} onChanged={() => { void published().catch(() => undefined) }} />}
+        {developerMode && capabilities && proposalsOpened && <div key={scopeKey.current} hidden={view !== 'proposals'}><SkillProposalsPanel onPublished={published} /></div>}
+        {developerMode && capabilities && view === 'repository' && <SkillRepositoryPanel key={scopeKey.current} skills={skills} capabilities={capabilities} onUnavailable={accessLost} onChanged={() => { void published().catch(() => undefined) }} />}
         {capabilities && view === 'installed' && <>
 
-        {featured && !query && (
+        {developerMode && featured && !query && (
           <section className="skills-feature" aria-labelledby="featured-skill-heading">
             <div>
               <span>{t('Featured Plugin Skill')} · v{featured.version}</span>
@@ -237,9 +240,9 @@ export default function SkillsPage() {
                     <h3>{skill.name.replaceAll('-', ' ')}</h3>
                     <p>{skill.description}</p>
                     <footer>
-                      <span>v{skill.version} · {skill.content_hash.slice(0, 8)}</span>
+                      <span>v{skill.version}{developerMode ? ` · ${skill.content_hash.slice(0, 8)}` : ''}</span>
                       <span className="skill-card-buttons">
-                        {skill.source === 'tenant' && (
+                        {developerMode && skill.source === 'tenant' && (
                           <button
                             type="button"
                             aria-expanded={historyOpen === skill.id}
@@ -250,7 +253,7 @@ export default function SkillsPage() {
                             {historyLoading === skill.id ? t('Loading…') : t('Versions')}
                           </button>
                         )}
-                        {capabilities.can_manage && <button type="button" disabled={testing === skill.id} onClick={() => void runSkillTest(skill)}>
+                        {developerMode && capabilities.can_manage && <button type="button" disabled={testing === skill.id} onClick={() => void runSkillTest(skill)}>
                           {testing === skill.id ? t('Testing…') : t('Test')}
                         </button>}
                         {capabilities.can_manage && <button type="button" disabled={updating === skill.id} onClick={() => void toggleSkill(skill)}>
