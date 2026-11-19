@@ -61,7 +61,9 @@ beforeEach(() => {
 
 it('stages a pinned artifact, requires human review, then publishes and withdraws it', async () => {
   const { container } = render(<SitePublicationsPanel projectId="project_1" artifacts={[artifact]} />)
+  expect(getSitePublications).not.toHaveBeenCalled()
   fireEvent.click(screen.getByRole('button', { name: 'Published pages · 0' }))
+  expect(getSitePublications).toHaveBeenCalledWith('project_1', expect.any(AbortSignal))
   fireEvent.click(await screen.findByRole('button', { name: 'Stage this site version' }))
   await waitFor(() => expect(stageSitePublication).toHaveBeenCalledWith('project_1', artifact.id, false))
   const approve = await screen.findByRole('button', { name: 'Approve and publish page' })

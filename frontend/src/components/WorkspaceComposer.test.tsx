@@ -779,4 +779,37 @@ describe('Permission safety and provider eligibility', () => {
     expect(screen.queryByRole('button', { name: /allow for run/i })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /allow persistent/i })).not.toBeInTheDocument()
   })
+
+  it('places pending approval cards above project administration panels in the conversation flow', () => {
+    const project: OpportunityProject = {
+      id: 'project_1', name: 'Kettle sourcing', objective: 'Compare quotes', product_brief: '',
+      target_markets: [], constraints: [], stage: 'discovery', hypotheses: [], evidence: [],
+      assessments: {}, stage_decisions: [], decisions: [], artifacts: [], revision: 1,
+      created_at: '2026-09-23T00:00:00Z', updated_at: '2026-09-23T00:00:00Z',
+    }
+    render(
+      <WorkspaceComposer
+        {...baseProps()}
+        project={project}
+        projects={[project]}
+        run={{ ...completedRun, status: 'waiting_permission', finished_at: null }}
+        assistantText="I need approval before writing to the project ledger."
+        permissions={[{
+          id: 'perm_order',
+          toolName: 'mcp__ophira_ledger__record_decision',
+          toolInput: { outcome: 'Proceed with supplier A' },
+          actor: { type: 'agent', name: 'TradeMind', agent_id: null },
+          destructive: false,
+          persistable: true,
+          scope: 'project:project_1',
+        }]}
+      />,
+    )
+
+    const approvalSection = screen.getByRole('region', { name: /approval for/i })
+    const adminGroup = screen.getByRole('group', { name: /project tools and administration/i })
+    expect(
+      approvalSection.compareDocumentPosition(adminGroup) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
+  })
 })

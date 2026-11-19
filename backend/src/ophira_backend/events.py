@@ -188,14 +188,24 @@ class EventPublisher:
         before_finish: Callable[[], Awaitable[bool]] | None = None,
     ) -> AsyncIterator[EventEnvelope | None]:
         cursor = after_sequence
+        byte_offset = 0
         condition = self._condition(run_id)
+        read_chunk = getattr(self.ledger, "read_event_stream_chunk", None)
         while True:
-            events = self.ledger.list_events(run_id, cursor)
+            if read_chunk is not None:
+                events, byte_offset, run, summary = read_chunk(
+                    run_id, cursor, byte_offset,
+                )
+            else:
+                events = self.ledger.list_events(run_id, cursor)
+                run = self.ledger.get_run(run_id)
+                summary = self.ledger.get_run_summary(run_id)
             for event in events:
                 cursor = event.sequence
                 yield event
-            run = self.ledger.get_run(run_id)
-            summary = self.ledger.get_run_summary(run_id)
+            if read_chunk is not None and events:
+                run = self.ledger.get_run(run_id)
+                summary = self.ledger.get_run_summary(run_id)
             if run.status in TERMINAL_RUN_STATUSES and cursor >= summary.last_sequence:
                 if before_finish is None:
                     return

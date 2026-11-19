@@ -53,6 +53,12 @@ from .models import (
 from .project_lifecycle import ProjectLifecycle, ProjectUnavailableError
 from .skill_proposal_files import read_relative, relative_parts
 
+_STREAM_DELTA_EVENT_TYPES = frozenset({
+    EventType.ASSISTANT_TEXT_DELTA.value,
+    EventType.ASSISTANT_REASONING_SUMMARY_DELTA.value,
+    EventType.TOOL_INPUT_DELTA.value,
+})
+
 
 class LedgerNotFoundError(KeyError):
     pass
@@ -216,6 +222,7 @@ class FileLedger:
 
     def _atomic_write(self, path: Path, model: Any) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
+        sync = not getattr(self._held_locks, "defer_fsync", False)
         # Unique, private temporary files prevent unrelated store instances from
         # clobbering each other's staging path. Persist before publishing a run:
         # its automation claim must survive before any Agent can have effects.
@@ -227,26 +234,30 @@ class FileLedger:
             try:
                 handle.write(f"{self._dump(model)}\n")
                 handle.flush()
-                os.fsync(handle.fileno())
+                if sync:
+                    os.fsync(handle.fileno())
             except BaseException:
                 temporary.unlink(missing_ok=True)
                 raise
         try:
             os.replace(temporary, path)
-            descriptor = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
-            try:
-                os.fsync(descriptor)
-            finally:
-                os.close(descriptor)
+            if sync:
+                descriptor = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY)
+                try:
+                    os.fsync(descriptor)
+                finally:
+                    os.close(descriptor)
         finally:
             temporary.unlink(missing_ok=True)
 
     def _append_jsonl(self, path: Path, model: Any) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
+        sync = not getattr(self._held_locks, "defer_fsync", False)
         with path.open("a", encoding="utf-8") as handle:
             handle.write(f"{self._dump(model)}\n")
             handle.flush()
-            os.fsync(handle.fileno())
+            if sync:
+                os.fsync(handle.fileno())
 
     def _project_path(self, project_id: str) -> Path:
         return self.projects_dir / self._safe_id(project_id) / "project.json"
@@ -761,12 +772,15 @@ class FileLedger:
             self._append_manifest(run, 0)
         return run
 
-    @_record_operation(RunRecord, "_run_path")
-    def get_run(self, run_id: str) -> RunRecord:
+    def _read_run_unlocked(self, run_id: str) -> RunRecord:
         path = self._run_path(run_id)
         if not path.exists():
             raise LedgerNotFoundError(run_id)
         return RunRecord.model_validate_json(path.read_text(encoding="utf-8"))
+
+    @_record_operation(RunRecord, "_run_path")
+    def get_run(self, run_id: str) -> RunRecord:
+        return self._read_run_unlocked(run_id)
 
     def list_runs(
         self, project_id: str | None = None, *, sort_by_created_at: bool = True,
@@ -829,71 +843,83 @@ class FileLedger:
                 self._append_manifest(updated, summary.last_sequence)
             return updated
 
+    def _get_run_summary_unlocked(
+        self, run_id: str, *, run: RunRecord | None = None,
+    ) -> RunSummary:
+        run = run or self._read_run_unlocked(run_id)
+        path = self._summary_path(run_id)
+        events_path = self._events_path(run_id)
+        event_bytes = events_path.stat().st_size if events_path.exists() else 0
+        try:
+            summary = RunSummary.model_validate_json(path.read_text(encoding="utf-8"))
+        except (FileNotFoundError, ValueError):
+            summary = None
+        if (
+            summary is not None
+            and summary.run_id == run.id
+            and summary.project_id == run.project_id
+            and summary.trace_id == run.trace_id
+            and summary.status == run.status
+            and summary.event_log_bytes == event_bytes
+        ):
+            return summary
+        # run.json and events.jsonl are authoritative. Process death after
+        # either write but before summary.json must not duplicate sequences
+        # or make a persisted automation claim impossible to recover.
+        events = self._read_event_log(run_id)
+        counts: dict[str, int] = {}
+        for sequence, event in enumerate(events, start=1):
+            if (
+                event.sequence != sequence
+                or event.id != f"{run.id}:{sequence}"
+                or event.run_id != run.id
+                or event.project_id != run.project_id
+                or event.trace_id != run.trace_id
+            ):
+                raise ValueError("event log integrity check failed; refusing to append")
+            counts[event.type] = counts.get(event.type, 0) + 1
+        repaired = RunSummary(
+            run_id=run.id, project_id=run.project_id, trace_id=run.trace_id,
+            status=run.status, last_sequence=len(events), event_log_bytes=event_bytes,
+            event_counts=counts, created_at=run.created_at,
+            updated_at=events[-1].timestamp if events else run.created_at,
+        )
+        self._atomic_write(path, repaired)
+        return repaired
+
     @_record_operation(RunRecord, "_run_path")
     def get_run_summary(self, run_id: str) -> RunSummary:
         with self._lock_for(run_id):
-            run = self.get_run(run_id)
-            path = self._summary_path(run_id)
-            events_path = self._events_path(run_id)
-            event_bytes = events_path.stat().st_size if events_path.exists() else 0
-            try:
-                summary = RunSummary.model_validate_json(path.read_text(encoding="utf-8"))
-            except (FileNotFoundError, ValueError):
-                summary = None
-            if (
-                summary is not None
-                and summary.run_id == run.id
-                and summary.project_id == run.project_id
-                and summary.trace_id == run.trace_id
-                and summary.status == run.status
-                and summary.event_log_bytes == event_bytes
-            ):
-                return summary
-            # run.json and events.jsonl are authoritative. Process death after
-            # either write but before summary.json must not duplicate sequences
-            # or make a persisted automation claim impossible to recover.
-            events = self._read_event_log(run_id)
-            counts: dict[str, int] = {}
-            for sequence, event in enumerate(events, start=1):
-                if (
-                    event.sequence != sequence
-                    or event.id != f"{run.id}:{sequence}"
-                    or event.run_id != run.id
-                    or event.project_id != run.project_id
-                    or event.trace_id != run.trace_id
-                ):
-                    raise ValueError("event log integrity check failed; refusing to append")
-                counts[event.type] = counts.get(event.type, 0) + 1
-            repaired = RunSummary(
-                run_id=run.id, project_id=run.project_id, trace_id=run.trace_id,
-                status=run.status, last_sequence=len(events), event_log_bytes=event_bytes,
-                event_counts=counts, created_at=run.created_at,
-                updated_at=events[-1].timestamp if events else run.created_at,
-            )
-            self._atomic_write(path, repaired)
-            return repaired
+            return self._get_run_summary_unlocked(run_id)
 
     def append_event(self, event: EventEnvelope) -> EventEnvelope:
         with self.lifecycle.lease(event.project_id), self._lock_for(event.run_id):
-            summary = self.get_run_summary(event.run_id)
+            run = self._read_run_unlocked(event.run_id)
+            self.lifecycle.assert_run_available(run.project_id, run.id)
+            summary = self._get_run_summary_unlocked(event.run_id, run=run)
             sequence = summary.last_sequence + 1
             stored = event.model_copy(
                 update={"id": f"{event.run_id}:{sequence}", "sequence": sequence}
             )
-            self._append_jsonl(self._events_path(event.run_id), stored)
-            counts = dict(summary.event_counts)
-            counts[stored.type] = counts.get(stored.type, 0) + 1
-            summary = summary.model_copy(
-                update={
-                    "last_sequence": sequence,
-                    "event_log_bytes": self._events_path(event.run_id).stat().st_size,
-                    "event_counts": counts,
-                    "updated_at": utc_now(),
-                }
-            )
-            self._atomic_write(self._summary_path(event.run_id), summary)
+            previous_defer = getattr(self._held_locks, "defer_fsync", False)
+            self._held_locks.defer_fsync = stored.type in _STREAM_DELTA_EVENT_TYPES
+            try:
+                self._append_jsonl(self._events_path(event.run_id), stored)
+                counts = dict(summary.event_counts)
+                counts[stored.type] = counts.get(stored.type, 0) + 1
+                summary = summary.model_copy(
+                    update={
+                        "last_sequence": sequence,
+                        "event_log_bytes": self._events_path(event.run_id).stat().st_size,
+                        "event_counts": counts,
+                        "updated_at": utc_now(),
+                    }
+                )
+                self._atomic_write(self._summary_path(event.run_id), summary)
+            finally:
+                self._held_locks.defer_fsync = previous_defer
             if stored.type.startswith("run."):
-                self._append_manifest(self.get_run(event.run_id), sequence)
+                self._append_manifest(run, sequence)
             return stored
 
     def append_event_once(self, event: EventEnvelope, resource_id: str) -> EventEnvelope:
@@ -943,6 +969,50 @@ class FileLedger:
             return self.append_event(event)
 
     @_record_operation(RunRecord, "_run_path")
+    def read_event_stream_chunk(
+        self,
+        run_id: str,
+        after_sequence: int = 0,
+        byte_offset: int = 0,
+    ) -> tuple[list[EventEnvelope], int, RunRecord, RunSummary]:
+        """Read only newly appended event bytes since ``byte_offset`` for live SSE streaming."""
+        _validate_replay_limit(byte_offset, "byte_offset")
+        with self._lock_for(run_id):
+            run = self._read_run_unlocked(run_id)
+            summary = self._get_run_summary_unlocked(run_id, run=run)
+            path = self._events_path(run_id)
+            if not path.exists():
+                return [], 0, run, summary
+            size = path.stat().st_size
+            if byte_offset > 0 and byte_offset == size:
+                return [], size, run, summary
+            if 0 < byte_offset < size:
+                with path.open("rb") as handle:
+                    handle.seek(byte_offset)
+                    raw = handle.read(size - byte_offset)
+                content = raw.decode("utf-8").replace("\r\n", "\n").replace("\r", "\n")
+                if content and not content.endswith("\n"):
+                    raise ValueError("event log has an incomplete tail; refusing to append")
+                events = [
+                    EventEnvelope.model_validate_json(line)
+                    for line in content.splitlines()
+                    if line.strip()
+                ]
+                return (
+                    [event for event in events if event.sequence > after_sequence],
+                    byte_offset + len(raw),
+                    run,
+                    summary,
+                )
+            events = self._read_event_log(run_id)
+            return (
+                [event for event in events if event.sequence > after_sequence],
+                size,
+                run,
+                summary,
+            )
+
+    @_record_operation(RunRecord, "_run_path")
     def list_events(
         self,
         run_id: str,
@@ -959,7 +1029,7 @@ class FileLedger:
             # exhausted, including after a one-byte overflow probe.
             budget.ensure_available()
         with self._lock_for(run_id):
-            self.get_run(run_id)
+            self._read_run_unlocked(run_id)
             events = self._read_event_log(
                 run_id, max_bytes=max_bytes, max_events=max_events, budget=budget,
             )

@@ -172,3 +172,69 @@ def test_failed_atomic_replace_keeps_old_record_and_cleans_temporary(tmp_path, m
         ledger.update_project(project.id, lambda record: record.model_copy(update={"name": "New"}))
     assert ledger.get_project(project.id).name == "Stable"
     assert not list(ledger._project_path(project.id).parent.glob("*.tmp"))
+
+
+@pytest.mark.asyncio
+async def test_stream_reads_incremental_tail_bytes_without_reparsing_history(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    from ophira_backend.models import EventEnvelope
+
+    ledger = FileLedger(tmp_path)
+    project = ledger.create_project(ProjectCreate(name="Stream", objective="Incremental tail read"))
+    run = ledger.create_run(project.id, "Stream events")
+    publisher = EventPublisher(ledger)
+
+    for index in range(3):
+        await publisher.publish(run.id, EventType.ASSISTANT_TEXT_DELTA, {"text": f"chunk-{index}"})
+
+    parse_calls = 0
+    original_validate = EventEnvelope.model_validate_json
+
+    def count_validate(raw, *args, **kwargs):
+        nonlocal parse_calls
+        parse_calls += 1
+        return original_validate(raw, *args, **kwargs)
+
+    monkeypatch.setattr(EventEnvelope, "model_validate_json", count_validate)
+
+    stream = publisher.stream(run.id, heartbeat_seconds=1)
+    first_three = [await anext(stream) for _ in range(3)]
+    assert [event.sequence for event in first_three if event is not None] == [1, 2, 3]
+    assert parse_calls == 3
+
+    next_item = asyncio.create_task(anext(stream))
+    await asyncio.sleep(0)
+    await publisher.publish(run.id, EventType.ASSISTANT_MESSAGE_COMPLETED, {"text": "done"})
+    fourth = await asyncio.wait_for(next_item, timeout=1)
+    assert fourth is not None and fourth.sequence == 4
+    # Only the newly appended 4th line should be parsed from the tail offset, not lines 1..4 again.
+    assert parse_calls == 4
+    await stream.aclose()
+
+
+@pytest.mark.asyncio
+async def test_streaming_delta_events_defer_fsync_until_durable_milestone(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    ledger = FileLedger(tmp_path)
+    project = ledger.create_project(ProjectCreate(name="Fsync", objective="Tiered durability"))
+    run = ledger.create_run(project.id, "Check fsync calls")
+    publisher = EventPublisher(ledger)
+
+    fsync_calls: list[int] = []
+    original_fsync = __import__("os").fsync
+
+    def record_fsync(fd: int) -> None:
+        fsync_calls.append(fd)
+        original_fsync(fd)
+
+    monkeypatch.setattr("ophira_backend.storage.os.fsync", record_fsync)
+
+    await publisher.publish(run.id, EventType.ASSISTANT_TEXT_DELTA, {"text": "hello "})
+    assert fsync_calls == []
+    assert ledger.get_run_summary(run.id).last_sequence == 1
+
+    await publisher.publish(run.id, EventType.ASSISTANT_MESSAGE_COMPLETED, {"text": "hello world"})
+    assert len(fsync_calls) >= 2
+    assert ledger.get_run_summary(run.id).last_sequence == 2

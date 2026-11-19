@@ -960,6 +960,48 @@ export default function WorkspaceComposer({
                   </div>
                 ) : null}
 
+                {permissions.map((permission) => {
+                  const lifecycle = <DurablePermissionNotice permission={permission} busy={permissionBusy} onResume={onResumePermission ? () => onResumePermission(permission.id) : undefined} onCancel={onCancel} onRefresh={onRefreshPermissions} />
+                  if (permissionLifecycleState(permission) !== 'pending') return <section className="conversation-permission" key={permission.id} aria-label={t('Approval for {tool}', { tool: permission.toolName })}>
+                    {lifecycle}
+                    <PermissionDetails toolName={permission.toolName} toolInput={permission.toolInput} scope={permission.scope} destructive={permission.destructive} persistable={false} />
+                  </section>
+                  if (permission.toolName === 'AskUserQuestion') {
+                    return (
+                      <div key={permission.id}>{lifecycle}
+                      <PermissionQuestionCard
+                          toolInput={permission.toolInput}
+                          scope={permission.scope}
+                          timeoutSeconds={permission.timeoutSeconds}
+                          busy={permissionBusy}
+                        onSubmit={(answers) => onDecision(permission.id, 'allow_once', answers)}
+                        onDeny={() => onDecision(permission.id, 'deny')}
+                      />
+                      </div>
+                    )
+                  }
+                  return (
+                    <section className="conversation-permission" key={permission.id} aria-label={t('Approval for {tool}', { tool: permission.toolName })}>
+                      {lifecycle}
+                      <div><span>{t('Approval required')}</span><strong>{t('{actor} wants to use {tool}', { actor: permission.actor.name, tool: permission.toolName })}</strong></div>
+                      <PermissionDetails
+                        toolName={permission.toolName}
+                        toolInput={permission.toolInput}
+                        scope={permission.scope}
+                        destructive={permission.destructive}
+                        persistable={permission.persistable}
+                        timeoutSeconds={permission.timeoutSeconds}
+                      />
+                      <div>
+                        <button type="button" disabled={permissionBusy} onClick={() => onDecision(permission.id, 'allow_once')}>{t('Allow once')}</button>
+                        {permission.persistable && !permission.destructive && <button type="button" disabled={permissionBusy} onClick={() => onDecision(permission.id, 'allow_run')}>{t('Allow for run')}</button>}
+                        {permission.persistable && !permission.destructive && <button type="button" disabled={permissionBusy} onClick={() => onDecision(permission.id, 'allow_persistent')}>{t('Allow persistent')}</button>}
+                        <button type="button" disabled={permissionBusy} onClick={() => onDecision(permission.id, 'deny')}>{t('Deny')}</button>
+                      </div>
+                    </section>
+                  )
+                })}
+
                 {run && !run.manual_compaction && onRetry && (run.status === 'failed' || run.status === 'cancelled') && (
                   <section className="conversation-retry" aria-label={t('Retry this run')}>
                     <header>
@@ -1003,80 +1045,6 @@ export default function WorkspaceComposer({
                     <button type="button" disabled={busy || !run.sdk_session_id || !planChanges.trim() || !onRevisePlan} onClick={() => onRevisePlan?.(planChanges)}>{t('Request revised plan')}</button>
                   </section>
                 )}
-
-                {run && !historyLoading && events.some((event) => event.run_id === run.id && event.type === 'assistant.message.completed' && typeof event.data.text === 'string' && event.data.text.trim()) && (
-                  <details className="feedback-message-list">
-                    <summary>{t('Report a conclusion issue')}</summary>
-                    {events.filter((event) => event.run_id === run.id && event.type === 'assistant.message.completed' && typeof event.data.text === 'string' && event.data.text.trim()).map((event) => (
-                      <article key={event.id}>
-                        <small>{t('Message')} <code>{event.id}</code></small>
-                        <blockquote>{String(event.data.text).slice(0, 700)}</blockquote>
-                        <FeedbackForm target={{ project_id: run.project_id, run_id: run.id, message_id: event.id, kind: 'conclusion_wrong' }} label="Flag conclusion" />
-                      </article>
-                    ))}
-                  </details>
-                )}
-                {run && ['failed', 'cancelled'].includes(run.status) && !historyLoading && (
-                  <FeedbackForm key={run.id} target={{ project_id: run.project_id, run_id: run.id, kind: 'run_failure' }} label="Flag run failure" />
-                )}
-                {project && <ProjectKnowledgePanel projectId={project.id} revision={project.artifacts.map((item) => item.id).join(':')} />}
-                {project && <ProjectArtifactsPanel projectId={project.id} artifacts={project.artifacts} onChanged={onProjectRefresh} />}
-                {project && <SitePublicationsPanel key={`site:${project.id}`} projectId={project.id} artifacts={project.artifacts} />}
-                {project && <ProjectExportPanel projectId={project.id} />}
-                {project && run && onDeleteConversation && <ProjectDeletionPanel projectId={project.id} runId={run.id}
-                  pending={conversationDeletionPending} canReviewAgain={conversationDeletionCanReviewAgain}
-                  onReviewAgain={onConversationDeletionReviewAgain} onSubmit={onDeleteConversation} onAccessCheck={onProjectRefresh} />}
-                {project && onDeleteProject && <ProjectDeletionPanel projectId={project.id} pending={deletionPending}
-                  canReviewAgain={deletionCanReviewAgain} onReviewAgain={onDeletionReviewAgain}
-                  onSubmit={onDeleteProject} onAccessCheck={onProjectRefresh} />}
-                {project && <ProjectCollaborationPanel project={project} currentRun={run} events={events} />}
-                {project && onProjectCreated && <ProjectTemplatesPanel project={project} onCreated={onProjectCreated} />}
-                {project && <WorkspaceRecoveryPanel projectId={project.id} onChanged={onProjectRefresh} />}
-                {project && <ProjectShopsPanel key={`shops:${project.id}`} projectId={project.id} onTask={onChange} />}
-                {project && <ProjectMetricsPanel key={`metrics:${project.id}`} projectId={project.id} />}
-                {project && <FeedbackReviewPanel key={project.id} projectId={project.id} />}
-
-                {permissions.map((permission) => {
-                  const lifecycle = <DurablePermissionNotice permission={permission} busy={permissionBusy} onResume={onResumePermission ? () => onResumePermission(permission.id) : undefined} onCancel={onCancel} onRefresh={onRefreshPermissions} />
-                  if (permissionLifecycleState(permission) !== 'pending') return <section className="conversation-permission" key={permission.id} aria-label={t('Approval for {tool}', { tool: permission.toolName })}>
-                    {lifecycle}
-                    <PermissionDetails toolName={permission.toolName} toolInput={permission.toolInput} scope={permission.scope} destructive={permission.destructive} persistable={false} />
-                  </section>
-                  if (permission.toolName === 'AskUserQuestion') {
-                    return (
-                      <div key={permission.id}>{lifecycle}
-                      <PermissionQuestionCard
-                          toolInput={permission.toolInput}
-                          scope={permission.scope}
-                          timeoutSeconds={permission.timeoutSeconds}
-                          busy={permissionBusy}
-                        onSubmit={(answers) => onDecision(permission.id, 'allow_once', answers)}
-                        onDeny={() => onDecision(permission.id, 'deny')}
-                      />
-                      </div>
-                    )
-                  }
-                  return (
-                    <section className="conversation-permission" key={permission.id} aria-label={t('Approval for {tool}', { tool: permission.toolName })}>
-                      {lifecycle}
-                      <div><span>{t('Approval required')}</span><strong>{t('{actor} wants to use {tool}', { actor: permission.actor.name, tool: permission.toolName })}</strong></div>
-                      <PermissionDetails
-                        toolName={permission.toolName}
-                        toolInput={permission.toolInput}
-                        scope={permission.scope}
-                        destructive={permission.destructive}
-                        persistable={permission.persistable}
-                        timeoutSeconds={permission.timeoutSeconds}
-                      />
-                      <div>
-                        <button type="button" disabled={permissionBusy} onClick={() => onDecision(permission.id, 'allow_once')}>{t('Allow once')}</button>
-                        {permission.persistable && !permission.destructive && <button type="button" disabled={permissionBusy} onClick={() => onDecision(permission.id, 'allow_run')}>{t('Allow for run')}</button>}
-                        {permission.persistable && !permission.destructive && <button type="button" disabled={permissionBusy} onClick={() => onDecision(permission.id, 'allow_persistent')}>{t('Allow persistent')}</button>}
-                        <button type="button" disabled={permissionBusy} onClick={() => onDecision(permission.id, 'deny')}>{t('Deny')}</button>
-                      </div>
-                    </section>
-                  )
-                })}
 
                 {project && hasProjectTruth && (
                   <details className="conversation-project-truth">
@@ -1129,6 +1097,44 @@ export default function WorkspaceComposer({
                       )}
                     </div>
                   </details>
+                )}
+
+                {project && <ProjectArtifactsPanel projectId={project.id} artifacts={project.artifacts} onChanged={onProjectRefresh} />}
+
+                {run && !historyLoading && events.some((event) => event.run_id === run.id && event.type === 'assistant.message.completed' && typeof event.data.text === 'string' && event.data.text.trim()) && (
+                  <details className="feedback-message-list">
+                    <summary>{t('Report a conclusion issue')}</summary>
+                    {events.filter((event) => event.run_id === run.id && event.type === 'assistant.message.completed' && typeof event.data.text === 'string' && event.data.text.trim()).map((event) => (
+                      <article key={event.id}>
+                        <small>{t('Message')} <code>{event.id}</code></small>
+                        <blockquote>{String(event.data.text).slice(0, 700)}</blockquote>
+                        <FeedbackForm target={{ project_id: run.project_id, run_id: run.id, message_id: event.id, kind: 'conclusion_wrong' }} label="Flag conclusion" />
+                      </article>
+                    ))}
+                  </details>
+                )}
+                {run && ['failed', 'cancelled'].includes(run.status) && !historyLoading && (
+                  <FeedbackForm key={run.id} target={{ project_id: run.project_id, run_id: run.id, kind: 'run_failure' }} label="Flag run failure" />
+                )}
+
+                {project && (
+                  <div className="conversation-project-tools" role="group" aria-label={t('Project tools and administration')}>
+                    <ProjectKnowledgePanel projectId={project.id} revision={project.artifacts.map((item) => item.id).join(':')} />
+                    <SitePublicationsPanel key={`site:${project.id}`} projectId={project.id} artifacts={project.artifacts} />
+                    <ProjectExportPanel projectId={project.id} />
+                    {run && onDeleteConversation && <ProjectDeletionPanel projectId={project.id} runId={run.id}
+                      pending={conversationDeletionPending} canReviewAgain={conversationDeletionCanReviewAgain}
+                      onReviewAgain={onConversationDeletionReviewAgain} onSubmit={onDeleteConversation} onAccessCheck={onProjectRefresh} />}
+                    {onDeleteProject && <ProjectDeletionPanel projectId={project.id} pending={deletionPending}
+                      canReviewAgain={deletionCanReviewAgain} onReviewAgain={onDeletionReviewAgain}
+                      onSubmit={onDeleteProject} onAccessCheck={onProjectRefresh} />}
+                    <ProjectCollaborationPanel project={project} currentRun={run} events={events} />
+                    {onProjectCreated && <ProjectTemplatesPanel project={project} onCreated={onProjectCreated} />}
+                    <WorkspaceRecoveryPanel projectId={project.id} onChanged={onProjectRefresh} />
+                    <ProjectShopsPanel key={`shops:${project.id}`} projectId={project.id} onTask={onChange} />
+                    <ProjectMetricsPanel key={`metrics:${project.id}`} projectId={project.id} />
+                    <FeedbackReviewPanel key={project.id} projectId={project.id} />
+                  </div>
                 )}
 
               </article>

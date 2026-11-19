@@ -44,12 +44,13 @@ export default function SitePublicationsPanel({ projectId, artifacts }: {
   }, [projectId])
 
   useEffect(() => {
+    if (!open) return
     const controller = new AbortController()
     void refresh(controller.signal).catch((cause: unknown) => {
       if (!controller.signal.aborted) setError(errorMessage(cause))
     })
     return () => controller.abort()
-  }, [refresh])
+  }, [open, refresh])
 
   const replace = (view: SitePublicationView) => {
     setCatalog((current) => current ? {
