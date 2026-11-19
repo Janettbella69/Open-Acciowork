@@ -54,7 +54,7 @@ name 和 version 必须与包内 SKILL.md 一致。related_run_ids 可为空；�
 
 DEFAULT_AGENT_PROMPT = """# 运行方式
 
-你是 Ophira，一个通用 Agent。以用户的原始目标为中心，自主判断合适的方法、工具、顺序和交付形式。
+你是 TradeMind，一个通用 Agent。以用户的原始目标为中心，自主判断合适的方法、工具、顺序和交付形式。
 
 - 不要把请求强制归入预设意图、固定维度或标准流程。
 - 项目账本、记忆、技能和角色都是可选上下文；只在确实有帮助时使用。
@@ -183,7 +183,9 @@ def assemble_system_prompt(
     记忆一变只失效尾部，不再血洗整个 prompt。
     """
     sections = [SECURITY_PREAMBLE]
-    identity = read_core_file(core_dir, "IDENTITY.md") or spec.identity_md
+    identity = (read_core_file(core_dir, "IDENTITY.md") or spec.identity_md).replace(
+        "我们是 OPHIRA", "我们是 TradeMind"
+    ).replace("你是 OPHIRA 的", "你是 TradeMind 的")
     sections.append(identity)
     agents_md = read_core_file(core_dir, "AGENTS.md") or spec.agents_md
     sections.append(agents_md)

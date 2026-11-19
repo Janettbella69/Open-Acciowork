@@ -60,7 +60,7 @@ export const eventTriggersZh: Record<string, string> = {
   'Graph Inbox recovery baseline is not ready. Synchronize to establish or inspect the mail gap.': 'Graph 收件箱恢复基线尚未就绪。请同步建立基线或检查邮件缺口。',
   'Mailbox authorized': '邮箱已授权',
   'Authorization required': '需要授权',
-  'Connect a Gmail mailbox for inquiry email triggers. OPHIRA reads new Inbox messages only; the Agent receives bounded plain text and cannot send mail through this connector.': '连接 Gmail 邮箱以触发询盘任务。OPHIRA 只读取新收件箱邮件；Agent 只收到有长度限制的纯文本，不能通过此连接器发信。',
+  'Connect a Gmail mailbox for inquiry email triggers. OPHIRA reads new Inbox messages only; the Agent receives bounded plain text and cannot send mail through this connector.': '连接 Gmail 邮箱以触发询盘任务。TradeMind 只读取新收件箱邮件；Agent 只收到有长度限制的纯文本，不能通过此连接器发信。',
   'Configure Gmail OAuth': '配置 Gmail OAuth',
   'Create a Google OAuth web client and enable the Gmail API in the same Google Cloud project.': '创建 Google OAuth 网页客户端，并在同一 Google Cloud 项目中启用 Gmail API。',
   'Register the exact callback URL below in the OAuth client settings.': '在 OAuth 客户端设置中登记下方精确回调地址。',

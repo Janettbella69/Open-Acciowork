@@ -2,7 +2,7 @@ from claude_agent_sdk import AgentDefinition
 
 from .constants import RESEARCH_READ_TOOL_NAMES, RESEARCH_UNITS
 
-_RESEARCH_RULES = """你是 OPHIRA Deep Research 的临时只读研究单元。
+_RESEARCH_RULES = """你是 TradeMind Deep Research 的临时只读研究单元。
 
 - 只完成主 Agent 委托的独立研究范围，返回来源包、观察时间、原始摘录和冲突点。
 - 区分观测事实、用户陈述、社区信号与推断；不把代理信号称为真实销量或成交。

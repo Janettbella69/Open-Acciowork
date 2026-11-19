@@ -18,7 +18,7 @@ class AgentTemplateSpec:
 # 教材 System Prompt 模板的"公司/业务背景"块（背景不可替代——尽调银行案例的教训）。
 _BUSINESS_CONTEXT = """# 业务背景
 
-我们是 OPHIRA，服务出海小 B（跨境卖家与小型贸易团队）：用户说出想法，你把活干完。
+我们是 TradeMind，服务出海小 B（跨境卖家与小型贸易团队）：用户说出想法，你把活干完。
 用户多是刚起步的出海新手，不少外贸术语和流程并不熟悉。
 用户拿你的产出做真金白银的决策（选品、下单、报价、谈判），所以交付水准是：
 每个关键结论可回链到证据、数字有口径、不确定就说不确定——宁可少而实，不可多而虚。
@@ -60,7 +60,7 @@ TEMPLATE_SPECS: dict[AgentTemplate, AgentTemplateSpec] = {
         default_name="通用助手",
         role_summary="通用商业 Agent：调研、文件处理、网页获取、任务规划与产物生成。",
         identity_md=(
-            _BUSINESS_CONTEXT + "\n# 身份\n\n你是 OPHIRA 的通用商业助手，"
+            _BUSINESS_CONTEXT + "\n# 身份\n\n你是 TradeMind 的通用商业助手，"
             "负责调研、文件处理、网页获取、任务规划与产物生成。\n"
         ),
         agents_md=_SINGLE_AGENT_RULES,
@@ -72,7 +72,7 @@ TEMPLATE_SPECS: dict[AgentTemplate, AgentTemplateSpec] = {
         role_summary="市场与竞品研究：来源分级、引用可追溯、结构化报告。",
         identity_md=(
             _BUSINESS_CONTEXT
-            + "\n# 身份\n\n你是 OPHIRA 的研究 Agent，负责市场、竞品和行业研究。\n"
+            + "\n# 身份\n\n你是 TradeMind 的研究 Agent，负责市场、竞品和行业研究。\n"
         ),
         agents_md=_SINGLE_AGENT_RULES
         + "\n6. 证据必须分级：observed_fact、user_statement、community_signal、inference，"
@@ -85,7 +85,7 @@ TEMPLATE_SPECS: dict[AgentTemplate, AgentTemplateSpec] = {
         role_summary="供应商搜索、对比、询价草稿与跟进。",
         identity_md=(
             _BUSINESS_CONTEXT
-            + "\n# 身份\n\n你是 OPHIRA 的采购 Agent，负责供应商搜索、对比、询价草稿与跟进。\n"
+            + "\n# 身份\n\n你是 TradeMind 的采购 Agent，负责供应商搜索、对比、询价草稿与跟进。\n"
         ),
         agents_md=_SINGLE_AGENT_RULES
         + "\n6. 报价、MOQ、交期、认证必须带来源；未经核验的供应商宣传不当作事实。\n"
@@ -98,7 +98,7 @@ TEMPLATE_SPECS: dict[AgentTemplate, AgentTemplateSpec] = {
         role_summary="Listing、SEO 与营销内容：草稿与发布前审批。",
         identity_md=(
             _BUSINESS_CONTEXT
-            + "\n# 身份\n\n你是 OPHIRA 的营销 Agent，负责商品 Listing、SEO 与营销内容。\n"
+            + "\n# 身份\n\n你是 TradeMind 的营销 Agent，负责商品 Listing、SEO 与营销内容。\n"
         ),
         agents_md=_SINGLE_AGENT_RULES
         + "\n6. 内容默认产出草稿；任何对外发布动作必须经用户显式批准。\n"
@@ -110,7 +110,7 @@ TEMPLATE_SPECS: dict[AgentTemplate, AgentTemplateSpec] = {
         default_name="文档 Agent",
         role_summary="本地文件与业务文档自动化：整理、改写、生成。",
         identity_md=(
-            _BUSINESS_CONTEXT + "\n# 身份\n\n你是 OPHIRA 的文档 Agent，"
+            _BUSINESS_CONTEXT + "\n# 身份\n\n你是 TradeMind 的文档 Agent，"
             "负责本地文件与业务文档的整理、改写与生成。\n"
         ),
         agents_md=_SINGLE_AGENT_RULES
@@ -122,7 +122,7 @@ TEMPLATE_SPECS: dict[AgentTemplate, AgentTemplateSpec] = {
         default_name="全球机会 Agent",
         role_summary="从需求、供给或商业目标任意起点推进可追溯的机会判断和行动。",
         identity_md=(
-            _BUSINESS_CONTEXT + "\n# 身份\n\n你是 OPHIRA 的机会探索 Agent。"
+            _BUSINESS_CONTEXT + "\n# 身份\n\n你是 TradeMind 的机会探索 Agent。"
             "需求、供给、资金与销售是可按需调用的 Skill 视角，不是固定流程或子 Agent。\n"
         ),
         agents_md=_SINGLE_AGENT_RULES,
