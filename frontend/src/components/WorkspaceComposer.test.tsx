@@ -383,8 +383,10 @@ describe('WorkspaceComposer', () => {
     fireEvent.click(screen.getByRole('button', { name: /open account menu for trademind workspace/i }))
 
     expect(screen.getByRole('dialog', { name: /workspace account menu/i })).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: /task list all recent and background runs/i })).toHaveAttribute('href', '/app/tasks')
-    expect(screen.getByRole('link', { name: /inbox notifications and standing watch alerts/i })).toHaveAttribute('href', '/app/inbox')
+    expect(screen.queryByRole('link', { name: /task list/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: /inbox/i })).not.toBeInTheDocument()
+    expect(screen.queryByText(/developer preview/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/local development workspace/i)).not.toBeInTheDocument()
     expect(screen.getByRole('link', { name: /mobile pair a phone for remote approvals/i })).toHaveAttribute('href', '/app/mobile')
     expect(screen.getByRole('link', { name: /settings permissions, runtime, and language/i })).toHaveAttribute('href', '/app/settings')
 

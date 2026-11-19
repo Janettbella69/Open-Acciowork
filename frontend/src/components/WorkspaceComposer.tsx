@@ -295,7 +295,7 @@ function processIcon(kind: string): string {
   return '·'
 }
 
-function WorkspaceAccountMenu({ backendState, statusSubtitle }: { backendState: string; statusSubtitle?: string }) {
+function WorkspaceAccountMenu({ statusSubtitle }: { statusSubtitle?: string }) {
   const t = useT()
   const [open, setOpen] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
@@ -324,25 +324,15 @@ function WorkspaceAccountMenu({ backendState, statusSubtitle }: { backendState: 
         <section className="conversation-account-menu" role="dialog" aria-label={t('Workspace account menu')}>
           <header>
             <span>TM</span>
-            <div><strong>{t('TradeMind workspace')}</strong><small>{t('Local development workspace')}</small></div>
+            <div><strong>{t('TradeMind workspace')}</strong></div>
           </header>
 
-          <div className="conversation-account-plan">
-            <div><strong>{t('Developer preview')}</strong><span>{t('Local')}</span></div>
-            <p><span>{t('Runtime')}</span><strong>{backendState}</strong></p>
-            <small>{t('Usage follows the AI provider configured on this backend.')}</small>
-          </div>
-
           <nav aria-label={t('Account destinations')}>
-            <a href="/app/tasks"><span><strong>{t('Task list')}</strong><small>{t('All recent and background runs')}</small></span><i aria-hidden="true">→</i></a>
-            <a href="/app/inbox"><span><strong>{t('Inbox')}</strong><small>{t('Notifications and standing watch alerts')}</small></span><i aria-hidden="true">→</i></a>
             <a href="/app/mobile"><span><strong>{t('Mobile')}</strong><small>{t('Pair a phone for remote approvals')}</small></span><i aria-hidden="true">→</i></a>
             <a href="/app/settings"><span><strong>{t('Settings')}</strong><small>{t('Permissions, runtime, and language')}</small></span><i aria-hidden="true">→</i></a>
             <a href="/"><span><strong>{t('Homepage')}</strong><small>{t('Return to the TradeMind website')}</small></span><i aria-hidden="true">↗</i></a>
             <a href="https://github.com/Janettbella69/Open-Acciowork" target="_blank" rel="noreferrer"><span><strong>GitHub</strong><small>{t('Open the source repository')}</small></span><i aria-hidden="true">↗</i></a>
           </nav>
-
-          <footer>{t('Account authentication and billing are not enabled in this local build.')}</footer>
         </section>
       )}
 
@@ -763,8 +753,7 @@ export default function WorkspaceComposer({
         </section>
 
         <WorkspaceAccountMenu
-          backendState={error ? t('Backend needs attention') : run ? t('Backend {state}', { state: connection }) : t('Backend ready')}
-          statusSubtitle={error ? t('Backend needs attention') : run ? t('Backend {state}', { state: connection }) : undefined}
+          statusSubtitle={error ? t('Backend needs attention') : undefined}
         />
       </aside>
 
