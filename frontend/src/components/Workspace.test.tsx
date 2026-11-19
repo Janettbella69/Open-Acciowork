@@ -77,6 +77,7 @@ beforeEach(() => {
     projects: [],
     project: null,
     run: failedRun,
+    previousTurns: [],
     telemetry: null,
     events: [],
     assistantText: '',

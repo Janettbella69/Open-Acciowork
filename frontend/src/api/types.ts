@@ -810,3 +810,10 @@ export type FeedbackItem = {
 
 export type PermissionDecision = 'allow_once' | 'allow_run' | 'allow_persistent' | 'deny'
 export type PermissionAnswers = Record<string, string | string[]>
+
+export type ConversationTurn = {
+  run: RunRecord
+  events: OphiraEvent[]
+  assistantText: string
+  reasoningSummary: string
+}

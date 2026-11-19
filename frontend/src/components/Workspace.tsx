@@ -348,6 +348,7 @@ export default function Workspace() {
       projects={runtime.projects}
       project={runtime.project}
       run={runtime.run}
+      previousTurns={runtime.previousTurns}
       telemetry={runtime.telemetry}
       events={runtime.events}
       assistantText={runtime.assistantText}

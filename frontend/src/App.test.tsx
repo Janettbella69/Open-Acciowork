@@ -356,10 +356,12 @@ describe('TradeMind frontend', () => {
 
     const source = MockEventSource.instances[0]
     act(() => {
+      source.emit('assistant.text.delta', runtimeEvent('assistant.text.delta', { text: 'First turn conclusion.' }))
       source.emit('run.completed', runtimeEvent('run.completed', { status: 'completed' }))
       source.end()
     })
     await waitFor(() => expect(screen.getByText(/ran for/i)).toBeInTheDocument())
+    expect(screen.getByText('First turn conclusion.')).toBeInTheDocument()
 
     const followUp = screen.getByRole('textbox', { name: /ask trademind/i })
     fireEvent.change(followUp, { target: { value: 'Now challenge the strongest assumption.' } })
@@ -376,6 +378,9 @@ describe('TradeMind frontend', () => {
         resume_session_id: 'session_test',
       })
     })
+    const thread = screen.getByRole('region', { name: /conversation with trademind/i })
+    expect(within(thread).getByText('First turn conclusion.')).toBeInTheDocument()
+    expect(within(thread).getAllByText(project.objective).length).toBeGreaterThanOrEqual(2)
   })
 
   it('restores the latest recorded response when a saved project is selected', async () => {

@@ -20,6 +20,7 @@ import {
   uploadProjectFile,
 } from './client'
 import type {
+  ConversationTurn,
   OpportunityProject,
   OphiraEvent,
   PendingPermission,
@@ -66,6 +67,7 @@ export function useOpportunityRuntime(onProjectUnavailable?: (projectId: string)
   const [projects, setProjects] = useState<OpportunityProject[]>([])
   const [project, setProject] = useState<OpportunityProject | null>(null)
   const [run, setRun] = useState<RunRecord | null>(null)
+  const [previousTurns, setPreviousTurns] = useState<ConversationTurn[]>([])
   const [telemetry, setTelemetry] = useState<RunTelemetry | null>(null)
   const [events, setEvents] = useState<OphiraEvent[]>([])
   const [assistantText, setAssistantText] = useState('')
@@ -75,8 +77,12 @@ export function useOpportunityRuntime(onProjectUnavailable?: (projectId: string)
   const [error, setError] = useState('')
   const [starting, setStarting] = useState(false)
   const eventSourceRef = useRef<EventSource | null>(null)
+  const historySourcesRef = useRef<EventSource[]>([])
   const projectRef = useRef<OpportunityProject | null>(null)
   const projectRefreshRef = useRef<ProjectRefresh | null>(null)
+  const eventsRef = useRef<OphiraEvent[]>([])
+  const assistantTextRef = useRef('')
+  const reasoningSummaryRef = useRef('')
   const sawTextDeltaRef = useRef(false)
   const sawReasoningDeltaRef = useRef(false)
   const runRef = useRef<RunRecord | null>(null)
@@ -94,6 +100,8 @@ export function useOpportunityRuntime(onProjectUnavailable?: (projectId: string)
   const closeStream = useCallback(() => {
     eventSourceRef.current?.close()
     eventSourceRef.current = null
+    historySourcesRef.current.forEach((source) => source.close())
+    historySourcesRef.current = []
     projectRefreshRef.current?.controller.abort()
     projectRefreshRef.current = null
   }, [])
@@ -103,6 +111,9 @@ export function useOpportunityRuntime(onProjectUnavailable?: (projectId: string)
     closeStream()
     projectRef.current = null
     runRef.current = null
+    eventsRef.current = []
+    assistantTextRef.current = ''
+    reasoningSummaryRef.current = ''
     permissionRevisionRef.current += 1
     permissionInFlightRef.current.clear()
     retryInFlightRef.current = null
@@ -110,6 +121,7 @@ export function useOpportunityRuntime(onProjectUnavailable?: (projectId: string)
     sawReasoningDeltaRef.current = false
     setProject(null)
     setRun(null)
+    setPreviousTurns([])
     setTelemetry(null)
     setEvents([])
     setAssistantText('')
@@ -227,13 +239,19 @@ export function useOpportunityRuntime(onProjectUnavailable?: (projectId: string)
   }, [checkProjectAccess])
 
   const handleEvent = useCallback((event: OphiraEvent, validStatuses: Set<string>) => {
-    const currentRun = runRef.current
+    let currentRun = runRef.current
     if (!currentRun || event.run_id !== currentRun.id || event.project_id !== currentRun.project_id) return
+    if (typeof event.sdk_session_id === 'string' && event.sdk_session_id && !currentRun.sdk_session_id) {
+      currentRun = { ...currentRun, sdk_session_id: event.sdk_session_id }
+      runRef.current = currentRun
+      setRun(currentRun)
+    }
     const status = event.data.status
     if (runStatusEvents.has(event.type) && typeof status === 'string' && validStatuses.has(status)
       && (!terminalStatuses.has(currentRun.status) || status === currentRun.status)) {
       runStatusRevisionRef.current += 1
       const next = { ...currentRun, status: status as RunStatus }
+      currentRun = next
       runRef.current = next
       setRun(next)
       if (terminalStatuses.has(next.status)) setHistoryLoading(true)
@@ -241,12 +259,14 @@ export function useOpportunityRuntime(onProjectUnavailable?: (projectId: string)
 
     if (event.type === 'assistant.text.delta' && typeof event.data.text === 'string') {
       sawTextDeltaRef.current = true
+      assistantTextRef.current += event.data.text
       setAssistantText((current) => current + event.data.text)
     } else if (
       event.type === 'assistant.message.completed'
       && !sawTextDeltaRef.current
       && typeof event.data.text === 'string'
     ) {
+      assistantTextRef.current = `${assistantTextRef.current}${assistantTextRef.current ? '\n\n' : ''}${event.data.text}`
       setAssistantText((current) => `${current}${current ? '\n\n' : ''}${event.data.text}`)
     }
 
@@ -255,12 +275,14 @@ export function useOpportunityRuntime(onProjectUnavailable?: (projectId: string)
       && typeof event.data.text === 'string'
     ) {
       sawReasoningDeltaRef.current = true
+      reasoningSummaryRef.current += event.data.text
       setReasoningSummary((current) => current + event.data.text)
     } else if (
       event.type === 'assistant.reasoning_summary.completed'
       && !sawReasoningDeltaRef.current
       && typeof event.data.text === 'string'
     ) {
+      reasoningSummaryRef.current = `${reasoningSummaryRef.current}${reasoningSummaryRef.current ? '\n\n' : ''}${event.data.text}`
       setReasoningSummary((current) => `${current}${current ? '\n\n' : ''}${event.data.text}`)
     }
 
@@ -269,6 +291,7 @@ export function useOpportunityRuntime(onProjectUnavailable?: (projectId: string)
       && !sawTextDeltaRef.current
       && typeof event.data.result === 'string'
     ) {
+      assistantTextRef.current = event.data.result
       setAssistantText(event.data.result)
     }
 
@@ -306,6 +329,7 @@ export function useOpportunityRuntime(onProjectUnavailable?: (projectId: string)
     }
 
     if (!event.type.endsWith('.delta')) {
+      eventsRef.current = [...eventsRef.current, event]
       setEvents((current) => [...current, event])
     }
 
@@ -422,6 +446,10 @@ export function useOpportunityRuntime(onProjectUnavailable?: (projectId: string)
   ) => {
     const selection = ++selectionRef.current
     closeStream()
+    eventsRef.current = []
+    assistantTextRef.current = ''
+    reasoningSummaryRef.current = ''
+    setPreviousTurns([])
     setStarting(true)
     setError('')
     setEvents([])
@@ -474,7 +502,25 @@ export function useOpportunityRuntime(onProjectUnavailable?: (projectId: string)
     if (projectRef.current?.id !== project.id || discardedProjectsRef.current.has(project.id)) return null
 
     const selection = ++selectionRef.current
+    const activeSessionId = runRef.current?.sdk_session_id ?? run?.sdk_session_id
+    const completedTurn = runRef.current && !runRef.current.manual_compaction
+      ? {
+          run: runRef.current,
+          events: eventsRef.current,
+          assistantText: assistantTextRef.current,
+          reasoningSummary: reasoningSummaryRef.current,
+        }
+      : null
     closeStream()
+    if (completedTurn) {
+      setPreviousTurns((current) => [
+        ...current.filter((item) => item.run.id !== completedTurn.run.id),
+        completedTurn,
+      ])
+    }
+    eventsRef.current = []
+    assistantTextRef.current = ''
+    reasoningSummaryRef.current = ''
     setStarting(true)
     setError('')
     setEvents([])
@@ -488,8 +534,8 @@ export function useOpportunityRuntime(onProjectUnavailable?: (projectId: string)
       if (files.length) await Promise.all(files.map((file) => uploadProjectFile(project.id, file)))
       if (selectionRef.current !== selection) return null
       const nextRun = planSourceRunId
-        ? await startRun(project.id, brief, run?.sdk_session_id, mode, providerProfileId, agentId, planSourceRunId, maxBudgetUsd)
-        : await startRun(project.id, brief, run?.sdk_session_id, mode, providerProfileId, agentId, null, maxBudgetUsd)
+        ? await startRun(project.id, brief, activeSessionId, mode, providerProfileId, agentId, planSourceRunId, maxBudgetUsd)
+        : await startRun(project.id, brief, activeSessionId, mode, providerProfileId, agentId, null, maxBudgetUsd)
       if (selectionRef.current !== selection) return null
       runRef.current = nextRun
       setRun(nextRun)
@@ -680,6 +726,63 @@ export function useOpportunityRuntime(onProjectUnavailable?: (projectId: string)
     }
   }, [checkProjectAccess, run, permissions, refreshPermissions])
 
+  const replayHistoricalTurn = useCallback(async (priorRun: RunRecord, selection: number) => {
+    try {
+      const protocol = await getProtocol()
+      if (selectionRef.current !== selection || projectRef.current?.id !== priorRun.project_id) return
+      const source = new EventSource(runEventUrl(priorRun.id))
+      historySourcesRef.current.push(source)
+      let sawDelta = false
+      let sawReasoningDelta = false
+      let text = ''
+      let reasoning = ''
+      const turnEvents: OphiraEvent[] = []
+      const sync = () => {
+        if (selectionRef.current !== selection || projectRef.current?.id !== priorRun.project_id) return
+        setPreviousTurns((current) => current.map((item) => item.run.id === priorRun.id
+          ? { ...item, events: [...turnEvents], assistantText: text, reasoningSummary: reasoning }
+          : item))
+      }
+      const onEvent = (eventType: string) => (message: Event) => {
+        if (selectionRef.current !== selection) return
+        try {
+          const event = JSON.parse((message as MessageEvent<string>).data) as OphiraEvent
+          if (!event || event.run_id !== priorRun.id) return
+          if (eventType === 'assistant.text.delta' && typeof event.data.text === 'string') {
+            sawDelta = true
+            text += event.data.text
+          } else if (eventType === 'assistant.message.completed' && !sawDelta && typeof event.data.text === 'string') {
+            text = `${text}${text ? '\n\n' : ''}${event.data.text}`
+          } else if (eventType === 'run.result' && !sawDelta && typeof event.data.result === 'string') {
+            text = event.data.result
+          }
+          if (eventType === 'assistant.reasoning_summary.delta' && typeof event.data.text === 'string') {
+            sawReasoningDelta = true
+            reasoning += event.data.text
+          } else if (eventType === 'assistant.reasoning_summary.completed' && !sawReasoningDelta && typeof event.data.text === 'string') {
+            reasoning = `${reasoning}${reasoning ? '\n\n' : ''}${event.data.text}`
+          }
+          if (!eventType.endsWith('.delta')) {
+            turnEvents.push(event)
+          }
+          sync()
+        } catch {
+          // Best-effort historical turn replay.
+        }
+      }
+      protocol.event_types.forEach((eventType) => source.addEventListener(eventType, onEvent(eventType)))
+      source.addEventListener(protocol.stream_end_event, () => {
+        source.close()
+        sync()
+      })
+      source.onerror = () => {
+        source.close()
+      }
+    } catch {
+      // Best-effort historical turn replay.
+    }
+  }, [])
+
   const selectProject = useCallback(async (selected: OpportunityProject, runId?: string): Promise<RunRecord | null> => {
     if (discardedProjectsRef.current.has(selected.id)) return null
     const selection = ++selectionRef.current
@@ -689,6 +792,10 @@ export function useOpportunityRuntime(onProjectUnavailable?: (projectId: string)
     setProjects((current) => [selected, ...current.filter((item) => item.id !== selected.id)])
     setRun(null)
     runRef.current = null
+    eventsRef.current = []
+    assistantTextRef.current = ''
+    reasoningSummaryRef.current = ''
+    setPreviousTurns([])
     setEvents([])
     setAssistantText('')
     setReasoningSummary('')
@@ -711,12 +818,27 @@ export function useOpportunityRuntime(onProjectUnavailable?: (projectId: string)
         setHistoryLoading(false)
         return null
       }
+      const latestIndex = projectRuns.findIndex((item) => item.id === latestRun.id)
+      const earlierRuns = !runId && latestIndex >= 0
+        ? projectRuns.slice(latestIndex + 1).filter((item) => !item.manual_compaction).reverse()
+        : []
+      if (earlierRuns.length > 0) {
+        setPreviousTurns(earlierRuns.map((item) => ({
+          run: item,
+          events: [],
+          assistantText: '',
+          reasoningSummary: '',
+        })))
+      }
       runRef.current = latestRun
       setRun(latestRun)
       await connectToRun(latestRun)
       if (selectionRef.current !== selection) {
         return null
       }
+      earlierRuns.forEach((priorRun) => {
+        void replayHistoricalTurn(priorRun, selection)
+      })
       if (terminalStatuses.has(latestRun.status)) return latestRun
       setHistoryLoading(false)
       return latestRun
@@ -728,7 +850,7 @@ export function useOpportunityRuntime(onProjectUnavailable?: (projectId: string)
       }
       return null
     }
-  }, [closeStream, connectToRun, discardProject])
+  }, [closeStream, connectToRun, discardProject, replayHistoricalTurn])
 
   const refreshActiveProject = useCallback(async () => {
     if (!project) return
@@ -804,6 +926,7 @@ export function useOpportunityRuntime(onProjectUnavailable?: (projectId: string)
     projects,
     project,
     run,
+    previousTurns,
     telemetry,
     events,
     assistantText,

@@ -4,6 +4,7 @@ import {
   dimensions,
   UI_PRESENTATION_EVENT,
   RESOURCE_EVENT,
+  type ConversationTurn,
   type OpportunityProject,
   type OphiraEvent,
   type PendingPermission,
@@ -56,6 +57,7 @@ type WorkspaceComposerProps = {
   projects: OpportunityProject[]
   project: OpportunityProject | null
   run: RunRecord | null
+  previousTurns?: ConversationTurn[]
   telemetry?: RunTelemetry | null
   events: OphiraEvent[]
   assistantText: string
@@ -358,6 +360,7 @@ export default function WorkspaceComposer({
   projects,
   project,
   run,
+  previousTurns = [],
   telemetry = null,
   events,
   assistantText,
@@ -745,6 +748,77 @@ export default function WorkspaceComposer({
           <section className="conversation-session" aria-label={t('Conversation with TradeMind')}>
             <div className="conversation-thread">
               {deletionProgress}
+              {previousTurns.map((turn) => {
+                const turnTraceEvents = turn.events.filter((event) => !event.type.endsWith('.delta')
+                  && !event.type.startsWith('assistant.reasoning')
+                  && event.type !== 'context.usage'
+                  && event.type !== UI_PRESENTATION_EVENT)
+                const turnPresentations = extractPresentationFrames(turn.events)
+                return (
+                  <div key={turn.run.id} className="conversation-turn-history">
+                    <article className="conversation-user-message">
+                      <p>{turn.run.prompt}</p>
+                    </article>
+                    <article className="conversation-agent-message">
+                      {(turn.reasoningSummary || turnTraceEvents.length > 0) && (
+                        <div className="conversation-activity">
+                          <details className="conversation-process">
+                            <summary>
+                              <span>{t(label(turn.run.status))} · {t(turnTraceEvents.length === 1 ? '{n} event' : '{n} events', { n: turnTraceEvents.length })}</span>
+                              <i aria-hidden="true">›</i>
+                            </summary>
+                            <div className="conversation-process-body">
+                              <ol>
+                                {turn.reasoningSummary && (
+                                  <li data-kind="reasoning">
+                                    <details>
+                                      <summary>
+                                        <i aria-hidden="true">◇</i>
+                                        <span><strong>{t('Approach')}</strong><small>{t('Reasoning summary')}</small></span>
+                                        <b aria-hidden="true">›</b>
+                                      </summary>
+                                      <div className="conversation-thought-detail"><p>{turn.reasoningSummary}</p></div>
+                                    </details>
+                                  </li>
+                                )}
+                                {turnTraceEvents.map((event) => {
+                                  const kind = eventKind(event)
+                                  return (
+                                    <li key={event.id} data-kind={kind}>
+                                      <details>
+                                        <summary>
+                                          <i aria-hidden="true">{processIcon(kind)}</i>
+                                          <span><strong>{eventTitle(event, t)}</strong><small>{label(event.actor.name)} · {new Date(event.timestamp).toLocaleTimeString(language === 'zh-CN' ? 'zh-CN' : 'en', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</small></span>
+                                          <b aria-hidden="true">›</b>
+                                        </summary>
+                                        <div className="conversation-event-detail">
+                                          <ResourceEventLinks event={event} project={project} />
+                                          <pre>{eventDetail(event)}</pre>
+                                        </div>
+                                      </details>
+                                    </li>
+                                  )
+                                })}
+                              </ol>
+                            </div>
+                          </details>
+                        </div>
+                      )}
+                      {turnPresentations.length > 0 && <PresentationCards presentations={turnPresentations} />}
+                      {turn.assistantText ? (
+                        <div className="conversation-agent-output">
+                          <Markdown>{turn.assistantText}</Markdown>
+                        </div>
+                      ) : turn.run.status === 'failed' ? (
+                        <div className="conversation-run-outcome" data-status="failed">
+                          <strong>{t('Run failed')}</strong>
+                          <p>{turn.run.error || t('The backend ended this run without a response.')}</p>
+                        </div>
+                      ) : null}
+                    </article>
+                  </div>
+                )
+              })}
               <article className="conversation-user-message">
                 <p>{run?.prompt ?? project?.objective ?? value}</p>
               </article>
