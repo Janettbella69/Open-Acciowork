@@ -276,7 +276,7 @@ describe('TradeMind frontend', () => {
 
     expect(screen.getByText('Validating demand evidence.')).toBeInTheDocument()
     expect(screen.getByText(/using websearch/i)).toBeInTheDocument()
-    expect(screen.getByText(/trace trace_test/i)).toBeInTheDocument()
+    expect(screen.queryByText(/trace trace_test/i)).not.toBeInTheDocument()
   })
 
   it('passes a personal Agent selection into the backend run', async () => {

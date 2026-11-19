@@ -42,6 +42,7 @@ function recordWorkspaceRunUrl(projectId: string, runId: string | null): void {
 
 export default function Workspace() {
   const agentId = importedAgentId()
+  const developerMode = new URLSearchParams(window.location.search).get('dev') === '1'
   const [briefInput, setBriefInput] = useState(importedBrief)
   const [notice, setNotice] = useState(importedBrief()
     ? 'Brief imported from the website.'
@@ -350,6 +351,7 @@ export default function Workspace() {
       run={runtime.run}
       previousTurns={runtime.previousTurns}
       telemetry={runtime.telemetry}
+      developerMode={developerMode}
       events={runtime.events}
       assistantText={runtime.assistantText}
       reasoningSummary={runtime.reasoningSummary}

@@ -218,7 +218,7 @@ function StatefulComposer() {
 }
 
 describe('WorkspaceComposer', () => {
-  it('replays SDK window occupancy and compaction with a manual action', () => {
+  it('replays SDK window occupancy and compaction with a manual action in developer mode and hides it in user mode', () => {
     const onCompact = vi.fn()
     const events = [
       { type: 'context.compacted', data: { trigger: 'auto' } },
@@ -231,7 +231,10 @@ describe('WorkspaceComposer', () => {
       actor: { type: 'system', name: 'claude-agent-sdk', agent_id: null },
       parent_id: null, tool_use_id: null, data: item.data,
     }))
-    render(<WorkspaceComposer {...baseProps()} run={completedRun} events={events} onCompact={onCompact} />)
+    const view = render(<WorkspaceComposer {...baseProps()} run={completedRun} events={events} onCompact={onCompact} />)
+    expect(screen.queryByLabelText('Context usage')).not.toBeInTheDocument()
+
+    view.rerender(<WorkspaceComposer {...baseProps()} developerMode run={completedRun} events={events} onCompact={onCompact} />)
     const usage = screen.getByLabelText('Context usage')
     expect(usage).toHaveTextContent('41,000 / 180,000 tokens')
     expect(within(usage).getByRole('progressbar')).toHaveAttribute('value', '41000')
@@ -242,16 +245,17 @@ describe('WorkspaceComposer', () => {
   })
 
   it('hides an unmeasured context window and manual compaction during active work', () => {
-    render(<WorkspaceComposer {...baseProps()} run={{ ...completedRun, status: 'running' }}
+    render(<WorkspaceComposer {...baseProps()} developerMode run={{ ...completedRun, status: 'running' }}
       isActive onCompact={vi.fn()} />)
     expect(screen.queryByLabelText('Context usage')).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Compact context' })).not.toBeInTheDocument()
   })
 
-  it('shows server-replayed latency, turn, and cost telemetry for a terminal run', () => {
+  it('shows server-replayed latency, turn, and cost telemetry for a terminal run in developer mode', () => {
     render(
       <WorkspaceComposer
         {...baseProps()}
+        developerMode
         run={completedRun}
         telemetry={runTelemetry}
       />,
@@ -463,7 +467,7 @@ describe('WorkspaceComposer', () => {
     fireEvent.click(reasoningToggle!)
     expect(screen.getByText(/compared the available buyer evidence/i)).toBeVisible()
     expect(screen.getAllByText(/three verified sources/i)).toHaveLength(2)
-    expect(screen.getByText(/trace trace_1/i)).toBeVisible()
+    expect(screen.queryByText(/trace trace_1/i)).not.toBeInTheDocument()
   })
 
   it('accepts a direction during a running task and preserves the selected delivery mode', () => {

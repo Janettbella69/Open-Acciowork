@@ -205,14 +205,19 @@ describe('Workspace new task', () => {
       'Compare suppliers', [], 'standard', null, null, undefined,
     ))
   })
-  it('starts manual compaction for the selected completed SDK session', async () => {
+  it('starts manual compaction for the selected completed SDK session in developer mode', async () => {
     const runtime = vi.mocked(useOpportunityRuntime)()
     const completed = { ...failedRun, status: 'completed' as const, sdk_session_id: 'session_1' }
     vi.mocked(runtime.compact).mockResolvedValue({ ...completed, id: 'run_compact', manual_compaction: true })
     vi.mocked(useOpportunityRuntime).mockReturnValue({ ...runtime, run: completed })
-    render(<Workspace />)
-    fireEvent.click(screen.getByRole('button', { name: 'Compact context' }))
-    await waitFor(() => expect(runtime.compact).toHaveBeenCalledOnce())
+    window.history.replaceState({}, '', '/app?dev=1')
+    try {
+      render(<Workspace />)
+      fireEvent.click(screen.getByRole('button', { name: 'Compact context' }))
+      await waitFor(() => expect(runtime.compact).toHaveBeenCalledOnce())
+    } finally {
+      window.history.replaceState({}, '', '/app')
+    }
   })
 
   it('continues a reviewed plan in the exact SDK session for approval or revision', async () => {
