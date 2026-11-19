@@ -760,7 +760,7 @@ export default function WorkspaceComposer({
         {!sessionOpen && (
           <a href="/" className="conversation-site-link">{t('Website')} <span aria-hidden="true">↗</span></a>
         )}
-        {sessionOpen && project && (
+        {developerMode && sessionOpen && project && (
           <button type="button" className="conversation-site-link conversation-project-toggle"
             aria-expanded={projectDrawerOpen} aria-controls="conversation-project-drawer"
             onClick={() => setProjectDrawerOpen((open) => !open)}>{t('Project')}</button>
@@ -1177,7 +1177,7 @@ export default function WorkspaceComposer({
 
         {sessionOpen && composer}
 
-        {sessionOpen && project && (
+        {developerMode && sessionOpen && project && (
           <aside id="conversation-project-drawer" className="conversation-project-drawer"
             data-open={projectDrawerOpen} aria-label={t('Project')}>
             <header>

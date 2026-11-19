@@ -404,6 +404,7 @@ describe('TradeMind frontend', () => {
 
   it.each([403, 404, 503])('handles authoritative project read status %s without losing the unsent draft', async (status) => {
     storedProjects = [project]
+    window.history.replaceState(null, '', '/app?dev=1')
     render(<Workspace />)
     fireEvent.click(await screen.findByRole('button', { name: new RegExp(project.name, 'i') }))
     await screen.findByText(/restoring the recorded response/i)
