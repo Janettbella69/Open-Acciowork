@@ -61,16 +61,29 @@
 .conversation-sidebar-nav a span { min-width: 0; }
 .conversation-sidebar-nav a[aria-current='page'] { color: var(--ophira-ink); background: #e9eaeb; font-weight: 700; }
 
-.conversation-sidebar-projects { min-height: 0; margin-top: 30px; padding-right: 3px; flex: 1; overflow-y: auto; overscroll-behavior: contain; }
-.conversation-sidebar-projects > div { display: flex; min-height: 40px; align-items: center; justify-content: space-between; border-radius: 10px; padding: 0 12px; background: #ececed; }
-.conversation-sidebar-projects h2 { margin: 0; color: #767a7d; font-size: var(--ophira-type-body); font-weight: 520; letter-spacing: 0; text-transform: none; }
-.conversation-sidebar-projects > div > span { color: #94979a; font-family: var(--ophira-mono); font-size: var(--ophira-type-small); }
-.conversation-sidebar-projects > p { margin: 12px 4px 0; color: #85898c; font-size: var(--ophira-type-small); line-height: 1.55; }
-.conversation-sidebar-projects > button { display: grid; width: 100%; min-height: 52px; margin-top: 7px; overflow: hidden; border: 0; border-radius: 9px; padding: 9px 10px; gap: 5px; background: transparent; text-align: left; }
-.conversation-sidebar-projects > button:hover { background: #e9eaeb; }
-.conversation-sidebar-projects > button[aria-pressed='true'] { background: #e5e7e8; }
-.conversation-sidebar-projects button > span { overflow: hidden; font-size: var(--ophira-type-body); font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
-.conversation-sidebar-projects button small { overflow: hidden; color: #83878a; font-size: var(--ophira-type-small); text-overflow: ellipsis; white-space: nowrap; }
+.conversation-sidebar-projects { min-height: 0; margin-top: 22px; padding-right: 2px; flex: 1; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: rgba(130, 134, 138, 0.28) transparent; }
+.conversation-sidebar-projects::-webkit-scrollbar { width: 5px; }
+.conversation-sidebar-projects::-webkit-scrollbar-track { background: transparent; }
+.conversation-sidebar-projects::-webkit-scrollbar-thumb { border-radius: 999px; background: rgba(130, 134, 138, 0.28); }
+.conversation-sidebar-projects > div:first-child { display: flex; min-height: 28px; align-items: center; justify-content: space-between; padding: 0 10px 6px; background: transparent; }
+.conversation-sidebar-projects h2 { margin: 0; color: #83878a; font-size: var(--ophira-type-small); font-weight: 650; letter-spacing: 0.02em; text-transform: none; }
+.conversation-sidebar-projects > div:first-child > span { color: #9a9d9f; font-family: var(--ophira-mono); font-size: 11px; }
+.conversation-sidebar-projects > p { margin: 12px 10px 0; color: #85898c; font-size: var(--ophira-type-small); line-height: 1.55; }
+.conversation-sidebar-project-item { position: relative; display: flex; align-items: center; margin-top: 2px; border-radius: 9px; }
+.conversation-sidebar-project-item:hover { background: #e9eaeb; }
+.conversation-sidebar-project-item:has(.conversation-sidebar-project-select[aria-pressed='true']) { background: #e5e7e8; }
+.conversation-sidebar-project-select { display: flex; width: 100%; min-width: 0; min-height: 38px; align-items: center; justify-content: space-between; overflow: hidden; border: 0; border-radius: 9px; padding: 6px 10px; gap: 8px; color: var(--ophira-ink); background: transparent; text-align: left; cursor: pointer; }
+.conversation-sidebar-project-select[aria-pressed='true'] { background: #e5e7e8; }
+.conversation-sidebar-project-select > span { min-width: 0; flex: 1; overflow: hidden; font-size: var(--ophira-type-body); font-weight: 560; text-overflow: ellipsis; white-space: nowrap; }
+.conversation-sidebar-project-select[aria-pressed='true'] > span { font-weight: 700; }
+.conversation-sidebar-project-select small { flex: 0 0 auto; color: #8c9093; font-size: 11px; white-space: nowrap; }
+.conversation-sidebar-project-item:has(.conversation-sidebar-project-delete):hover .conversation-sidebar-project-select small,
+.conversation-sidebar-project-item:has(.conversation-sidebar-project-delete):focus-within .conversation-sidebar-project-select small { opacity: 0; }
+.conversation-sidebar-project-delete { position: absolute; right: 6px; display: grid; width: 26px; height: 26px; place-items: center; border: 0; border-radius: 6px; padding: 0; color: #73777a; background: transparent; font-size: 16px; line-height: 1; opacity: 0; cursor: pointer; transition: opacity 120ms ease, background 120ms ease, color 120ms ease; }
+.conversation-sidebar-project-item:hover .conversation-sidebar-project-delete,
+.conversation-sidebar-project-item:focus-within .conversation-sidebar-project-delete { opacity: 1; }
+.conversation-sidebar-project-delete:hover { color: #913d32; background: rgba(145, 61, 50, 0.1); }
+.conversation-sidebar-project-delete:disabled { opacity: 0.4; cursor: default; }
 
 .conversation-account { position: relative; margin-top: auto; }
 .conversation-sidebar-profile { display: flex; width: 100%; min-height: 52px; align-items: center; gap: 10px; border: 0; border-top: 1px solid #e1e2e4; padding: 14px 6px 0; color: var(--ophira-ink); background: transparent; text-align: left; }

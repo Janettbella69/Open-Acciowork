@@ -281,8 +281,10 @@ describe('WorkspaceComposer', () => {
     expect(screen.getByRole('heading', { level: 2, name: 'Recents' })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: /^agents$/i })).toHaveAttribute('href', '/app/agents')
     expect(screen.getByRole('link', { name: /^plugins$/i })).toHaveAttribute('href', '/app/plugins')
+    expect(screen.getByRole('link', { name: /^scheduled tasks$/i })).toHaveAttribute('href', '/app/schedules')
     expect(screen.queryByRole('link', { name: /^connectors$/i })).not.toBeInTheDocument()
-    expect(screen.getByRole('link', { name: /mobile/i })).toHaveAttribute('href', '/app/mobile')
+    expect(screen.queryByRole('link', { name: /^mobile$/i })).not.toBeInTheDocument()
+    expect(screen.queryByText('Backend ready')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: /new task/i })).toBeInTheDocument()
     expect(screen.queryByText('Workspace')).not.toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: /agent team/i })).not.toBeInTheDocument()
@@ -381,6 +383,9 @@ describe('WorkspaceComposer', () => {
     fireEvent.click(screen.getByRole('button', { name: /open account menu for trademind workspace/i }))
 
     expect(screen.getByRole('dialog', { name: /workspace account menu/i })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /task list all recent and background runs/i })).toHaveAttribute('href', '/app/tasks')
+    expect(screen.getByRole('link', { name: /inbox notifications and standing watch alerts/i })).toHaveAttribute('href', '/app/inbox')
+    expect(screen.getByRole('link', { name: /mobile pair a phone for remote approvals/i })).toHaveAttribute('href', '/app/mobile')
     expect(screen.getByRole('link', { name: /settings permissions, runtime, and language/i })).toHaveAttribute('href', '/app/settings')
 
     fireEvent.keyDown(document, { key: 'Escape' })

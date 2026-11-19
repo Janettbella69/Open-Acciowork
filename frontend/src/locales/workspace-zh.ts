@@ -74,4 +74,9 @@ export const workspaceZh: Record<string, string> = {
   'Download {name} · version {version}': '下载 {name} · 版本 {version}',
   'Refresh the project to view this saved artifact.': '请刷新项目以查看这份已保存的交付物。',
   'This project is no longer available. Your unsent message and local attachments are still here.': '此项目已无法访问，尚未发送的消息和本地附件仍保留在这里。',
+  'Delete {name}': '删除 {name}',
+  'Remove from recents': '从最近项目中删除',
+  'All recent and background runs': '查看全部运行与后台任务记录',
+  'Notifications and standing watch alerts': '巡检异常通知与常驻盯盘提醒',
+  'Pair a phone for remote approvals': '扫码绑定手机进行远程审批与查看',
 }

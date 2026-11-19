@@ -36,7 +36,8 @@ import ProjectArtifactsPanel from './ProjectArtifactsPanel'
 import SitePublicationsPanel from './SitePublicationsPanel'
 import ProjectExportPanel from './ProjectExportPanel'
 import ProjectDeletionPanel from './ProjectDeletionPanel'
-import type { ProjectDeletionRequest } from '../api/projectDeletion'
+import { getProjectDeletion } from '../api/client'
+import { requireDeletionPreview, type ProjectDeletionRequest } from '../api/projectDeletion'
 import ProjectCollaborationPanel from './ProjectCollaborationPanel'
 import ProjectTemplatesPanel from './ProjectTemplatesPanel'
 import WorkspaceRecoveryPanel from './WorkspaceRecoveryPanel'
@@ -294,7 +295,7 @@ function processIcon(kind: string): string {
   return '·'
 }
 
-function WorkspaceAccountMenu({ backendState }: { backendState: string }) {
+function WorkspaceAccountMenu({ backendState, statusSubtitle }: { backendState: string; statusSubtitle?: string }) {
   const t = useT()
   const [open, setOpen] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
@@ -333,6 +334,9 @@ function WorkspaceAccountMenu({ backendState }: { backendState: string }) {
           </div>
 
           <nav aria-label={t('Account destinations')}>
+            <a href="/app/tasks"><span><strong>{t('Task list')}</strong><small>{t('All recent and background runs')}</small></span><i aria-hidden="true">→</i></a>
+            <a href="/app/inbox"><span><strong>{t('Inbox')}</strong><small>{t('Notifications and standing watch alerts')}</small></span><i aria-hidden="true">→</i></a>
+            <a href="/app/mobile"><span><strong>{t('Mobile')}</strong><small>{t('Pair a phone for remote approvals')}</small></span><i aria-hidden="true">→</i></a>
             <a href="/app/settings"><span><strong>{t('Settings')}</strong><small>{t('Permissions, runtime, and language')}</small></span><i aria-hidden="true">→</i></a>
             <a href="/"><span><strong>{t('Homepage')}</strong><small>{t('Return to the TradeMind website')}</small></span><i aria-hidden="true">↗</i></a>
             <a href="https://github.com/Janettbella69/Open-Acciowork" target="_blank" rel="noreferrer"><span><strong>GitHub</strong><small>{t('Open the source repository')}</small></span><i aria-hidden="true">↗</i></a>
@@ -351,7 +355,10 @@ function WorkspaceAccountMenu({ backendState }: { backendState: string }) {
         onClick={() => setOpen((current) => !current)}
       >
         <span>TM</span>
-        <div><strong>{t('TradeMind workspace')}</strong><small>{backendState}</small></div>
+        <div>
+          <strong>{t('TradeMind workspace')}</strong>
+          {statusSubtitle && <small>{statusSubtitle}</small>}
+        </div>
         <i aria-hidden="true">⌃</i>
       </button>
     </div>
@@ -420,6 +427,7 @@ export default function WorkspaceComposer({
   const [modelMenuOpen, setModelMenuOpen] = useState(false)
   const [planChanges, setPlanChanges] = useState('')
   const [projectDrawerOpen, setProjectDrawerOpen] = useState(false)
+  const [quickDeletingProjectId, setQuickDeletingProjectId] = useState<string | null>(null)
   const [interjectionMode, setInterjectionMode] = useState<RunInterjectionMode>('now')
   const canInterject = isActive && run?.status === 'running' && Boolean(onInterject)
   const [clock, setClock] = useState(() => Date.now())
@@ -710,19 +718,54 @@ export default function WorkspaceComposer({
         <section className="conversation-sidebar-projects" aria-labelledby="sidebar-projects-title">
           <div><h2 id="sidebar-projects-title">{t('Recents')}</h2><span>{projects.length}</span></div>
           {projects.length > 0 ? projects.map((savedProject) => (
-            <button
-              key={savedProject.id}
-              type="button"
-              aria-pressed={project?.id === savedProject.id}
-              onClick={() => onSelectProject(savedProject.id)}
-            >
-              <span>{savedProject.name}</span>
-              <small>{t(label(savedProject.stage))} · {new Date(savedProject.updated_at).toLocaleDateString(language === 'zh-CN' ? 'zh-CN' : 'en', { month: 'short', day: 'numeric' })}</small>
-            </button>
+            <div key={savedProject.id} className="conversation-sidebar-project-item">
+              <button
+                className="conversation-sidebar-project-select"
+                type="button"
+                aria-pressed={project?.id === savedProject.id}
+                onClick={() => onSelectProject(savedProject.id)}
+              >
+                <span>{savedProject.name}</span>
+                <small>{new Date(savedProject.updated_at).toLocaleDateString(language === 'zh-CN' ? 'zh-CN' : 'en', { month: 'short', day: 'numeric' })}</small>
+              </button>
+              {onDeleteProject && (
+                <button
+                  className="conversation-sidebar-project-delete"
+                  type="button"
+                  aria-label={t('Remove from recents')}
+                  title={t('Delete {name}', { name: savedProject.name })}
+                  disabled={deletionPending || quickDeletingProjectId === savedProject.id}
+                  onClick={() => {
+                    if (deletionPending || quickDeletingProjectId) return
+                    setQuickDeletingProjectId(savedProject.id)
+                    void getProjectDeletion(savedProject.id)
+                      .then(async (preview) => {
+                        requireDeletionPreview(savedProject.id, preview)
+                        if (!preview.can_delete || preview.blockers.length > 0) return
+                        await onDeleteProject(savedProject.id, {
+                          operation_id: crypto.randomUUID(),
+                          fingerprint: preview.fingerprint,
+                          confirmation_name: preview.project_name,
+                          reason: 'Deleted from sidebar recents',
+                        })
+                      })
+                      .catch(() => {})
+                      .finally(() => {
+                        setQuickDeletingProjectId((current) => (current === savedProject.id ? null : current))
+                      })
+                  }}
+                >
+                  ×
+                </button>
+              )}
+            </div>
           )) : <p>{t('Your saved conversations will appear here.')}</p>}
         </section>
 
-        <WorkspaceAccountMenu backendState={error ? t('Backend needs attention') : run ? t('Backend {state}', { state: connection }) : t('Backend ready')} />
+        <WorkspaceAccountMenu
+          backendState={error ? t('Backend needs attention') : run ? t('Backend {state}', { state: connection }) : t('Backend ready')}
+          statusSubtitle={error ? t('Backend needs attention') : run ? t('Backend {state}', { state: connection }) : undefined}
+        />
       </aside>
 
       <main className="conversation-entry-main" data-session={sessionOpen}>

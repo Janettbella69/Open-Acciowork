@@ -54,12 +54,9 @@ function WorkspaceNavIcon({ name }: { name: WorkspaceNavItemId }) {
 export default function WorkspaceNav({ active }: WorkspaceNavProps) {
   const t = useT()
   const items = [
-    { id: 'tasks' as const, href: '/app/tasks', label: 'Task list' },
-    { id: 'inbox' as const, href: '/app/inbox', label: 'Inbox' },
     { id: 'agents' as const, href: '/app/agents', label: 'Agents' },
     { id: 'plugins' as const, href: '/app/plugins', label: 'Plugins' },
     { id: 'schedules' as const, href: '/app/schedules', label: 'Scheduled tasks' },
-    { id: 'mobile' as const, href: '/app/mobile', label: 'Mobile' },
   ]
 
   return (
