@@ -915,8 +915,6 @@ export const zh: Record<string, string> = {
   'Approve for me': '替我授权',
   'SDK auto mode reviews each action; deleting files still asks': 'SDK 自动模式逐项审查操作；删除文件仍会询问',
   'Applies to new tasks across this workspace.': '对此工作区的新任务生效。',
-  'Deep Research runs 3 read-only research subagents on this task budget.': '深度研究在本任务预算内启动 3 个只读研究子代理。',
-  'Deep Research can only be chosen before a task starts.': '只能在任务开始前选择深度研究。',
   'Loading approval mode…': '正在加载授权模式……',
   'Approval level cannot change while a task is running or waiting for approval.': '任务运行或等待授权时无法更改授权级别。',
   '⌘ Enter to send': '⌘ Enter 发送',

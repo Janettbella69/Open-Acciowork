@@ -192,21 +192,17 @@ describe('Workspace approval mode', () => {
 })
 
 describe('Workspace new task', () => {
-  it('sets a separate task budget within the operator cap', async () => {
+  it('starts a task without a per-task budget field, leaving the operator cap to the backend', async () => {
     const runtime = vi.mocked(useOpportunityRuntime)()
     render(<Workspace />)
-    const budget = await screen.findByRole('spinbutton', { name: /Task budget \(USD\)/ })
-    expect(budget).toHaveAttribute('max', '10')
-    fireEvent.change(budget, { target: { value: '2.5' } })
     fireEvent.change(screen.getByRole('textbox', { name: /ask trademind/i }), {
       target: { value: 'Compare suppliers' },
     })
+    expect(screen.queryByRole('spinbutton', { name: /Task budget/ })).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Send' }))
     await waitFor(() => expect(runtime.start).toHaveBeenCalledWith(
-      'Compare suppliers', [], 'standard', null, null, 2.5,
+      'Compare suppliers', [], 'standard', null, null, undefined,
     ))
-    fireEvent.click(screen.getByRole('button', { name: /new task/i }))
-    expect(screen.getByRole('spinbutton', { name: /Task budget \(USD\)/ })).toHaveValue(null)
   })
   it('starts manual compaction for the selected completed SDK session', async () => {
     const runtime = vi.mocked(useOpportunityRuntime)()

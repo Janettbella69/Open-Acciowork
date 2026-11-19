@@ -298,13 +298,13 @@ describe('TradeMind frontend', () => {
     })
   })
 
-  it('sends the Deep Research choice made in the composer to the backend run', async () => {
+  it('sends composer tasks to the backend as standard runs', async () => {
     render(<Workspace />)
     await screen.findByRole('heading', { name: /what can i do for you/i })
 
     fireEvent.click(screen.getByRole('button', { name: /open tools menu/i }))
     expect(screen.queryByRole('button', { name: /^mode$/i })).not.toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: /deep research/i }))
+    expect(screen.queryByRole('button', { name: /deep research/i })).not.toBeInTheDocument()
     fireEvent.change(screen.getByRole('textbox', { name: /ask trademind/i }), {
       target: { value: project.objective },
     })
@@ -315,7 +315,7 @@ describe('TradeMind frontend', () => {
         String(input).endsWith(`/api/projects/${project.id}/runs`) && init?.method === 'POST'
       ))
       expect(runRequest).toBeDefined()
-      expect(JSON.parse(String(runRequest?.[1]?.body))).toMatchObject({ mode: 'deep_research' })
+      expect(JSON.parse(String(runRequest?.[1]?.body))).toMatchObject({ mode: 'standard' })
     })
   })
 
