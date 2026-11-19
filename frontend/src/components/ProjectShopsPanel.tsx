@@ -87,7 +87,7 @@ export default function ProjectShopsPanel({ projectId, onTask }: { projectId: st
   return <section className="project-shops">
     <button type="button" className="project-shops-toggle" aria-expanded={open} onClick={() => {
       setOpen(!open); if (!open) void refresh()
-    }}>{t('Project shops')} <span>{shops.length || ''}</span></button>
+    }}><span>{t('Project shops')}{shops.length ? ` ${shops.length}` : ''}</span><span aria-hidden="true">{open ? '−' : '+'}</span></button>
     {open && <div className="project-shops-content">
       <p>{t('Configure a shop identity, connect its platform, and sign in through its independent browser. Agent captures and downloaded reports stay with this project and their sources.')}</p>
       {error && <p role="alert">{error}</p>}{notice && <p role="status">{notice}</p>}

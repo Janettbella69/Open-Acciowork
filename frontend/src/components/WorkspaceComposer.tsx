@@ -1184,21 +1184,23 @@ export default function WorkspaceComposer({
               <strong>{t('Project')}</strong>
               <button type="button" aria-label={t('Close')} onClick={() => setProjectDrawerOpen(false)}>×</button>
             </header>
-            {onSelectRun && <SessionSearchPanel projectId={project.id} onSelectRun={onSelectRun} />}
-            <ProjectArtifactsPanel projectId={project.id} artifacts={project.artifacts} onChanged={onProjectRefresh} />
-            <SitePublicationsPanel key={`site:${project.id}`} projectId={project.id} artifacts={project.artifacts} />
+            {developerMode && onSelectRun && <SessionSearchPanel projectId={project.id} onSelectRun={onSelectRun} />}
+            <ProjectArtifactsPanel projectId={project.id} artifacts={project.artifacts} onChanged={onProjectRefresh} defaultOpen={project.artifacts.length > 0} />
+            {(developerMode || project.artifacts.some((item) => /\.(?:html?|zip)$/i.test(item.path))) && (
+              <SitePublicationsPanel key={`site:${project.id}`} projectId={project.id} artifacts={project.artifacts} />
+            )}
             <ProjectKnowledgePanel projectId={project.id} revision={project.artifacts.map((item) => item.id).join(':')} />
-            <ProjectCollaborationPanel project={project} currentRun={run} events={events} />
-            <FeedbackReviewPanel key={project.id} projectId={project.id} />
+            {developerMode && <ProjectCollaborationPanel project={project} currentRun={run} events={events} />}
+            {developerMode && <FeedbackReviewPanel key={project.id} projectId={project.id} />}
             <ProjectShopsPanel key={`shops:${project.id}`} projectId={project.id} onTask={onChange} />
-            <ProjectMetricsPanel key={`metrics:${project.id}`} projectId={project.id} />
-            {onProjectCreated && <ProjectTemplatesPanel project={project} onCreated={onProjectCreated} />}
+            {developerMode && <ProjectMetricsPanel key={`metrics:${project.id}`} projectId={project.id} />}
+            {developerMode && onProjectCreated && <ProjectTemplatesPanel project={project} onCreated={onProjectCreated} />}
             <ProjectExportPanel projectId={project.id} />
-            <WorkspaceRecoveryPanel projectId={project.id} onChanged={onProjectRefresh} />
-            {run && onDeleteConversation && <ProjectDeletionPanel projectId={project.id} runId={run.id}
+            {developerMode && <WorkspaceRecoveryPanel projectId={project.id} onChanged={onProjectRefresh} />}
+            {developerMode && run && onDeleteConversation && <ProjectDeletionPanel projectId={project.id} runId={run.id}
               pending={conversationDeletionPending} canReviewAgain={conversationDeletionCanReviewAgain}
               onReviewAgain={onConversationDeletionReviewAgain} onSubmit={onDeleteConversation} onAccessCheck={onProjectRefresh} />}
-            {onDeleteProject && <ProjectDeletionPanel projectId={project.id} pending={deletionPending}
+            {developerMode && onDeleteProject && <ProjectDeletionPanel projectId={project.id} pending={deletionPending}
               canReviewAgain={deletionCanReviewAgain} onReviewAgain={onDeletionReviewAgain}
               onSubmit={onDeleteProject} onAccessCheck={onProjectRefresh} />}
           </aside>

@@ -107,12 +107,12 @@ function Editor({ projectId, artifactId, onClose, onSaved }: {
   </section>
 }
 
-function ScopedArtifacts({ projectId, artifacts, onChanged }: {
-  projectId: string; artifacts: Artifact[]; onChanged: () => void
+function ScopedArtifacts({ projectId, artifacts, onChanged, defaultOpen = false }: {
+  projectId: string; artifacts: Artifact[]; onChanged: () => void; defaultOpen?: boolean
 }) {
   const t = useT()
   const bodyId = useId()
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useState(defaultOpen)
   const [selected, setSelected] = useState<string | null>(null)
   const [saved, setSaved] = useState<Artifact[]>([])
   const [notice, setNotice] = useState('')
@@ -171,6 +171,6 @@ function ScopedArtifacts({ projectId, artifacts, onChanged }: {
   </section>
 }
 
-export default function ProjectArtifactsPanel(props: { projectId: string; artifacts: Artifact[]; onChanged: () => void }) {
+export default function ProjectArtifactsPanel(props: { projectId: string; artifacts: Artifact[]; onChanged: () => void; defaultOpen?: boolean }) {
   return <ScopedArtifacts key={props.projectId} {...props} />
 }

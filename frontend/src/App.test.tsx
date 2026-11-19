@@ -454,6 +454,7 @@ describe('TradeMind frontend', () => {
       if (url.includes(`/api/project-deletions/${project.id}/`)) return Promise.resolve(jsonResponse(acceptedOperation))
       return originalFetch(input, init)
     })
+    window.history.replaceState(null, '', '/app?dev=1')
     const { unmount } = render(<Workspace />)
     fireEvent.click(await screen.findByRole('button', { name: new RegExp(project.name, 'i') }))
     await screen.findByText(/restoring the recorded response/i)
@@ -509,6 +510,7 @@ describe('TradeMind frontend', () => {
       }
       return originalFetch(input, init)
     })
+    window.history.replaceState(null, '', '/app?dev=1')
     render(<Workspace />)
     fireEvent.click(await screen.findByRole('button', { name: new RegExp(project.name, 'i') }))
     await screen.findByText(/restoring the recorded response/i)
@@ -542,6 +544,7 @@ describe('TradeMind frontend', () => {
       if (String(input).endsWith(`/api/projects/${project.id}`)) return Promise.resolve(jsonResponse(ledgerProject))
       return originalFetch(input, init)
     })
+    window.history.replaceState(null, '', '/app?dev=1')
     render(<Workspace />)
     fireEvent.click(await screen.findByRole('button', { name: new RegExp(project.name, 'i') }))
     await screen.findByText(/restoring the recorded response/i)
