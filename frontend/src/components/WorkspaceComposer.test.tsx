@@ -385,6 +385,7 @@ describe('WorkspaceComposer', () => {
     expect(screen.getByRole('dialog', { name: /workspace account menu/i })).toBeInTheDocument()
     expect(screen.queryByRole('link', { name: /task list/i })).not.toBeInTheDocument()
     expect(screen.queryByRole('link', { name: /inbox/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: /github/i })).not.toBeInTheDocument()
     expect(screen.queryByText(/developer preview/i)).not.toBeInTheDocument()
     expect(screen.queryByText(/local development workspace/i)).not.toBeInTheDocument()
     expect(screen.getByRole('link', { name: /mobile pair a phone for remote approvals/i })).toHaveAttribute('href', '/app/mobile')

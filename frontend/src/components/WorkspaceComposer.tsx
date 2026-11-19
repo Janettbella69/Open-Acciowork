@@ -331,7 +331,6 @@ function WorkspaceAccountMenu({ statusSubtitle }: { statusSubtitle?: string }) {
             <a href="/app/mobile"><span><strong>{t('Mobile')}</strong><small>{t('Pair a phone for remote approvals')}</small></span><i aria-hidden="true">→</i></a>
             <a href="/app/settings"><span><strong>{t('Settings')}</strong><small>{t('Permissions, runtime, and language')}</small></span><i aria-hidden="true">→</i></a>
             <a href="/"><span><strong>{t('Homepage')}</strong><small>{t('Return to the TradeMind website')}</small></span><i aria-hidden="true">↗</i></a>
-            <a href="https://github.com/Janettbella69/Open-Acciowork" target="_blank" rel="noreferrer"><span><strong>GitHub</strong><small>{t('Open the source repository')}</small></span><i aria-hidden="true">↗</i></a>
           </nav>
         </section>
       )}
