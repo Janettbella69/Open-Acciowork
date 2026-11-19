@@ -526,7 +526,7 @@ export default function WorkspaceComposer({
           value={value}
           onChange={(event) => onChange(event.target.value)}
           onKeyDown={(event) => {
-            if ((event.metaKey || event.ctrlKey) && event.key === 'Enter'
+            if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing
               && (!busy || canInterject) && !interjectionBusy && !approvalModeSaving && value.trim()) {
               event.preventDefault()
               event.currentTarget.form?.requestSubmit()

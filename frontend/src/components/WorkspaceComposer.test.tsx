@@ -754,4 +754,19 @@ describe('Permission safety and provider eligibility', () => {
     expect(screen.queryByRole('button', { name: /allow for run/i })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /allow persistent/i })).not.toBeInTheDocument()
   })
+
+  it('submits on plain Enter while allowing Shift+Enter for newlines and ignoring IME composition', () => {
+    const onSubmit = vi.fn((event: React.FormEvent<HTMLFormElement>) => event.preventDefault())
+    render(<WorkspaceComposer {...baseProps()} value="Compare suppliers" onSubmit={onSubmit} />)
+
+    const input = screen.getByRole('textbox', { name: /ask trademind/i })
+    fireEvent.keyDown(input, { key: 'Enter', shiftKey: true })
+    expect(onSubmit).not.toHaveBeenCalled()
+
+    fireEvent.keyDown(input, { key: 'Enter', isComposing: true })
+    expect(onSubmit).not.toHaveBeenCalled()
+
+    fireEvent.keyDown(input, { key: 'Enter' })
+    expect(onSubmit).toHaveBeenCalledOnce()
+  })
 })
