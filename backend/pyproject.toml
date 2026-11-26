@@ -4,49 +4,31 @@ build-backend = "hatchling.build"
 
 [project]
 name = "ophira-backend"
-version = "0.1.0"
-description = "OPHIRA opportunity-team backend built on Claude Agent SDK"
+version = "0.2.0"
+description = "TradeMind backend: one Claude Agent SDK loop with a computer, a window, and a person in charge"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
   "claude-agent-sdk==0.2.143",
-  "croniter>=2,<7",
-  "cryptography>=43,<51",
   "fastapi>=0.115,<1",
-  # Claude Agent SDK 0.2.143 uses the MCP 1.x low-level Server decorator API.
-  "mcp>=1.23,<2",
-  "pydantic-settings>=2.7,<3",
-  "Pillow>=10,<13",
-  "pypdf>=5,<7",
-  "pywebpush==2.5.0",
   "httpx>=0.28,<1",
+  # The Agent's own Python writes Office files with these (office-documents Skill).
   "openpyxl>=3.1,<4",
-  "lxml>=5,<7",
+  "pydantic-settings>=2.7,<3",
+  "pypdf>=5,<7",
   "python-docx>=1.1,<2",
   "python-pptx>=1,<2",
+  "python-multipart>=0.0.20",
   "sse-starlette>=2.2,<4",
   "uvicorn[standard]>=0.34,<1",
 ]
 
 [project.optional-dependencies]
-ocr = [
-  # Engine wheels are hardware-specific; provision PaddlePaddle separately.
-  "paddleocr[doc-parser]==3.7.0",
-]
-browser = [
-  "playwright>=1.49,<2",
-]
 dev = [
-  "httpx>=0.28,<1",
   "pytest>=8.3,<9",
   "pytest-asyncio>=0.25,<2",
-  # Eval harness task specs (evals/tasks/*.yaml) are read by backend/scripts/run_l2.py.
-  "pyyaml>=6,<7",
   "ruff>=0.9,<1",
 ]
-
-[project.scripts]
-ophira-api = "ophira_backend.main:run"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/ophira_backend"]
@@ -63,6 +45,7 @@ target-version = "py311"
 select = ["E", "F", "I", "UP", "B", "ASYNC"]
 
 [tool.ruff.lint.per-file-ignores]
-# Long Chinese prompt text and event-fixture data lines are data, not code.
-"**/greenpath.py" = ["E501"]
-"**/test_greenpath_verifier.py" = ["E501"]
+# The system prompt is Chinese prose; its lines are data, not code.
+"**/agent.py" = ["E501"]
+# Tests inspect the snapshot repository with plain git calls.
+"tests/**" = ["ASYNC221"]

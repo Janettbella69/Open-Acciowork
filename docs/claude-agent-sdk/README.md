@@ -17,11 +17,11 @@
 | 任何 SDK 相关改动的第一站 | `python.md`（Python API 全参考：query/ClaudeSDKClient/ClaudeAgentOptions/全部类型） |
 | 权限（can_use_tool / 模式 / 规则） | `permissions.md` + `user-input.md`（审批回传） |
 | Hook（PreToolUse 等生命周期拦截） | `hooks.md` |
-| 进程内 MCP 工具（我们的 7 个 server） | `custom-tools.md`；外部/传输型 MCP 看 `mcp.md`；工具太多看 `tool-search.md` |
+| 自定义 MCP 工具（目前没有；只为和外部系统互通才加） | `custom-tools.md`；外部/传输型 MCP 看 `mcp.md`；工具太多看 `tool-search.md` |
 | Skills / 本地 Plugin 装载 | `skills.md` + `plugins.md` + `claude-code-features.md`（setting_sources） |
 | 系统提示 preset / append | `modifying-system-prompts.md` |
-| 会话续传 / 恢复 / fork | `sessions.md`；外置转录（Phase 4 云 Runner）看 `session-storage.md` |
-| 子代理（仅 Deep Research 模式） | `subagents.md` |
+| 会话续传 / 恢复 / fork | `sessions.md`；外置转录看 `session-storage.md` |
+| 子代理（SDK 原生 Agent 工具） | `subagents.md` |
 | 流式输入/输出 | `streaming-vs-single-mode.md` / `streaming-output.md` |
 | 结构化输出 | `structured-outputs.md` |
 | 成本与用量 | `cost-tracking.md` |

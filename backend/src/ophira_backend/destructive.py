@@ -1,4 +1,4 @@
-"""Detect irreversible file-delete actions (FR-13 Cowork iron rule)."""
+"""Recognise irreversible deletes; the PreToolUse hook sends them to the person."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ import shlex
 from pathlib import PurePath
 from typing import Any
 
-from .constants import DELETE_BUILTIN_TOOLS
+DELETE_BUILTIN_TOOLS = ("Delete",)
 
 _DELETE_COMMANDS = {
     "del",

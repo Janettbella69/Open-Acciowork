@@ -1,329 +1,107 @@
-import asyncio
+"""The HTTP surface around a turn: files, uploads, feedback, origins, replay."""
+
+from __future__ import annotations
+
 import io
 import json
-import zipfile
-from pathlib import Path
-from uuid import uuid4
 
-import pytest
-from httpx import ASGITransport, AsyncClient
-
-from ophira_backend.config import Settings
-from ophira_backend.constants import RunStatus
-from ophira_backend.main import create_app
-from ophira_backend.models import RunRecord
+from pypdf import PdfWriter
 
 
-class FakeRuntime:
-    def __init__(self) -> None:
-        self.runs: list[str] = []
-        self.cancelled: list[str] = []
-
-    async def run(self, run: RunRecord) -> None:
-        self.runs.append(run.id)
-
-    async def cancel(self, run_id: str) -> None:
-        self.cancelled.append(run_id)
-
-
-class BlockingRuntime(FakeRuntime):
-    def __init__(self) -> None:
-        super().__init__()
-        self.started = asyncio.Event()
-
-    async def run(self, run: RunRecord) -> None:
-        self.runs.append(run.id)
-        self.started.set()
-        await asyncio.Event().wait()
+async def test_projects_are_folders(harness):
+    project = await harness.project("宠物用品")
+    assert project["name"] == "宠物用品"
+    listed = (await harness.http.get("/api/projects")).json()
+    assert [p["id"] for p in listed] == [project["id"]]
+    folder = harness.store.project_dir(project["id"])
+    assert {p.name for p in folder.iterdir()} >= {"project.json", "workspace", "claude", "runs",
+                                                 "snapshots.git"}
+    assert (await harness.http.get("/api/projects/prj_0000000000000000")).status_code == 404
+    assert (await harness.http.get("/api/projects/../../etc")).status_code == 404
 
 
-def _skill_archive(version: str, body: str) -> bytes:
-    payload = io.BytesIO()
-    with zipfile.ZipFile(payload, "w") as archive:
-        archive.writestr(
-            "tenant-research/SKILL.md",
-            "---\n"
-            "name: tenant-research\n"
-            "description: Immutable tenant research method\n"
-            f"version: {version}\n"
-            "---\n"
-            f"{body}\n",
-        )
-    return payload.getvalue()
+async def test_files_round_trip_and_stay_inside_the_workspace(harness):
+    project = await harness.project()
+    pid = project["id"]
+    (harness.store.workspace(pid) / "brief.md").write_text("结论", encoding="utf-8")
+    files = (await harness.http.get(f"/api/projects/{pid}/files")).json()
+    assert [f["path"] for f in files] == ["brief.md"]
+    got = await harness.http.get(f"/api/projects/{pid}/files/brief.md")
+    assert got.status_code == 200 and got.text == "结论"
+    escape = await harness.http.get(f"/api/projects/{pid}/files/..%2Fproject.json")
+    assert escape.status_code == 404
 
 
-async def _publish_private_skill(client, version, body):
-    staged = await client.post(
-        f"/api/skills/install?request_id={uuid4().hex}",
-        content=_skill_archive(version, body),
-        headers={"content-type": "application/zip"},
-    )
-    assert staged.status_code == 201, staged.text
-    detail = staged.json()
-    assert detail["import"]["state"] == "pending"
-    published = await client.post(
-        f"/api/skills/imports/{detail['import']['id']}/review",
-        json={
-            "request_id": uuid4().hex,
-            "decision": "approve",
-            "revision": detail["import"]["revision"],
-            "content_hash": detail["import"]["skill"]["content_hash"],
-            "expected_target": detail["current_target"],
-            "note": "Test human reviewed the frozen package",
-        },
-    )
-    assert published.status_code == 200, published.text
-    return published.json()["import"]["skill"]
+async def test_a_pdf_upload_gets_a_markdown_copy_before_the_agent_sees_it(harness):
+    project = await harness.project()
+    buffer = io.BytesIO()
+    writer = PdfWriter()
+    writer.add_blank_page(width=200, height=200)
+    writer.write(buffer)
+    response = await harness.http.post(
+        f"/api/projects/{project['id']}/files",
+        files={"file": ("../报价单.pdf", buffer.getvalue(), "application/pdf")})
+    assert response.status_code == 201
+    saved = response.json()["saved"]
+    assert saved == ["uploads/报价单.pdf", "uploads/报价单.pdf.md"]
+    companion = harness.store.workspace(project["id"]) / saved[1]
+    assert "扫描件" in companion.read_text(encoding="utf-8")
 
 
-@pytest.mark.asyncio
-async def test_runtime_provider_status_never_returns_the_key(tmp_path: Path) -> None:
-    app = create_app(
-        Settings(
-            data_dir=tmp_path,
-            claude_model="qwen3.7-plus",
-            ANTHROPIC_BASE_URL="https://coding.dashscope.aliyuncs.com/apps/anthropic",
-            ANTHROPIC_AUTH_TOKEN="qwen-secret",
-        ),
-        runtime=FakeRuntime(),
-    )
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://localhost") as client:
-        response = await client.get("/api/runtime/provider")
-
-    assert response.status_code == 200
-    assert response.json() == {
-        "api_credentials_configured": True,
-        "authentication": "auth_token",
-        "base_url": "https://coding.dashscope.aliyuncs.com/apps/anthropic",
-        "model": "qwen3.7-plus",
-    }
-    assert "qwen-secret" not in response.text
+async def test_feedback_is_kept_as_a_file(harness):
+    project = await harness.project()
+    response = await harness.http.post(f"/api/projects/{project['id']}/feedback",
+                                       json={"text": "运费算错了", "run_id": "run_1"})
+    assert response.status_code == 201
+    lines = (harness.store.project_dir(project["id"]) / "feedback.jsonl").read_text(
+        encoding="utf-8").splitlines()
+    assert json.loads(lines[0])["text"] == "运费算错了"
 
 
-@pytest.mark.asyncio
-async def test_project_run_and_protocol_api(tmp_path: Path) -> None:
-    runtime = FakeRuntime()
-    app = create_app(Settings(data_dir=tmp_path), runtime=runtime)
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://localhost") as client:
-        response = await client.get("/api/meta/protocol")
-        assert response.status_code == 200
-        protocol = response.json()
-        assert "tool.started" in protocol["event_types"]
-        assert protocol["commercial_review_decisions"] == ["approve", "reject"]
-        assert protocol["external_execution_statuses"] == [
-            "not_executed",
-            "attempting",
-            "retryable_failed",
-            "succeeded",
-            "terminal_failed",
-        ]
-        assert protocol["presentation_schema_versions"] == ["1"]
-        assert protocol["presentation_components"] == [
-            "evidence_comparison",
-            "supplier_comparison",
-            "unit_economics",
-            "decision_brief",
-            "commercial_action_diff",
-            "artifact_list",
-        ]
-
-        response = await client.post(
-            "/api/projects",
-            json={"name": "Kettle", "objective": "Validate EU demand"},
-        )
-        assert response.status_code == 201
-        project_id = response.json()["id"]
-
-        response = await client.get("/api/projects")
-        assert response.status_code == 200
-        assert [project["id"] for project in response.json()] == [project_id]
-
-        response = await client.post(
-            f"/api/projects/{project_id}/runs",
-            json={"prompt": "Find the weakest dimension"},
-        )
-        assert response.status_code == 202
-        run_id = response.json()["id"]
-
-        for _ in range(30):
-            response = await client.get(f"/api/runs/{run_id}")
-            if response.json()["status"] == RunStatus.COMPLETED.value:
-                break
-            await asyncio.sleep(0.01)
-        assert response.json()["status"] == RunStatus.COMPLETED.value
-        assert runtime.runs == [run_id]
-
-        response = await client.get(f"/api/projects/{project_id}/runs")
-        assert response.status_code == 200
-        assert [run["id"] for run in response.json()] == [run_id]
-
-        response = await client.get("/api/projects/project_missing/runs")
-        assert response.status_code == 404
-
-        events = app.state.ledger.list_events(run_id)
-        assert events[0].type == "run.created"
-        assert events[-1].type == "run.completed"
+async def test_other_sites_cannot_drive_the_api(harness):
+    blocked = await harness.http.post("/api/projects", json={"name": "x"},
+                                      headers={"origin": "https://evil.example"})
+    assert blocked.status_code == 403
+    site = await harness.http.post("/api/projects", json={"name": "x"},
+                                   headers={"origin": "https://trademind.store"})
+    assert site.status_code == 201
+    same = await harness.http.post("/api/projects", json={"name": "x"},
+                                   headers={"origin": "http://127.0.0.1:8000"})
+    assert same.status_code == 201
 
 
-@pytest.mark.asyncio
-async def test_cancel_interrupts_runtime_and_reaches_terminal_state(tmp_path: Path) -> None:
-    runtime = BlockingRuntime()
-    app = create_app(Settings(data_dir=tmp_path), runtime=runtime)
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://localhost") as client:
-        project = await client.post(
-            "/api/projects",
-            json={"name": "Kettle", "objective": "Validate"},
-        )
-        project_id = project.json()["id"]
-        started = await client.post(
-            f"/api/projects/{project_id}/runs",
-            json={"prompt": "Start"},
-        )
-        run_id = started.json()["id"]
-        await asyncio.wait_for(runtime.started.wait(), timeout=1)
-        partial = app.state.ledger.workspace_for_project(project_id) / "partial-report.md"
-        partial.write_text("recoverable work", encoding="utf-8")
-
-        response = await client.post(f"/api/runs/{run_id}/cancel")
-        assert response.status_code == 200
-        assert response.json()["status"] == RunStatus.CANCELLED.value
-        assert runtime.cancelled == [run_id]
-        events = app.state.ledger.list_events(run_id)
-        assert events[-1].type == "run.cancelled"
-        artifact_events = [event for event in events if event.type == "artifact.registered"]
-        assert artifact_events
-        assert artifact_events[-1].data["path"] == "partial-report.md"
-        assert artifact_events[-1].sequence < events[-1].sequence
+async def test_finished_turns_replay_from_the_log_after_the_last_seen_event(harness):
+    project = await harness.project()
+    run = await harness.run_to_end(project["id"])
+    async with harness.http.stream("GET", f"/api/runs/{run['id']}/events",
+                                   headers={"last-event-id": "2"}) as response:
+        body = "".join([chunk async for chunk in response.aiter_text()])
+    seqs = [json.loads(line[5:])["seq"] for line in body.splitlines() if line.startswith("data:")]
+    assert seqs == [3, 4]
 
 
-@pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "path",
-    [
-        "/api/projects/project_any/files?filename=large.bin",
-        "/api/skills/install?request_id=oversize_upload_request_0001",
-    ],
-)
-async def test_binary_uploads_reject_declared_oversize_before_buffering(
-    tmp_path: Path,
-    path: str,
-) -> None:
-    app = create_app(Settings(data_dir=tmp_path), runtime=FakeRuntime())
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://localhost") as client:
-        response = await client.post(
-            path,
-            content=b"small",
-            headers={"content-length": str(100 * 1024 * 1024)},
-        )
-
-    assert response.status_code == 413
+async def test_answering_a_finished_request_is_a_404(harness):
+    project = await harness.project()
+    run = await harness.run_to_end(project["id"])
+    response = await harness.http.post(f"/api/runs/{run['id']}/permissions/req_x",
+                                       json={"allow": True})
+    assert response.status_code == 404
 
 
-@pytest.mark.asyncio
-async def test_skill_history_and_rollback_are_available_through_the_api(
-    tmp_path: Path,
-) -> None:
-    app = create_app(Settings(data_dir=tmp_path), runtime=FakeRuntime())
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://localhost") as client:
-        first = await _publish_private_skill(client, "1.0.0", "Use the first reviewed method.")
-        second = await _publish_private_skill(client, "2.0.0", "Use the second reviewed method.")
-        assert "path" not in first
-        assert "path" not in second
-        skill_id = second["id"]
+async def test_a_turn_cut_off_by_a_restart_is_closed_honestly(harness, tmp_path):
+    from ophira_backend.main import create_app
 
-        history = await client.get(f"/api/skills/{skill_id}/versions")
-        assert history.status_code == 200
-        assert {(item["version"], item["content_hash"]) for item in history.json()} == {
-            ("1.0.0", first["content_hash"]),
-            ("2.0.0", second["content_hash"]),
-        }
-
-        restored = await client.post(
-            f"/api/skills/{skill_id}/rollback",
-            json={"content_hash": first["content_hash"]},
-        )
-        assert restored.status_code == 200
-        assert restored.json()["version"] == "1.0.0"
-        assert restored.json()["content_hash"] == first["content_hash"]
-        assert restored.json()["enabled"] is False
-
-        invalid = await client.post(
-            f"/api/skills/{skill_id}/rollback",
-            json={
-                "version": "1.0.0",
-                "content_hash": first["content_hash"],
-            },
-        )
-        assert invalid.status_code == 422
+    project = await harness.project()
+    run = harness.store.create_run(project["id"], "调研")  # never finished: the process died
+    harness.store.append_event(project["id"], run["id"], json.dumps(
+        {"seq": 1, "at": "t", "source": "host", "type": "run.started", "data": {}}))
+    restarted = create_app(harness.settings)
+    store = restarted.state.store
+    assert store.find_run(run["id"])["status"] == "failed"
+    last = store.read_events(project["id"], run["id"])[-1]
+    assert last["seq"] == 2 and last["type"] == "run.finished"
+    assert last["data"] == {"status": "failed", "error": "后台重启了，这一轮中断了。"}
 
 
-@pytest.mark.asyncio
-async def test_skill_history_api_distinguishes_input_conflict_and_integrity_errors(
-    tmp_path: Path,
-) -> None:
-    app = create_app(Settings(data_dir=tmp_path), runtime=FakeRuntime())
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://localhost") as client:
-        invalid_id = await client.get("/api/skills/not-a-skill-id/versions")
-        missing = await client.get("/api/skills/ophira-tenant:missing/versions")
-        application_conflict = await client.post(
-            "/api/skills/ophira-core:customer-path/rollback",
-            json={"version": "1.0.0"},
-        )
-
-        assert invalid_id.status_code == 400
-        assert missing.status_code == 404
-        assert application_conflict.status_code == 409
-
-        installed = await _publish_private_skill(client, "1.0.0", "Reviewed package.")
-        internal = app.state.skills.get(installed["id"])
-        skill_path = Path(internal.path)
-
-        def tamper_history() -> None:
-            skill_path.chmod(0o644)
-            skill_path.write_text(
-                skill_path.read_text(encoding="utf-8") + "\ntampered after publish\n",
-                encoding="utf-8",
-            )
-
-        await asyncio.to_thread(tamper_history)
-        corrupted = await client.get(
-            f"/api/skills/{installed['id']}/versions"
-        )
-
-    assert corrupted.status_code == 500
-    assert corrupted.json()["detail"] == "Skill registry integrity validation failed"
-    assert "path" not in corrupted.text
-
-
-@pytest.mark.asyncio
-async def test_skill_install_hides_corrupted_registry_state_details(tmp_path: Path) -> None:
-    app = create_app(Settings(data_dir=tmp_path), runtime=FakeRuntime())
-    app.state.skills.registry_state_path.write_text("[]\n", encoding="utf-8")
-
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://localhost") as client:
-        response = await client.post(
-            "/api/skills/install?request_id=corrupt_state_request_0001",
-            content=_skill_archive("1.0.0", "Reviewed package."),
-            headers={"content-type": "application/zip"},
-        )
-        app.state.skills.registry_state_path.write_text(
-            json.dumps(
-                {
-                    "schema_version": 1,
-                    "enabled": {"ophira-tenant:ghost": False},
-                    "current": {"ophira-tenant:ghost": "0" * 64},
-                }
-            ),
-            encoding="utf-8",
-        )
-        missing_history = await client.post(
-            "/api/skills/ophira-tenant:ghost/enable"
-        )
-        invalid_test = await client.post("/api/skills/not-an-id/test")
-
-    assert response.status_code == 409
-    assert response.json()["detail"] == "Private Skill storage could not be verified"
-    assert str(tmp_path) not in response.text
-    assert missing_history.status_code == 500
-    assert missing_history.json()["detail"] == "Skill registry integrity validation failed"
-    assert invalid_test.status_code == 400
+async def test_health(harness):
+    assert (await harness.http.get("/health")).json() == {"ok": True, "model": "fake-model"}

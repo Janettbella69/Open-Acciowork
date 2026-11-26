@@ -1,5 +1,7 @@
-# CI = PRD §6.1 架构静态门禁 + L1 确定性检查 + 前端质量门。
-# 真端点用例（Green Path / Provider 合约）由环境变量门控，在 CI 中自动 skip，不花钱。
+# Backend lint and tests, frontend lint, tests and build.
+# tests/test_e2e_cli.py (the real Claude Code CLI against a scripted local model) is skipped
+# here: it needs the SDK sandbox, which on Ubuntu 24.04 needs bubblewrap plus an AppArmor
+# profile (deploy/shared-box/README.md). Run it locally with OPHIRA_E2E_CLI=1.
 name: ci
 
 on:
@@ -9,29 +11,6 @@ on:
     branches: [main]
 
 jobs:
-  worker-resources:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-          cache: pip
-      - run: pip install -e './backend[dev]'
-      - name: Start the disposable runner's unprivileged systemd manager
-        run: |
-          worker_test_uid="$(id -u)"
-          sudo loginctl enable-linger "$(id -un)"
-          sudo systemctl start "user@${worker_test_uid}.service"
-          printf 'XDG_RUNTIME_DIR=/run/user/%s\n' "$worker_test_uid" >> "$GITHUB_ENV"
-          printf 'DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/%s/bus\n' "$worker_test_uid" >> "$GITHUB_ENV"
-      - name: Enforce real CPU, memory, task and descendant limits
-        run: pytest backend/tests/test_worker_envelope.py backend/tests/test_worker_systemd.py -q
-        env:
-          PYTHONPATH: backend/src
-          OPHIRA_REQUIRE_SYSTEMD_TESTS: "1"
-
   backend:
     runs-on: ubuntu-latest
     steps:
@@ -40,44 +19,15 @@ jobs:
         with:
           python-version: "3.11"
           cache: pip
-      - name: Install backend
-        run: pip install -e './backend[dev]'
-      - name: Lint (ruff)
-        run: ruff check backend/src backend/tests
-      - name: Tests (L1 gates + unit)
-        run: pytest backend/tests
+      - run: pip install -e './backend[dev]'
+      - name: Lint
+        run: ruff check src tests
+        working-directory: backend
+      - name: Tests
+        run: pytest
+        working-directory: backend
         env:
-          PYTHONPATH: backend/src
-
-  # 旧痕迹门禁：仓库 2026-08-20 由 Ophira-ai 更名而来。危险的"旧指针形式"
-  # （旧 GitHub URL、旧本地路径）一旦回流会把新 AI 会话带向不存在的位置——
-  # 靠 grep 物理拦截，不靠自觉（教材 6.4：把纪律变成结构）。
-  hygiene:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Stale-pointer guard
-        run: |
-          if git grep -nE "Janettbella69/Ophira-ai|/Users/[a-z]+/Ophira-ai" -- . ':!.github/workflows/ci.yml'; then
-            echo "::error::Stale Ophira-ai pointer found — repo renamed to Open-Acciowork on 2026-08-20."
-            exit 1
-          fi
-          echo "No stale pointers."
-
-  # 评测工具独立于主系统：不安装 backend 包即可测（解耦边界的 CI 证明）。
-  evals-tools:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-      - name: Install test deps only
-        run: pip install pytest ruff
-      - name: Lint (ruff)
-        run: ruff check evals/tools
-      - name: Tests (stdlib-only)
-        run: pytest evals/tools/tests
+          PYTHONPATH: src
 
   frontend:
     runs-on: ubuntu-latest
@@ -91,11 +41,20 @@ jobs:
           node-version: "20"
           cache: npm
           cache-dependency-path: frontend/package-lock.json
-      - name: Install
-        run: npm ci
-      - name: Lint
-        run: npm run lint
-      - name: Tests
-        run: npm run test:run
-      - name: Build (type-checked)
-        run: npm run build
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run test:run
+      - run: npm run build
+
+  # The repository was renamed from Ophira-ai on 2026-08-20; an old pointer sends a new AI
+  # session to a place that no longer exists.
+  hygiene:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Stale-pointer guard
+        run: |
+          if git grep -nE "Janettbella69/Ophira-ai|/Users/[a-z]+/Ophira-ai" -- . ':!.github/workflows/ci.yml'; then
+            echo "::error::Stale Ophira-ai pointer found — repo renamed to Open-Acciowork on 2026-08-20."
+            exit 1
+          fi

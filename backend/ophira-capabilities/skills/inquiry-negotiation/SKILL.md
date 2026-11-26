@@ -21,9 +21,9 @@ version: 1.2.0
 ## 方法选择
 
 1. 交期/MOQ/认证等缺口会影响报价或承诺时用 AskUserQuestion 补问；其余缺项保留 unknown，先完成可用草稿。
-2. 用 `mcp__ophira_supplier__draft_outbound` 生成草稿；发送必须经用户批准。
-3. 报价对比走 `compare_supplier_quotes`；缺字段标 unknown。
-4. 每一次对外草稿与依据证据写入账本。
+2. 直接起草询盘或还价，存成工作区里的文件；发送必须经用户批准。
+3. 报价对比先统一规格、数量和币种，再写 Python 算；缺字段标 unknown。
+4. 每一份对外草稿和它依据的证据出处都留在工作区里。
 
 ## 按需资源
 

@@ -3,13 +3,12 @@ import react from '@vitejs/plugin-react'
 
 export default defineConfig({
   plugins: [react()],
-  build: {
-    rollupOptions: { input: { main: 'index.html', maintenance: 'maintenance.html' } },
-  },
   server: {
+    // Keep the browser's Host header: the backend refuses requests whose Origin does not
+    // match the Host they arrived with (main.py, same_origin_only).
     proxy: {
-      '/api': 'http://127.0.0.1:8000',
-      '/health': 'http://127.0.0.1:8000',
+      '/api': { target: 'http://127.0.0.1:8000', changeOrigin: false },
+      '/health': { target: 'http://127.0.0.1:8000', changeOrigin: false },
     },
   },
   test: {
