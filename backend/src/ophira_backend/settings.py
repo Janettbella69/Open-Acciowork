@@ -36,6 +36,18 @@ class Settings(BaseSettings):
     # Cost fuse per run (billing infrastructure, not a turn limit).
     max_budget_usd: float = 10.0
 
+    # The person's Shopify store, through an app of the same organisation (client
+    # credentials grant). Empty store means no Shopify tool at all.
+    shopify_store: str = ""  # the subdomain: <store>.myshopify.com
+    shopify_client_id: str = ""
+    shopify_client_secret: SecretStr = SecretStr("")
+    shopify_api_version: str = "2026-10"
+
+    @property
+    def shopify_configured(self) -> bool:
+        return bool(self.shopify_store and self.shopify_client_id
+                    and self.shopify_client_secret.get_secret_value())
+
     # Where this backend listens, so the CLI can reach the model gateway on loopback.
     self_url: str = "http://127.0.0.1:8000"
     # Browser origins allowed besides same-host, comma-separated (the public site

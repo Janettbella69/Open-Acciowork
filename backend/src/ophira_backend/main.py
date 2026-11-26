@@ -22,6 +22,7 @@ from sse_starlette.sse import EventSourceResponse
 from .agent import AgentRunner, ClientFactory, RunBusyError
 from .gateway import ModelGateway, gateway_router
 from .settings import Settings, get_settings
+from .shopify import ShopifyClient
 from .store import NotFoundError, Store, require_git
 
 MAX_UPLOAD_BYTES = 50 * 1024 * 1024
@@ -58,8 +59,10 @@ def create_app(settings: Settings | None = None,
     store = Store(settings.data_dir)
     store.close_interrupted_runs()  # nothing is running yet in this process
     gateway = ModelGateway(settings)
+    shopify = ShopifyClient(settings) if settings.shopify_configured else None
     runner = AgentRunner(settings, store, gateway, settings.self_url,
-                         **({"client_factory": client_factory} if client_factory else {}))
+                         **({"client_factory": client_factory} if client_factory else {}),
+                         shopify=shopify)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -68,6 +71,8 @@ def create_app(settings: Settings | None = None,
             await runner.cancel(run_id)
         await runner.wait_idle()
         await gateway.aclose()
+        if shopify:
+            await shopify.aclose()
 
     app = FastAPI(title="TradeMind", lifespan=lifespan)
     app.state.store, app.state.runner, app.state.gateway = store, runner, gateway

@@ -37,6 +37,9 @@ from claude_agent_sdk import (
 from .destructive import is_destructive_delete
 from .gateway import GATEWAY_PATH, ModelGateway
 from .settings import Settings
+from .shopify import SERVER_NAME as SHOPIFY_SERVER
+from .shopify import TOOL_NAME as SHOPIFY_TOOL
+from .shopify import ShopifyClient, is_mutation
 from .store import Store, new_id, now
 
 logger = logging.getLogger(__name__)
@@ -155,7 +158,9 @@ class LiveRun:
 
 class AgentRunner:
     def __init__(self, settings: Settings, store: Store, gateway: ModelGateway,
-                 gateway_url: str, client_factory: ClientFactory = ClaudeSDKClient) -> None:
+                 gateway_url: str, client_factory: ClientFactory = ClaudeSDKClient,
+                 shopify: ShopifyClient | None = None) -> None:
+        self.shopify = shopify
         self.settings = settings
         self.store = store
         self.gateway = gateway
@@ -189,6 +194,14 @@ class AgentRunner:
             env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] = str(self.settings.model_context_window)
         return env
 
+    def system_prompt(self) -> str:
+        if not self.shopify:
+            return SYSTEM_PROMPT_APPEND
+        line = (f"- 用户的 Shopify 店铺（{self.shopify.store}.myshopify.com）：用 admin_graphql 工具读写，"
+                "改动店铺之前会先等用户点头。\n")
+        anchor = "- 跨境做事的经验在 Skill 里，用得上就读。\n"
+        return SYSTEM_PROMPT_APPEND.replace(anchor, anchor + line)
+
     def writable(self, project_id: str, candidate: str | None) -> bool:
         """The Agent writes in its workspace and in its own memory folder, nowhere else."""
         if not candidate:
@@ -218,6 +231,11 @@ class AgentRunner:
                     "hookEventName": "PreToolUse", "permissionDecision": "deny",
                     "permissionDecisionReason": "只能写本项目工作区（和你的记忆目录）里的文件。",
                 }}
+            if name == SHOPIFY_TOOL and is_mutation(str(args.get("query", ""))):
+                return {"hookSpecificOutput": {
+                    "hookEventName": "PreToolUse", "permissionDecision": "ask",
+                    "permissionDecisionReason": "改动店铺要用户确认。",
+                }}
             if is_destructive_delete(name, args):
                 return {"hookSpecificOutput": {
                     "hookEventName": "PreToolUse", "permissionDecision": "ask",
@@ -246,16 +264,16 @@ class AgentRunner:
         return ClaudeAgentOptions(
             tools={"type": "preset", "preset": "claude_code"},
             system_prompt={"type": "preset", "preset": "claude_code",
-                           "append": SYSTEM_PROMPT_APPEND},
+                           "append": self.system_prompt()},
             cwd=str(self.store.workspace(project_id)),
             env=self.model_env(project_id),
             setting_sources=[],
             plugins=[{"type": "local", "path": str(self.settings.capabilities_dir)}],
             skills="all",
-            mcp_servers={},
+            mcp_servers={SHOPIFY_SERVER: self.shopify.server()} if self.shopify else {},
             strict_mcp_config=True,
             permission_mode="default",
-            allowed_tools=AUTO_ALLOWED_TOOLS,
+            allowed_tools=AUTO_ALLOWED_TOOLS + ([SHOPIFY_TOOL] if self.shopify else []),
             can_use_tool=can_use_tool,
             hooks={"PreToolUse": [HookMatcher(hooks=[pre_tool_use])]},
             sandbox={
