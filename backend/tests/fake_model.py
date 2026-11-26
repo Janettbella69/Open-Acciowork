@@ -83,9 +83,11 @@ class FakeModel:
             # first user message, rebuilt from the current MEMORY.md on every start.
             remembered = any("auto-memory" in t and "宠物用品到美国" in t for t in texts)
             return [{"type": "text", "text": f"记忆{'在' if remembered else '不在'}"}]
-        prompt = system_text(body)
-        cwd = find_path(r"[Ww]orking directory: (\S+)", prompt)
-        memory_dir = find_path(r"(/\S+/memory)/", prompt)
+        # Where the CLI puts these moves between versions (2.1.238 had the environment in
+        # the system prompt; newer ones send it in the first user message), so look in both.
+        context = all_text(body)
+        cwd = find_path(r"[Ww]orking directory: (\S+?)(?:\\n|\s)", context)
+        memory_dir = find_path(r"(/[^\s`\"]+/memory)/", context)
         step = len(tool_results(body))
         plan = [
             ("Write", {"file_path": f"{cwd}/plan.md", "content": "# 选品计划\n"}),
