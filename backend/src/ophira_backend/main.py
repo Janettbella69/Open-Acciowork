@@ -56,6 +56,7 @@ def create_app(settings: Settings | None = None,
     settings = settings or get_settings()
     require_git()
     store = Store(settings.data_dir)
+    store.close_interrupted_runs()  # nothing is running yet in this process
     gateway = ModelGateway(settings)
     runner = AgentRunner(settings, store, gateway, settings.self_url,
                          **({"client_factory": client_factory} if client_factory else {}))

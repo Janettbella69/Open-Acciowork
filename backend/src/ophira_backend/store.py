@@ -146,6 +146,23 @@ class Store:
         runs = [_read_json(p) for p in self._runs_dir(project_id).glob("run_*.json")]
         return sorted(runs, key=lambda r: r["created_at"])
 
+    def close_interrupted_runs(self) -> None:
+        """A turn still marked running when the process starts was cut off by a restart.
+
+        Say so in its record and its log, so nobody waits for an ending that will not come.
+        """
+        reason = "后台重启了，这一轮中断了。"
+        for path in self.root.glob("prj_*/runs/run_*.json"):
+            run = _read_json(path)
+            if run["status"] != "running":
+                continue
+            events = self.read_events(run["project_id"], run["id"])
+            self.finish_run(run["project_id"], run["id"], "failed", reason)
+            self.append_event(run["project_id"], run["id"], json.dumps({
+                "seq": (events[-1]["seq"] if events else 0) + 1, "at": now(), "source": "host",
+                "type": "run.finished", "data": {"status": "failed", "error": reason},
+            }, ensure_ascii=False))
+
     def append_event(self, project_id: str, run_id: str, line: str) -> None:
         with (self._runs_dir(project_id) / f"{run_id}.jsonl").open("a", encoding="utf-8") as fh:
             fh.write(line + "\n")

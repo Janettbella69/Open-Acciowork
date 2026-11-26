@@ -88,5 +88,20 @@ async def test_answering_a_finished_request_is_a_404(harness):
     assert response.status_code == 404
 
 
+async def test_a_turn_cut_off_by_a_restart_is_closed_honestly(harness, tmp_path):
+    from ophira_backend.main import create_app
+
+    project = await harness.project()
+    run = harness.store.create_run(project["id"], "调研")  # never finished: the process died
+    harness.store.append_event(project["id"], run["id"], json.dumps(
+        {"seq": 1, "at": "t", "source": "host", "type": "run.started", "data": {}}))
+    restarted = create_app(harness.settings)
+    store = restarted.state.store
+    assert store.find_run(run["id"])["status"] == "failed"
+    last = store.read_events(project["id"], run["id"])[-1]
+    assert last["seq"] == 2 and last["type"] == "run.finished"
+    assert last["data"] == {"status": "failed", "error": "后台重启了，这一轮中断了。"}
+
+
 async def test_health(harness):
     assert (await harness.http.get("/health")).json() == {"ok": True, "model": "fake-model"}

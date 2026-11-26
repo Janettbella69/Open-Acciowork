@@ -1,433 +1,164 @@
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { FeedbackItem, OpportunityProject, OrgPolicy, RunRecord } from '../api/types'
-import { useOpportunityRuntime } from '../api/useOpportunityRuntime'
-import { useScopedEvents } from '../api/useScopedEvents'
-import { scopedEvent } from '../test/scopedEventFixtures'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import type { RunEvent } from '../api'
 import Workspace from './Workspace'
 
-vi.mock('../api/useOpportunityRuntime', () => ({ useOpportunityRuntime: vi.fn() }))
-vi.mock('../api/useScopedEvents', () => ({ useScopedEvents: vi.fn(() => ({ events: [], status: 'live', error: '', refresh: vi.fn() })) }))
-vi.mock('../api/client', () => ({
-  listProviders: vi.fn(async () => []),
-  getOrgPolicy: vi.fn(),
-  getRunLimits: vi.fn(async () => ({ max_budget_usd: 10 })),
-  saveOrgPolicy: vi.fn(),
-  submitFeedback: vi.fn(),
-  errorMessage: (error: unknown) => error instanceof Error ? error.message : 'unknown error',
-}))
+type Call = { method: string; url: string; body?: unknown }
 
-import { getOrgPolicy, saveOrgPolicy, submitFeedback } from '../api/client'
-
-const organizationPolicy: OrgPolicy = {
-  permission_mode: 'default',
-  allowed_provider_ids: [],
-  allowed_skill_ids: [],
-  remote_mcp_enabled: true,
-  allowed_mcp_hosts: [],
-  browser_enabled: true,
-  computer_control_enabled: false,
-  allowed_desktop_bundle_ids: [],
-  channel_delivery_enabled: false,
-  domain_allowlist: [],
-  commercial_actions_enabled: false,
-  allowed_commercial_operations: [],
-  allowed_commercial_connector_ids: [],
-  commercial_max_changes_per_action: 20,
-  commercial_forbidden_fields: [],
-  commercial_numeric_limits: [],
-  updated_at: '2026-09-11T00:00:00Z',
+class FakeEventSource {
+  static instances: FakeEventSource[] = []
+  static readonly CLOSED = 2
+  onmessage: ((message: { data: string }) => void) | null = null
+  onerror: (() => void) | null = null
+  readyState = 1
+  constructor(readonly url: string) {
+    FakeEventSource.instances.push(this)
+  }
+  emit(event: Omit<RunEvent, 'at'>) {
+    act(() => this.onmessage?.({ data: JSON.stringify({ at: 'now', ...event }) }))
+  }
+  close() {
+    this.readyState = FakeEventSource.CLOSED
+  }
 }
 
-const retryRuntime = vi.fn()
-
-const failedRun: RunRecord = {
-  id: 'run_failed',
-  trace_id: 'trace_failed',
-  project_id: 'project_1',
-  prompt: 'Research this market',
-  agent_id: null,
-  mode: 'standard',
-  provider_profile_id: null,
-  provider_snapshot: null,
-  skill_snapshot: [],
-  status: 'failed',
-  sdk_session_id: null,
-  error: 'Provider timed out',
-  error_code: 'PROVIDER_TIMEOUT',
-  created_at: '2026-09-02T00:00:00Z',
-  started_at: '2026-09-02T00:00:00Z',
-  finished_at: '2026-09-02T00:01:00Z',
+const project = { id: 'prj_1', name: '宠物用品', created_at: 'now', session_id: null }
+const run = {
+  id: 'run_1', project_id: 'prj_1', prompt: '我想卖宠物用品', status: 'running',
+  created_at: 'now', finished_at: null, error: null,
 }
+let calls: Call[]
+let projects: unknown[]
 
-const recordedFeedback: FeedbackItem = {
-  id: 'feedback_1',
-  project_id: 'project_1',
-  run_id: 'run_failed',
-  evidence_id: null,
-  kind: 'run_failure',
-  user_note: 'User flagged a run failure.',
-  status: 'open',
-  created_at: '2026-09-02T00:02:00Z',
+function respond(body: unknown, status = 200) {
+  return Promise.resolve(new Response(JSON.stringify(body), { status }))
 }
 
 beforeEach(() => {
-  vi.clearAllMocks()
-  vi.mocked(useOpportunityRuntime).mockReturnValue({
-    projects: [],
-    project: null,
-    run: failedRun,
-    previousTurns: [],
-    telemetry: null,
-    events: [],
-    assistantText: '',
-    reasoningSummary: '',
-    permissions: [],
-    permissionBusy: false,
-    connection: 'closed',
-    error: '',
-    starting: false,
-    historyLoading: false,
-    isActive: false,
-    start: vi.fn(),
-    continueProject: vi.fn(),
-    interject: vi.fn(),
-    compact: vi.fn(),
-    retry: retryRuntime,
-    cancel: vi.fn(),
-    decidePermission: vi.fn(),
-    resumePermission: vi.fn(),
-    refreshPermissions: vi.fn(),
-    selectProject: vi.fn(),
-    refreshActiveProject: vi.fn(),
-    discardProject: vi.fn(),
-    discardConversation: vi.fn(),
-    reset: vi.fn(),
+  calls = []
+  projects = []
+  FakeEventSource.instances = []
+  vi.stubGlobal('EventSource', FakeEventSource)
+  vi.stubGlobal('fetch', (url: string, init?: RequestInit) => {
+    const method = init?.method ?? 'GET'
+    const body = typeof init?.body === 'string' ? JSON.parse(init.body) : undefined
+    calls.push({ method, url, body })
+    if (url === '/api/projects' && method === 'GET') return respond(projects)
+    if (url === '/api/projects' && method === 'POST') return respond(project, 201)
+    if (url === '/api/projects/prj_1/runs') return respond(run, 201)
+    if (url === '/api/projects/prj_1') return respond({ ...project, runs: [run], active_run_id: null })
+    if (url === '/api/projects/prj_1/files') return respond([{ path: 'plan.md', size: 3, modified_at: 'now' }])
+    if (url.startsWith('/api/runs/')) return respond({ ok: true })
+    if (url.endsWith('/feedback')) return respond({ at: 'now' }, 201)
+    return respond({ detail: 'unexpected' }, 500)
   })
-  vi.mocked(getOrgPolicy).mockResolvedValue(organizationPolicy)
+  window.history.replaceState(null, '', '/app')
 })
 
-describe('Workspace approval mode', () => {
-  it('saves the composer approval choice onto the latest organization policy', async () => {
-    const latest: OrgPolicy = { ...organizationPolicy, browser_enabled: false, updated_at: '2026-09-11T01:00:00Z' }
-    vi.mocked(getOrgPolicy).mockResolvedValueOnce(organizationPolicy).mockResolvedValueOnce(latest)
-    vi.mocked(saveOrgPolicy).mockImplementationOnce(async (policy) => policy)
-    render(<Workspace />)
+afterEach(() => vi.unstubAllGlobals())
 
-    const trigger = screen.getByRole('button', { name: /open approval mode selector/i })
-    await waitFor(() => expect(trigger).toHaveTextContent('Ask for approval'))
-    fireEvent.click(trigger)
-    fireEvent.click(screen.getByRole('button', { name: /approve for me/i }))
+async function startFirstTurn() {
+  render(<Workspace />)
+  const box = await screen.findByRole('textbox', { name: 'Message' })
+  fireEvent.change(box, { target: { value: '我想卖宠物用品' } })
+  fireEvent.keyDown(box, { key: 'Enter' })
+  await waitFor(() => expect(FakeEventSource.instances).toHaveLength(1))
+  return FakeEventSource.instances[0]
+}
 
-    await waitFor(() => expect(saveOrgPolicy).toHaveBeenCalledWith({ ...latest, permission_mode: 'auto' }))
-    await waitFor(() => expect(trigger).toHaveTextContent('Approve for me'))
-    expect(screen.queryByRole('dialog', { name: /choose an approval mode/i })).not.toBeInTheDocument()
-  })
-
-  it('blocks sends and retries until the approval policy read and save both finish', async () => {
-    let finishRead!: (policy: OrgPolicy) => void
-    let finishSave!: (policy: OrgPolicy) => void
-    vi.mocked(getOrgPolicy).mockResolvedValueOnce({ ...organizationPolicy, permission_mode: 'auto' })
-      .mockImplementationOnce(() => new Promise((resolve) => { finishRead = resolve }))
-    vi.mocked(saveOrgPolicy).mockImplementationOnce(() => new Promise((resolve) => { finishSave = resolve }))
-    const runtime = vi.mocked(useOpportunityRuntime)()
-    vi.mocked(useOpportunityRuntime).mockReturnValue({ ...runtime, run: { ...failedRun, sdk_session_id: 'session_1' } })
-    render(<Workspace />)
-    const brief = screen.getByRole('textbox', { name: /ask trademind/i })
-    fireEvent.change(brief, { target: { value: 'Review the supplier quote' } })
-    const trigger = screen.getByRole('button', { name: /open approval mode selector/i })
-    await waitFor(() => expect(trigger).toHaveTextContent('Approve for me'))
-    fireEvent.click(trigger)
-
-    act(() => {
-      fireEvent.click(screen.getByRole('button', { name: /ask for approval/i }))
-      fireEvent.click(screen.getByRole('button', { name: /ask for approval/i }))
-      fireEvent.click(screen.getByRole('button', { name: /start new branch/i }))
-      fireEvent.submit(brief.closest('form')!)
-    })
-    expect(getOrgPolicy).toHaveBeenCalledTimes(2)
-    expect(runtime.start).not.toHaveBeenCalled()
-    expect(screen.getByRole('button', { name: 'Send' })).toBeDisabled()
-    expect(screen.getByRole('button', { name: /resume session/i })).toBeDisabled()
-    expect(screen.getByRole('button', { name: /start new branch/i })).toBeDisabled()
-    fireEvent.keyDown(brief, { key: 'Enter', ctrlKey: true })
-    fireEvent.click(screen.getByRole('button', { name: /start new branch/i }))
-    expect(retryRuntime).not.toHaveBeenCalled()
-
-    await act(async () => { finishRead({ ...organizationPolicy, permission_mode: 'auto' }) })
-    expect(saveOrgPolicy).toHaveBeenCalledTimes(1)
-    expect(screen.getByRole('button', { name: 'Send' })).toBeDisabled()
-    expect(screen.getByRole('dialog', { name: /choose an approval mode/i })).toBeInTheDocument()
-    fireEvent.submit(brief.closest('form')!)
-    expect(runtime.start).not.toHaveBeenCalled()
-
-    await act(async () => { finishSave(organizationPolicy) })
-    expect(trigger).toHaveTextContent('Ask for approval')
-    expect(screen.getByRole('button', { name: 'Send' })).toBeEnabled()
-    expect(screen.getByRole('button', { name: /start new branch/i })).toBeEnabled()
-    fireEvent.click(screen.getByRole('button', { name: 'Send' }))
-    expect(runtime.start).toHaveBeenCalledWith('Review the supplier quote', [], 'standard', null, null, undefined)
-  })
-
-  it('restores sending after a policy save fails and keeps the selected mode and draft', async () => {
-    let failSave!: (reason: Error) => void
-    vi.mocked(saveOrgPolicy).mockImplementationOnce(() => new Promise((_resolve, reject) => { failSave = reject }))
-    const runtime = vi.mocked(useOpportunityRuntime)()
-    render(<Workspace />)
-    const brief = screen.getByRole('textbox', { name: /ask trademind/i })
-    fireEvent.change(brief, { target: { value: 'Keep this draft' } })
-    const trigger = screen.getByRole('button', { name: /open approval mode selector/i })
-    await waitFor(() => expect(trigger).toHaveTextContent('Ask for approval'))
-    fireEvent.click(trigger)
-    fireEvent.click(screen.getByRole('button', { name: /approve for me/i }))
-    await waitFor(() => expect(saveOrgPolicy).toHaveBeenCalledTimes(1))
-    expect(screen.getByRole('button', { name: 'Send' })).toBeDisabled()
-
-    await act(async () => { failSave(new Error('Policy store unavailable')) })
-    expect(await screen.findByText('Policy store unavailable')).toHaveAttribute('role', 'alert')
-    expect(trigger).toHaveTextContent('Ask for approval')
-    expect(brief).toHaveValue('Keep this draft')
-    expect(screen.getByRole('button', { name: 'Send' })).toBeEnabled()
-    expect(runtime.start).not.toHaveBeenCalled()
-  })
+test('the first message creates a project, starts a turn and streams the reply', async () => {
+  const stream = await startFirstTurn()
+  expect(calls.filter((c) => c.method === 'POST').map((c) => [c.url, c.body])).toEqual([
+    ['/api/projects', { name: '我想卖宠物用品' }],
+    ['/api/projects/prj_1/runs', { prompt: '我想卖宠物用品' }],
+  ])
+  expect(stream.url).toBe('/api/runs/run_1/events')
+  stream.emit({ seq: 1, source: 'host', type: 'run.started', data: {} })
+  stream.emit({ seq: 2, source: 'sdk', type: 'AssistantMessage', data: { content: [
+    { type: 'ToolUseBlock', id: 't1', name: 'WebSearch', input: { query: 'pet supplies US' } },
+  ] } })
+  stream.emit({ seq: 3, source: 'sdk', type: 'AssistantMessage', data: { content: [
+    { type: 'TextBlock', text: '美国宠物用品市场**很大**' },
+  ] } })
+  expect(screen.getByText('Working…')).toBeInTheDocument()
+  expect(screen.getByText('Steps (1)')).toBeInTheDocument()
+  expect(screen.getByText('很大').tagName).toBe('STRONG')
+  stream.emit({ seq: 4, source: 'host', type: 'run.finished', data: { status: 'completed', error: null } })
+  expect(screen.queryByText('Working…')).not.toBeInTheDocument()
+  await waitFor(() => expect(calls.some((c) => c.url === '/api/projects/prj_1')).toBe(true))
 })
 
-describe('Workspace new task', () => {
-  it('starts a task without a per-task budget field, leaving the operator cap to the backend', async () => {
-    const runtime = vi.mocked(useOpportunityRuntime)()
-    render(<Workspace />)
-    fireEvent.change(screen.getByRole('textbox', { name: /ask trademind/i }), {
-      target: { value: 'Compare suppliers' },
-    })
-    expect(screen.queryByRole('spinbutton', { name: /Task budget/ })).not.toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: 'Send' }))
-    await waitFor(() => expect(runtime.start).toHaveBeenCalledWith(
-      'Compare suppliers', [], 'standard', null, null, undefined,
-    ))
-  })
-  it('starts manual compaction for the selected completed SDK session in developer mode', async () => {
-    const runtime = vi.mocked(useOpportunityRuntime)()
-    const completed = { ...failedRun, status: 'completed' as const, sdk_session_id: 'session_1' }
-    vi.mocked(runtime.compact).mockResolvedValue({ ...completed, id: 'run_compact', manual_compaction: true })
-    vi.mocked(useOpportunityRuntime).mockReturnValue({ ...runtime, run: completed })
-    window.history.replaceState({}, '', '/app?dev=1')
-    try {
-      render(<Workspace />)
-      fireEvent.click(screen.getByRole('button', { name: 'Compact context' }))
-      await waitFor(() => expect(runtime.compact).toHaveBeenCalledOnce())
-    } finally {
-      window.history.replaceState({}, '', '/app')
-    }
-  })
-
-  it('continues a reviewed plan in the exact SDK session for approval or revision', async () => {
-    const runtime = vi.mocked(useOpportunityRuntime)()
-    const project: OpportunityProject = {
-      id: 'project_1', name: 'Plan project', objective: 'Review market', product_brief: '',
-      target_markets: [], constraints: [], stage: 'discovery', hypotheses: [], evidence: [],
-      assessments: {}, stage_decisions: [], decisions: [], artifacts: [], revision: 1,
-      created_at: '2026-09-23T00:00:00Z', updated_at: '2026-09-23T00:00:00Z',
-    }
-    const plan = { ...failedRun, id: 'run_plan', mode: 'plan' as const,
-      status: 'completed' as const, sdk_session_id: 'session_plan' }
-    vi.mocked(runtime.continueProject).mockResolvedValue(plan)
-    vi.mocked(useOpportunityRuntime).mockReturnValue({ ...runtime, project, projects: [project],
-      run: plan, assistantText: '1. Inspect sources; 2. Draft report' })
-    render(<Workspace />)
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Approve and execute' })).toBeEnabled())
-    fireEvent.click(screen.getByRole('button', { name: 'Approve and execute' }))
-    await waitFor(() => expect(runtime.continueProject).toHaveBeenCalledWith(
-      expect.stringContaining('I approve the plan'), [], 'standard', null, null, 'run_plan', undefined,
-    ))
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Request revised plan' })).toBeDisabled())
-    fireEvent.change(screen.getByRole('textbox', { name: 'Changes to the plan' }), {
-      target: { value: 'Check compliance before supplier outreach' },
-    })
-    fireEvent.click(screen.getByRole('button', { name: 'Request revised plan' }))
-    await waitFor(() => expect(runtime.continueProject).toHaveBeenLastCalledWith(
-      expect.stringContaining('Check compliance before supplier outreach'),
-      [], 'plan', null, null, 'run_plan', undefined,
-    ))
-  })
-
-  it('leaves the current run alive when starting another independent task', async () => {
-    const runtime = vi.mocked(useOpportunityRuntime)()
-    vi.mocked(useOpportunityRuntime).mockReturnValue({ ...runtime, isActive: true, run: { ...failedRun, status: 'running' } })
-    render(<Workspace />)
-    await waitFor(() => expect(screen.getByRole('button', { name: /open approval mode selector/i })).toHaveTextContent('Ask for approval'))
-    fireEvent.click(screen.getByRole('button', { name: /new task/i }))
-    expect(runtime.cancel).not.toHaveBeenCalled()
-    expect(runtime.reset).toHaveBeenCalledOnce()
-    expect(screen.getByText('The previous task continues in the background. Start another independent task.')).toBeVisible()
-  })
-
-  it('reopens the exact linked project run rather than the latest run', async () => {
-    const runtime = vi.mocked(useOpportunityRuntime)()
-    const project: OpportunityProject = {
-      id: 'project_1', name: 'Supplier project', objective: '', product_brief: '',
-      target_markets: [], constraints: [], stage: 'discovery', hypotheses: [], evidence: [],
-      assessments: {}, stage_decisions: [], decisions: [], artifacts: [], revision: 1,
-      created_at: '2026-09-23T00:00:00Z', updated_at: '2026-09-23T00:00:00Z',
-    }
-    const historical = { ...failedRun, id: 'run_historical', status: 'completed' as const }
-    vi.mocked(runtime.selectProject).mockResolvedValue(historical)
-    vi.mocked(useOpportunityRuntime).mockReturnValue({ ...runtime, projects: [project] })
-    window.history.replaceState({}, '', '/app?project=project_1&run=run_historical')
-    try {
-      render(<Workspace />)
-      await waitFor(() => expect(runtime.selectProject).toHaveBeenCalledWith(project, 'run_historical'))
-      await waitFor(() => expect(window.location.search).toBe('?project=project_1&run=run_historical'))
-    } finally {
-      window.history.replaceState({}, '', '/app')
-    }
-  })
-
-  it('preserves an unsent draft and local attachments when project access is lost, ignoring late start failures', async () => {
-    const runtime = vi.mocked(useOpportunityRuntime)()
-    let failStart!: (reason: unknown) => void
-    vi.mocked(runtime.start).mockReturnValueOnce(new Promise((_resolve, reject) => { failStart = reject }))
-    render(<Workspace />)
-    await waitFor(() => expect(screen.getByRole('button', { name: /open approval mode selector/i })).toHaveTextContent('Ask for approval'))
-    const brief = screen.getByRole('textbox', { name: /ask trademind/i })
-    fireEvent.change(brief, { target: { value: 'My unsent supplier question' } })
-    fireEvent.change(screen.getByLabelText('Choose files or images'), {
-      target: { files: [new File(['private quote'], 'supplier-quote.csv', { type: 'text/csv' })] },
-    })
-    fireEvent.click(screen.getByRole('button', { name: 'Send' }))
-    const unavailable = vi.mocked(useOpportunityRuntime).mock.calls.at(-1)![0]!
-    act(() => { unavailable('project_1') })
-    await act(async () => { failStart(new Error('Old request failed after access loss')) })
-    expect(brief).toHaveValue('My unsent supplier question')
-    expect(screen.getByText('supplier-quote.csv')).toBeInTheDocument()
-    expect(screen.getByRole('status')).toHaveTextContent('This project is no longer available. Your unsent message and local attachments are still here.')
-    expect(screen.queryByText('The research run could not start. Your brief is still here so you can try again.')).not.toBeInTheDocument()
-  })
-
-  it('clears staged attachments before sending to a new project', async () => {
-    const runtime = vi.mocked(useOpportunityRuntime)()
-    render(<Workspace />)
-    await waitFor(() => expect(screen.getByRole('button', { name: /open approval mode selector/i })).toHaveTextContent('Ask for approval'))
-    fireEvent.change(screen.getByLabelText('Choose files or images'), {
-      target: { files: [new File(['private quote'], 'supplier-quote.csv', { type: 'text/csv' })] },
-    })
-    expect(screen.getByText('supplier-quote.csv')).toBeInTheDocument()
-
-    fireEvent.click(screen.getByRole('button', { name: /new task/i }))
-    expect(runtime.reset).toHaveBeenCalledTimes(1)
-    expect(screen.queryByText('supplier-quote.csv')).not.toBeInTheDocument()
-    fireEvent.change(screen.getByRole('textbox', { name: /ask trademind/i }), { target: { value: 'A separate task' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Send' }))
-    expect(runtime.start).toHaveBeenCalledWith('A separate task', [], 'standard', null, null, undefined)
-  })
+test('a risky action waits for the person; their answer is sent back', async () => {
+  const stream = await startFirstTurn()
+  stream.emit({ seq: 1, source: 'host', type: 'permission.requested', data: {
+    request_id: 'req_1', tool_name: 'Bash', tool_input: { command: 'rm old.csv', description: 'Delete the old sheet' },
+  } })
+  expect(screen.getByText('Needs your OK')).toBeInTheDocument()
+  expect(screen.getByText('rm old.csv')).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: 'Deny' }))
+  await waitFor(() => expect(calls.at(-1)).toEqual({
+    method: 'POST', url: '/api/runs/run_1/permissions/req_1', body: { allow: false },
+  }))
+  stream.emit({ seq: 2, source: 'host', type: 'permission.resolved', data: { request_id: 'req_1', allow: false } })
+  expect(screen.getByText(/Denied/)).toBeInTheDocument()
 })
 
-describe('Workspace feedback', () => {
-  beforeEach(() => {
-    window.history.replaceState({}, '', '/app?dev=1')
-  })
-
-  it('lets the user report one exact recorded assistant message without flagging its neighbors', async () => {
-    const base = vi.mocked(useOpportunityRuntime)()
-    vi.mocked(useOpportunityRuntime).mockReturnValue({
-      ...base, run: { ...failedRun, status: 'completed' }, assistantText: 'Two synthetic conclusions.',
-      events: ['Synthetic first conclusion is 25 USD.', 'Synthetic second conclusion is 30 USD.'].map((text, index) => ({
-        id: `run_failed:${index + 1}`, sequence: index + 1, type: 'assistant.message.completed',
-        run_id: 'run_failed', project_id: 'project_1', trace_id: 'trace_failed',
-        sdk_session_id: null, provider_profile_id: null, timestamp: '2026-09-05T00:00:00Z',
-        actor: { type: 'agent', name: 'main', agent_id: null }, parent_id: null, tool_use_id: null, data: { text },
-      })),
-    })
-    vi.mocked(submitFeedback).mockResolvedValueOnce({ ...recordedFeedback, kind: 'conclusion_wrong' })
-    render(<Workspace />)
-    fireEvent.click(screen.getByText('Report a conclusion issue'))
-    const reports = screen.getByText('Report a conclusion issue').closest('details')!
-    const first = within(reports).getByText('Synthetic first conclusion is 25 USD.').closest('article')!
-    const second = within(reports).getByText('Synthetic second conclusion is 30 USD.').closest('article')!
-    fireEvent.click(within(first).getByRole('button', { name: /flag conclusion/i }))
-    fireEvent.change(within(first).getByRole('textbox'), { target: { value: 'First quote excludes freight.' } })
-    fireEvent.click(within(first).getByRole('button', { name: /submit feedback/i }))
-    await waitFor(() => expect(submitFeedback).toHaveBeenCalledWith({
-      project_id: 'project_1', run_id: 'run_failed', message_id: 'run_failed:1',
-      kind: 'conclusion_wrong', user_note: 'First quote excludes freight.',
-    }))
-    expect(within(second).getByRole('button', { name: /flag conclusion/i })).not.toBeDisabled()
-  })
-
-  it('exposes failed-run feedback, prevents duplicate sends, reports errors, and permits a retry', async () => {
-    let rejectFeedback!: (reason: unknown) => void
-    vi.mocked(submitFeedback).mockImplementationOnce(() => new Promise((_resolve, reject) => { rejectFeedback = reject }))
-    render(<Workspace />)
-
-    const flag = screen.getByRole('button', { name: /flag run failure/i })
-    fireEvent.click(flag)
-    expect(submitFeedback).not.toHaveBeenCalled()
-    expect(screen.getByRole('button', { name: /submit feedback/i })).toBeDisabled()
-    fireEvent.change(screen.getByRole('textbox', { name: /what is wrong/i }), {
-      target: { value: 'The provider timed out before the fixture was inspected.' },
-    })
-    const send = screen.getByRole('button', { name: /submit feedback/i })
-    fireEvent.click(send)
-    fireEvent.click(send)
-    expect(submitFeedback).toHaveBeenCalledTimes(1)
-    expect(submitFeedback).toHaveBeenCalledWith({
-      project_id: 'project_1', run_id: 'run_failed', kind: 'run_failure',
-      user_note: 'The provider timed out before the fixture was inspected.',
-    })
-
-    await act(async () => { rejectFeedback(new Error('Feedback unavailable')) })
-    const feedbackError = await screen.findByText('Feedback unavailable')
-    expect(feedbackError).toHaveAttribute('role', 'alert')
-
-    vi.mocked(submitFeedback).mockResolvedValueOnce(recordedFeedback)
-    fireEvent.click(screen.getByRole('button', { name: /submit feedback/i }))
-    await waitFor(() => expect(submitFeedback).toHaveBeenCalledTimes(2))
-    const sent = await screen.findByRole('button', { name: /feedback sent/i })
-    expect(sent).toBeDisabled()
-    fireEvent.click(sent)
-    expect(submitFeedback).toHaveBeenCalledTimes(2)
-  })
+test('a clarifying question is answered by picking an option', async () => {
+  const stream = await startFirstTurn()
+  stream.emit({ seq: 1, source: 'host', type: 'permission.requested', data: {
+    request_id: 'req_2', tool_name: 'AskUserQuestion', tool_input: { questions: [{
+      question: '目标市场先选哪个？', header: '市场', multiSelect: false,
+      options: [{ label: '美国', description: '市场大' }, { label: '欧洲', description: '合规多' }],
+    }] },
+  } })
+  const submit = screen.getByRole('button', { name: 'Submit answer' })
+  expect(submit).toBeDisabled()
+  fireEvent.click(screen.getByRole('button', { name: /美国/ }))
+  fireEvent.click(submit)
+  await waitFor(() => expect(calls.at(-1)?.body).toEqual({
+    allow: true, answers: { '目标市场先选哪个？': '美国' },
+  }))
 })
 
-describe('Workspace run retry', () => {
-  it('prevents duplicate retry submits, surfaces an API error, and permits another attempt', async () => {
-    let rejectRetry!: (reason: unknown) => void
-    retryRuntime.mockImplementationOnce(() => new Promise((_resolve, reject) => {
-      rejectRetry = reject
-    }))
-    render(<Workspace />)
-
-    const branch = screen.getByRole('button', { name: /start new branch/i })
-    fireEvent.click(branch)
-    fireEvent.click(branch)
-    expect(retryRuntime).toHaveBeenCalledTimes(1)
-    expect(retryRuntime).toHaveBeenCalledWith('new_branch')
-
-    await act(async () => { rejectRetry(new Error('Retry temporarily unavailable')) })
-    expect(await screen.findByText('Retry temporarily unavailable')).toHaveAttribute('role', 'alert')
-
-    retryRuntime.mockResolvedValueOnce({ ...failedRun, id: 'run_retried', status: 'queued' })
-    fireEvent.click(screen.getByRole('button', { name: /start new branch/i }))
-    await waitFor(() => expect(retryRuntime).toHaveBeenCalledTimes(2))
-  })
+test('Enter while picking characters in an input method does not send', async () => {
+  render(<Workspace />)
+  const box = await screen.findByRole('textbox', { name: 'Message' })
+  fireEvent.change(box, { target: { value: 'chong' } })
+  fireEvent.keyDown(box, { key: 'Enter', isComposing: true })
+  fireEvent.keyDown(box, { key: 'Enter', shiftKey: true })
+  await new Promise((resolve) => setTimeout(resolve, 20))
+  expect(calls.filter((c) => c.method === 'POST')).toEqual([])
 })
 
-describe('Workspace project events without a Run', () => {
-  it('subscribes to the selected project and refreshes only its ledger', async () => {
-    const runtime = vi.mocked(useOpportunityRuntime)()
-    const project = { id: 'project_1', name: 'Saved project', objective: 'Saved objective', stage: 'discovery', hypotheses: [], evidence: [], decisions: [], artifacts: [], assessments: {}, stage_decisions: [] } as unknown as OpportunityProject
-    vi.mocked(useOpportunityRuntime).mockReturnValue({ ...runtime, project, projects: [project], run: null })
-    render(<Workspace />)
-    await waitFor(() => expect(useScopedEvents).toHaveBeenCalledWith(expect.objectContaining({ scope: 'project', id: 'project_1' })))
-    const options = vi.mocked(useScopedEvents).mock.calls.at(-1)![0]
-    act(() => {
-      options.onReady?.()
-      options.onEvent?.(scopedEvent(1))
-      options.onEvent?.(scopedEvent(2, { type: 'schedule.completed', data: { schedule_id: 'schedule_1', status: 'completed' } }))
-    })
-    expect(runtime.refreshActiveProject).toHaveBeenCalledTimes(2)
-    expect(runtime.selectProject).not.toHaveBeenCalled()
-    expect(runtime.start).not.toHaveBeenCalled()
-    act(() => options.onUnavailable?.())
-    expect(runtime.discardProject).toHaveBeenCalledWith('project_1')
-  })
+test('an idea typed on the landing page starts the first turn on arrival', async () => {
+  window.history.replaceState(null, '', '/app?brief=%E5%8D%96%E7%8C%AB%E7%A0%82%E5%88%B0%E5%BE%B7%E5%9B%BD')
+  render(<Workspace />)
+  await waitFor(() => expect(calls.some((c) => c.url === '/api/projects/prj_1/runs')).toBe(true))
+  expect(calls.find((c) => c.url === '/api/projects/prj_1/runs')?.body).toEqual({ prompt: '卖猫砂到德国' })
+  expect(window.location.search).toBe('?project=prj_1')
+})
+
+test('returning opens the most recent project with its history and files', async () => {
+  projects = [project]
+  render(<Workspace />)
+  await waitFor(() => expect(FakeEventSource.instances).toHaveLength(1))
+  expect(await screen.findByRole('heading', { name: '宠物用品' })).toBeInTheDocument()
+  expect(screen.getByText('我想卖宠物用品')).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: /Files/ }))
+  expect(screen.getByRole('link', { name: 'plan.md' })).toHaveAttribute('href', '/api/projects/prj_1/files/plan.md')
+})
+
+test('feedback on a finished turn is sent with its run', async () => {
+  const stream = await startFirstTurn()
+  stream.emit({ seq: 1, source: 'host', type: 'run.finished', data: { status: 'completed', error: null } })
+  fireEvent.click(screen.getByRole('button', { name: 'Something wrong?' }))
+  fireEvent.change(screen.getByRole('textbox', { name: 'What is wrong?' }), { target: { value: '运费算错了' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Send feedback' }))
+  await waitFor(() => expect(screen.getByText('Thanks, noted.')).toBeInTheDocument())
+  expect(calls.find((c) => c.url.endsWith('/feedback'))?.body).toEqual({ text: '运费算错了', run_id: 'run_1' })
+})
+
+test('a 401 from the site gate is explained, not shown as an outage', async () => {
+  vi.stubGlobal('fetch', () => respond({ detail: 'Unauthorized' }, 401))
+  render(<Workspace />)
+  expect(await screen.findByRole('alert')).toHaveTextContent('The workspace needs you to sign in')
 })
