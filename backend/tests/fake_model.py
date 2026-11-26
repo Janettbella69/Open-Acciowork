@@ -83,6 +83,8 @@ class FakeModel:
         plan = [
             ("Write", {"file_path": f"{cwd}/plan.md", "content": "# 选品计划\n"}),
             ("Bash", {"command": "ls", "description": "看看工作区"}),
+            ("Bash", {"command": "python -c \"import openpyxl, docx, pptx; print('office ok')\"",
+                      "description": "确认能写办公文件"}),
             ("Write", {"file_path": f"{memory_dir}/MEMORY.md",
                        "content": "- 用户想卖宠物用品到美国\n"}),
             ("Write", {"file_path": "/tmp/outside-the-project.txt", "content": "x"}),

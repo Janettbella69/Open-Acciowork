@@ -19,6 +19,8 @@ import asyncio
 import dataclasses
 import json
 import logging
+import os
+import sys
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -174,6 +176,10 @@ class AgentRunner:
             "ANTHROPIC_BASE_URL": f"{self.gateway_url}{GATEWAY_PATH}",
             "CLAUDE_CONFIG_DIR": str(self.store.config_dir(project_id)),
             "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+            # The computer's `python` is this backend's, which has the Office libraries
+            # the office-documents Skill relies on.
+            "PATH": os.pathsep.join([str(Path(sys.executable).parent),
+                                     os.environ.get("PATH", "")]),
         }
         if self.settings.model:
             # Third-party endpoints only know their own model names, so every tier the

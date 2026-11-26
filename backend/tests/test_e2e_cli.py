@@ -111,11 +111,12 @@ def test_two_turns_through_the_real_cli(tmp_path):
     assert (workspace / "plan.md").read_text() == "# 选品计划\n"         # edit, no click
     assert results["toolu_01"].get("is_error") is not True               # Bash ran, sandboxed
     assert "plan.md" in text["toolu_01"]
+    assert "office ok" in text["toolu_02"]                              # Office libs on PATH
     memories = list((store.config_dir(project["id"]) / "projects").glob("*/memory/MEMORY.md"))
     assert memories and "宠物用品到美国" in memories[0].read_text()      # SDK memory, a file
-    assert not OUTSIDE.exists() and "只能写本项目工作区" in text["toolu_03"]
-    assert (workspace / "plan.md").exists() and "先别删" in text["toolu_04"]
-    assert "美国" in text["toolu_05"]
+    assert not OUTSIDE.exists() and "只能写本项目工作区" in text["toolu_04"]
+    assert (workspace / "plan.md").exists() and "先别删" in text["toolu_05"]
+    assert "美国" in text["toolu_06"]
 
     first_system = json.dumps(main[0].get("system"), ensure_ascii=False)
     assert "# 业务背景" in first_system and "出海新手" in first_system

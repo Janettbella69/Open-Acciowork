@@ -50,6 +50,13 @@ async def test_sdk_memory_is_on_and_lives_in_the_project(harness, monkeypatch):
     assert env["ANTHROPIC_MODEL"] == env["ANTHROPIC_DEFAULT_HAIKU_MODEL"] == "fake-model"
 
 
+async def test_the_computers_python_is_the_backends(harness):
+    import sys
+    project = await harness.project()
+    env = (await options_for(harness, project["id"])).env
+    assert env["PATH"].split(":")[0] == str(Path(sys.executable).parent)
+
+
 async def test_the_agent_never_holds_the_model_key(harness):
     harness.settings.model_auth_token = type(harness.settings.model_auth_token)("sk-real")
     project = await harness.project()
