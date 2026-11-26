@@ -7,7 +7,7 @@ import shlex
 from pathlib import PurePath
 from typing import Any
 
-from .constants import DELETE_BUILTIN_TOOLS
+DELETE_BUILTIN_TOOLS = ("Delete",)
 
 _DELETE_COMMANDS = {
     "del",
