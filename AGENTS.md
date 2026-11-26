@@ -34,7 +34,7 @@ Claude Agent SDK Agent 从模糊的想法出发，在自己的工作区里替用
 - Agent 的进程里不放模型密钥：模型调用只走 `gateway.py`，密钥在网关出口加上。
 - 国产模型只走各厂商官方的 Anthropic 兼容端点，不做 OpenAI 协议转换；Coding Plan 类套餐的
   Key 禁止进入后端（厂商条款，见 `docs/model-providers.md`）。
-- `claude-agent-sdk` 钉 `0.2.143`；升级前后都要跑 `OPHIRA_E2E_CLI=1` 的端到端测试和
+- `claude-agent-sdk` 钉 `0.2.189`；升级前后都要跑 `OPHIRA_E2E_CLI=1` 的端到端测试和
   `deploy/shared-box/sandbox_acceptance.py`。
 
 ## 动手之前
