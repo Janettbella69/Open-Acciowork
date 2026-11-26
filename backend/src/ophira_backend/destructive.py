@@ -1,4 +1,4 @@
-"""Detect irreversible file-delete actions (FR-13 Cowork iron rule)."""
+"""Recognise irreversible deletes; the PreToolUse hook sends them to the person."""
 
 from __future__ import annotations
 

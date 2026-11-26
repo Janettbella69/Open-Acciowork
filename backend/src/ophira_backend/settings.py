@@ -17,7 +17,9 @@ BACKEND_DIR = Path(__file__).resolve().parents[2]
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_prefix="OPHIRA_", extra="ignore")
+    # Real environment variables win over backend/.env (local development only).
+    model_config = SettingsConfigDict(env_prefix="OPHIRA_", env_file=BACKEND_DIR / ".env",
+                                      extra="ignore")
 
     data_dir: Path = BACKEND_DIR / "data"
     capabilities_dir: Path = BACKEND_DIR / "ophira-capabilities"

@@ -9,12 +9,19 @@ from __future__ import annotations
 
 import json
 import re
+import socket
+import threading
+import time
+from pathlib import Path
 from typing import Any
 
+import httpx
+import uvicorn
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
 QUESTION = "目标市场先选哪个？"
+OUTSIDE = Path("/tmp/outside-the-project.txt")
 
 
 def system_text(body: dict[str, Any]) -> str:
@@ -87,7 +94,7 @@ class FakeModel:
                       "description": "确认能写办公文件"}),
             ("Write", {"file_path": f"{memory_dir}/MEMORY.md",
                        "content": "- 用户想卖宠物用品到美国\n"}),
-            ("Write", {"file_path": "/tmp/outside-the-project.txt", "content": "x"}),
+            ("Write", {"file_path": str(OUTSIDE), "content": "x"}),
             ("Bash", {"command": "rm plan.md", "description": "删掉草稿"}),
             ("AskUserQuestion", {"questions": [{
                 "question": QUESTION, "header": "市场", "multiSelect": False,
@@ -161,3 +168,47 @@ def create_fake_model_app(model: FakeModel) -> FastAPI:
                              "usage": {"input_tokens": 10, "output_tokens": 5}})
 
     return app
+
+
+# -- running it: shared by the end-to-end test and deploy/shared-box/sandbox_acceptance.py
+
+
+def free_port() -> int:
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
+def serve(app, port: int) -> uvicorn.Server:
+    server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning"))
+    threading.Thread(target=server.run, daemon=True).start()
+    for _ in range(200):
+        if server.started:
+            return server
+        time.sleep(0.05)
+    raise RuntimeError("server did not start")
+
+
+def drive(http: httpx.Client, project_id: str, prompt: str, decide) -> list[dict]:
+    run = http.post(f"/api/projects/{project_id}/runs", json={"prompt": prompt}).json()
+    events = []
+    with http.stream("GET", f"/api/runs/{run['id']}/events", timeout=180) as response:
+        for line in response.iter_lines():
+            if not line.startswith("data:"):
+                continue
+            event = json.loads(line[5:])
+            events.append(event)
+            if event["type"] == "permission.requested":
+                http.post(f"/api/runs/{run['id']}/permissions/{event['data']['request_id']}",
+                          json=decide(event["data"]))
+            if event["type"] == "run.finished":
+                break
+    return events
+
+
+def person(request: dict) -> dict:
+    if request["tool_name"] == "AskUserQuestion":
+        return {"allow": True, "answers": {QUESTION: "美国"}}
+    if request["tool_name"] == "Bash" and "rm" in request["tool_input"].get("command", ""):
+        return {"allow": False, "message": "先别删"}
+    return {"allow": False, "message": f"unexpected request: {request['tool_name']}"}

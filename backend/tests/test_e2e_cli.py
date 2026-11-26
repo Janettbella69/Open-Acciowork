@@ -14,19 +14,19 @@ from __future__ import annotations
 
 import json
 import os
-import socket
-import threading
-import time
 from pathlib import Path
 
 import httpx
 import pytest
-import uvicorn
 from fake_model import (
-    QUESTION,
+    OUTSIDE,
     FakeModel,
     all_text,
     create_fake_model_app,
+    drive,
+    free_port,
+    person,
+    serve,
     tool_results,
     user_texts,
 )
@@ -37,48 +37,6 @@ from ophira_backend.settings import Settings
 
 pytestmark = pytest.mark.skipif(os.environ.get("OPHIRA_E2E_CLI") != "1",
                                 reason="starts the real CLI; set OPHIRA_E2E_CLI=1")
-OUTSIDE = Path("/tmp/outside-the-project.txt")
-
-
-def free_port() -> int:
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
-
-
-def serve(app, port: int) -> uvicorn.Server:
-    server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning"))
-    threading.Thread(target=server.run, daemon=True).start()
-    for _ in range(200):
-        if server.started:
-            return server
-        time.sleep(0.05)
-    raise RuntimeError("server did not start")
-
-
-def drive(http: httpx.Client, project_id: str, prompt: str, decide) -> list[dict]:
-    run = http.post(f"/api/projects/{project_id}/runs", json={"prompt": prompt}).json()
-    events = []
-    with http.stream("GET", f"/api/runs/{run['id']}/events", timeout=180) as response:
-        for line in response.iter_lines():
-            if not line.startswith("data:"):
-                continue
-            event = json.loads(line[5:])
-            events.append(event)
-            if event["type"] == "permission.requested":
-                http.post(f"/api/runs/{run['id']}/permissions/{event['data']['request_id']}",
-                          json=decide(event["data"]))
-            if event["type"] == "run.finished":
-                break
-    return events
-
-
-def person(request: dict) -> dict:
-    if request["tool_name"] == "AskUserQuestion":
-        return {"allow": True, "answers": {QUESTION: "美国"}}
-    if request["tool_name"] == "Bash" and "rm" in request["tool_input"].get("command", ""):
-        return {"allow": False, "message": "先别删"}
-    return {"allow": False, "message": f"unexpected request: {request['tool_name']}"}
 
 
 def test_two_turns_through_the_real_cli(tmp_path):

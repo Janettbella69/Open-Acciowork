@@ -15,13 +15,13 @@ is running, and this directory is copied to `/opt/trademind/deploy/` (files unde
 - The hop serves the built frontend from `/var/www/trademind`, asks for the workspace
   password on `/api/*`, and hands the request to the backend as a plain loopback request.
   It runs in the host's network namespace so that the backend sees `127.0.0.1` as the client.
-- The backend runs in `local_only`, its single-operator mode. Since the September hardening
-  it answers 403 to anything that looks proxied (a forwarding header, or a `Host` that is
-  not loopback), so a conventional reverse proxy in front of it no longer works.
-  `trusted_gateway` is the mode meant for a deployed, multi-user control plane, and it needs
-  a sign-in gateway that signs every request; the product does not have one yet.
+- The backend has no sign-in of its own (one operator, no user system). It refuses browser
+  requests whose `Origin` is neither its own host nor listed in `OPHIRA_CORS_ORIGINS`.
+- The Agent calls the model through the backend's gateway at `127.0.0.1:8000/_model`, which
+  adds the real key on the way out. The hop never forwards that path, and the Agent's own
+  environment holds only a per-process gateway token.
 - The landing page is public. The workspace needs the password because whoever is inside
-  holds operator powers: they can run tasks on the model key and export it from Settings.
+  can run tasks that the model account pays for.
 
 ## Files in this directory
 
@@ -42,9 +42,9 @@ is running, and this directory is copied to `/opt/trademind/deploy/` (files unde
 |---|---|
 | Code, one release | `/opt/trademind/app` |
 | Python 3.11 environment | `/opt/trademind/venv`, uv in `/opt/trademind/bin` |
-| Data: projects, runs, Provider profiles, key vault | `/var/lib/trademind/data` |
+| Data: projects (workspace, memory, turn logs, snapshots) | `/var/lib/trademind/data-v2` since the 2026-11 rebuild; the old format stays untouched in `/var/lib/trademind/data` |
 | Built frontend | `/var/www/trademind` |
-| Backend settings | `/etc/trademind/backend.env`, optional `backend.local.env` read after it |
+| Backend settings | `/etc/trademind/backend.env`; the model key in `backend.local.env` (mode 600), read after it |
 | Workspace login | `/etc/trademind/login.txt`, readable by root only |
 | Site block in the shared Caddy | `/root/aml-memory/deploy/sites/trademind.caddy`, generated |
 
@@ -110,6 +110,10 @@ about a real Provider. From a checkout: `.venv/bin/python deploy/shared-box/sand
        uv pip install --python /opt/trademind/venv/bin/python -r /opt/trademind/deploy/kit/requirements.lock
        uv pip install --python /opt/trademind/venv/bin/python --no-deps -e /opt/trademind/app/backend
 
+   The first release after the 2026-11 rebuild also changes the settings (step 5 below):
+   point `OPHIRA_DATA_DIR` at a new `data-v2` folder owned by `trademind`, drop the old
+   `OPHIRA_AUTH_MODE`, `OPHIRA_HOST` and `OPHIRA_PORT` lines, and put the model settings into
+   `backend.local.env`. Projects made before the rebuild are not converted.
 4. `systemctl start trademind-backend`, then `curl http://127.0.0.1:8000/health`.
 5. `rsync -a --delete` the new `dist/` into `/var/www/trademind/`. The hop serves it at once.
 6. Run the sandbox acceptance above.
@@ -130,13 +134,19 @@ What was done once, as root, on a box that already had Docker and a Caddy contai
    `uv venv --python 3.11 /opt/trademind/venv` and the two `uv pip install` lines above.
 5. Settings in `/etc/trademind/backend.env`:
 
-       OPHIRA_DATA_DIR=/var/lib/trademind/data
-       OPHIRA_HOST=127.0.0.1
-       OPHIRA_PORT=8000
-       OPHIRA_AUTH_MODE=local_only
+       OPHIRA_DATA_DIR=/var/lib/trademind/data-v2
        OPHIRA_CORS_ORIGINS=https://trademind.store,https://www.trademind.store,https://trademind.47-77-196-181.sslip.io
 
    The origins list is what lets the browser's `Origin` through the backend's source check.
+   The model goes into `/etc/trademind/backend.local.env` (root-owned, mode 600), one of the
+   official Anthropic-compatible endpoints in `docs/model-providers.md`, for example:
+
+       OPHIRA_MODEL_BASE_URL=https://api.deepseek.com/anthropic
+       OPHIRA_MODEL=deepseek-v4-pro
+       OPHIRA_MODEL_AUTH_TOKEN=<the key>
+
+   Optional: `OPHIRA_MAX_BUDGET_USD` (cost fuse per turn, default 10) and
+   `OPHIRA_MODEL_CONTEXT_WINDOW` (the model's real window, if known).
 6. Backend: install the unit, `systemctl daemon-reload`, `systemctl enable --now trademind-backend`.
 7. Password and hop: write `username: trademind` and `password: <24 random characters>` into
    `/etc/trademind/login.txt` (mode 600), then render the template and start the container.
@@ -156,15 +166,16 @@ What was done once, as root, on a box that already had Docker and a Caddy contai
    `UPSTREAM=172.17.0.1:8080`, `SITE_FILE=/root/aml-memory/deploy/sites/trademind.caddy` and
    `STATE_FILE=/var/lib/trademind-ingress/hosts`; install the sync script and units;
    `systemctl enable --now trademind-ingress-sync.timer`; then point the DNS records at the box.
-10. Run the sandbox acceptance, open the site, add a model Provider in Settings and run its preflight.
+10. Run the sandbox acceptance, then open the site and send a first message.
 
 ## Changing the workspace password
 
 Put the new password into `/etc/trademind/login.txt`, repeat the render in step 7, then
 `docker restart trademind-hop-1`.
 
-## Not available in this mode
+## Not in this version
 
-Connector sign-ins that redirect back to the site (remote MCP OAuth, Gmail, Outlook,
-Shopify, TikTok Shop) build their callback from the loopback origin and need
-`trusted_gateway`. Browser tools (Playwright) and local OCR are not installed on the box.
+Platform connectors (Shopify, Shopee, Temu, AliExpress, SHEIN, TikTok Shop), mail, chat
+channels, browser automation and image OCR were removed in the 2026-11 rebuild; the code is
+kept at the tag `archive/pre-rebuild-2026-11-26`. Each comes back only when a real seller
+needs it.
