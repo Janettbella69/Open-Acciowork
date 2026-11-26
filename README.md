@@ -1,4 +1,4 @@
-# TradeMind（代码名 OPHIRA）
+# TradeMind
 
 **跨境电商版的 Codex，对标阿里的 Accio Work。**
 
